@@ -6,7 +6,7 @@
     "email": "h.sorby@auckland.ac.nz"
   },
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "main": "src/electron/main.js",
   "scripts": {
@@ -40,18 +40,25 @@
     "cytoscape-fcose": "^2.2.0",
     "element-plus": "^2.11.5",
     "elkjs": "^0.11.0",
+    "github-markdown-css": "^5.8.1",
     "html-to-image": "^1.11.13",
     "jszip": "^3.10.1",
     "papaparse": "^5.5.3",
     "pinia": "^3.0.3",
     "sass-embedded": "^1.97.1",
     "vue": "^3.5.22",
+    "vue-router": "^4.6.4",
     "vue3-libcellml.js": "^0.5.1"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.1",
     "electron": "^39.0.0",
     "electron-builder": "^26.0.12",
+    "markdown-it": "^14.1.0",
+    "markdown-it-attrs": "^4.3.1",
+    "markdown-it-github-alerts": "^1.0.0",
+    "markdown-it-link-attributes": "^4.0.1",
+    "unplugin-vue-markdown": "^29.2.0",
     "vite": "^7.1.7",
     "vite-plugin-electron": "^0.29.0"
   }
