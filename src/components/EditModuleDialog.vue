@@ -54,6 +54,7 @@
           v-model="port.option"
           multiple
           collapse-tags
+          collapse-tags-tooltip
           placeholder="Select Option"
           class="port-select"
         >
