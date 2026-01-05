@@ -36,7 +36,7 @@ for (const path in markdownFiles) {
   docsMap[fileName] = markdownFiles[path].default
 }
 
-// 3. Determine the current slug from the URL (default to 'intro')
+// 3. Determine the current slug from the URL (default to 'ca-model-builder-introduction')
 const currentSlug = computed(() => {
   return route.params.slug || 'ca-model-builder-introduction'
 })
