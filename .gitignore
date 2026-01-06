@@ -25,3 +25,4 @@ dist-applications
 *.njsproj
 *.sln
 *.sw?
+.yarn/install-state.gz
