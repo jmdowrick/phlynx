@@ -1,5 +1,6 @@
 .. image:: https://api.netlify.com/api/v1/badges/94c2ffbc-8f11-4759-9094-626a6efd7d82/deploy-status
   :target: https://app.netlify.com/projects/latest-phlynx/deploys
+  :alt: Netlify Status Badge
 
 =================================
 Circulatory Autogen Model Builder
