@@ -3,10 +3,10 @@
   :alt: Netlify Status Badge
 
 =================================
-Circulatory Autogen Model Builder
+Physiome Links (PhLynx)
 =================================
 
-"Circulatory Autogen Model Builder" (CA System Builder) is a desktop application for visually constructing and configuring circulatory autogen system models.
+PhLynx is a desktop application for visually constructing and configuring CellML system models from CellML modules.
 
 Built with Vue 3 and Electron, this tool provides a node-based interface
 (powered by Vue Flow) that allows users to drag, drop, and connect different
@@ -48,8 +48,8 @@ Clone the repository and install the dependencies:
 
 .. code-block:: bash
 
-    git clone https://github.com/hsorby/ca-model-builder
-    cd ca-system-builder
+    git clone https://github.com/physiomelinks/phlynx.git
+    cd phlynx
     yarn install
 
 Development
