@@ -2,9 +2,9 @@
   :target: https://app.netlify.com/projects/latest-phlynx/deploys
   :alt: Netlify Status Badge
 
-=================================
+=======================
 Physiome Links (PhLynx)
-=================================
+=======================
 
 PhLynx is a desktop application for visually constructing and configuring CellML system models from CellML modules.
 
