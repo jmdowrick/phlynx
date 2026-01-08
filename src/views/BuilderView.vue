@@ -34,7 +34,7 @@
           >
             Undo
           </el-button>
-          
+
           <el-button
             type="info"
             @click="handleRedo"
@@ -184,13 +184,6 @@
     @confirm="onEditConfirm"
   />
 
-  <ImportConfigDialog
-    v-model="configDialogVisible"
-    :initial-vessel-array="null"
-    :initial-module-config="null"
-    @confirm="onConfigImportConfirm"
-  />
-
   <SaveDialog
     v-model="saveDialogVisible"
     @confirm="onSaveConfirm"
@@ -218,6 +211,12 @@
     v-model="macroBuilderDialogVisible"
     @generate="onMacroBuilderGenerate"
     @edit-node="onOpenEditDialog"
+  />
+
+  <ImportDialog
+    v-model="importDialogVisible"
+    :config="currentImportConfig"
+    @confirm="onImportConfirm"
   />
 </template>
 
@@ -258,12 +257,13 @@ import Papa from 'papaparse'
 import { useBuilderStore } from '../stores/builderStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import useDragAndDrop from '../composables/useDnD'
-import { useLoadFromConfigFiles } from '../composables/useLoadFromConfigFiles'
+import { useLoadFromConfigData } from '../composables/useLoadFromConfigData'
 import { useResizableAside } from '../composables/useResizableAside'
 import ModuleList from '../components/ModuleList.vue'
 import Workbench from '../components/WorkbenchArea.vue'
 import ModuleNode from '../components/ModuleNode.vue'
 import EditModuleDialog from '../components/EditModuleDialog.vue'
+import ImportDialog from '../components/ImportDialog.vue'
 import ModuleReplacementDialog from '../components/ModuleReplacementDialog.vue'
 import SaveDialog from '../components/SaveDialog.vue'
 import ImportConfigDialog from '../components/ImportConfigDialog.vue'
@@ -274,12 +274,13 @@ import { generateExportZip } from '../services/caExport'
 import { useMacroGenerator } from '../services/generate/generateWorkflow'
 import { getHelperLines } from '../utils/helperLines'
 import { processModuleData } from '../utils/cellml'
-import { edgeLineOptions, FLOW_IDS } from '../utils/constants'
+import { edgeLineOptions, FLOW_IDS, IMPORT_KEYS } from '../utils/constants'
 import {
   getId as getNextNodeId,
   generateUniqueModuleName,
 } from '../utils/nodes'
 import { getId as getNextEdgeId } from '../utils/edges'
+import { getImportConfig } from '../utils/import'
 
 import testModuleBGContent from '../assets/bg_modules.cellml?raw'
 import testModuleColonContent from '../assets/colon_FTU_modules.cellml?raw'
@@ -316,7 +317,7 @@ const pendingHistoryNodes = new Set()
 const { onDragOver, onDrop, onDragLeave, isDragOver } =
   useDragAndDrop(pendingHistoryNodes)
 const historyStore = useFlowHistoryStore()
-const { loadFromConfigFiles } = useLoadFromConfigFiles()
+const { loadFromConfigData } = useLoadFromConfigData()
 const { capture } = useScreenshot()
 const { width: asideWidth, startResize } = useResizableAside(200, 150, 400)
 
@@ -337,6 +338,7 @@ const libcellml = inject('$libcellml')
 const configDialogVisible = ref(false)
 const editDialogVisible = ref(false)
 const saveDialogVisible = ref(false)
+const importDialogVisible = ref(false)
 const exportDialogVisible = ref(false)
 const replacementDialogVisible = ref(false)
 const macroBuilderDialogVisible = ref(false)
@@ -346,12 +348,9 @@ const currentEditingNode = ref({
   ports: [],
   name: '',
 })
-const vesselKey = 'vessel'
-const moduleKey = 'module'
-const parameterKey = 'parameter'
-const unitsKey = 'units'
 
 const currentImportMode = ref(null)
+const currentImportConfig = ref({})
 
 const activeInteractionBuffer = new Map()
 const undoRedoSelection = false
@@ -367,25 +366,25 @@ const exportAvailable = computed(
 
 const importOptions = computed(() => [
   {
-    key: vesselKey,
+    key: IMPORT_KEYS.VESSEL,
     label: 'Vessel Array',
     icon: markRaw(IconVessel),
     disabled: false,
   },
   {
-    key: moduleKey,
+    key: IMPORT_KEYS.MODULE,
     label: 'Module',
     icon: markRaw(IconModule),
     disabled: libcellml.status !== 'ready',
   },
   {
-    key: parameterKey,
+    key: IMPORT_KEYS.PARAMETER,
     label: 'Parameters',
     icon: markRaw(IconParameters),
     disabled: libcellml.status !== 'ready',
   },
   {
-    key: unitsKey,
+    key: IMPORT_KEYS.UNITS,
     label: 'Units',
     icon: markRaw(IconUnits),
     disabled: libcellml.status !== 'ready',
@@ -683,21 +682,12 @@ const screenshotDisabled = computed(
 )
 
 const performImport = (mode) => {
-  // Logic to open specific dialogs based on the key
-  switch (mode.key) {
-    case vesselKey:
-      configDialogVisible.value = true
-      break
-    case moduleKey:
-      ElNotification.success('Opening Module Import Dialog...')
-      // openModuleDialog.value = true
-      break
-    case parameterKey:
-      ElNotification.success('Opening Parameter Dialog...')
-      break
-    case unitsKey:
-      ElNotification.success('Opening Units Dialog...')
-      break
+  console.log('Performing import for mode:', mode)
+  currentImportConfig.value = getImportConfig(mode.key)
+  console.log('Import config:', currentImportConfig.value)
+  
+  if (currentImportConfig.value) {
+    importDialogVisible.value = true
   }
 }
 
@@ -710,8 +700,10 @@ const handleImportCommand = (option) => {
   performImport(option)
 }
 
-async function onConfigImportConfirm(eventPayload) {
-  loadFromConfigFiles(eventPayload)
+async function onImportConfirm(eventPayload) {
+  console.log('Import confirmed with payload:', eventPayload)
+
+  loadFromConfigData(eventPayload)
 }
 
 function onOpenEditDialog(eventPayload) {
