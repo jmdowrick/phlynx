@@ -42,6 +42,8 @@ export function useLoadFromConfigData() {
       edges.value = []
       setViewport({ x: 0, y: 0, zoom: 1 })
 
+      await nextTick()
+
       const result = buildWorkflowGraph(store.availableModules, configData)
 
       pendingEdges = result.edges
