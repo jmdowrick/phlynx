@@ -11,7 +11,7 @@ import { runFcoseLayout } from '../services/layouts/cytoscape'
 import { runPortGranularLayout } from '../services/layouts/dagre'
 import { runRescaleLayout } from '../services/layouts/rescale'
 
-export function useLoadFromConfigData() {
+export function useLoadFromVesselArray() {
   const {
     nodes,
     edges,
@@ -29,14 +29,8 @@ export function useLoadFromConfigData() {
   let pendingEdges = []
   let pendingNodeDataMap = new Map()
 
-  async function loadFromConfigData(configData) {
+  async function loadFromVesselArray(configData) {
     try {
-      const { valid, missing } = validateWorkflowModules(
-        configData.module,
-        store.availableModules
-      )
-      if (!valid) throw new Error(`Missing modules: ${missing.join(', ')}`)
-
       historyStore.clear()
       nodes.value = []
       edges.value = []
@@ -44,7 +38,7 @@ export function useLoadFromConfigData() {
 
       await nextTick()
 
-      const result = buildWorkflowGraph(store.availableModules, configData)
+      const result = buildWorkflowGraph(store, configData.vessels) 
 
       pendingEdges = result.edges
       pendingNodeDataMap.clear()
@@ -95,5 +89,5 @@ export function useLoadFromConfigData() {
     }
   })
 
-  return { loadFromConfigData }
+  return { loadFromVesselArray }
 }
