@@ -89,9 +89,9 @@ watch(filteredModuleFiles, (newFiles) => {
     activeCollapseNames.value = newFiles.map((f) => f.filename)
   }
   // If filter is cleared, you might want to close them all:
-  // else {
-  //   activeCollapseNames.value = []
-  // }
+  else {
+    activeCollapseNames.value = []
+  }
 })
 
 // Open new panels
@@ -105,10 +105,9 @@ watch(
         knownFilenames.value.add(file.filename)
       }
     }
-
-    if (newFileNames.length > 0) {
-      activeCollapseNames.value.push(...newFileNames)
-    }
+    // if (newFileNames.length > 0) {
+    //   activeCollapseNames.value.push(...newFileNames)
+    // }
   },
   {
     deep: true,
@@ -121,6 +120,7 @@ function handleSelect(module) {
     emit("select", module)
   }
 }
+
 </script>
 
 <style scoped>
