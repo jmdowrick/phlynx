@@ -3,7 +3,7 @@
     :model-value="modelValue"
     :title="config.title || 'Import File'"
     width="500px"
-    @closed="resetForm"
+    :before-close="handleBeforeClose"
     @update:model-value="closeDialog"
   >
     <el-form label-position="top">
@@ -71,7 +71,7 @@
               </li>
               <li v-if="validationStatus.needsConfigFile">
                 <strong>Module Configurations</strong> for vessel_types:bc_types: 
-                {{ validationStatus.missingResources?.configs?.join(', ') }} and possibly CellML modules.
+                {{ validationStatus.missingResources?.configs?.join(', ') }}
               </li>
             </ul>
             <br>
@@ -85,7 +85,7 @@
 
     <template #footer>
       <span class="dialog-footer">
-        <el-button @click="closeDialog">Cancel</el-button>
+        <el-button @click="handleCancel">Cancel</el-button>
         <el-button
           type="primary"
           @click="handleConfirm"
@@ -140,6 +140,8 @@ const emit = defineEmits(['update:modelValue', 'confirm'])
 const formState = reactive({})
 const dynamicFields = ref([])
 const validationStatus = ref(null)
+const addedFiles = ref({moduleFiles: [], configFiles: []})
+const importConfirmed = ref(false)
 
 function resetFormState() {
   Object.keys(formState).forEach((key) => {
@@ -159,6 +161,7 @@ function initFormFromConfig(fields = []) {
 
 const resetForm = () => {
   resetFormState()
+  addedFiles.value = {moduleFiles: [], configFiles: []}
 }
 
 // Initialize formState when config changes
@@ -286,7 +289,6 @@ const handleFileChange = async (uploadFile, field) => {
     state.warnings = []
 
     // TO-DO: remove the selected file from the builderStore if it's been added
-
     ElNotification.error({
       title: 'Import Error',
       message: error.message || 'Failed to parse file.',
@@ -315,6 +317,12 @@ async function processPostUpload(field, parsedData, fileName) {
   if (!field.processUpload || !props.builderStore) return
 
   const { processUploadedFile, validateVesselData } = await import('../utils/import')
+
+  if (field.processUpload === 'cellml') {
+    addedFiles.value.moduleFiles.push({ filename: fileName })
+  } else if (field.processUpload === 'config') {
+    addedFiles.value.configFiles.push({ filename: fileName })
+  }
 
   // Add the new file to the store
   const result = await processUploadedFile(
@@ -356,14 +364,47 @@ async function processPostUpload(field, parsedData, fileName) {
 }
 
 const handleConfirm = () => {
+  importConfirmed.value = true
   // Construct the result object
   const result = {}
   displayFields.value.forEach((field) => {
     result[field.key] = formState[field.key].payload
   })
 
+  addedFiles.value = {moduleFiles: [], configFiles: []}
+
   emit('confirm', result)
   closeDialog()
+}
+
+const handleCancel = () => {
+  cleanupAddedFiles()
+  resetForm()
+  closeDialog()
+}
+
+const handleBeforeClose = (done) => {
+  if (!importConfirmed.value) {
+    cleanupAddedFiles()
+  } else {
+    importConfirmed.value = false
+  }
+  resetForm()
+  done()
+} 
+
+const cleanupAddedFiles = () => {
+  if (!props.builderStore || importConfirmed.value) {
+    return
+  }
+
+  addedFiles.value.moduleFiles.forEach(({ filename }) => {
+    props.builderStore.removeModuleFile(filename)
+  })
+
+  addedFiles.value.configFiles.forEach(({ filename }) => {
+    props.builderStore.removeConfigFile(filename)
+  })
 }
 
 const closeDialog = () => emit('update:modelValue', false)

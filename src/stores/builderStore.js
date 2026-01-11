@@ -83,13 +83,11 @@ export const useBuilderStore = defineStore('builder', () => {
     const configs = payload
     const configFilename = filename
 
-    //console.log('Adding configs from file:', configFilename)
     configs.forEach((config) => {
       let moduleFile = availableModules.value.find(
         (f) => f.filename === config.module_file 
       )
 
-      //console.log(config)
       if (!moduleFile) {
         moduleFile = {
           filename: config.module_file,
@@ -171,6 +169,7 @@ export const useBuilderStore = defineStore('builder', () => {
 
   /**
    * Removes all configs associated with a specific config file.
+   * Also removes stub module files that no longer have any configs.
    */
   function removeConfigFile(configFilename) {
     availableModules.value.forEach((file) => {
@@ -181,6 +180,22 @@ export const useBuilderStore = defineStore('builder', () => {
           )
         }
       })
+    })
+
+    // Clean up stub files that have no configs or only empty modules
+    availableModules.value = availableModules.value.filter((file) => {
+      // Keep files that aren't stubs
+      if (!file.isStub) {
+        return true
+      }
+
+      // For stub files, check if any module has configs
+      const hasAnyConfigs = file.modules.some((module) => 
+        module.configs && module.configs.length > 0
+      )
+
+      // Keep stub files only if they have configs
+      return hasAnyConfigs
     })
   }
 
