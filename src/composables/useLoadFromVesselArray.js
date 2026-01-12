@@ -28,8 +28,11 @@ export function useLoadFromVesselArray() {
   const layoutPending = ref(false)
   let pendingEdges = []
   let pendingNodeDataMap = new Map()
+  let pendingProgressCallback = null
+  let layoutCompleteResolve = null
+  let layoutCompleteReject = null
 
-  async function loadFromVesselArray(configData) {
+  const loadFromVesselArray = async (configData, progressCallback = null) => {
     try {
       historyStore.clear()
       nodes.value = []
@@ -38,27 +41,68 @@ export function useLoadFromVesselArray() {
 
       await nextTick()
 
-      const result = buildWorkflowGraph(store, configData.vessels) 
+      pendingProgressCallback = progressCallback
+
+      if (progressCallback) {
+        progressCallback(0, configData.vessels.length, 'Building graph...')
+      }
+
+      const result = buildWorkflowGraph(store, configData.vessels, progressCallback)
 
       pendingEdges = result.edges
       pendingNodeDataMap.clear()
       result.nodes.forEach((n) => pendingNodeDataMap.set(n.id, n.data))
 
+      if (progressCallback) {
+        progressCallback(
+          configData.vessels.length, 
+          configData.vessels.length, 
+          'Graph built, calculating layout...'
+        )
+      }
+
+      // Create a promise that will resolve when layout is complete
+      const layoutCompletePromise = new Promise((resolve, reject) => {
+        layoutCompleteResolve = resolve
+        layoutCompleteReject = reject
+      })
+
       layoutPending.value = true
       addNodes(result.nodes) // Adds invisible nodes
+
+      // Wait for the layout to complete before returning
+      await layoutCompletePromise
+      
     } catch (error) {
       ElNotification.error(`Failed to load workflow: ${error.message}`)
       layoutPending.value = false
+      pendingProgressCallback = null
+      layoutCompleteResolve = null
+      layoutCompleteReject = null
+      throw error
     }
   }
 
   onNodesInitialized(async (initializedNodes) => {
     if (!layoutPending.value || initializedNodes.length === 0) return
 
+    const callback = pendingProgressCallback
+    const resolveFunc = layoutCompleteResolve
+    const rejectFunc = layoutCompleteReject
+
     try {
       // If position is not declared in vessel array file, 
       // Run Layout (Calculates positions & sorts port arrays).
       // Could make this choice configurable later.
+      if (callback) {
+        callback(
+          initializedNodes.length,
+          initializedNodes.length,
+          'Organizing layout...'
+        )
+      }
+
+      // Run layout algorithm
       if (initializedNodes[0].data.x === undefined || initializedNodes[0].data.y === undefined) {
         // runPortGranularLayout(initializedNodes, pendingEdges)
         // runElkLayout(initializedNodes, pendingEdges)
@@ -73,19 +117,57 @@ export function useLoadFromVesselArray() {
       // Handles may have moved from initial positions. Update node data from pending map.
       updateNodeInternals(initializedNodes.map((n) => n.id))
 
-      // Add the Finalized Edges.
+      if (callback) {
+        callback(
+          initializedNodes.length,
+          initializedNodes.length,
+          'Connecting nodes...'
+        )
+      }
+
+      // Add the finalized edges
       addEdges(pendingEdges)
 
       historyStore.clear()
       await nextTick()
 
+      // Report finalizing
+      if (callback) {
+        callback(
+          initializedNodes.length,
+          initializedNodes.length,
+          'Finalizing view...'
+        )
+      }
+
       fitView({ padding: 0.2, duration: 800 })
-    } catch (err) {
+
+      await new Promise(resolve => setTimeout(resolve, 800))
+
+      if (callback) {
+        callback(
+          initializedNodes.length,
+          initializedNodes.length,
+          'Complete.'
+        )
+      }
+
+      if (resolveFunc) {
+        resolveFunc()
+      }
+    } catch (error) {
       historyStore.clear()
       ElNotification.error('Error organizing graph layout')
+      console.error('Layout error:', error)
+      if (rejectFunc) {
+        rejectFunc(error)
+      }
     } finally {
       layoutPending.value = false
       pendingEdges = []
+      pendingProgressCallback = null
+      layoutCompleteResolve = null
+      layoutCompleteReject = null
     }
   })
 

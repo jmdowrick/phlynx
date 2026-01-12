@@ -2,8 +2,12 @@ import { buildPorts, buildPortLabels } from './buildPorts'
 import { getHandleId } from '../../utils/ports'
 import { SOURCE_PORT_TYPE, TARGET_PORT_TYPE } from '../../utils/constants'
 
-function buildNodes(builderStore, vessels) {
-  return vessels.map((vessel) => {
+function buildNodes(builderStore, vessels, progressCallback = null) {
+  return vessels.map((vessel, index) => {
+    if (progressCallback) {
+      progressCallback(index, vessels.length, vessel.name)
+    }
+    
     // Use builderStore method to find the config
     const configData = builderStore.getConfigForVessel(
       vessel.vessel_type,
@@ -35,6 +39,10 @@ function buildNodes(builderStore, vessels) {
 
     // Check if vessel has explicit position
     const hasPosition = vessel.x !== undefined && vessel.y !== undefined
+
+    if (progressCallback && index === vessels.length){
+      progressCallback(vessels.length, vessels.length, 'Building connections...')
+    }
 
     return {
       id: vessel.name,
@@ -126,9 +134,8 @@ function buildEdges(vessels, nodes) {
   return edges
 }
 
-export function buildWorkflowGraph(builderStore, vessels) {
-  const nodes = buildNodes(builderStore, vessels)
+export function buildWorkflowGraph(builderStore, vessels, progressCallback = null) {
+  const nodes = buildNodes(builderStore, vessels, progressCallback)
   const edges = buildEdges(vessels, nodes)
-
   return { nodes, edges }
 }

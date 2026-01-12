@@ -208,6 +208,7 @@
   />
 
   <ImportDialog
+    ref="importDialogRef"
     v-model="importDialogVisible"
     :config="currentImportConfig"
     :builder-store="builderStore"
@@ -347,6 +348,7 @@ const currentEditingNode = ref({
   ports: [],
   name: '',
 })
+const importDialogRef = ref(null)
 
 const currentImportMode = ref(null)
 const currentImportConfig = ref({})
@@ -703,26 +705,80 @@ const handleImportCommand = (option) => {
   performImport(option)
 }
 
-async function onImportConfirm(importPayload) {
+async function onImportConfirm(importPayload, updateProgress) {
   if (currentImportMode.value.key === IMPORT_KEYS.VESSEL) {
-    loadFromVesselArray({
-      vessels: importPayload[IMPORT_KEYS.VESSEL]?.data,
-      //module: importPayload[IMPORT_KEYS.MODULE_CONFIG]?.data,
-    })
+    const vessels = importPayload[IMPORT_KEYS.VESSEL]?.data
+    
+    if (!vessels || vessels.length === 0) {
+      console.warn('no vessel data provided')
+      return
+    }
+
+    try {
+      await loadFromVesselArray(
+        { vessels },
+        (current, total, statusMessage) => {
+          if (updateProgress) {
+            updateProgress(`${statusMessage || 'Loading vessel array...'} (${current}/${total})`)
+          }
+        }
+      )
+
+      if (importDialogRef.value) {
+        importDialogRef.value.finishLoading()
+      }
+      
+      ElNotification.success({
+        title: 'Import Complete',
+        message: 'Workflow built successfully!'
+      })
+    } catch (error) {
+      if (importDialogRef.value) {
+        importDialogRef.value.finishLoading()
+      }
+      
+      ElNotification.error({
+        title: 'Import Failed',
+        message: error.message
+      })
+    }
   } else if (currentImportMode.value.key === IMPORT_KEYS.CELLML_FILE) {
-    loadCellMLModuleData(
-      importPayload[IMPORT_KEYS.CELLML_FILE]?.data,
-      importPayload[IMPORT_KEYS.CELLML_FILE]?.fileName,
-      builderStore
-    )
+    const cellmlFile = importPayload[IMPORT_KEYS.CELLML_FILE]
+    if (cellmlFile) {
+      loadCellMLModuleData(cellmlFile.data, cellmlFile.fileName, builderStore)
+    }
+    if (importDialogRef.value) {
+      importDialogRef.value.finishLoading()
+    }
   } else if (currentImportMode.value.key === IMPORT_KEYS.UNITS) {
-    loadCellMLUnitsData(
-      importPayload[IMPORT_KEYS.UNITS]?.data,
-      importPayload[IMPORT_KEYS.UNITS]?.fileName,
-      builderStore
-    )
+    const unitsFile = importPayload[IMPORT_KEYS.UNITS]
+    if (unitsFile) {
+      loadCellMLUnitsData(unitsFile.data, unitsFile.fileName, builderStore)
+    }
+    if (importDialogRef.value) {
+      importDialogRef.value.finishLoading()
+    }
+  } else if (currentImportMode.value.key === IMPORT_KEYS.MODULE_CONFIG) {
+    const configFile = importPayload[IMPORT_KEYS.MODULE_CONFIG]
+    if (configFile) {
+      builderStore.addConfigFile(configFile.data, configFile.fileName)
+    }
+    if (importDialogRef.value) {
+      importDialogRef.value.finishLoading()
+    }
+  } else if (currentImportMode.value.key === IMPORT_KEYS.PARAMETER) {
+    const paramFile = importPayload[IMPORT_KEYS.PARAMETER]
+    if (paramFile) {
+      builderStore.setParameterData(paramFile.data)
+    }
+    if (importDialogRef.value) {
+      importDialogRef.value.finishLoading()
+    }
   } else {
     console.log('Handle this import:', currentImportMode.value.key)
+    if (importDialogRef.value) {
+      importDialogRef.value.finishLoading()
+    }
   }
 }
 
@@ -746,8 +802,6 @@ async function onEditConfirm(updatedData) {
 
   updateNodeData(nodeId, updatedData)
 }
-
-
 
 const handleParametersFile = (file) => {
   if (!file) {
@@ -1140,7 +1194,6 @@ onMounted(async () => {
   for (const [path, content] of Object.entries(cellmlUnits)) {
     loadCellMLUnitsData(content.default, path.split('/').pop(), builderStore)
   }
-
 
   Object.values(parameterFiles).forEach((content) => {
     handleParametersFile({ raw: content.default })
