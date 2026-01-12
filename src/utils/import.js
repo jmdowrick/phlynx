@@ -21,7 +21,7 @@ const parseVesselCsv = (file) => {
             'out_vessels' in results.data[0]
           )
         ) {
-          reject(new Error('Invalid vessel array file format.'))
+          reject(new Error(`Invalid vessel array file format: ${results.data[0]}`))
         }
         resolve(results.data)
       },
