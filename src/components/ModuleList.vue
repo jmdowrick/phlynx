@@ -18,10 +18,10 @@
           v-for="module in file.modules"
           :key="module.name"
           class="module-card"
-          :class="{ selectable: selectable }"
+          :class="{ selectable: selectable, 'is-stub': file.isStub }"
           shadow="hover"
-          :draggable="!selectable"
-          @dragstart="!selectable && onDragStart($event, module)"
+          :draggable="!selectable && !file.isStub"
+          @dragstart="!selectable && !file.isStub && onDragStart($event, module)"
           @click="selectable && handleSelect(module)"
         >
           <div class="module-name">{{ module.name }}</div>
@@ -94,7 +94,6 @@ watch(filteredModuleFiles, (newFiles) => {
   }
 })
 
-// Open new panels
 watch(
   () => store.availableModules,
   (currentModuleFiles) => {
@@ -175,6 +174,11 @@ function handleSelect(module) {
 
 .module-card.selectable {
   cursor: pointer;
+}
+
+.module-card.is-stub {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .module-name {
