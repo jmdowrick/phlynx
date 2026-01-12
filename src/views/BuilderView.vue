@@ -270,6 +270,7 @@
   <ImportDialog
     v-model="importDialogVisible"
     :config="currentImportConfig"
+    :builder-store="builderStore"
     @confirm="onImportConfirm"
   />
 </template>
@@ -312,7 +313,7 @@ import Papa from 'papaparse'
 import { useBuilderStore } from '../stores/builderStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import useDragAndDrop from '../composables/useDnD'
-import { useLoadFromConfigData } from '../composables/useLoadFromConfigData'
+import { useLoadFromVesselArray } from '../composables/useLoadFromVesselArray'
 import { useResizableAside } from '../composables/useResizableAside'
 import { useAutoClosingTooltip } from '../composables/useAutoClosingTooltip'
 import ModuleList from '../components/ModuleList.vue'
@@ -347,12 +348,12 @@ import {
 } from '../utils/nodes'
 import { getId as getNextEdgeId } from '../utils/edges'
 import { getImportConfig } from '../utils/import'
-
-import testModuleBGContent from '../assets/bg_modules.cellml?raw'
-import testModuleColonContent from '../assets/colon_FTU_modules.cellml?raw'
-import testModuleNewColonContent from '../assets/colon_FTU_modules_new.cellml?raw'
-import testParamertersCSV from '../assets/colon_FTU_parameters.csv?raw'
 import { legacyDownload, saveFileHandle, writeFileHandle } from '../utils/save'
+
+// import testModuleBGContent from '../assets/bg_modules.cellml?raw'
+// import testModuleColonContent from '../assets/colon_FTU_modules.cellml?raw'
+// import testModuleNewColonContent from '../assets/colon_FTU_modules_new.cellml?raw'
+// import testParamertersCSV from '../assets/colon_FTU_parameters.csv?raw'
 
 const {
   addEdges,
@@ -384,19 +385,35 @@ const pendingHistoryNodes = new Set()
 const { onDragOver, onDrop, onDragLeave, isDragOver } =
   useDragAndDrop(pendingHistoryNodes)
 const historyStore = useFlowHistoryStore()
-const { loadFromConfigData } = useLoadFromConfigData()
+const { loadFromVesselArray } = useLoadFromVesselArray()
 const { capture } = useScreenshot()
 const { width: asideWidth, startResize } = useResizableAside(200, 150, 400)
+
+const cellmlModules = import.meta.glob('../assets/cellml/*.cellml', {
+  query: 'raw',
+  eager: true,
+})
+const cellmlUnits = import.meta.glob('../assets/units/*.cellml', {
+  query: 'raw',
+  eager: true,
+})
+const parameterFiles = import.meta.glob('../assets/parameters/*.csv', {
+  query: 'raw',
+  eager: true,
+})
+const moduleConfigs = import.meta.glob('../assets/moduleconfig/*.json', {
+  eager: true,
+})
 
 const helperLineHorizontal = ref(null)
 const helperLineVertical = ref(null)
 const alignment = ref('edge')
 const importDropdownRef = ref(null)
 
-const testData = {
-  filename: 'colon_FTU_modules.cellml',
-  content: testModuleNewColonContent,
-}
+// const testData = {
+//   filename: 'CB_network_modules.cellml',
+//   content: testModuleContent,
+// }
 
 const builderStore = useBuilderStore()
 
@@ -777,6 +794,50 @@ const screenshotDisabled = computed(
   () => nodes.value.length === 0 && vueFlowRef.value !== null
 )
 
+const loadCellMLModuleData = (content, filename, builderStore) => {
+  const result = processModuleData(content)
+  if (result.type === 'success') {
+    const augmentedData = result.data.map((item) => ({
+      ...item,
+      sourceFile: filename,
+    }))
+    builderStore.addModuleFile({
+      filename: filename,
+      modules: augmentedData,
+      model: result.model,
+    })
+    ElNotification.success({
+      title: 'CellML Modules Loaded',
+      message: `Loaded ${result.data.length} parameters from ${filename}.`,
+    })
+  } else if (result.issues) {
+    ElNotification.error({
+      title: 'Loading Module Error',
+      message: `${result.issues.length} issues found in model file.`,
+    })
+    console.error('Model import issues:', result.issues)
+  }
+}
+
+const loadCellMLUnitsData = (content, filename, builderStore) => {
+  const result = processUnitsData(content)
+  if (result.type === 'success') {
+    builderStore.addUnitsFile({
+      filename: filename,
+      model: result.model,
+    })
+    ElNotification.success({
+      title: 'CellML Units Loaded',
+      message: `Loaded ${result.units.count} units from ${filename}.`,
+    })
+  } else if (result.issues) {
+    ElNotification.error({
+      title: 'Loading Units Error',
+      message: `${result.issues[0].description}`,
+    })
+  }
+}
+
 const performImport = (mode) => {
   currentImportConfig.value = getImportConfig(mode.key)
 
@@ -796,19 +857,21 @@ const handleImportCommand = (option) => {
 
 async function onImportConfirm(importPayload) {
   if (currentImportMode.value.key === IMPORT_KEYS.VESSEL) {
-    loadFromConfigData({
+    loadFromVesselArray({
       vessels: importPayload[IMPORT_KEYS.VESSEL]?.data,
-      module: importPayload[IMPORT_KEYS.MODULE_CONFIG]?.data,
+      //module: importPayload[IMPORT_KEYS.MODULE_CONFIG]?.data,
     })
   } else if (currentImportMode.value.key === IMPORT_KEYS.CELLML_FILE) {
     loadCellMLModuleData(
       importPayload[IMPORT_KEYS.CELLML_FILE]?.data,
-      importPayload[IMPORT_KEYS.CELLML_FILE]?.fileName
+      importPayload[IMPORT_KEYS.CELLML_FILE]?.fileName,
+      builderStore
     )
   } else if (currentImportMode.value.key === IMPORT_KEYS.UNITS) {
     loadCellMLUnitsData(
       importPayload[IMPORT_KEYS.UNITS]?.data,
-      importPayload[IMPORT_KEYS.UNITS]?.fileName
+      importPayload[IMPORT_KEYS.UNITS]?.fileName,
+      builderStore
     )
   } else {
     console.log('Handle this import:', currentImportMode.value.key)
@@ -859,53 +922,9 @@ async function onEditConfirm(updatedData) {
   updateNodeData(nodeId, updatedData)
 }
 
-const loadCellMLModuleData = (content, filename) => {
-  const result = processModuleData(content)
-  if (result.type === 'success') {
-    const augmentedData = result.data.map((item) => ({
-      ...item,
-      sourceFile: filename,
-    }))
-    builderStore.addModuleFile({
-      filename: filename,
-      modules: augmentedData,
-      model: result.model,
-    })
-    ElNotification.success({
-      title: 'CellML Modules Loaded',
-      message: `Loaded ${result.data.length} parameters from ${filename}.`,
-    })
-  } else if (result.issues) {
-    ElNotification.error({
-      title: 'Loading Module Error',
-      message: `${result.issues.length} issues found in model file.`,
-    })
-    console.error('Model import issues:', result.issues)
-  }
-}
-
-const loadCellMLUnitsData = (content, filename) => {
-  const result = processUnitsData(content)
-  if (result.type === 'success') {
-    builderStore.addUnitsFile({
-      filename: filename,
-      model: result.model,
-    })
-    ElNotification.success({
-      title: 'CellML Units Loaded',
-      message: `Loaded ${result.units.count} units from ${filename}.`,
-    })
-  } else if (result.issues) {
-    ElNotification.error({
-      title: 'Loading Units Error',
-      message: `${result.issues[0].description}`,
-    })
-  }
-}
-
 const handleParametersFile = (file) => {
   if (!file) {
-    ElNotification.error('No file selected.')
+    ElNotification.error({message: 'No file selected.'})
     return
   }
 
@@ -1057,7 +1076,7 @@ async function onExportConfirm(fileName, handle) {
     ElNotification.success({ message: 'Export successful!' })
   } catch (error) {
     notification.close()
-    ElNotification.error(`Export failed: ${error.message}`)
+    ElNotification.error({message: `Export failed: ${error.message}`})
   }
 }
 
@@ -1159,7 +1178,7 @@ function handleLoadWorkspace(file) {
         message: 'Workflow loaded successfully!',
       })
     } catch (error) {
-      ElNotification.error(`Failed to load workflow: ${error.message}`)
+      ElNotification.error({message: `Failed to load workflow: ${error.message}`})
     }
   }
 
@@ -1336,16 +1355,36 @@ onMounted(async () => {
   libcellmlReadyPromise.then((instance) => {
     initLibCellML(instance)
   })
+  await libcellmlReadyPromise
+
+  for (const [path, content] of Object.entries(cellmlModules)) {
+    loadCellMLModuleData(content.default, path.split('/').pop(), builderStore)
+  }
+
+  for (const [path, content] of Object.entries(cellmlUnits)) {
+    loadCellMLUnitsData(content.default, path.split('/').pop(), builderStore)
+  }
+
+  Object.values(parameterFiles).forEach((content) => {
+    handleParametersFile({ raw: content.default })
+  })
+
+  // Clear any notifications created on load
+  ElNotification.closeAll()
+
+  for (const [path, content] of Object.entries(moduleConfigs)) {
+    builderStore.addConfigFile(content.default, path.split('/').pop())
+  }
+
   // --- Development Test Data ---
   // import.meta.env.DEV is a Vite variable that is true
   // only when running 'yarn dev'
-  if (import.meta.env.DEV) {
-    await libcellmlReadyPromise
-    if (!builderStore.hasModuleFile(testData.filename)) {
-      handleParametersFile({ raw: testParamertersCSV })
-      loadCellMLModuleData(testData.content, testData.filename)
-    }
-  }
+  // if (import.meta.env.DEV) {
+  //   if (!builderStore.hasModuleFile(testData.filename)) {
+  //     handleParametersFile({ raw: testParametersCSV })
+  //     loadCellMLModuleData(testData.content, testData.filename)
+  //   }
+  // }
 })
 
 const onMouseMove = (event) => {
