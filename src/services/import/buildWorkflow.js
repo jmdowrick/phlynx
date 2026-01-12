@@ -42,7 +42,7 @@ function buildNodes(builderStore, vessels) {
       // Use vessel position if provided, otherwise use dummy position
       ...(hasPosition
         ? {
-            position: { x: vessel.x, y: vessel.y },
+            position: { x: vessel.x, y: -vessel.y },
           }
         : {
             position: { x: 100, y: 100 },
