@@ -436,7 +436,7 @@ const commitStagedFiles = () => {
 
 const handleConfirm = async () => {
   isLoading.value = true
-  loadingText.value = 'Import modules...'
+  loadingText.value = 'Importing modules...'
 
   await nextTick()
   await new Promise(resolve => setTimeout(resolve, 50))
