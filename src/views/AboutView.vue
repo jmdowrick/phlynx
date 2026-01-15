@@ -103,7 +103,7 @@
 }
 
 .centred-image {
-  width: 20%;
+  max-width: 300px;
   height: auto;
 }
 
