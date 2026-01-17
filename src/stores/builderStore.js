@@ -7,10 +7,8 @@ export const useBuilderStore = defineStore('builder', () => {
   const availableModules = ref([])
   const availableUnits = ref([])
   const parameterData = ref([])
-  const lastSaveName = ref('phlynx')
-  const lastExportName = ref('phlynx')
-  const workbenchModules = ref([])
-  const connections = ref([])
+  const lastSaveName = ref('phlynx-project')
+  const lastExportName = ref('phlynx-export')
 
   // --- DEBUG ---
 
@@ -23,14 +21,6 @@ export const useBuilderStore = defineStore('builder', () => {
   }
 
   // --- ACTIONS ---
-
-  /**
-   * Called after you parse your module definition file.
-   * @param {Array} modules - The array of module objects.
-   */
-  function setAvailableModules(modules) {
-    availableModules.value = modules
-  }
 
   /**
    * Sets the parameter data.
@@ -182,38 +172,6 @@ export const useBuilderStore = defineStore('builder', () => {
   }
 
   /**
-   * Removes all configs associated with a specific config file.
-   * Also removes stub module files that no longer have any configs.
-   */
-  function removeConfigFile(configFilename) {
-    availableModules.value.forEach((file) => {
-      file.modules.forEach((module) => {
-        if (module.configs) {
-          module.configs = module.configs.filter(
-            (config) => config._sourceFile !== configFilename
-          )
-        }
-      })
-    })
-
-    // Clean up stub files that have no configs or only empty modules
-    availableModules.value = availableModules.value.filter((file) => {
-      // Keep files that aren't stubs
-      if (!file.isStub) {
-        return true
-      }
-
-      // For stub files, check if any module has configs
-      const hasAnyConfigs = file.modules.some((module) =>
-        module.configs && module.configs.length > 0
-      )
-
-      // Keep stub files only if they have configs
-      return hasAnyConfigs
-    })
-  }
-
-  /**
    * Removes a module file and its modules from the list.
    * @param {string} filename - The name of the file to remove.
    */
@@ -250,52 +208,12 @@ export const useBuilderStore = defineStore('builder', () => {
   }
 
   /**
-   * Removes a units file and its modules from the list.
-   * @param {string} filename - The name of the file to remove.
-   */
-  function removeUnitsFile(filename) {
-    removeFile(availableUnits, filename)
-  }
-
-  /**
    * Checks if a module file is already loaded.
    * @param {string} filename - The name of the file to check.
    * @returns {boolean} - True if the file is loaded, false otherwise.
    */
   function hasModuleFile(filename) {
     return this.availableModules.some((f) => f.filename === filename)
-  }
-
-  /**
-   * Checks if a config exists for a specific module and BC type
-   * @param {string} moduleType - The module type
-   * @param {string} bcType - The BC type
-   * @returns {boolean}
-   */
-  function hasConfig(moduleType, bcType) {
-    return availableModules.value.some((file) =>
-      file.modules.some((module) =>
-        (module.name === moduleType || module.type === moduleType) &&
-        module.configs?.some((config) => config.BC_type === bcType)
-      )
-    )
-  }
-
-  /**
-   * Gets all configs for a specific module type
-   * @param {string} moduleType - The module type
-   * @returns {Array} Array of configs
-   */
-  function getConfigsForModule(moduleType) {
-    const configs = []
-    availableModules.value.forEach((file) => {
-      file.modules.forEach((module) => {
-        if ((module.name === moduleType || module.type === moduleType) && module.configs) {
-          configs.push(...module.configs)
-        }
-      })
-    })
-    return configs
   }
 
   function getConfigForVessel(vesselType, bcType) {
@@ -318,10 +236,6 @@ export const useBuilderStore = defineStore('builder', () => {
     return null
   }
 
-  function hasConfigForVessel(vesselType, bcType) {
-    return getConfigForVessel(vesselType, bcType) !== null
-  }
-
   /**
    * Gets a specific config for a module type and BC type
    * @param {string} moduleType - The module type
@@ -340,76 +254,25 @@ export const useBuilderStore = defineStore('builder', () => {
     return null
   }
 
-  /**
-   * Called when a module is dropped onto the workbench.
-   * @param {string} moduleName - The name of the module to add.
-   * @param {object} position - { x, y } coordinates from the drop event.
-   */
-  function addModuleToWorkbench(moduleName, position) {
-    // Find the base definition
-
-    let foundModule = null
-    for (const file of availableModules.value) {
-      const match = file.modules?.find(mod => mod.name === moduleName || mod.componentName === moduleName)
-      if (match) {
-        foundModule = match
-        break
-      }
-    }
-
-    if (foundModule) {
-      const newModuleInstance = {
-        ...foundModule,
-        id: `instance_${Date.now()}`,
-        x: position.x,
-        y: position.y,
-      }
-      workbenchModules.value.push(newModuleInstance)
-    }
-  }
-
-  /**
-   * Called when a module is dragged *on* the workbench.
-   * @param {string} moduleId - The unique ID of the module instance.
-   * @param {object} position - The new { x, y } coordinates.
-   */
-  function moveModule(moduleId, position) {
-    const module = workbenchModules.value.find((m) => m.id === moduleId)
-    if (module) {
-      module.x = position.x
-      module.y = position.y
-    }
-  }
-
   // --- GETTERS (computed) ---
 
   return {
     // State
     availableModules,
     availableUnits,
-    connections,
     lastExportName,
     lastSaveName,
     parameterData,
-    workbenchModules,
 
     // Actions
     addConfigFile,
     addModuleFile,
-    addModuleToWorkbench,
     addUnitsFile,
     getConfig,
     getConfigForVessel,
-    getConfigsForModule,
     getModuleContent,
     hasModuleFile,
-    hasConfig,
-    hasConfigForVessel,
-    moveModule,
     removeModuleFile,
-    removeUnitsFile,
-    removeConfigFile,
-    setAvailableModules,
     setLastExportName,
     setLastSaveName,
     setParameterData,

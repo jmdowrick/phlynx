@@ -883,46 +883,6 @@ const loadParametersData = async (
   })
 }
 
-const handleParametersFile = (file, broadcaseNotifications = true) => {
-  return new Promise((resolve) => {
-    if (!file) {
-      if (broadcaseNotifications) {
-        notify.error({ message: 'No file selected.' })
-      }
-      return resolve(false)
-    }
-
-    Papa.parse(file.raw, {
-      header: true, // Converts row 1 to object keys
-      skipEmptyLines: true,
-
-      complete: (results) => {
-        // results.data will be an array of objects
-        // e.g., [{ param_name: 'a', value: '1' }, { param_name: 'b', value: '2' }]
-        builderStore.setParameterData(results.data)
-
-        if (broadcaseNotifications) {
-          notify.success({
-            title: 'Parameters Loaded',
-            message: `Loaded ${results.data.length} parameters from ${file.name}.`,
-          })
-        }
-        resolve(true)
-      },
-
-      error: (err) => {
-        if (broadcaseNotifications) {
-          notify.error({
-            title: 'CSV Parse Error',
-            message: err.message,
-          })
-        }
-        resolve(false)
-      },
-    })
-  })
-}
-
 const performImport = (mode) => {
   currentImportConfig.value = getImportConfig(mode.key)
 
