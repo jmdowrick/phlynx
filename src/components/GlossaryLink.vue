@@ -6,7 +6,7 @@
     effect="dark"
   >
     <RouterLink
-      :to="`/docs/phlynx-glossary#${canonicalTerm}`"
+      :to="`/docs/reference/glossary#${canonicalTerm}`"
       class="glossary-link"
     >
       <slot>{{ label || term }}</slot>
@@ -15,7 +15,7 @@
 
   <RouterLink
     v-else
-    :to="`/docs/phlynx-glossary`"
+    :to="`/docs/reference/glossary`"
     class="glossary-link missing"
   >
     <slot>{{ label || term }}</slot>
