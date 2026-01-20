@@ -8,56 +8,6 @@
           <el-upload
             action="#"
             :auto-upload="false"
-            :on-change="handleModuleFile"
-            :show-file-list="false"
-          >
-            <el-button :disabled="libcellml.status !== 'ready'" type="primary">
-              Load Modules
-            </el-button>
-          </el-upload>
-          <el-upload
-            action="#"
-            :auto-upload="false"
-            :on-change="handleParametersFile"
-            :show-file-list="false"
-            style="margin-left: 10px"
-          >
-            <el-button :disabled="libcellml.status !== 'ready'" type="primary">
-              Load Parameters
-            </el-button>
-          </el-upload>
-          <el-button
-            type="primary"
-            @click="onOpenMacroBuilderDialog"
-            style="margin-left: 10px"
-          >
-            Macro Build
-          </el-button>
-
-          <el-divider direction="vertical" style="margin: 0 15px" />
-
-          <el-button
-            type="info"
-            @click="handleUndo"
-            style="margin-left: 10px"
-            :disabled="!historyStore.canUndo"
-          >
-            Undo
-          </el-button>
-          <el-button
-            type="info"
-            @click="handleRedo"
-            style="margin-left: 10px"
-            :disabled="!historyStore.canRedo"
-          >
-            Redo
-          </el-button>
-
-          <el-divider direction="vertical" style="margin: 0 15px" />
-
-          <el-upload
-            action="#"
-            :auto-upload="false"
             :on-change="handleLoadWorkspace"
             :show-file-list="false"
             accept=".json"
@@ -77,11 +27,75 @@
 
           <el-button
             type="info"
-            @click="onOpenConfigImportDialog"
-            :disabled="libcellml.status !== 'ready'"
+            @click="handleUndo"
+            :disabled="!historyStore.canUndo"
           >
-            Import Config Files
+            Undo
           </el-button>
+
+          <el-button
+            type="info"
+            @click="handleRedo"
+            style="margin-left: 10px"
+            :disabled="!historyStore.canRedo"
+          >
+            Redo
+          </el-button>
+
+          <el-divider direction="vertical" style="margin: 0 15px" />
+
+          <el-button type="primary" @click="onOpenMacroBuilderDialog">
+            Macro Build
+          </el-button>
+
+          <el-divider direction="vertical" style="margin: 0 15px" />
+
+          <el-dropdown
+            ref="dropdownRef"
+            split-button
+            type="info"
+            @click="triggerCurrentImport"
+            @command="handleImportCommand"
+          >
+            <el-tooltip
+              :disabled="!currentImportMode.disabled"
+              placement="bottom"
+            >
+              <span class="import-button-content">
+                Import
+                <el-tooltip placement="bottom">
+                  <el-icon class="el-icon--right">
+                    <component :is="currentImportMode.icon" />
+                  </el-icon>
+                  <template #content>
+                    {{ currentImportMode.label }}
+                  </template>
+                </el-tooltip>
+              </span>
+              <template #content>
+                <p>
+                  The
+                  <strong>{{ currentImportMode.label }}</strong>
+                  import option is disabled because the CellML library is not
+                  ready yet. Please wait a moment and try again.
+                </p>
+              </template>
+            </el-tooltip>
+
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  v-for="option in importOptions"
+                  :key="option.key"
+                  :command="option"
+                  :disabled="option.disabled"
+                >
+                  <el-icon><component :is="option.icon" /></el-icon>
+                  {{ option.label }}
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
 
           <el-button
             type="info"
@@ -164,13 +178,6 @@
     @confirm="onEditConfirm"
   />
 
-  <ImportConfigDialog
-    v-model="configDialogVisible"
-    :initial-vessel-array="null"
-    :initial-module-config="null"
-    @confirm="onConfigImportConfirm"
-  />
-
   <SaveDialog
     v-model="saveDialogVisible"
     @confirm="onSaveConfirm"
@@ -199,6 +206,14 @@
     @generate="onMacroBuilderGenerate"
     @edit-node="onOpenEditDialog"
   />
+
+  <ImportDialog
+    ref="importDialogRef"
+    v-model="importDialogVisible"
+    :config="currentImportConfig"
+    :builder-store="builderStore"
+    @confirm="onImportConfirm"
+  />
 </template>
 
 <script>
@@ -211,10 +226,27 @@ export default {
 </script>
 
 <script setup>
-import { computed, inject, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import {
+  computed,
+  inject,
+  markRaw,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  ref,
+  watchPostEffect,
+} from 'vue'
 import { ElNotification } from 'element-plus'
 import { useVueFlow, VueFlow } from '@vue-flow/core'
-import { DCaret, CameraFilled } from '@element-plus/icons-vue'
+import {
+  DCaret,
+  CameraFilled,
+  Menu as IconVessel,
+  Box as IconCellML,
+  Operation as IconParameters,
+  Setting as IconModuleConfig,
+  ScaleToOriginal as IconUnits,
+} from '@element-plus/icons-vue'
 import { Controls, ControlButton } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
 import Papa from 'papaparse'
@@ -222,33 +254,34 @@ import Papa from 'papaparse'
 import { useBuilderStore } from '../stores/builderStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import useDragAndDrop from '../composables/useDnD'
-import { useLoadFromConfigFiles } from '../composables/useLoadFromConfigFiles'
+import { useLoadFromVesselArray } from '../composables/useLoadFromVesselArray'
 import { useResizableAside } from '../composables/useResizableAside'
 import ModuleList from '../components/ModuleList.vue'
 import Workbench from '../components/WorkbenchArea.vue'
 import ModuleNode from '../components/ModuleNode.vue'
 import EditModuleDialog from '../components/EditModuleDialog.vue'
+import ImportDialog from '../components/ImportDialog.vue'
 import ModuleReplacementDialog from '../components/ModuleReplacementDialog.vue'
 import SaveDialog from '../components/SaveDialog.vue'
-import ImportConfigDialog from '../components/ImportConfigDialog.vue'
 import MacroBuilderDialog from '../components/MacroBuilderDialog.vue'
 import HelperLines from '../components/HelperLines.vue'
 import { useScreenshot } from '../services/useScreenshot'
 import { generateExportZip } from '../services/caExport'
 import { useMacroGenerator } from '../services/generate/generateWorkflow'
 import { getHelperLines } from '../utils/helperLines'
-import { processModuleData } from '../utils/cellml'
-import { edgeLineOptions, FLOW_IDS } from '../utils/constants'
+import {
+  initLibCellML, loadCellMLModuleData, loadCellMLUnitsData
+} from '../utils/cellml'
+import { edgeLineOptions, FLOW_IDS, IMPORT_KEYS } from '../utils/constants'
 import {
   getId as getNextNodeId,
   generateUniqueModuleName,
 } from '../utils/nodes'
 import { getId as getNextEdgeId } from '../utils/edges'
+import { getImportConfig } from '../utils/import'
 
-import testModuleBGContent from '../assets/bg_modules.cellml?raw'
-import testModuleColonContent from '../assets/colon_FTU_modules.cellml?raw'
-import testModuleNewColonContent from '../assets/colon_FTU_modules_new.cellml?raw'
-import testParamertersCSV from '../assets/colon_FTU_parameters.csv?raw'
+// import testModuleContent from '../assets/phlynx_test_model/resources/CB_network_modules.cellml?raw'
+// import testParametersCSV from '../assets/phlynx_test_model/test_dale_phlynx_parameters.csv?raw'
 
 const {
   addEdges,
@@ -277,21 +310,26 @@ const { processMacroGeneration } = useMacroGenerator()
 
 const pendingHistoryNodes = new Set()
 
-const { onDragOver, onDrop, onDragLeave, isDragOver } =
-  useDragAndDrop(pendingHistoryNodes)
+const { onDragOver, onDrop, onDragLeave, isDragOver } = useDragAndDrop(pendingHistoryNodes)
 const historyStore = useFlowHistoryStore()
-const { loadFromConfigFiles } = useLoadFromConfigFiles()
+const { loadFromVesselArray } = useLoadFromVesselArray()
 const { capture } = useScreenshot()
 const { width: asideWidth, startResize } = useResizableAside(200, 150, 400)
+
+const cellmlModules = import.meta.glob('../assets/cellml/*.cellml', { query: 'raw', eager: true })
+const cellmlUnits = import.meta.glob('../assets/units/*.cellml', { query: 'raw', eager: true })
+const parameterFiles = import.meta.glob('../assets/parameters/*.csv', { query: 'raw', eager: true })
+const moduleConfigs = import.meta.glob('../assets/moduleconfig/*.json', { eager: true })
 
 const helperLineHorizontal = ref(null)
 const helperLineVertical = ref(null)
 const alignment = ref('edge')
+const dropdownRef = ref(null)
 
-const testData = {
-  filename: 'colon_FTU_modules.cellml',
-  content: testModuleNewColonContent,
-}
+// const testData = {
+//   filename: 'CB_network_modules.cellml',
+//   content: testModuleContent,
+// }
 
 const builderStore = useBuilderStore()
 
@@ -300,6 +338,7 @@ const libcellml = inject('$libcellml')
 const configDialogVisible = ref(false)
 const editDialogVisible = ref(false)
 const saveDialogVisible = ref(false)
+const importDialogVisible = ref(false)
 const exportDialogVisible = ref(false)
 const replacementDialogVisible = ref(false)
 const macroBuilderDialogVisible = ref(false)
@@ -309,6 +348,10 @@ const currentEditingNode = ref({
   ports: [],
   name: '',
 })
+const importDialogRef = ref(null)
+
+const currentImportMode = ref(null)
+const currentImportConfig = ref({})
 
 const activeInteractionBuffer = new Map()
 const undoRedoSelection = false
@@ -321,6 +364,40 @@ const allNodeNames = computed(() => nodes.value.map((n) => n.data.name))
 const exportAvailable = computed(
   () => nodes.value.length > 0 && builderStore.parameterData.length > 0
 )
+
+const importOptions = computed(() => [
+  {
+    key: IMPORT_KEYS.VESSEL,
+    label: 'Vessel Array',
+    icon: markRaw(IconVessel),
+    disabled: false,
+  },
+  {
+    key: IMPORT_KEYS.CELLML_FILE,
+    label: 'CellML File',
+    icon: markRaw(IconCellML),
+    disabled: libcellml.status !== 'ready',
+  },
+  {
+    key: IMPORT_KEYS.MODULE_CONFIG,
+    label: 'CellML Module Config',
+    icon: markRaw(IconModuleConfig),
+    disabled: libcellml.status !== 'ready',
+  },
+  {
+    key: IMPORT_KEYS.PARAMETER,
+    label: 'Parameters',
+    icon: markRaw(IconParameters),
+    disabled: false,
+  },
+  {
+    key: IMPORT_KEYS.UNITS,
+    label: 'Units',
+    icon: markRaw(IconUnits),
+    disabled: libcellml.status !== 'ready',
+  },
+])
+currentImportMode.value = importOptions.value[0]
 
 onConnect((connection) => {
   // Match what we specify in connectionLineOptions.
@@ -611,19 +688,104 @@ const screenshotDisabled = computed(
   () => nodes.value.length === 0 && vueFlowRef.value !== null
 )
 
-function onOpenConfigImportDialog() {
-  configDialogVisible.value = true
+const performImport = (mode) => {
+  currentImportConfig.value = getImportConfig(mode.key)
+
+  if (currentImportConfig.value) {
+    importDialogVisible.value = true
+  }
 }
 
-async function onConfigImportConfirm(eventPayload) {
-  loadFromConfigFiles(eventPayload)
+const triggerCurrentImport = () => {
+  performImport(currentImportMode.value)
+}
+
+const handleImportCommand = (option) => {
+  currentImportMode.value = option
+  performImport(option)
+}
+
+async function onImportConfirm(importPayload, updateProgress) {
+  if (currentImportMode.value.key === IMPORT_KEYS.VESSEL) {
+    const vessels = importPayload[IMPORT_KEYS.VESSEL]?.data
+    
+    if (!vessels || vessels.length === 0) {
+      console.warn('no vessel data provided')
+      return
+    }
+
+    try {
+      await loadFromVesselArray(
+        { vessels },
+        (current, total, statusMessage) => {
+          if (updateProgress) {
+            updateProgress(`${statusMessage || 'Loading vessel array...'} (${current}/${total})`)
+          }
+        }
+      )
+
+      if (importDialogRef.value) {
+        importDialogRef.value.finishLoading()
+      }
+      
+      ElNotification.success({
+        title: 'Import Complete',
+        message: 'Workflow built successfully!'
+      })
+    } catch (error) {
+      if (importDialogRef.value) {
+        importDialogRef.value.finishLoading()
+      }
+      
+      ElNotification.error({
+        title: 'Import Failed',
+        message: error.message
+      })
+    }
+  } else if (currentImportMode.value.key === IMPORT_KEYS.CELLML_FILE) {
+    const cellmlFile = importPayload[IMPORT_KEYS.CELLML_FILE]
+    if (cellmlFile) {
+      loadCellMLModuleData(cellmlFile.data, cellmlFile.fileName, builderStore)
+    }
+    if (importDialogRef.value) {
+      importDialogRef.value.finishLoading()
+    }
+  } else if (currentImportMode.value.key === IMPORT_KEYS.UNITS) {
+    const unitsFile = importPayload[IMPORT_KEYS.UNITS]
+    if (unitsFile) {
+      loadCellMLUnitsData(unitsFile.data, unitsFile.fileName, builderStore)
+    }
+    if (importDialogRef.value) {
+      importDialogRef.value.finishLoading()
+    }
+  } else if (currentImportMode.value.key === IMPORT_KEYS.MODULE_CONFIG) {
+    const configFile = importPayload[IMPORT_KEYS.MODULE_CONFIG]
+    if (configFile) {
+      builderStore.addConfigFile(configFile.data, configFile.fileName)
+    }
+    if (importDialogRef.value) {
+      importDialogRef.value.finishLoading()
+    }
+  } else if (currentImportMode.value.key === IMPORT_KEYS.PARAMETER) {
+    const paramFile = importPayload[IMPORT_KEYS.PARAMETER]
+    if (paramFile) {
+      builderStore.setParameterData(paramFile.data)
+    }
+    if (importDialogRef.value) {
+      importDialogRef.value.finishLoading()
+    }
+  } else {
+    console.log('Handle this import:', currentImportMode.value.key)
+    if (importDialogRef.value) {
+      importDialogRef.value.finishLoading()
+    }
+  }
 }
 
 function onOpenEditDialog(eventPayload) {
   currentEditingNode.value = {
     ...eventPayload,
   }
-  // Open the dialog
   editDialogVisible.value = true
 }
 
@@ -639,54 +801,6 @@ async function onEditConfirm(updatedData) {
   const { updateNodeData } = useVueFlow(targetInstance)
 
   updateNodeData(nodeId, updatedData)
-}
-
-const handleModuleFile = (file) => {
-  const filename = file.name
-  const reader = new FileReader()
-  reader.onload = (e) => {
-    try {
-      try {
-        const result = processModuleData(libcellml, e.target.result, filename)
-        if (result.type !== 'success') {
-          if (result.issues) {
-            ElNotification({
-              title: 'Error',
-              message: `${result.issues.length} issues found in model file.`,
-              type: 'error',
-            })
-            console.error('Model import issues:', result.issues)
-          }
-          return
-        }
-        builderStore.addModuleFile({
-          filename: filename,
-          modules: result.data,
-        })
-        ElNotification.success({
-          title: 'Modules Loaded',
-          message: `Loaded ${result.data.length} parameters from ${file.name}.`,
-          offset: 50,
-        })
-      } catch (err) {
-        console.error('Error parsing file:', err)
-        ElNotification({
-          title: 'Error',
-          message: 'Failed to parse module file as CellML.',
-          type: 'error',
-        })
-        return
-      }
-    } catch (error) {
-      console.error('Error parsing module file:', error)
-      ElNotification({
-        title: 'Error',
-        message: 'An error occurred while processing the module file.',
-        type: 'error',
-      })
-    }
-  }
-  reader.readAsText(file.raw)
 }
 
 const handleParametersFile = (file) => {
@@ -707,7 +821,6 @@ const handleParametersFile = (file) => {
       ElNotification.success({
         title: 'Parameters Loaded',
         message: `Loaded ${results.data.length} parameters from ${file.name}.`,
-        offset: 50,
       })
     },
 
@@ -770,10 +883,9 @@ function handleExport() {
  * Collects all state and processes it into a zip file for CA ingestion.
  */
 async function onExportConfirm(fileName) {
-  const notification = ElNotification({
+  const notification = ElNotification.info({
     title: 'Exporting...',
     message: 'Generating and zipping files.',
-    type: 'info',
     duration: 0, // Stays open until closed
   })
 
@@ -795,7 +907,7 @@ async function onExportConfirm(fileName) {
     }
     builderStore.setLastExportName(fileName)
     notification.close()
-    ElNotification.success({ message: 'Export successful!', offset: 50 })
+    ElNotification.success({ message: 'Export successful!' })
   } catch (error) {
     notification.close()
     ElNotification.error(`Export failed: ${error.message}`)
@@ -834,7 +946,7 @@ function onSaveConfirm(fileName) {
   URL.revokeObjectURL(url)
 
   builderStore.setLastSaveName(fileName)
-  ElNotification.success({ message: 'Workflow saved!', offset: 50 })
+  ElNotification.success({ message: 'Workflow saved!' })
 }
 
 function mergeModules(newModules) {
@@ -894,7 +1006,6 @@ function handleLoadWorkspace(file) {
 
       ElNotification.success({
         message: 'Workflow loaded successfully!',
-        offset: 50,
       })
     } catch (error) {
       ElNotification.error(`Failed to load workflow: ${error.message}`)
@@ -918,11 +1029,17 @@ function doPngScreenshot() {
 
 const getBoundingCenter = (nodes) => {
   if (nodes.length === 0) return { x: 0, y: 0 }
-  
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
 
-  nodes.forEach(n => {
-    const pos = { x: n.position.x + n.dimensions.width / 2, y: n.position.y + n.dimensions.height / 2 }
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity
+
+  nodes.forEach((n) => {
+    const pos = {
+      x: n.position.x + n.dimensions.width / 2,
+      y: n.position.y + n.dimensions.height / 2,
+    }
     if (pos.x < minX) minX = pos.x
     if (pos.y < minY) minY = pos.y
     if (pos.x > maxX) maxX = pos.x
@@ -931,7 +1048,7 @@ const getBoundingCenter = (nodes) => {
 
   return {
     x: minX + (maxX - minX) / 2,
-    y: minY + (maxY - minY) / 2
+    y: minY + (maxY - minY) / 2,
   }
 }
 
@@ -960,10 +1077,10 @@ const pasteSelection = (atMouse = false) => {
   if (atMouse) {
     // Convert screen mouse pixels to graph coordinates (handling zoom/pan)
     const mouseFlowPos = screenToFlowCoordinate(mousePosition.value)
-    
+
     // Find the center of the nodes currently in the clipboard
     const clipboardCenter = getBoundingCenter(clipboard.value.nodes)
-    
+
     // Calculate difference to move center -> mouse
     dx = mouseFlowPos.x - clipboardCenter.x
     dy = mouseFlowPos.y - clipboardCenter.y
@@ -1062,31 +1179,42 @@ const handleKeyDown = (event) => {
   }
 }
 
-// --- Development Test Data ---
 onMounted(async () => {
   document.addEventListener('keydown', handleKeyDown)
   document.addEventListener('mousemove', onMouseMove)
+  libcellmlReadyPromise.then((instance) => {
+    initLibCellML(instance)
+  })
+  await libcellmlReadyPromise
+
+  for (const [path, content] of Object.entries(cellmlModules)) {
+    loadCellMLModuleData(content.default, path.split('/').pop(), builderStore)
+  }
+
+  for (const [path, content] of Object.entries(cellmlUnits)) {
+    loadCellMLUnitsData(content.default, path.split('/').pop(), builderStore)
+  }
+
+  Object.values(parameterFiles).forEach((content) => {
+    handleParametersFile({ raw: content.default })
+  })
+
+  // Clear any notifications created on load
+  ElNotification.closeAll();
+
+  for (const [path, content] of Object.entries(moduleConfigs)) {
+    builderStore.addConfigFile(content.default, path.split('/').pop())
+  }
+
+  // --- Development Test Data ---
   // import.meta.env.DEV is a Vite variable that is true
   // only when running 'yarn dev'
-  if (import.meta.env.DEV) {
-    await libcellmlReadyPromise
-    if (!builderStore.hasModuleFile(testData.filename)) {
-      handleParametersFile({ raw: testParamertersCSV })
-      const result = processModuleData(
-        libcellml,
-        testData.content,
-        testData.filename
-      )
-      if (result.type !== 'success') {
-        throw new Error('Failed to process test parameters file.')
-      } else {
-        builderStore.addModuleFile({
-          filename: testData.filename,
-          modules: result.data,
-        })
-      }
-    }
-  }
+  // if (import.meta.env.DEV) {
+  //   if (!builderStore.hasModuleFile(testData.filename)) {
+  //     handleParametersFile({ raw: testParametersCSV })
+  //     loadCellMLModuleData(testData.content, testData.filename)
+  //   }
+  // }
 })
 
 const onMouseMove = (event) => {
@@ -1097,15 +1225,29 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleKeyDown)
   document.removeEventListener('mousemove', onMouseMove)
 })
+
+watchPostEffect(() => {
+  // Safety check: ensure component is mounted
+  if (!dropdownRef.value || !dropdownRef.value.$el) return
+
+  // Find the FIRST button inside the split-dropdown (The Action Button)
+  // The second button is the trigger arrow, which we want to leave alone.
+  const actionBtn = dropdownRef.value.$el.querySelector('button:first-child')
+
+  if (!actionBtn) return
+
+  // 3. Toggle the Element Plus 'is-disabled' class and native attribute
+  if (currentImportMode.value.disabled) {
+    actionBtn.classList.add('is-disabled')
+    actionBtn.setAttribute('disabled', 'disabled') // Disables clicks & hover styles
+  } else {
+    actionBtn.classList.remove('is-disabled')
+    actionBtn.removeAttribute('disabled')
+  }
+})
 </script>
 
 <style>
-/* Basic Styles */
-body {
-  margin: 0;
-  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-}
-
 .app-header {
   display: flex;
   justify-content: space-between;
@@ -1137,6 +1279,11 @@ body {
 }
 
 .file-io-buttons {
+  display: flex;
+  align-items: center;
+}
+
+.import-button-content {
   display: flex;
   align-items: center;
 }
