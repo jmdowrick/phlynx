@@ -129,18 +129,27 @@ const extractHeadings = () => {
 
   const headingElements = mainElement.querySelectorAll('h1, h2, h3, h4, h5, h6')
   const extractedHeadings = []
+  const usedIds = new Set() 
 
   headingElements.forEach((heading, index) => {
-    if (!heading.id) {
-      heading.id = heading.textContent
-        .toLowerCase()
-        .replace(/[^\w\s-]/g, '')
-        .replace(/\s+/g, '-')
+    let id = heading.id || heading.textContent
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, '')
+      .replace(/\s+/g, '-')
+  
+    let uniqueId = id
+    let counter = 1
+    while (usedIds.has(uniqueId)) {
+      uniqueId = `${id}-${counter}`
+      counter++
     }
+    
+    heading.id = uniqueId
+    usedIds.add(uniqueId)
 
     if (!(index === 0 && heading.tagName === 'H1')) {
       extractedHeadings.push({
-        id: heading.id,
+        id: uniqueId,
         text: heading.textContent,
         level: parseInt(heading.tagName.charAt(1))
       })
