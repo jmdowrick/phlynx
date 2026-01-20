@@ -1,117 +1,30 @@
-# Building a Custom Model with PhLynx
+# Using Custom Modules in PhLynx
 
-Sometimes the model you wish to build will need you to make your own custom modules. In these instances, you will need to populate the module node using the edit module dialog.
+Sometimes the model you wish to build will require you to create your own CellML modules. In these instances, you will need to upload additional information to ensure you can export your model.
 
 ## Create Your Custom Module
 
-Using your IDE of choice, write a CellML module as described in the [Module Format](./reference-cellml-module-format) help guide.
+Using your IDE of choice, write your custom CellML modules following the conventions described in the [Module Format](../reference/cellml-module-format) help guide.
 
 ## Import Your CellML File
 
-he first step in building a model is to import the desired CellML modules into PhLynx.
-This can be done by clicking the "Load Modules" button located in the upper-right-hand corner of the user interface.
+Import your CellML file by clicking the downward facing arrow next to "Import" in the Toolbar. Select the "CellML file" option, and your modules will appear in the Module List.
 
-![Load Modules button highlighted in user interface](./assets/images/import-module.png){.align-center width="600px"}
+## Import Parameter File
 
-A file dialog will appear, allowing users to select one or more CellML files from their local filesystem.
-Once selected, the components listed in the module file will be added to the Module List on the left-hand side of the interface.
-
-For the purposes of this tutorial, the CellML file colon_FTU_modules.cellml has already been imported into PhLynx.
-
-## Step 2: Add Modules to Workspace
-
-To add a module to the workspace area, simply drag and drop the desired module from the Module List into the central workspace area.
-Each module will appear as a node, displaying its name and associated CellML component.
-Users can rename the module by double-clicking on the module name.
-When satisified with the name, press Enter or click outside the text box to save the changes.
-
-Drag and drop the "simple_lumen", "simple_membrane", "ENaC", and "simple_cell" modules from the Module List into the workspace area.
-
-![Modules placed in workspace area](./assets/images/modules-placed-no-name.png){.align-center width="600px"}
-
-Rename the modules to "Lumen", "Membrane", and "Cell", respectively.
-Leave the ENaC module name unchanged.
-The workspace should now look similar to the following image:
-
-![Modules placed in workspace area](./assets/images/modules-placed-renamed.png){.align-center width="600px"}
+PhLynx currently requires the user to upload a parameter.csv file to determine which variables are *constants* or *global constants*. Parameter names in the parameter file must follow the naming convention required by Circulatory Autogen ([module_name]_[parameter_name] for *constants* and [parameter_name] for *global constants*).
 
 > [!NOTE]
->  The colour of modules can be changed at anytime using the key icon on each module node.
->  This is purely for visual identification and has no effect on the exported model.
-
-## Step 3: Create Ports Nodes
-
-To indicate that two modules have shared variables, users need to create port nodes on the relevant module nodes.
-This can be done by clicking the pin icon on the module node, which will allow the user to add new port nodes to the module.
-
-Add port nodes to the module nodes as in the following image:
-
-![Modules with port nodes added](./assets/images/modules-port-nodes.png){.align-center width="600px"}
-
-> [!NOTE]
->  Port nodes can be added to the top, left, right, or bottom of the module node by clicking the corresponding area around the pin icon.
->  Port nodes can be deleted by hovering over with the cursor and clicking the "trash" icon that appears.
-
-## Step 4: Connect Ports Nodes to Indicate Shared Variables
-
-Once port nodes have been created on the relevant modules, users can connect them by clicking and dragging from one port to another.
-This will create an arrow indicating that the two modules share a variable.
-
-Connect the port nodes as shown in the following image:
-
-![Modules with connected ports](./assets/images/modules-connected.png){.align-center width="600px"}
-
-> [!NOTE]
->  In this example, each arrow has its own port, but multiple arrows can leave or enter a single port node.
-
-## Step 5: Define Ports on each Module
-
-To define the variable associated with each port, click on the pencil icon, which will open the Edit Module dialog.
-In this dialog, users can select the variable from a dropdown list populated with variables from the CellML module and port names can be edited manually.
-
-Define the ports as shown in the following images:
-
-### Lumen
-
-![Defining ports for Lumen module](./assets/images/ports-lumen.png){.align-center width="600px"}
-
-### Membrane
-
-![Defining ports for membrane module](./assets/images/ports-membrane.png){.align-center width="600px"}
-
-### ENaC
-
-![Defining ports for ENaC module](./assets/images/ports-enac.png){.align-center width="600px"}
-
-### Cell
-
-![Defining ports for Cell module](./assets/images/ports-cell.png){.align-center width="600px"}
-
-> [!NOTE]
-> Port names can be thought of as a mapping between the variable name in a given CellML module and the shared variable name used in Circulatory Autogen.
-
-## Step 6: Import Parameter File
-
-PhLynx currently requires the user to upload the Circulatory Autogen parameter file (model_name_parameters.csv) to determine which variables are constants or global_constants.
-This can be done by clicking the "Load Parameters" button located in the upper-right-hand corner of the user interface.
-A file dialog will appear, allowing users to select the parameter CSV file from their local filesystem.
-
-For the purposes of this tutorial, the parameters file colon_FTU_parameters.csv has already been imported into PhLynx.
-
-> [!NOTE]
-> Parameter names in the parameter file must follow the naming convention required by Circulatory Autogen ([module_name]_[parameter_name] for constants and > [parameter_name] for global_constants).
 > It is essential that these exactly match parameter and module names in PhLynx.
 
-## Step 7: Export Model Workspace
+Again, to upload this information press the downward facing arrow next to "Import" in the Toolbar. This time, select the "Parameters" option. A file dialog will appear. Select the parameter.csv file and press "Import" to confirm.
 
-Once the model has been assembled and all ports have been defined, users can export the model workspace by clicking the "Export Model" button located in the upper-right-hand corner of the user interface.
-This will download a ZIP archive containing the vessel_array.csv and module_config.json files for use in Circulatory Autogen.
+## Import Units File
 
-## Step 8: Save/Load Workspace (Optional)
+One of the benefits of being built on CellML is that dimensional consistency validation is innate to PhLynx. However, this requires any custom units to be defined in a units CellML file. In the rare instance that one or more of the units in your module aren't already defined within the PhLynx unit files, you will need to create and import a custom unit.cellml file. 
 
-Users can save their current workspace by clicking the "Save Model" button located in the upper-right-hand corner of the user interface.
-This will download a JSON file representing the current state of the workspace, including module positions, port definitions, and connections.
+A brief primer on writing a unit definition file is provided [here](../reference/cellml-units-file). For a more in-depth description, see the official [CellML documentation](https://www.cellml.org/specifications/archive/20030930/units.pdf).
 
-To load a previously saved workspace, click the "Load Model" button and select the JSON file from your local filesystem.
-The workspace will be restored to the state it was in when it was saved.
+## Build your model
 
+With the above information provided, you can use your custom module as you would with the modules already present in the <GlossaryLink term="module-list"/>.
