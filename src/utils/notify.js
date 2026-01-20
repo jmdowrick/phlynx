@@ -1,5 +1,10 @@
 import { ElNotification } from 'element-plus'
 
+
+const notifyDuration = (type) => {
+  return type === 'info' || type === 'success' ? 1500 : type === 'warning' ? 3000 : 4000
+}
+
 /**
  * A wrapper for ElNotification to make all uses consistent across the application.
  *
@@ -9,7 +14,7 @@ import { ElNotification } from 'element-plus'
 export const notify = (options) => {
   return ElNotification({
     position: 'top-right',
-    duration: 4000,
+    duration: notifyDuration(options.type),
     ...options,
   })
 }
