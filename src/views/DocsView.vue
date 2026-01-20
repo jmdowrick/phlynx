@@ -6,7 +6,7 @@
         <el-button class="collapse-btn" :icon="isCollapse ? ArrowRight : ArrowLeft" circle
           @click="isCollapse = !isCollapse" />
       </div>
-      <el-menu class="el-menu-vertical" :default-active="currentSlug" router :collapse="isCollapse">
+      <el-menu class="el-menu-vertical" :default-active="`/docs/${currentSlug}`"  router :collapse="isCollapse">
         <el-sub-menu index="1">
           <template #title>
             <el-icon>
@@ -41,7 +41,7 @@
           <el-menu-item index="/docs/reference/glossary">Glossary</el-menu-item>
           <el-menu-item index="/docs/reference/file-types">File Formats</el-menu-item>
           <el-menu-item index="/docs/reference/cellml-module-format">CellML Module Requirements</el-menu-item>
-          <el-menu-item index="/docs/reference/change-log">PhLynx Change Logs</el-menu-item>
+          <el-menu-item index="/docs/reference/change-log">PhLynx Changelog</el-menu-item>
         </el-sub-menu>
         <el-sub-menu index="4">
           <template #title>
@@ -92,10 +92,11 @@ import {
   Reading,
   Star
 } from '@element-plus/icons-vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 const route = useRoute()
-const isCollapse = ref(true)
+const router = useRouter()
+const isCollapse = ref(false)
 const markdownFiles = import.meta.glob('@docs/**/*.md', { eager: true })
 const docsMap = {}
 
@@ -221,7 +222,6 @@ const updateActiveHeading = () => {
   activeHeading.value = ''
 }
 
-// Setup scroll listener
 let scrollElement = null
 
 onMounted(() => {
@@ -232,8 +232,48 @@ onMounted(() => {
       scrollElement.addEventListener('scroll', updateActiveHeading)
       updateActiveHeading()
     }
+    setupInternalLinks()
   })
 })
+
+const setupInternalLinks = () => {
+  const mainElement = document.querySelector('.el-main.markdown-body')
+  if (!mainElement) return
+  
+  mainElement.addEventListener('click', (e) => {
+    const target = e.target.closest('a')
+    if (!target) return
+    
+    const href = target.getAttribute('href')
+    
+    if (href && (href.startsWith('./') || href.startsWith('../') || href.startsWith('/docs/'))) {
+      e.preventDefault()
+      
+      let fullPath = href
+      if (href.startsWith('./')) {
+        const currentPath = route.path.split('/').slice(0, -1).join('/')
+        fullPath = `${currentPath}/${href.substring(2)}`
+      } else if (href.startsWith('../')) {
+        const currentPath = route.path.split('/').slice(0, -2).join('/')
+        fullPath = `${currentPath}/${href.substring(3)}`
+      }
+      
+      const [path, hash] = fullPath.split('#')
+      const cleanPath = path.replace('.md', '')
+      
+      // Navigate using router
+      router.push(hash ? `${cleanPath}#${hash}` : cleanPath).then(() => {
+        if (hash) {
+          nextTick(() => {
+            scrollToHeading(hash)
+          })
+        } else {
+          mainElement.scrollTop = 0
+        }
+      })
+    }
+  })
+}
 
 onUnmounted(() => {
   if (scrollElement) {
@@ -351,13 +391,11 @@ watch(currentSlug, () => {
 }
 
 .toc-container {
-  transition: opacity 0.2s ease, visibility 0s 0s;
-  opacity: 1;
+  transition: visibility 0s 0s;
   visibility: visible;
   padding: 20px 16px;
   position: sticky;
   top: 0;
-  white-space: nowrap; /* Prevent text wrapping during animation */
 }
 
 @media (max-width: 900px) {
@@ -368,13 +406,14 @@ watch(currentSlug, () => {
   }
   
   .toc-container {
-    opacity: 0;
     visibility: hidden;
-    transition: opacity 0.2s ease, visibility 0s 0.2s;
+    transition: visibility 0s 0.2s;
   }
 }
 
 .toc-title {
+  white-space: nowrap;
+  overflow: hidden;
   font-size: 14px;
   font-weight: 600;
   margin: 0 0 12px 0;
@@ -402,6 +441,9 @@ watch(currentSlug, () => {
   line-height: 1.4;
   border-radius: 4px;
   transition: all 0.2s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .toc-item a:hover {
