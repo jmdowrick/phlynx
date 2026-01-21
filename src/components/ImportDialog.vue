@@ -323,7 +323,7 @@ const handleFileChange = async (uploadFile, field) => {
     }
 
     // Surface warnings (notifications only once)
-    state.warnings.forEach((w) => {
+    state.warnings.forEach(async (w) => {
       await nextTick()
       notify.warning({
         title: 'Import Warning',
