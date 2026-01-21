@@ -19,7 +19,7 @@ export const useBuilderStore = defineStore('builder', () => {
   }
 
   function listUnits() {
-    availableUnits.value.forEach((e) => console.log(e.filename))
+    availableUnits.value.forEach((e) => {console.log(e.filename); console.log(e.model.substring(0, 200))})
   }
 
   // --- ACTIONS ---

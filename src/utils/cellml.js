@@ -314,7 +314,7 @@ export function generateFlattenedModel(nodes, edges, builderStore) {
 
   // 1. Initialize core objects
   const model = new _libcellml.Model()
-  model.setName(`PhLynxGeneratedv${appVersion}`.replaceAll('.', '_'))
+  model.setName(`PhLynxGenerated_v${appVersion}`.replaceAll('.', '_'))
 
   const printer = new _libcellml.Printer()
   const validator = new _libcellml.Validator()
@@ -461,10 +461,10 @@ export function generateFlattenedModel(nodes, edges, builderStore) {
     // ----------------------------------
 
     // HELPER: Strips directionality suffixes for matching
-    const normaliseName = (name) => {
+    const normaliseName = (name, portType) => {
       if (!name) return ''
       // Replaces "_in" or "_out" at the end of the string ($) with nothing
-      return name.replace(/(_in|_out)$/, '')
+      return name.replace(portType === 'exit_ports' ? /_out$/ : portType === 'entrance_ports' ? /_in$/ : /(_in|_out)$/, '')
     }
 
     for (const edge of edges) {
@@ -504,9 +504,9 @@ export function generateFlattenedModel(nodes, edges, builderStore) {
             } else {
               // CASE B: Direct Connection (One-to-One)
               for (const srcOption of srcLabel.option) {
-                const srcBase = normaliseName(srcOption)
+                const srcBase = normaliseName(srcOption, srcLabel.portType)
                 const tgtOption = tgtLabel.option.find(
-                  (o) => normaliseName(o) === srcBase
+                  (o) => normaliseName(o, tgtLabel.portType) === srcBase
                 )
                 if (srcOption && tgtOption) {
                   const v1 = sourceComp.variableByName(srcOption)
