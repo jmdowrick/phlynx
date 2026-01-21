@@ -55,7 +55,7 @@
             <span>Help</span>
           </template>
           <el-menu-item index="/docs/support/faq-and-troubleshooting">FAQs & Troubleshooting</el-menu-item>
-          <el-menu-item index="/docs/support/feature-request">Feedback & Support</el-menu-item>
+          <el-menu-item index="/docs/support/support">Feedback & Support</el-menu-item>
         </el-sub-menu>
       </el-menu>
     </el-aside>
