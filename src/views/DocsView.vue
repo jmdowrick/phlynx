@@ -6,7 +6,7 @@
         <el-button class="collapse-btn" :icon="isCollapse ? ArrowRight : ArrowLeft" circle
           @click="isCollapse = !isCollapse" />
       </div>
-      <el-menu class="el-menu-vertical" :default-active="`/docs/${currentSlug}`"  router :collapse="isCollapse">
+      <el-menu class="el-menu-vertical" :default-active="`/docs/${currentSlug}`" router :collapse="isCollapse">
         <el-sub-menu index="1">
           <template #title>
             <el-icon>
@@ -15,18 +15,19 @@
             <span>Getting Started</span>
           </template>
           <el-menu-item index="/docs/getting-started/introduction">Introduction</el-menu-item>
-          <el-menu-item index="/docs/getting-started/quick-start-guide">Quick Start</el-menu-item>
+          <el-menu-item index="/docs/getting-started/quick-start-guide">Quick Start Guide</el-menu-item>
         </el-sub-menu>
         <el-sub-menu index="2">
           <template #title>
             <el-icon>
               <guide />
             </el-icon>
-            <span>How to Guides</span>
+            <span>Guides</span>
           </template>
-          <el-menu-item index="/docs/guides/build-custom-module">Build Custom CellML Modules</el-menu-item>
-          <el-menu-item index="/docs/guides/use-with-circulatory-autogen">Edit Circulatory Autogen Files</el-menu-item>
-          <el-menu-item index="/docs/guides/develop-phlynx">Developing PhLynx</el-menu-item>
+          <el-menu-item index="/docs/guides/macro-build-guide">Building Macros</el-menu-item>
+          <el-menu-item index="/docs/guides/build-custom-module">Creating Custom Modules</el-menu-item>
+          <el-menu-item index="/docs/guides/use-with-circulatory-autogen">Editing Circulatory Autogen Files</el-menu-item>
+          <el-menu-item index="/docs/guides/develop-phlynx">Developer Guide</el-menu-item>
         </el-sub-menu>
         <el-sub-menu index="3">
           <template #title>
@@ -37,12 +38,14 @@
               Reference
             </span>
           </template>
-          <el-menu-item index="/docs/reference/ui-overview">User Interface Overview</el-menu-item>
+          <el-menu-item index="/docs/reference/ui-overview">Interface Overview</el-menu-item>
+          <el-menu-item index="/docs/reference/keyboard-shortcuts">Keyboard Shortcuts</el-menu-item>
+          <el-menu-item index="/docs/reference/ghost-nodes">Ghost Nodes</el-menu-item>
+          <el-menu-item index="/docs/reference/valid-port-configurations">Port Logic</el-menu-item>
+          <el-menu-item index="/docs/reference/file-types">Supported File Formats</el-menu-item>
+          <el-menu-item index="/docs/reference/cellml-module-format">CellML Module Example</el-menu-item>
           <el-menu-item index="/docs/reference/glossary">Glossary</el-menu-item>
-          <el-menu-item index="/docs/reference/file-types">File Formats</el-menu-item>
-          <el-menu-item index="/docs/reference/cellml-module-format">CellML Module Requirements</el-menu-item>
-          <el-menu-item index="/docs/reference/valid-port-configurations">Valid Port Configurations</el-menu-item>
-          <el-menu-item index="/docs/reference/change-log">PhLynx Changelog</el-menu-item>
+          <el-menu-item index="/docs/reference/change-log">Changelog</el-menu-item>
         </el-sub-menu>
         <el-sub-menu index="4">
           <template #title>
@@ -51,8 +54,8 @@
             </el-icon>
             <span>Help</span>
           </template>
-          <el-menu-item index="/docs/support/faq">FAQs</el-menu-item>
-          <el-menu-item index="/docs/support/feature-request">Feature request</el-menu-item>
+          <el-menu-item index="/docs/support/faq-and-troubleshooting">FAQs & Troubleshooting</el-menu-item>
+          <el-menu-item index="/docs/support/feature-request">Feedback & Support</el-menu-item>
         </el-sub-menu>
       </el-menu>
     </el-aside>
@@ -109,7 +112,6 @@ for (const path in markdownFiles) {
 
 const currentSlug = computed(() => {
   const slug = route.params.slug
-  
   if (Array.isArray(slug)) {
     const joined = slug.join('/')
     return joined
