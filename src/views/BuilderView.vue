@@ -261,7 +261,6 @@ import {
   Menu as IconVessel,
   Operation as IconParameters,
   Setting as IconModuleConfig,
-  ScaleToOriginal as IconUnits,
 } from '@element-plus/icons-vue'
 import CellMLIcon from '../components/icons/CellMLIcon.vue'
 import UnitsIcon from '../components/icons/UnitsIcon.vue'
