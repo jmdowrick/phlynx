@@ -264,7 +264,6 @@ import {
   ScaleToOriginal as IconUnits,
 } from '@element-plus/icons-vue'
 import CellMLIcon from '../components/icons/CellMLIcon.vue'
-import RulerIcon from '../components/icons/RulerIcon.vue'
 import UnitsIcon from '../components/icons/UnitsIcon.vue'
 
 import { Controls, ControlButton } from '@vue-flow/controls'
