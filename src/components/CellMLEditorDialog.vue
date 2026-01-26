@@ -85,7 +85,8 @@ const haveInvalidNewComponentName = computed(() => {
 })
 
 const isInternalModule = computed(() => {
-  return props.nodeData.sourceFile && !props.nodeData.sourceFile.startsWith('UserModules')
+  const sourceFile = props.nodeData.sourceFile
+  return !!sourceFile && sourceFile !== USER_MODULES_FILE
 })
 
 const isDirty = computed(() => {
