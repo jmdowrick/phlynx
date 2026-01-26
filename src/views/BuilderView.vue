@@ -184,6 +184,7 @@
                 :data="props.data"
                 :selected="props.selected"
                 @open-edit-dialog="onOpenEditDialog"
+                @open-cellml-editor-dialog="onOpenCellMLEditorDialog"
                 @open-replacement-dialog="onOpenReplacementDialog"
                 :ref="(el) => (nodeRefs[props.id] = el)"
               />
@@ -205,6 +206,13 @@
     :port-options="currentEditingNode?.portOptions || []"
     :initial-port-labels="currentEditingNode?.portLabels || []"
     @confirm="onEditConfirm"
+  />
+
+  <CellMLEditorDialog
+    v-model="cellMLEditorDialogVisible"
+    :nodeData="currentEditingNode"
+    @save-update="onCellMLUpdateSave"
+    @save-fork="onCellMLForkSave"
   />
 
   <SaveDialog v-model="saveDialogVisible" @confirm="onSaveConfirm" :default-name="builderStore.lastSaveName" />
@@ -296,6 +304,8 @@ import { getId as getNextEdgeId } from '../utils/edges'
 import { getImportConfig, parseParametersFile } from '../utils/import'
 import { legacyDownload, saveFileHandle, writeFileHandle } from '../utils/save'
 import { generateParameterAssociations } from '../utils/parameters'
+import CellMLEditorDialog from '../components/CellMLEditorDialog.vue'
+import { no } from 'element-plus/es/locales.mjs'
 
 // import testModuleBGContent from '../assets/bg_modules.cellml?raw'
 // import testModuleColonContent from '../assets/colon_FTU_modules.cellml?raw'
@@ -367,6 +377,7 @@ const libcellmlReadyPromise = inject('$libcellml_ready')
 const libcellml = inject('$libcellml')
 const configDialogVisible = ref(false)
 const editDialogVisible = ref(false)
+const cellMLEditorDialogVisible = ref(false)
 const saveDialogVisible = ref(false)
 const importDialogVisible = ref(false)
 const exportDialogVisible = ref(false)
@@ -910,6 +921,47 @@ function onOpenEditDialog(eventPayload) {
     ...eventPayload,
   }
   editDialogVisible.value = true
+}
+
+function onOpenCellMLEditorDialog(eventPayload) {
+  currentEditingNode.value = {
+    ...eventPayload,
+  }
+  cellMLEditorDialogVisible.value = true
+}
+
+async function onCellMLUpdateSave(updatedData) {
+  await loadCellMLModuleData(updatedData.code, updatedData.sourceFile, false)
+
+  notify.success({
+    title: 'CellML Module Updated',
+    message: `Module ${updatedData.componentName} has been updated in ${updatedData.sourceFile}.`,
+  })
+}
+async function onCellMLForkSave(saveData) {
+  if (!saveData.nodeId) return
+
+  const node = findNode(saveData.nodeId)
+  if (!node) return
+
+  const originalSourceFile = node.data.sourceFile || 'unknown_source.cellml'
+  const originalComponentName = node.data.componentName
+  const nodeData = {
+    ...node.data,
+    componentName: saveData.componentName,
+    sourceFile: saveData.sourceFile,
+    label: `${saveData.componentName} — ${saveData.sourceFile}`,
+  }
+
+  await loadCellMLModuleData(saveData.code, saveData.sourceFile, false)
+  await nextTick()
+
+  updateNodeData(saveData.nodeId, nodeData)
+
+  notify.success({
+    title: 'CellML Module Saved As',
+    message: `Module ${originalComponentName} from ${originalSourceFile} has been saved as ${saveData.componentName} in ${saveData.sourceFile}.`,
+  })
 }
 
 function onOpenMacroBuilderDialog() {

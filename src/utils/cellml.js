@@ -1,3 +1,5 @@
+import { ta } from "element-plus/es/locales.mjs"
+
 let _libcellml = null
 
 // Define the Namespaces.
@@ -150,11 +152,12 @@ export function isCellML(content) {
     return false
   }
   const errorCount = parser.errorCount()
+  const isValid = model !== null && errorCount === 0
 
   parser.delete()
   model.delete()
 
-  return model !== null && errorCount === 0
+  return isValid
 }
 
 function isStandardUnit(name) {
@@ -338,7 +341,6 @@ function separateGlobalParameters(model) {
       // Attach to the new component (Global_Parameters)
       globalComp.addVariable(variable)
     } else if (variable.equivalentVariableCount() === 0) {
-      console.log('Variable has no equivalences, removing:', variable.name())
       paramComp.removeVariableByVariable(variable)
     }
 
@@ -841,4 +843,85 @@ export function extractVariablesFromModule(module) {
   }
 
   return names
+}
+
+export function createEditableModelFromSourceModelAndComponent(modelString, componentName) {
+  if (modelString) {
+    const parser = new _libcellml.Parser(false)
+    const model = parser.parseModel(modelString)
+    const component = model.componentByName(componentName, true)
+    if (component) {
+      const newModel = new _libcellml.Model()
+      newModel.setName('EditModel')
+      const compClone = component.clone()
+      newModel.addComponent(compClone)
+
+      const printer = new _libcellml.Printer()
+      const newModelString = printer.printModel(newModel, false)
+
+      component.delete()
+      compClone.delete()
+      model.delete()
+      parser.delete()
+      printer.delete()
+      newModel.delete()
+
+      return newModelString
+    }
+    model.delete()
+    parser.delete()
+  }
+
+  return null
+}
+
+export function doesComponentExistInModel(modelString, componentName) {
+  if (modelString) {
+    const parser = new _libcellml.Parser(false)
+    const model = parser.parseModel(modelString)
+    const component = model.componentByName(componentName, true)
+    const hasComponent = component !== null
+    if (component) component.delete()
+    model.delete()
+    parser.delete()
+    return hasComponent
+  }
+  return false
+}
+
+export function mergeModelComponents(targetModelString, sourceModelString, newComponentName) {
+  const parser = new _libcellml.Parser(false)
+  let targetModel = parser.parseModel(targetModelString)
+  if (!targetModel) {
+    targetModel = new _libcellml.Model()
+    targetModel.setName('UserModules')
+  }
+
+  const sourceModel = parser.parseModel(sourceModelString)
+
+  if (sourceModel.componentCount() > 0) {
+    const component = sourceModel.componentByIndex(0)
+    const existingComponent = targetModel.componentByName(newComponentName, true)
+
+    if (existingComponent) {
+      targetModel.removeComponentByName(newComponentName, true)
+      existingComponent.delete()
+    }
+
+    const clonedComponent = component.clone()
+    clonedComponent.setName(newComponentName)
+    targetModel.addComponent(clonedComponent)
+    clonedComponent.delete()
+    component.delete()
+  }
+
+  const printer = new _libcellml.Printer()
+  const mergedModelString = printer.printModel(targetModel, false)
+
+  targetModel.delete()
+  sourceModel.delete()
+  parser.delete()
+  printer.delete()
+
+  return mergedModelString
 }
