@@ -1852,10 +1852,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"cellml-text-editor@npm:^0.1.4":
-  version: 0.1.4
-  resolution: "cellml-text-editor@npm:0.1.4"
-  checksum: 10c0/87a3b083b4ca48faa17ab15743ab0bdb4b896b7e22825e2e765e51877ca48034bf1972addf77ec023244b992632090faa161f119842b9540e35e737233d18be2
+"cellml-text-editor@npm:^0.1.5":
+  version: 0.1.5
+  resolution: "cellml-text-editor@npm:0.1.5"
+  checksum: 10c0/a15f82bccd6b067959efa26ecf2cfe738141977f79dcc4539570dd5ced907cb19a6c9923a44046b109e68468d8a9a23cfa5e97b8ff31c8d46dfccf5b7e76d928
   languageName: node
   linkType: hard
 
@@ -4316,7 +4316,7 @@ __metadata:
     "@vue-flow/core": "npm:^1.47.0"
     "@vue-flow/minimap": "npm:^1.5.4"
     "@vue-flow/node-resizer": "npm:^1.5.0"
-    cellml-text-editor: "npm:^0.1.4"
+    cellml-text-editor: "npm:^0.1.5"
     cytoscape: "npm:^3.33.1"
     cytoscape-fcose: "npm:^2.2.0"
     electron: "npm:^39.0.0"

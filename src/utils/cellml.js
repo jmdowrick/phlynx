@@ -843,6 +843,20 @@ export function extractVariablesFromModule(module) {
   return names
 }
 
+function removeComments(node) {
+  const children = Array.from(node.childNodes)
+
+  for (const child of children) {
+    if (child.nodeType === 8) {
+      // 8 = Node.COMMENT_NODE
+      node.removeChild(child)
+    } else if (child.nodeType === 1) {
+      // 1 = Element
+      removeComments(child)
+    }
+  }
+}
+
 export function createEditableModelFromSourceModelAndComponent(modelString, componentName) {
   if (modelString) {
     const parser = new _libcellml.Parser(false)
@@ -853,6 +867,14 @@ export function createEditableModelFromSourceModelAndComponent(modelString, comp
       newModel.setName('EditModel')
       const compClone = component.clone()
       newModel.addComponent(compClone)
+
+      const xmlParser = new DOMParser()
+      // Remove comments from MathML, maybe libCellML can't handle them?
+      const doc = xmlParser.parseFromString(compClone.math(), 'application/xml')
+      removeComments(doc)
+      const serializer = new XMLSerializer()
+      const cleanMathML = serializer.serializeToString(doc)
+      compClone.setMath(cleanMathML)
 
       const printer = new _libcellml.Printer()
       const newModelString = printer.printModel(newModel, false)
@@ -889,7 +911,7 @@ export function doesComponentExistInModel(modelString, componentName) {
 
 export function mergeModelComponents(targetModelString, sourceModelString, newComponentName) {
   const parser = new _libcellml.Parser(false)
-  
+
   let targetModel = null
   if (targetModelString && targetModelString.trim().length > 0) {
     try {
@@ -940,4 +962,26 @@ export function mergeModelComponents(targetModelString, sourceModelString, newCo
   printer.delete()
 
   return mergedModelString
+}
+
+export function areModelsEquivalent(modelAString, modelBString) {
+  if (!modelAString || !modelBString) {
+    return false
+  }
+
+  if (modelAString.trim() === '' || modelBString.trim() === '') {
+    return false
+  }
+
+  const parser = new _libcellml.Parser(true)
+  const modelA = parser.parseModel(modelAString)
+  const modelB = parser.parseModel(modelBString)
+
+  const equal = modelA.equals(modelB)
+
+  modelA.delete()
+  modelB.delete()
+  parser.delete()
+
+  return equal
 }

@@ -53,11 +53,11 @@ import CellMLTextEditor from './CellMLTextEditor.vue'
 import { useBuilderStore } from '../stores/builderStore'
 import { USER_MODULES_FILE } from '../utils/constants'
 import {
+  areModelsEquivalent,
   createEditableModelFromSourceModelAndComponent,
   doesComponentExistInModel,
   mergeModelComponents,
 } from '../utils/cellml'
-import { areXmlsSemanticallyEqual } from '../utils/xml'
 
 const props = defineProps({
   modelValue: {
@@ -89,7 +89,7 @@ const isInternalModule = computed(() => {
 })
 
 const isDirty = computed(() => {
-  return !areXmlsSemanticallyEqual(originalCode.value, currentCode.value);
+  return !areModelsEquivalent(originalCode.value, currentCode.value);
 })
 
 const dialogTitle = computed(() => {
