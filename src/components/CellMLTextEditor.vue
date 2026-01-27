@@ -172,6 +172,7 @@ textarea,
   white-space: pre;
   overflow: auto;
   outline: none;
+  resize: none;
 }
 .code-view {
   background: #1e1e1e;
