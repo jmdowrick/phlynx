@@ -98,7 +98,7 @@ You can use standard arithmetic operators (`+`, `-`, `*`, `/`) and common mathem
 flow = (u_in - u_out) / R;
 
 // Calculating area from a radius variable
-area = 3.14159 * pow(radius, 2);
+area = 3.14159 * power(radius, 2);
 ```
 > [!WARNING] 
 > Ensure that the units on the Left Hand Side (LHS) of the equation match the calculated units on the Right Hand Side (RHS). CellML enforces dimensional consistency.
