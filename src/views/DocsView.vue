@@ -44,6 +44,7 @@
           <el-menu-item index="/docs/reference/ghost-nodes">Ghost Nodes</el-menu-item>
           <el-menu-item index="/docs/reference/valid-port-configurations">Port Logic</el-menu-item>
           <el-menu-item index="/docs/reference/file-types">Supported File Formats</el-menu-item>
+          <el-menu-item index="/docs/reference/parameter-matching">Parameter Matching</el-menu-item>
           <el-menu-item index="/docs/reference/glossary">Glossary</el-menu-item>
           <el-menu-item index="/docs/reference/change-log">Changelog</el-menu-item>
         </el-sub-menu>
