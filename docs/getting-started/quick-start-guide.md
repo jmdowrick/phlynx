@@ -54,8 +54,9 @@ Modules interact via specific tools located on the module node itself.
 ![Labelled module node](../assets/images/labelled-module.png){.align-center width="600px"}
 
 * **[Key](../reference/ui-overview#key) (Left):** Assigns a color for visual identification.
-* **[Add Port Node](../reference/ui-overview#add-port-node) (Centre):** adds a <GlossaryLink term="port-node"/> connection point.
-* **[Edit Module](../reference/ui-overview#edit-module) (Right):** Opens the configuration dialog.
+* **[Add Port Node](../reference/ui-overview#add-port-node) (Centre-left):** adds a <GlossaryLink term="port-node"/> connection point.
+* **[Edit Module Configuration](../reference/ui-overview#edit-module) (Centre-right):** Opens the configuration dialog.
+* **[Edit CellML](../guides/writing-cellml) (Right):** Opens the CellML text editor. 
 
 **Managing Connections**
 To connect two modules, both must have at least one **Port Node**.
