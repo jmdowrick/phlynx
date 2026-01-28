@@ -293,6 +293,17 @@ function extractUnitsFromMath(multiBlockMathString) {
   return Array.from(foundUnits)
 }
 
+function arePortTypesCompatible(portType1, portType2) {
+  if (portType1 === 'general_ports' || portType2 === 'general_ports') {
+    return true;
+  }
+  // in and out can connect to each other
+  if (portType1 === 'exit_ports' && portType2 === 'entrance_ports') {
+    return true;
+  }
+  return false;
+}
+
 function handleLoggerErrors(logger, headerMessage, dontThrow = false) {
   const errMessages = [headerMessage]
   console.log(headerMessage)
@@ -465,7 +476,7 @@ function applyParameterMappings(model, parameterData, ensureUnitImported) {
       }
 
       const matchUnitsTrimmed = match.units ? match.units.trim() : 'dimensionless';
-      
+
       // Ensure the unit exists in the model scope before assigning to variable.
       if (ensureUnitImported) {
         ensureUnitImported(matchUnitsTrimmed);
@@ -476,10 +487,10 @@ function applyParameterMappings(model, parameterData, ensureUnitImported) {
       if (!sourceVar) {
         sourceVar = new _libcellml.Variable();
         sourceVar.setName(match.variable_name);
-        
+
         // Ensure the initial value is explicitly set to define variable type as 'constant'.
         sourceVar.setInitialValueByString(match.value.trim());
-        
+
         const matchUnits = model.unitsByName(matchUnitsTrimmed);
         if (matchUnits) {
           sourceVar.setUnitsByUnits(matchUnits);
@@ -697,15 +708,24 @@ export function generateFlattenedModel(nodes, edges, builderStore) {
               )
             } else {
               // CASE B: Direct Connection (One-to-One)
-              for (const srcOption of srcLabel.option) {
-                const srcBase = normaliseName(srcOption, srcLabel.portType)
-                const tgtOption = tgtLabel.option.find((o) => normaliseName(o, tgtLabel.portType) === srcBase)
-                if (srcOption && tgtOption) {
+              const minLength = Math.min(srcLabel.option.length, tgtLabel.option.length);
+
+              for (let i = 0; i < minLength; i++) {
+                const srcOption = srcLabel.option[i];
+                const tgtOption = tgtLabel.option[i];
+
+                if (srcOption && tgtOption) {             
+                  if (!arePortTypesCompatible(srcLabel.portType, tgtLabel.portType)) {
+                    continue // Skip this connection if port types incompatible
+                  }
+                  
                   const v1 = sourceComp.variableByName(srcOption)
                   const v2 = targetComp.variableByName(tgtOption)
 
+                  console.log(srcLabel.portType, v1, tgtLabel.portType, v2)
+
                   if (v1 && v2) {
-                    _libcellml.Variable.addEquivalence(v1, v2)
+                    _libcellml.Variable.addEquivalence(v1, v2);
                   }
 
                   v1.delete()
