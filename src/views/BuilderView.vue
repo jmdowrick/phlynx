@@ -243,7 +243,7 @@
   <ModuleParameterMatchDialog 
     v-model="moduleParameterMatchDialogVisible" 
     :builder-store="builderStore"
-    :nodes="nodes"
+    :activeFiles="activeWorkspaceFiles"
   />
 
   <ImportDialog
@@ -742,6 +742,16 @@ const onEdgeChange = (changes) => {
 }
 
 const screenshotDisabled = computed(() => nodes.value.length === 0 && vueFlowRef.value !== null)
+
+const activeWorkspaceFiles = computed(() => {
+  const fileSet = new Set()
+  nodes.value.forEach(node => {
+    if (node.data?.sourceFile) {
+      fileSet.add(node.data.sourceFile)
+    }
+  })
+  return Array.from(fileSet)
+})
 
 const loadCellMLModuleData = (content, filename, broadcaseNotifications = true) => {
   return new Promise((resolve) => {

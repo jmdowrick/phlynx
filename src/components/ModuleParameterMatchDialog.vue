@@ -123,8 +123,8 @@ const props = defineProps({
     type: Object,
     required: true,
   },
-  nodes: {
-    type: Object,
+  activeFiles: {
+    type: Array,
     required: true,
   }
 })
@@ -148,9 +148,9 @@ function getRequiredVariablesForFile(fileObj) {
 }
 
 // --- Helper: Check if File is "Active" in Workspace ---
-function isFileActive(fileObj, nodes) {
+function isFileActive(fileObj, activeFiles) {
   if (!fileObj.modules) return false
-  return nodes.some((node) => node.data.sourceFile === fileObj.filename)
+  return activeFiles.some((file) => file === fileObj.filename)
 }
 
 // --- Data Preparation ---
@@ -232,7 +232,7 @@ async function prepareData() {
         }
     }
 
-    const isActive = isFileActive(file, props.nodes)
+    const isActive = isFileActive(file, props.activeFiles)
     if (!isActive && !assignedInStore) {
         return
     }
