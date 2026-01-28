@@ -432,7 +432,7 @@ function prioritizeEnvironmentComponent(xmlString) {
 /**
  * Applies parameter data to the model variables with strict unit and value validation.
  */
-function applyParameterMappings(model, parameterData, ensureUnitImported) {
+function applyParameterMappings(model, parameterData, ensureUnitImported = () => {}) {
   const paramMap = new Map();
   for (const params of parameterData.values()) {
     // Only iterate if params is actually an array of parameter objects
