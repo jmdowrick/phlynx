@@ -18,7 +18,7 @@
     >
       <el-form label-position="top">
         <div v-for="field in displayFields" :key="field.key" class="field-container">
-          <el-form-item :label="field.label" :required="field.required || true">
+          <el-form-item :label="field.label" :required="field?.required ?? true">
             <div class="upload-row">
               <el-upload
                 action="#"
@@ -364,12 +364,6 @@ async function updateVesselValidation(validation) {
   validationStatus.value = validation
 
   if (validation.isComplete) {
-    // No need to notify again.
-    // notify.success({
-    //   title: 'All Resources Available',
-    //   message: 'All required modules and configurations are now loaded!',
-    //   duration: 3000,
-    // })
     return
   }
 
