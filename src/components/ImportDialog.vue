@@ -90,7 +90,10 @@
 
 <script setup>
 import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { ElDialog, ElForm, ElFormItem, ElInput, ElButton, ElUpload, ElAlert, ElIcon } from 'element-plus'
 import { Check } from '@element-plus/icons-vue'
+
+import { useGtm } from '../composables/useGtm'
 import { notify } from '../utils/notify'
 import { IMPORT_KEYS } from '../utils/constants'
 import { createDynamicFields, validateVesselData } from '../utils/import'
@@ -116,6 +119,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:modelValue', 'confirm'])
+const { trackEvent } = useGtm()
 
 // --- State Management ---
 const formState = reactive({})
@@ -348,6 +352,12 @@ const handleFileChange = async (uploadFile, field) => {
     state.payload = null
     state.warnings = []
 
+    trackEvent('import_action', {
+      category: 'Import',
+      action: 'import_error',
+      label: field.key || 'unknown_field', // useful context
+      file_type: 'various'
+    })
     notify.error({
       title: 'Import Error',
       message: error.message || 'Failed to parse file.',
@@ -461,6 +471,12 @@ const handleConfirm = async () => {
     result[field.key] = formState[field.key].payload
   })
 
+  trackEvent('import_action', {
+    category: 'Import',
+    action: 'import_file',
+    label: props.config.title || 'Import File', // useful context
+    file_type: 'various'
+  })
   emit('confirm', result, (progressText) => {
     loadingText.value = progressText
   })

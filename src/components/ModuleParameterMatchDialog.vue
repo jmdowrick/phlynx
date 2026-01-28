@@ -116,6 +116,7 @@
 import { computed, ref, watch, nextTick } from 'vue'
 import { Check } from '@element-plus/icons-vue'
 import { notify } from '../utils/notify'
+import { useGtm } from '../composables/useGtm'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -130,6 +131,9 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:modelValue'])
+
+const builderStore = useBuilderStore()
+const { trackEvent } = useGtm()
 const associationTable = ref([])
 
 // --- Helper: Get Required Variables ---
@@ -287,6 +291,14 @@ async function handleConfirm() {
 
   console.log(linkMap, typeMap)
   props.builderStore.applyFileParameterLinks(linkMap, typeMap)
+
+
+  trackEvent('parameter_match_action', {
+    category: 'ModuleParameterMatch',
+    action: 'confirm',
+    label: `${missing.length} missing assignments`, // useful context
+    file_type: 'json'
+  })
 
   notify.success({ title: 'Saved', message: 'Parameter links updated.' })
   closeDialog()

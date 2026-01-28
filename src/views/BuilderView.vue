@@ -287,6 +287,7 @@ import useDragAndDrop from '../composables/useDnD'
 import { useLoadFromVesselArray } from '../composables/useLoadFromVesselArray'
 import { useResizableAside } from '../composables/useResizableAside'
 import { useAutoClosingTooltip } from '../composables/useAutoClosingTooltip'
+import { useGtm } from '../composables/useGtm'
 import ModuleList from '../components/ModuleList.vue'
 import Workbench from '../components/WorkbenchArea.vue'
 import ModuleNode from '../components/ModuleNode.vue'
@@ -347,6 +348,7 @@ const { onDragOver, onDrop, onDragLeave, isDragOver } = useDragAndDrop(pendingHi
 const historyStore = useFlowHistoryStore()
 const { loadFromVesselArray } = useLoadFromVesselArray()
 const { capture } = useScreenshot()
+const { trackEvent } = useGtm()
 const { width: asideWidth, startResize } = useResizableAside(200, 150, 400)
 
 const cellmlModules = import.meta.glob('../assets/cellml/*.cellml', {
@@ -768,6 +770,12 @@ const loadCellMLModuleData = (content, filename, broadcaseNotifications = true) 
         model: result.model,
       })
       if (broadcaseNotifications) {
+        trackEvent('modules_load_action', {
+        category: 'Modules',
+        action: 'load_cellml_module',
+        label: `Modules: ${result.data.length}`,
+        file_type: 'cellml'
+      })
         notify.success({
           title: 'CellML Modules Loaded',
           message: `Loaded ${result.data.length} parameters from ${filename}.`,
@@ -775,6 +783,12 @@ const loadCellMLModuleData = (content, filename, broadcaseNotifications = true) 
       }
     } else if (result.issues) {
       if (broadcaseNotifications) {
+        trackEvent('modules_load_action', {
+          category: 'Modules',
+          action: 'load_cellml_module',
+          label: `Error: encountered ${result.issues.length} error(s)`,
+          file_type: 'cellml'
+        })
         notify.error({
           title: 'Loading Module Error',
           message: `${result.issues.length} issues found in model file.`,
@@ -796,6 +810,12 @@ const loadCellMLUnitsData = (content, filename, broadcaseNotifications = true) =
         model: result.model,
       })
       if (broadcaseNotifications) {
+        trackEvent('units_load_action', {
+          category: 'Units',
+          action: 'load_cellml_units',
+          label: `Units: ${result.units.count}`,
+          file_type: 'cellml'
+        })
         notify.success({
           title: 'CellML Units Loaded',
           message: `Loaded ${result.units.count} units from ${filename}.`,
@@ -803,6 +823,12 @@ const loadCellMLUnitsData = (content, filename, broadcaseNotifications = true) =
       }
     } else if (result.issues) {
       if (broadcaseNotifications) {
+        trackEvent('units_load_action', {
+          category: 'Units',
+          action: 'load_cellml_units',
+          label: `Error: encountered ${result.issues.length} error(s)`,
+          file_type: 'cellml'
+        })
         notify.error({
           title: 'Loading Units Error',
           message: `${result.issues[0].description}`,
@@ -821,6 +847,12 @@ const loadParametersData = async (content, filename, broadcastNotifications = tr
     const added = builderStore.addParameterFile(filename, result)
 
     if (broadcastNotifications && added) {
+      trackEvent('parameters_load_action', {
+        category: 'Parameters',
+        action: 'load_parameters',
+        label: `Parameters: ${result.length}`,
+        file_type: 'csv'
+      })
       notify.success({
         title: 'Parameters Loaded',
         message: `Loaded ${result.length} parameters from ${filename}.`,
@@ -835,6 +867,12 @@ const loadParametersData = async (content, filename, broadcastNotifications = tr
     return added
   } catch (err) {
     if (broadcastNotifications) {
+      trackEvent('parameters_load_action', {
+        category: 'Parameters',
+        action: 'load_parameters',
+        label: `Error: ${err.message}`,
+        file_type: 'csv'
+      })
       notify.error({
         title: 'Loading Parameters Error',
         message: `Failed to load parameters from ${filename}.`,
@@ -1038,8 +1076,20 @@ async function handleSaveWorkspace() {
       try {
         writeFileHandle(result.handle, blob)
         builderStore.setLastSaveName(result.handle.name)
+        trackEvent('save_action', {
+          category: 'Save',
+          action: 'save_workflow',
+          label: `File: ${result.handle.name}`,
+          file_type: 'json'
+        })
         notify.success({ message: 'Workflow saved!' })
       } catch (err) {
+        trackEvent('save_action', {
+          category: 'Save',
+          action: 'save_workflow',
+          label: `Error: ${err.message}`,
+          file_type: 'json'
+        })
         notify.error({
           title: 'Error Saving Workflow',
           message: err.message,
@@ -1048,17 +1098,6 @@ async function handleSaveWorkspace() {
     }
   } else {
     saveDialogVisible.value = true
-  }
-}
-
-async function handleExport() {
-  const result = await saveFileHandle(builderStore.lastExportName, JSON_FILE_TYPES)
-  if (result.status) {
-    if (result.handle) {
-      onExportConfirm(undefined, result.handle)
-    }
-  } else {
-    exportDialogVisible.value = true
   }
 }
 
@@ -1100,6 +1139,14 @@ async function onExportConfirm(fileName, handle) {
 
     builderStore.setLastExportName(finalName)
     notification.close()
+
+    trackEvent('export_action', {
+      category: 'Export',
+      action: 'export_model',
+      label: `File: ${finalName}`,
+      file_type: currentExportMode.value.key
+    })
+
     notify.success({
       title: 'Export successful!',
       message: h('div', null, [
@@ -1119,6 +1166,12 @@ async function onExportConfirm(fileName, handle) {
     })
   } catch (error) {
     notification.close()
+    trackEvent('export_action', {
+      category: 'Export',
+      action: 'export_model',
+      label: `Error: ${error.message}`,
+      file_type: currentExportMode.value.key
+    })
     notify.error({ message: `Export failed: ${error.message}` })
   }
 }
@@ -1216,10 +1269,22 @@ function handleLoadWorkspace(file) {
       builderStore.lastSaveName = loadedState.store.lastSaveName
       builderStore.lastExportName = loadedState.store.lastExportName
 
+      trackEvent('workflow_load_action', {
+        category: 'Workflow',
+        action: 'load_workflow',
+        label: `Nodes: ${nodes.value.length}, Edges: ${edges.value.length}`,
+        file_type: 'json'
+      })
       notify.success({
         message: 'Workflow loaded successfully!',
       })
     } catch (error) {
+      trackEvent('workflow_load_action', {
+        category: 'Workflow',
+        action: 'load_workflow',
+        label: `Error: ${error.message}`,
+        file_type: 'json'
+      })
       notify.error({ message: `Failed to load workflow: ${error.message}` })
     }
   }
