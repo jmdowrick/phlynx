@@ -192,6 +192,16 @@ function getProgressStatus(percentage) {
   return 'exception'
 }
 
+function handleSelectionChange(row) {
+  row.assignmentType = 'manual'
+  
+  if (row.matchedParameterFile) {
+    row.matchStats = calculateStats(row.fileRef, row.matchedParameterFile)
+  } else {
+    row.matchStats = null
+  }
+}
+
 function findBestMatchForFile(fileRef, availableParamFiles) {
   let bestMatchName = null
   let bestMatchCount = -1
@@ -244,7 +254,7 @@ async function prepareData() {
       fileRef: file, 
       matchedParameterFile: currentParamFile || null,
       assignmentType: assignmentType,
-      matchStats: calculateStats(file, currentParamFile)
+      matchStats: currentParamFile ? calculateStats(file, currentParamFile) : null
     }
     
     rows.push(row)
