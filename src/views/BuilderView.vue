@@ -750,7 +750,7 @@ const activeWorkspaceFiles = computed(() => {
   return Array.from(fileSet)
 })
 
-const loadCellMLModuleData = (content, filename, broadcaseNotifications = true) => {
+const loadCellMLModuleData = (content, filename, broadcastNotifications = true) => {
   return new Promise((resolve) => {
     const result = processModuleData(content)
     if (result.type === 'success') {
@@ -763,7 +763,7 @@ const loadCellMLModuleData = (content, filename, broadcaseNotifications = true) 
         modules: augmentedData,
         model: result.model,
       })
-      if (broadcaseNotifications) {
+      if (broadcastNotifications) {
         trackEvent('modules_load_action', {
           category: 'Modules',
           action: 'load_cellml_module',
@@ -776,7 +776,7 @@ const loadCellMLModuleData = (content, filename, broadcaseNotifications = true) 
         })
       }
     } else if (result.issues) {
-      if (broadcaseNotifications) {
+      if (broadcastNotifications) {
         trackEvent('modules_load_action', {
           category: 'Modules',
           action: 'load_cellml_module',
@@ -795,7 +795,7 @@ const loadCellMLModuleData = (content, filename, broadcaseNotifications = true) 
   })
 }
 
-const loadCellMLUnitsData = (content, filename, broadcaseNotifications = true) => {
+const loadCellMLUnitsData = (content, filename, broadcastNotifications = true) => {
   return new Promise((resolve) => {
     const result = processUnitsData(content)
     if (result.type === 'success') {
@@ -803,7 +803,7 @@ const loadCellMLUnitsData = (content, filename, broadcaseNotifications = true) =
         filename: filename,
         model: result.model,
       })
-      if (broadcaseNotifications) {
+      if (broadcastNotifications) {
         trackEvent('units_load_action', {
           category: 'Units',
           action: 'load_cellml_units',
@@ -816,7 +816,7 @@ const loadCellMLUnitsData = (content, filename, broadcaseNotifications = true) =
         })
       }
     } else if (result.issues) {
-      if (broadcaseNotifications) {
+      if (broadcastNotifications) {
         trackEvent('units_load_action', {
           category: 'Units',
           action: 'load_cellml_units',
