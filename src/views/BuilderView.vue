@@ -972,38 +972,54 @@ function onOpenCellMLEditorDialog(eventPayload) {
   cellMLEditorDialogVisible.value = true
 }
 
-async function onCellMLUpdateSave(updatedData) {
+async function propogateCellMLModuleUpdates(updatedData, changeText) {
   await loadCellMLModuleData(updatedData.code, updatedData.sourceFile, false)
+  const updatedModule = builderStore.getModulesModule(updatedData.sourceFile, updatedData.componentName)
+  const validPortNames = new Set(updatedModule.portOptions.map((p) => p.name))
+
+  let updatedCount = 0
+  nodes.value.forEach((node) => {
+    const isTargetNode = node.id === updatedData.nodeId
+    const isMatchingModule =
+      node.data.sourceFile === updatedData.sourceFile && node.data.componentName === updatedData.componentName
+    if (isTargetNode || isMatchingModule) {
+      const cleanLabels = (node.data.portLabels || []).map((labelObj) => {
+        return {
+          ...labelObj,
+          // Filter the internal array: Keep 'opt' only if it exists in validPortNames.
+          option: labelObj.option.filter((opt) => validPortNames.has(opt)),
+        }
+      })
+
+      // Create the new data object
+      const newData = {
+        ...node.data,
+        componentName: updatedModule.componentName,
+        sourceFile: updatedModule.sourceFile, // Essential for the target node
+        label: `${updatedModule.componentName} — ${updatedModule.sourceFile}`,
+        portLabels: cleanLabels, // Cleaned port labels.
+        portOptions: updatedModule.portOptions, // Updates the ports/handles
+      }
+
+      updatedCount++
+      updateNodeData(node.id, newData)
+    }
+  })
 
   notify.success({
-    title: 'CellML Module Updated',
-    message: `Module ${updatedData.componentName} has been updated in ${updatedData.sourceFile}.`,
+    title: 'CellML Module ' + changeText,
+    message: `Updated ${updatedCount} node${updatedCount !== 1 ? 's' : ''} to use ${updatedData.componentName} from ${
+      updatedData.sourceFile
+    }.`,
   })
 }
+
+async function onCellMLUpdateSave(updatedData) {
+  propogateCellMLModuleUpdates(updatedData, 'Updated')
+}
+
 async function onCellMLForkSave(saveData) {
-  if (!saveData.nodeId) return
-
-  const node = findNode(saveData.nodeId)
-  if (!node) return
-
-  const originalSourceFile = node.data.sourceFile || 'unknown_source.cellml'
-  const originalComponentName = node.data.componentName
-  const nodeData = {
-    ...node.data,
-    componentName: saveData.componentName,
-    sourceFile: saveData.sourceFile,
-    label: `${saveData.componentName} — ${saveData.sourceFile}`,
-  }
-
-  await loadCellMLModuleData(saveData.code, saveData.sourceFile, false)
-  await nextTick()
-
-  updateNodeData(saveData.nodeId, nodeData)
-
-  notify.success({
-    title: 'CellML Module Saved As',
-    message: `Module ${originalComponentName} from ${originalSourceFile} has been saved as ${saveData.componentName} in ${saveData.sourceFile}.`,
-  })
+  propogateCellMLModuleUpdates(saveData, 'Forked')
 }
 
 function onOpenMacroBuilderDialog() {
