@@ -1,16 +1,35 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
+function mergeIntoStore(newModules, target) {
+  const moduleMap = new Map(target.map((mod) => [mod.filename, mod]))
+
+  if (newModules) {
+    for (const newModule of newModules) {
+      if (newModule && newModule.filename) {
+        // Safety check
+        moduleMap.set(newModule.filename, newModule)
+      }
+    }
+  }
+
+  target.length = 0
+  target.push(...moduleMap.values())
+}
+
 // 'builder' is the store's ID
 export const useBuilderStore = defineStore('builder', () => {
   // --- STATE ---
   const availableModules = ref([])
   const availableUnits = ref([])
-  const parameterData = ref([])
-  const parameterFiles = ref(new Map())
-  const moduleParameterMap = ref(new Map())
   const lastSaveName = ref('phlynx-project')
   const lastExportName = ref('phlynx-export')
+
+  const parameterFiles = ref(new Map())
+  const moduleParameterMap = ref(new Map())
+  const moduleAssignmentTypeMap = ref(new Map())
+  const fileParameterMap = ref(new Map())
+  const fileAssignmentTypeMap = ref(new Map())
 
   // --- DEBUG ---
 
@@ -29,14 +48,27 @@ export const useBuilderStore = defineStore('builder', () => {
 
   function addParameterFile(filename, data) {
     if (!data || !Array.isArray(data)) return false
-
     parameterFiles.value.set(filename, data)
-
     return true
   }
 
-  function applyParameterLinks(linkMap) {
+  function applyFileParameterLinks(linkMap, typeMap = null) {
+    fileParameterMap.value = linkMap
     moduleParameterMap.value = linkMap
+
+    if (typeMap) {
+      fileAssignmentTypeMap.value = typeMap
+      moduleAssignmentTypeMap.value = typeMap
+    }
+  }
+
+  function applyParameterLinks(linkMap, typeMap = null) {
+    moduleParameterMap.value = linkMap
+    fileParameterMap.value = linkMap
+    if (typeMap) {
+      moduleAssignmentTypeMap.value = typeMap
+      fileAssignmentTypeMap.value = typeMap
+    }
   }
 
   function getParameterFileNameForModule(moduleName) {
@@ -48,6 +80,22 @@ export const useBuilderStore = defineStore('builder', () => {
     if (!paramFileName) return []
     return parameterFiles.value.get(paramFileName) || []
   }
+
+  function getAssignmentTypeForModule(moduleName) {
+    return moduleAssignmentTypeMap.value.get(moduleName) || null
+  }
+
+  function getParametersForFile(filename) {
+    const paramFileName = fileParameterMap.value.get(filename)
+    if (!paramFileName) return []
+    return parameterFiles.value.get(paramFileName) || []
+  }
+
+  function getParameterFileNameForFile(filename) {
+    return fileParameterMap.value.get(filename) || null
+  }
+
+  // --- SETTERS ---
 
   function setLastSaveName(name) {
     lastSaveName.value = name
@@ -71,29 +119,6 @@ export const useBuilderStore = defineStore('builder', () => {
 
   /**
    * Adds configuration(s) to the appropriate module(s)
-   * @param {Array} payload - Array of configs
-   * @param {string} filename - Optional filename (when first param is array)
-   *
-   * Usage:
-   *   addConfigFile([{...}], 'config.json')
-   *
-   * Structure of availableModules after adding configs:
-   * [
-   *   {
-   *     filename: "module.cellml",
-   *     modules: [
-   *       {
-   *         name: "artery",
-   *         type: "artery",
-   *         configs: [
-   *           { BC_type: "nn", vessel_type: "aorta", ... },
-   *           { BC_type: "pv", vessel_type: "pulmonary", ... }
-   *         ]
-   *       }
-   *     ],
-   *     model: "<?xml..."
-   *   }
-   * ]
    */
   function addConfigFile(payload, filename) {
     const configs = payload
@@ -111,7 +136,7 @@ export const useBuilderStore = defineStore('builder', () => {
         moduleFile = {
           filename: config.module_file,
           modules: [],
-          isStub: true, // marker to indicate this needs real content later
+          isStub: true,
         }
         availableModules.value.push(moduleFile)
       }
@@ -174,6 +199,18 @@ export const useBuilderStore = defineStore('builder', () => {
     addOrUpdateFile(availableUnits, payload)
   }
 
+  function loadState(state) {
+    mergeIntoStore(state.availableModules, availableModules.value)
+    mergeIntoStore(state.availableUnits, availableUnits.value)
+    fileAssignmentTypeMap.value = new Map(state.fileAssignmentTypeMap || [])
+    fileParameterMap.value = new Map(state.fileParameterMap || [])
+    lastSaveName.value = state.lastSaveName || 'phlynx-project'
+    lastExportName.value = state.lastExportName || 'phlynx-export'
+    moduleAssignmentTypeMap.value = new Map(state.moduleAssignmentTypeMap || [])
+    moduleParameterMap.value = new Map(state.moduleParameterMap || [])
+    parameterFiles.value = new Map(state.parameterFiles || [])
+  }
+
   function removeFile(collection, filename) {
     const index = collection.value.findIndex((f) => f.filename === filename)
     if (index !== -1) {
@@ -191,11 +228,9 @@ export const useBuilderStore = defineStore('builder', () => {
 
   function getModuleContent(filename) {
     const index = this.availableModules.findIndex((f) => f.filename === filename)
-
     if (index !== -1) {
       return this.availableModules[index].model
     }
-
     return ''
   }
 
@@ -248,12 +283,6 @@ export const useBuilderStore = defineStore('builder', () => {
     return null
   }
 
-  /**
-   * Gets a specific config for a module type and BC type
-   * @param {string} moduleType - The module type
-   * @param {string} bcType - The BC type
-   * @returns {Object|null} The config object or null
-   */
   function getConfig(moduleType, bcType) {
     for (const file of availableModules.value) {
       for (const module of file.modules) {
@@ -266,6 +295,20 @@ export const useBuilderStore = defineStore('builder', () => {
     return null
   }
 
+  function getSaveState() {
+    return {
+      availableModules: availableModules.value,
+      availableUnits: availableUnits.value,
+      lastExportName: lastExportName.value,
+      lastSaveName: lastSaveName.value,
+      moduleParameterMap: Array.from(moduleParameterMap.value.entries()),
+      moduleAssignmentTypeMap: Array.from(moduleAssignmentTypeMap.value.entries()),
+      fileParameterMap: Array.from(fileParameterMap.value.entries()),
+      fileAssignmentTypeMap: Array.from(fileAssignmentTypeMap.value.entries()),
+      parameterFiles: Array.from(parameterFiles.value.entries()),
+    }
+  }
+
   // --- GETTERS (computed) ---
 
   return {
@@ -275,7 +318,9 @@ export const useBuilderStore = defineStore('builder', () => {
     lastExportName,
     lastSaveName,
     moduleParameterMap,
-    parameterData,
+    moduleAssignmentTypeMap,
+    fileParameterMap,
+    fileAssignmentTypeMap,
     parameterFiles,
 
     // Actions
@@ -283,17 +328,25 @@ export const useBuilderStore = defineStore('builder', () => {
     addModuleFile,
     addParameterFile,
     addUnitsFile,
-    applyParameterLinks,
+    applyParameterLinks, // Re-enabled
+    applyFileParameterLinks, // Updated with syncing
+    loadState,
+    removeModuleFile,
+    setLastExportName,
+    setLastSaveName,
+
+    // Getters
+    getAssignmentTypeForModule,
     getConfig,
     getConfigForVessel,
     getModuleContent,
     getModulesModule,
+    getParameterFileNameForFile,
     getParameterFileNameForModule,
+    getParametersForFile,
     getParametersForModule,
+    getSaveState,
     hasModuleFile,
-    removeModuleFile,
-    setLastExportName,
-    setLastSaveName,
 
     // Debug
     listModules,

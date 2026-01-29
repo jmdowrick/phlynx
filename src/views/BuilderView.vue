@@ -240,13 +240,12 @@
     @edit-node="onOpenEditDialog"
   />
 
-  <ModuleParameterMatchDialog v-model="moduleParameterMatchDialogVisible" />
+  <ModuleParameterMatchDialog v-model="moduleParameterMatchDialogVisible" :activeFiles="activeWorkspaceFiles" />
 
   <ImportDialog
     ref="importDialogRef"
     v-model="importDialogVisible"
     :config="currentImportConfig"
-    :builder-store="builderStore"
     @confirm="onImportConfirm"
   />
 </template>
@@ -741,7 +740,17 @@ const onEdgeChange = (changes) => {
 
 const screenshotDisabled = computed(() => nodes.value.length === 0 && vueFlowRef.value !== null)
 
-const loadCellMLModuleData = (content, filename, broadcaseNotifications = true) => {
+const activeWorkspaceFiles = computed(() => {
+  const fileSet = new Set()
+  nodes.value.forEach((node) => {
+    if (node.data?.sourceFile) {
+      fileSet.add(node.data.sourceFile)
+    }
+  })
+  return Array.from(fileSet)
+})
+
+const loadCellMLModuleData = (content, filename, broadcastNotifications = true) => {
   return new Promise((resolve) => {
     const result = processModuleData(content)
     if (result.type === 'success') {
@@ -754,7 +763,7 @@ const loadCellMLModuleData = (content, filename, broadcaseNotifications = true) 
         modules: augmentedData,
         model: result.model,
       })
-      if (broadcaseNotifications) {
+      if (broadcastNotifications) {
         trackEvent('modules_load_action', {
           category: 'Modules',
           action: 'load_cellml_module',
@@ -767,7 +776,7 @@ const loadCellMLModuleData = (content, filename, broadcaseNotifications = true) 
         })
       }
     } else if (result.issues) {
-      if (broadcaseNotifications) {
+      if (broadcastNotifications) {
         trackEvent('modules_load_action', {
           category: 'Modules',
           action: 'load_cellml_module',
@@ -786,7 +795,7 @@ const loadCellMLModuleData = (content, filename, broadcaseNotifications = true) 
   })
 }
 
-const loadCellMLUnitsData = (content, filename, broadcaseNotifications = true) => {
+const loadCellMLUnitsData = (content, filename, broadcastNotifications = true) => {
   return new Promise((resolve) => {
     const result = processUnitsData(content)
     if (result.type === 'success') {
@@ -794,7 +803,7 @@ const loadCellMLUnitsData = (content, filename, broadcaseNotifications = true) =
         filename: filename,
         model: result.model,
       })
-      if (broadcaseNotifications) {
+      if (broadcastNotifications) {
         trackEvent('units_load_action', {
           category: 'Units',
           action: 'load_cellml_units',
@@ -807,7 +816,7 @@ const loadCellMLUnitsData = (content, filename, broadcaseNotifications = true) =
         })
       }
     } else if (result.issues) {
-      if (broadcaseNotifications) {
+      if (broadcastNotifications) {
         trackEvent('units_load_action', {
           category: 'Units',
           action: 'load_cellml_units',
@@ -827,20 +836,18 @@ const loadCellMLUnitsData = (content, filename, broadcaseNotifications = true) =
 
 const loadParametersData = async (content, filename, broadcastNotifications = true) => {
   try {
-    const result = await parseParametersFile(content)
-
-    const added = builderStore.addParameterFile(filename, result)
+    const added = builderStore.addParameterFile(filename, content)
 
     if (broadcastNotifications && added) {
       trackEvent('parameters_load_action', {
         category: 'Parameters',
         action: 'load_parameters',
-        label: `Parameters: ${result.length}`,
+        label: `Parameters: ${content.length}`,
         file_type: 'csv',
       })
       notify.success({
         title: 'Parameters Loaded',
-        message: `Loaded ${result.length} parameters from ${filename}.`,
+        message: `Loaded ${content.length} parameters from ${filename}.`,
       })
     } else if (broadcastNotifications && !added) {
       notify.info({
@@ -848,7 +855,6 @@ const loadParametersData = async (content, filename, broadcastNotifications = tr
         message: `No new parameters were added from ${filename}.`,
       })
     }
-
     return added
   } catch (err) {
     if (broadcastNotifications) {
@@ -863,7 +869,6 @@ const loadParametersData = async (content, filename, broadcastNotifications = tr
         message: `Failed to load parameters from ${filename}.`,
       })
     }
-
     return false
   }
 }
@@ -1183,13 +1188,7 @@ async function onExportConfirm(fileName, handle) {
 function createSaveBlob() {
   const saveState = {
     flow: toObject(),
-    store: {
-      availableModules: builderStore.availableModules,
-      availableUnits: builderStore.availableUnits,
-      lastExportName: builderStore.lastExportName,
-      lastSaveName: builderStore.lastSaveName,
-      parameterData: builderStore.parameterData,
-    },
+    store: builderStore.getSaveState(),
   }
 
   const jsonString = JSON.stringify(saveState, null, 2)
@@ -1209,22 +1208,6 @@ function onSaveConfirm(fileName) {
 
   builderStore.setLastSaveName(fileName)
   notify.success({ message: 'Workflow saved!' })
-}
-
-function mergeIntoStore(newModules, target) {
-  const moduleMap = new Map(target.map((mod) => [mod.filename, mod]))
-
-  if (newModules) {
-    for (const newModule of newModules) {
-      if (newModule && newModule.filename) {
-        // Safety check
-        moduleMap.set(newModule.filename, newModule)
-      }
-    }
-  }
-
-  target.length = 0
-  target.push(...moduleMap.values())
 }
 
 /**
@@ -1248,7 +1231,6 @@ function handleLoadWorkspace(file) {
       edges.value = []
       setViewport({ x: 0, y: 0, zoom: 1 }) // Reset viewport.
       // Clear the current parameter data.
-      builderStore.parameterData = []
 
       await nextTick()
 
@@ -1261,14 +1243,7 @@ function handleLoadWorkspace(file) {
       // edges.value = loadedState.flow.edges
 
       // Restore Pinia store state.
-      builderStore.parameterData = loadedState.store.parameterData
-      // Merge available units.
-      mergeIntoStore(loadedState.store.availableUnits, builderStore.availableUnits)
-      // Merge available modules.
-      mergeIntoStore(loadedState.store.availableModules, builderStore.availableModules)
-
-      builderStore.lastSaveName = loadedState.store.lastSaveName
-      builderStore.lastExportName = loadedState.store.lastExportName
+      builderStore.loadState(loadedState.store)
 
       trackEvent('workflow_load_action', {
         category: 'Workflow',
@@ -1472,7 +1447,10 @@ onMounted(async () => {
   }
 
   for (const [path, content] of Object.entries(parameterFiles)) {
-    promises.push(loadParametersData(content.default, path.split('/').pop(), false))
+    const parsePromise = parseParametersFile(content.default).then((parsed) =>
+      loadParametersData(parsed, path.split('/').pop(), false)
+    )
+    promises.push(parsePromise)
   }
 
   const results = await Promise.all(promises)
@@ -1497,17 +1475,6 @@ onMounted(async () => {
   for (const [path, content] of Object.entries(moduleConfigs)) {
     builderStore.addConfigFile(content.default, path.split('/').pop())
   }
-
-  const rawSuggestions = generateParameterAssociations(builderStore.availableModules, builderStore.parameterFiles)
-
-  const linkMap = new Map()
-  rawSuggestions.forEach((suggestion) => {
-    if (suggestion.matchedParameterFile) {
-      linkMap.set(suggestion.moduleSource, suggestion.matchedParameterFile)
-    }
-  })
-
-  builderStore.applyParameterLinks(linkMap)
 })
 
 const onMouseMove = (event) => {
