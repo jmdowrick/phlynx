@@ -293,15 +293,23 @@ function extractUnitsFromMath(multiBlockMathString) {
   return Array.from(foundUnits)
 }
 
+/**
+ * Checks if two port types are compatible for making connections over.
+ *
+ * @param {string} portType1 - Source port type one of 'general_ports', 'exit_ports', or 'entrance_ports'.
+ * @param {string} portType2 - Target port type one of 'general_ports', 'exit_ports', or 'entrance_ports'.
+ * @returns {boolean} True if the port types are compatible, false otherwise.
+ */
 function arePortTypesCompatible(portType1, portType2) {
   if (portType1 === 'general_ports' || portType2 === 'general_ports') {
-    return true;
+    return true
   }
-  // in and out can connect to each other
+  // A source exit port can connect to a target entrance port.
   if (portType1 === 'exit_ports' && portType2 === 'entrance_ports') {
-    return true;
+    return true
   }
-  return false;
+
+  return false
 }
 
 function handleLoggerErrors(logger, headerMessage, dontThrow = false) {
@@ -309,9 +317,9 @@ function handleLoggerErrors(logger, headerMessage, dontThrow = false) {
   console.log(headerMessage)
   for (let i = 0; i < logger.errorCount(); i++) {
     const error = logger.error(i)
-    console.log(`[${i}]: ${error.description()}`)
+    console.log(`[${i + 1}]: ${error.description()}`)
     if (!dontThrow) {
-      errMessages.push(`[${i}]: ${error.description()}`)
+      errMessages.push(`[${i + 1}]: ${error.description()}`)
     }
     error.delete()
   }
@@ -433,85 +441,85 @@ function prioritizeEnvironmentComponent(xmlString) {
  * Applies parameter data to the model variables with strict unit and value validation.
  */
 function applyParameterMappings(model, parameterData, ensureUnitImported) {
-  const paramMap = new Map();
+  const paramMap = new Map()
   for (const params of parameterData.values()) {
     // Only iterate if params is actually an array of parameter objects
     if (Array.isArray(params)) {
       params.forEach((param) => {
         if (param.variable_name && !paramMap.has(param.variable_name)) {
-          paramMap.set(param.variable_name, param);
+          paramMap.set(param.variable_name, param)
         }
-      });
+      })
     }
   }
 
-  let paramComponent = model.componentByName('Model_Parameters', true);
+  let paramComponent = model.componentByName('Model_Parameters', true)
   if (!paramComponent) {
-    paramComponent = new _libcellml.Component();
-    paramComponent.setName('Model_Parameters');
-    model.addComponent(paramComponent);
+    paramComponent = new _libcellml.Component()
+    paramComponent.setName('Model_Parameters')
+    model.addComponent(paramComponent)
   }
 
   for (let i = 0; i < model.componentCount(); i++) {
-    const component = model.componentByIndex(i);
-    const compName = component.name();
+    const component = model.componentByIndex(i)
+    const compName = component.name()
 
     if (compName === 'Model_Parameters' || compName === 'environment') {
-      component.delete();
-      continue;
+      component.delete()
+      continue
     }
 
     for (let v = 0; v < component.variableCount(); v++) {
-      const variable = component.variableByIndex(v);
-      const varName = variable.name();
+      const variable = component.variableByIndex(v)
+      const varName = variable.name()
 
       // Priority: 1. Specific Match (var_comp) 2. Global Match (var)
-      const specificName = `${varName}_${compName}`;
-      const match = paramMap.get(specificName) || paramMap.get(varName);
+      const specificName = `${varName}_${compName}`
+      const match = paramMap.get(specificName) || paramMap.get(varName)
 
       // Skip if no parameter data found or if the variable is already computed (has math)
-      if (!match || !match.value || match.value.trim() === "") {
-        variable.delete();
-        continue;
+      if (!match || !match.value || match.value.trim() === '') {
+        variable.delete()
+        continue
       }
 
-      const matchUnitsTrimmed = match.units ? match.units.trim() : 'dimensionless';
+      const matchUnitsTrimmed = match.units ? match.units.trim() : 'dimensionless'
 
       // Ensure the unit exists in the model scope before assigning to variable.
       if (ensureUnitImported) {
-        ensureUnitImported(matchUnitsTrimmed);
+        ensureUnitImported(matchUnitsTrimmed)
       }
 
-      let sourceVar = paramComponent.variableByName(match.variable_name);
+      let sourceVar = paramComponent.variableByName(match.variable_name)
 
       if (!sourceVar) {
-        sourceVar = new _libcellml.Variable();
-        sourceVar.setName(match.variable_name);
+        sourceVar = new _libcellml.Variable()
+        sourceVar.setName(match.variable_name)
 
         // Ensure the initial value is explicitly set to define variable type as 'constant'.
-        sourceVar.setInitialValueByString(match.value.trim());
+        sourceVar.setInitialValueByString(match.value.trim())
 
-        const matchUnits = model.unitsByName(matchUnitsTrimmed);
+        const matchUnits = model.unitsByName(matchUnitsTrimmed)
         if (matchUnits) {
-          sourceVar.setUnitsByUnits(matchUnits);
-          matchUnits.delete();
+          sourceVar.setUnitsByUnits(matchUnits)
+          matchUnits.delete()
         } else {
-          sourceVar.setUnitsByName(matchUnitsTrimmed);
+          sourceVar.setUnitsByName(matchUnitsTrimmed)
         }
 
-        sourceVar.setInterfaceTypeByString('public');
-        paramComponent.addVariable(sourceVar);
+        sourceVar.setInterfaceTypeByString('public')
+        paramComponent.addVariable(sourceVar)
       }
 
       // Connect the constant parameter to the module variable.
-      _libcellml.Variable.addEquivalence(sourceVar, variable);
+      _libcellml.Variable.addEquivalence(sourceVar, variable)
 
-      sourceVar.delete();
-      variable.delete();
+      sourceVar.delete()
+      variable.delete()
     }
-    component.delete();
+    component.delete()
   }
-  paramComponent.delete();
+  paramComponent.delete()
 }
 
 export function generateFlattenedModel(nodes, edges, builderStore) {
@@ -664,16 +672,6 @@ export function generateFlattenedModel(nodes, edges, builderStore) {
     // Process Edges (Create Connections)
     // ----------------------------------
 
-    // HELPER: Strips directionality suffixes for matching
-    const normaliseName = (name, portType) => {
-      if (!name) return ''
-      // Replaces "_in" or "_out" at the end of the string ($) with nothing
-      return name.replace(
-        portType === 'exit_ports' ? /_out$/ : portType === 'entrance_ports' ? /_in$/ : /(_in|_out)$/,
-        ''
-      )
-    }
-
     for (const edge of edges) {
       // Get Node Data
       const sourceNode = edge.sourceNode
@@ -693,7 +691,11 @@ export function generateFlattenedModel(nodes, edges, builderStore) {
           const tgtLabel = targetNode.data.portLabels.find((l) => l.label === srcLabel.label)
 
           if (tgtLabel) {
-            // MATCH FOUND: Determine connection type
+            if (!arePortTypesCompatible(srcLabel.portType, tgtLabel.portType)) {
+              continue // Skip this connection if port types incompatible
+            }
+
+            // Allowed match found: Determine connection type
             if (srcLabel.isMultiPortSum) {
               // CASE A: Summation (Many-to-One)
               // We connect all source options into a new Summer,
@@ -708,24 +710,20 @@ export function generateFlattenedModel(nodes, edges, builderStore) {
               )
             } else {
               // CASE B: Direct Connection (One-to-One)
-              const minLength = Math.min(srcLabel.option.length, tgtLabel.option.length);
+              const minLength = Math.min(srcLabel.option.length, tgtLabel.option.length)
 
               for (let i = 0; i < minLength; i++) {
-                const srcOption = srcLabel.option[i];
-                const tgtOption = tgtLabel.option[i];
+                const srcOption = srcLabel.option[i]
+                const tgtOption = tgtLabel.option[i]
 
-                if (srcOption && tgtOption) {             
-                  if (!arePortTypesCompatible(srcLabel.portType, tgtLabel.portType)) {
-                    continue // Skip this connection if port types incompatible
-                  }
-                  
+                if (srcOption && tgtOption) {
                   const v1 = sourceComp.variableByName(srcOption)
                   const v2 = targetComp.variableByName(tgtOption)
 
                   console.log(srcLabel.portType, v1, tgtLabel.portType, v2)
 
                   if (v1 && v2) {
-                    _libcellml.Variable.addEquivalence(v1, v2);
+                    _libcellml.Variable.addEquivalence(v1, v2)
                   }
 
                   v1.delete()
