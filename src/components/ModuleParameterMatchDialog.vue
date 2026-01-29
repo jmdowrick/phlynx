@@ -69,7 +69,7 @@
               </template>
               <el-tag type="success" effect="dark" class="full-width-tag">
                 <el-icon style="margin-right: 5px"><Check /></el-icon>
-                Imported Parameters
+                Matched via import
               </el-tag>
             </el-tooltip>
           </div>
