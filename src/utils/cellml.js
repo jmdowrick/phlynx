@@ -200,16 +200,18 @@ function isStandardUnit(name) {
 function nextAvailableVarName(component, baseName) {
   let candidateName = baseName
   let index = 1
-  while (component.variableByName(candidateName)) {
+  let currentCandidate = component.variableByName(candidateName)
+  while (currentCandidate !== null) {
     candidateName = `${baseName}_${index}`
     index++
+    currentCandidate.delete()
+    currentCandidate = component.variableByName(candidateName)
   }
   return candidateName
 }
 
 function createSummationComponent(model, sourceComp, sourceVarName, targetComponentVarNameMap) {
   // Create the Component
-  console.log('Creating summation component for variable:', sourceVarName)
   let sumComp = model.componentByName('generated_summations', true)
   if (sumComp === null) {
     sumComp = new _libcellml.Component()
@@ -221,7 +223,9 @@ function createSummationComponent(model, sourceComp, sourceVarName, targetCompon
   // We need to determine the units. We'll grab the units from the first source var.
   // (Assuming all summed variables have matching units)
   const referenceVar = sourceComp.variableByName(sourceVarName)
-  const unitsName = referenceVar.units().name() || 'dimensionless'
+  const referneceUnits = referenceVar.units()
+  const unitsName = referneceUnits.name() || 'dimensionless'
+  referneceUnits.delete()
 
   const sumVarName = nextAvailableVarName(sumComp, `sum_of_${sourceVarName}`)
   const sumVar = new _libcellml.Variable()
@@ -234,7 +238,6 @@ function createSummationComponent(model, sourceComp, sourceVarName, targetCompon
   // Create Input Variables in the Sum Component
   const sumVarNames = []
   targetComponentVarNameMap.forEach((targetVarName, component) => {
-    console.log('Creating summation input for target variable:', targetVarName, component.name())
     const localVarName = nextAvailableVarName(sumComp, `op_${targetVarName}`)
     sumVarNames.push(localVarName)
 
@@ -244,8 +247,10 @@ function createSummationComponent(model, sourceComp, sourceVarName, targetCompon
     opVar.setInterfaceTypeByString('public') // Allows connection to source
 
     sumComp.addVariable(opVar)
-    _libcellml.Variable.addEquivalence(opVar, component.variableByName(targetVarName))
+    const tmpVar = component.variableByName(targetVarName)
+    _libcellml.Variable.addEquivalence(opVar, tmpVar)
     opVar.delete()
+    tmpVar.delete()
   })
 
   referenceVar.delete()
@@ -678,6 +683,7 @@ export function generateFlattenedModel(nodes, edges, builderStore) {
     // Process Edges (Create Connections)
     // ----------------------------------
 
+    const componentTrashCan = new Set()
     const multiPortSums = new Map()
     for (const edge of edges) {
       // Get Node Data
@@ -686,7 +692,7 @@ export function generateFlattenedModel(nodes, edges, builderStore) {
 
       if (!sourceNode || !targetNode) continue
 
-      // Get the specific Cloned Components (created in your previous step)
+      // Get the specific Cloned Components
       const sourceComp = nodeComponentMap.get(edge.source)
       const targetComp = nodeComponentMap.get(edge.target)
 
@@ -699,18 +705,13 @@ export function generateFlattenedModel(nodes, edges, builderStore) {
 
           if (tgtLabel) {
             if (arePortTypesCompatible(srcLabel.portType, tgtLabel.portType)) {
-              console.log('ssssssssssssss:', srcLabel.isMultiPortSum, tgtLabel.isMultiPortSum)
               if (srcLabel.isMultiPortSum && tgtLabel.isMultiPortSum) {
                 throw new Error('Multi-port-sum to Multi-port-sum connections are not supported.')
               } else if (srcLabel.isMultiPortSum || tgtLabel.isMultiPortSum) {
-                console.log('One multi-port-sum detected between source and target.')
                 const multiSumLabel = srcLabel.isMultiPortSum ? srcLabel : tgtLabel
                 const multiSumComponent = srcLabel.isMultiPortSum ? sourceComp : targetComp
                 const operandLabel = srcLabel.isMultiPortSum ? tgtLabel : srcLabel
                 const operandComponent = srcLabel.isMultiPortSum ? targetComp : sourceComp
-                console.log('=======================================')
-                console.log('multiSumLabel:', multiSumLabel)
-                console.log('operandLabel:', operandLabel)
                 const multiKey = multiSumComponent.name() + '::' + multiSumLabel.label
                 if (!multiPortSums.has(multiKey)) {
                   multiPortSums.set(multiKey, {
@@ -754,12 +755,10 @@ export function generateFlattenedModel(nodes, edges, builderStore) {
     // Handle Multi-Port-Sum Connections
     for (const sumData of multiPortSums.values()) {
       const { sourceComp, srcLabel, targets } = sumData
-      console.log('Creating multi-port-sum for:', sourceComp.name(), srcLabel, targets)
 
       // Create the Summation Component
       const sourceVarNames = srcLabel.option
       if (sourceVarNames.length !== 1) {
-        console.log('Source Var Names:', sourceVarNames)
         throw new Error('Multi-port-sum source must have exactly one variable representing the summed input.')
       }
       const sourceVarName = sourceVarNames[0] // Assuming single variable for source in multi-port-sum
@@ -768,7 +767,6 @@ export function generateFlattenedModel(nodes, edges, builderStore) {
         const { component, label } = targetInfo
         const targetVarNames = label.option
         if (targetVarNames.length !== 1) {
-          console.log('Target Var Names:', targetVarNames)
           throw new Error('Multi-port-sum target must have exactly one variable to be summed.')
         }
         const targetVarName = targetVarNames[0]
@@ -781,6 +779,11 @@ export function generateFlattenedModel(nodes, edges, builderStore) {
       // for (const targetComp of targetComponents.keys()) {
       // targetComp.delete()
       // }
+    }
+
+    for (const comp of componentTrashCan) {
+
+      comp && comp.delete()
     }
 
     model.linkUnits()
