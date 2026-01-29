@@ -720,8 +720,6 @@ export function generateFlattenedModel(nodes, edges, builderStore) {
                   const v1 = sourceComp.variableByName(srcOption)
                   const v2 = targetComp.variableByName(tgtOption)
 
-                  console.log(srcLabel.portType, v1, tgtLabel.portType, v2)
-
                   if (v1 && v2) {
                     _libcellml.Variable.addEquivalence(v1, v2)
                   }

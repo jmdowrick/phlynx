@@ -456,7 +456,7 @@ const handleConfirm = async () => {
         fileLinkMap.set(cellmlFile, fileName)
         fileTypeMap.set(cellmlFile, 'imported')
       })
-      console.log(fileLinkMap, fileTypeMap)
+
       builderStore.applyFileParameterLinks(fileLinkMap, fileTypeMap)
     }
   }
