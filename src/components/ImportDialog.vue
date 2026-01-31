@@ -63,8 +63,15 @@
               <div>Please provide the following files to complete the import:</div>
               <ul class="missing-resources">
                 <li v-if="validationStatus.needsModuleFile">
-                  <strong>CellML Module File</strong> containing:
-                  {{ validationStatus.missingResources?.moduleTypes?.join(', ') }}
+                  <strong>CellML Module File</strong>
+                  <div v-if="validationStatus.missingResources?.moduleFileIssues?.length > 0" style="margin-top: 4px;">
+                    <div v-for="issue in validationStatus.missingResources.moduleFileIssues" :key="issue.config" style="font-size: 0.9em; margin: 2px 0;">
+                      • {{ issue.message }}
+                    </div>
+                  </div>
+                  <div v-else-if="validationStatus.missingResources?.moduleTypes?.length > 0">
+                    containing: {{ validationStatus.missingResources.moduleTypes.join(', ') }}
+                  </div>
                 </li>
                 <li v-if="validationStatus.needsConfigFile">
                   <strong>Module Configurations</strong> for vessel_types:bc_types:
@@ -74,6 +81,9 @@
               <br />
               <div v-if="validationStatus.needsConfigFile">
                 <strong>NOTE:</strong> CellML Module File(s) may be required after providing the configurations.
+              </div>
+              <div v-if="validationStatus.hasModuleFileMismatch" style="margin-top: 8px; color: #E6A23C;">
+                <strong>⚠ Warning:</strong> Some modules are not in the CellML files specified by their configurations.
               </div>
             </template>
           </el-alert>
