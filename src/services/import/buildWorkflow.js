@@ -1,6 +1,6 @@
 import { buildPorts, buildPortLabels } from './buildPorts'
 import { getHandleId } from '../../utils/ports'
-import { SOURCE_PORT_TYPE, TARGET_PORT_TYPE } from '../../utils/constants'
+import { SOURCE_PORT_TYPE, TARGET_PORT_TYPE, NODE_SIZE_LIMITS } from '../../utils/constants'
 import { extractVariablesFromModule } from '../../utils/cellml'
 
 function buildNodes(builderStore, vessels, progressCallback = null) {
@@ -64,6 +64,8 @@ function buildNodes(builderStore, vessels, progressCallback = null) {
             position: { x: 100, y: 100 },
             style: { opacity: 0 }, // Hidden until layout runs
           }),
+      width: NODE_SIZE_LIMITS.WIDTH,
+      height: NODE_SIZE_LIMITS.HEIGHT,
       data: {
         componentName: module.componentName,
         configIndex: configIndex,
