@@ -262,10 +262,12 @@ const emit = defineEmits([
   'open-parameter-editor-dialog',
 ])
 
+const isInViewport = ref(false)
 const moduleNode = ref(null)
 
 // zoom-based display mode
 const isCompactMode = computed(() => {
+  if (!isInViewport.value) return false
   const zoom = viewport.value.zoom
   return (zoom < ZOOM_BREAKPOINTS.COMPACT) 
 })
@@ -534,15 +536,31 @@ function closeContextMenu() {
   removeMenuOpenListeners()
 }
 
+let observer
+
 onMounted(() => {
   document.addEventListener('module-context-open', handleExternalContextOpen)
   document.addEventListener('contextmenu', handleDocumentContextmenu)
+  observer = new IntersectionObserver(
+    ([entry]) => {
+      isInViewport.value = entry.isIntersecting
+    },
+    {
+      root: document.querySelector('.vue-flow__viewport'),
+      threshold: 0.2, // 20% visible before marked 'visible'
+    }
+  )
+
+  if (moduleNode.value) {
+    observer?.observe(moduleNode.value)
+  }
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('module-context-open', handleExternalContextOpen)
   document.removeEventListener('contextmenu', handleDocumentContextmenu)
   removeMenuOpenListeners()
+  observer?.disconnect()
 })
 
 async function openContextMenu(event) {
