@@ -18,6 +18,11 @@ export const ZOOM_LIMITS = {
   MIN: 0.4,
 }
 
+export const NODE_SIZE_LIMITS = {
+  HEIGHT: 105,
+  WIDTH: 205,
+}
+
 export const markerEnd = MarkerType.ArrowClosed
 export const edgeLineOptions = {
   type: 'smoothstep',

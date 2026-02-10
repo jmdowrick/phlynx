@@ -11,8 +11,8 @@
     @mousedown.capture="StopDrag"
   >
     <NodeResizer
-      min-width="180"
-      min-height="105"
+      :min-width="NODE_SIZE_LIMITS.WIDTH"
+      :min-height="NODE_SIZE_LIMITS.HEIGHT"
       :is-visible="selected && !isCompactMode"
     />
 
@@ -233,7 +233,7 @@ import { getHandleId, getHandleStyle, portPosition } from '../utils/ports'
 import { sanitiseModuleName } from '../utils/nodes'
 import { notify } from '../utils/notify'
 import { isEditableVariableType, isEmpty } from '../utils/variables'
-import { TOOLTIP_AUTO_CLOSE, ZOOM_BREAKPOINTS } from '../utils/constants'
+import { TOOLTIP_AUTO_CLOSE, ZOOM_BREAKPOINTS, NODE_SIZE_LIMITS } from '../utils/constants'
 import '../assets/vueflownode.css'
 
 const { addEdges, edges, viewport, removeEdges, updateNodeData, updateNodeInternals, nodes } = useVueFlow()
@@ -744,5 +744,9 @@ function handleDocumentContextmenu(e) {
 
 .module-button {
   margin: 0;
+}
+
+.module-node {
+  will-change: transform;
 }
 </style>
