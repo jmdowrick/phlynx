@@ -30,12 +30,12 @@
         :class="{ 'compact-name': isCompactMode }"
         @dblclick="startEditing"
       >
-        <span v-if="!isEditing">{{ data.name }}</span>
+        <span v-if="!isEditing">{{ displayName }}</span>
         <el-input
           v-else
           ref="inputRef"
           v-model="editingName"
-          size="small"
+          :size="isCompactMode ? 'default' : 'small'"
           @blur="saveEdit"
           @keyup.enter="saveEdit"
         />
@@ -46,13 +46,15 @@
       <div v-if="data.label && !isCompactMode" class="module-label">
         {{ data.label }}
       </div>
-      <div class="button-group">
+
+      <!-- Buttons - dropdown in compact, full in normal -->
+      <div v-if="!isCompactMode" class="button-group">
         <el-tooltip
           effect="dark"
           content="Set key (colour)"
           placement="bottom"
           :show-after="300"
-          :auto-close="1200"
+          :auto-close="TOOLTIP_AUTO_CLOSE"
         >
           <el-dropdown trigger="click" @command="handleSetDomainType" @visible-change="(val) => isDropdownOpen = val">
             <el-button size="small" circle class="module-button">
@@ -62,13 +64,9 @@
               <el-dropdown-menu>
                 <el-dropdown-item command="membrane">Membrane</el-dropdown-item>
                 <el-dropdown-item command="process">Process</el-dropdown-item>
-                <el-dropdown-item command="compartment"
-                  >Compartment</el-dropdown-item
-                >
+                <el-dropdown-item command="compartment">Compartment</el-dropdown-item>
                 <el-dropdown-item command="protein">Protein</el-dropdown-item>
-                <el-dropdown-item command="undefined" divided
-                  >Reset to Default</el-dropdown-item
-                >
+                <el-dropdown-item command="undefined" divided>Reset to Default</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -80,7 +78,7 @@
             content="Add port node"
             placement="bottom"
             :show-after="300"
-            :auto-close="1200"
+            :auto-close="TOOLTIP_AUTO_CLOSE"
         >
           <el-dropdown trigger="click" @command="addPort({ side: $event })">
           
@@ -104,7 +102,7 @@
             content="Edit port labels"
             placement="bottom"
             :show-after="300"
-            :auto-close="1200"
+            :auto-close="TOOLTIP_AUTO_CLOSE"
         >
           <el-button
             size="small"
@@ -122,7 +120,7 @@
             content="Edit parameters"
             placement="bottom"
             :show-after="300"
-            :auto-close="1200"
+            :auto-close="TOOLTIP_AUTO_CLOSE"
         >
           <el-button size="small" circle @click="openEditParameterDialog" class="module-button">
             <el-icon><Operation /></el-icon>
@@ -135,7 +133,7 @@
             content="Edit CellML Text"
             placement="bottom"
             :show-after="300"
-            :auto-close="1200"
+            :auto-close="TOOLTIP_AUTO_CLOSE"
         >
           <el-button
             size="small"
@@ -143,12 +141,45 @@
             @click="openCellMLEditDialog"
             class="module-button"
             :show-after="300"
-            :auto-close="1200"
+            :auto-close="TOOLTIP_AUTO_CLOSE"
           >
             <el-icon><CellMLIcon /></el-icon>
           </el-button>
         </el-tooltip>
       </div>
+
+      <div class="compact-actions">
+        <el-dropdown trigger="click" @command="handleCompactAction">
+          <el-button size="small" circle class="compact-menu-button">
+            <el-icon><MoreFilled /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="setDomainType">
+                <el-icon><Key /></el-icon>
+                Set Key (Colour)
+              </el-dropdown-item>
+              <el-dropdown-item command="addPort">
+                <el-icon><Place /></el-icon>
+                Add Port
+              </el-dropdown-item>
+              <el-dropdown-item command="editPorts">
+                <el-icon><Edit /></el-icon>
+                Edit Port Labels
+              </el-dropdown-item>
+              <el-dropdown-item command="editParameters">
+                <el-icon><Operation /></el-icon>
+                Edit Parameters
+              </el-dropdown-item>
+              <el-dropdown-item command="editCellML">
+                <el-icon><CellMLIcon /></el-icon>
+                Edit CellML Text
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
+
     </el-card>
 
     <template v-for="port in data.ports" :key="port.uid" class="port">
@@ -194,7 +225,7 @@
 import { computed, nextTick, onMounted, onBeforeUnmount, ref } from 'vue'
 import { Handle, useVueFlow } from '@vue-flow/core'
 import { NodeResizer } from '@vue-flow/node-resizer'
-import { Delete, Edit, Key, Place, WarningFilled, Operation } from '@element-plus/icons-vue'
+import { Delete, Edit, Key, Place, MoreFilled, WarningFilled, Operation } from '@element-plus/icons-vue'
 import CellMLIcon from './icons/CellMLIcon.vue'
 import { useBuilderStore } from '../stores/builderStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
@@ -202,7 +233,7 @@ import { getHandleId, getHandleStyle, portPosition } from '../utils/ports'
 import { sanitiseModuleName } from '../utils/nodes'
 import { notify } from '../utils/notify'
 import { isEditableVariableType, isEmpty } from '../utils/variables'
-import { ZOOM_BREAKPOINTS } from '../utils/constants'
+import { TOOLTIP_AUTO_CLOSE, ZOOM_BREAKPOINTS } from '../utils/constants'
 import '../assets/vueflownode.css'
 
 const { addEdges, edges, viewport, removeEdges, updateNodeData, updateNodeInternals, nodes } = useVueFlow()
@@ -234,14 +265,21 @@ const emit = defineEmits([
 const moduleNode = ref(null)
 
 // zoom-based display mode
-const displayMode = computed(() => {
+const isCompactMode = computed(() => {
   const zoom = viewport.value.zoom
-  if (zoom < ZOOM_BREAKPOINTS.COMPACT) return 'compact'
-  if (zoom < ZOOM_BREAKPOINTS.NORMAL) return 'simplified'
-  return 'normal'
+  return (zoom < ZOOM_BREAKPOINTS.COMPACT) 
 })
 
-const isCompactMode = computed(() => displayMode.value === 'compact')
+const displayName = computed(() => {
+  if (!props.data.name) return ''
+  
+  // In compact mode, insert zero-width space after underscores to allow breaks
+  if (isCompactMode.value) {
+    return props.data.name.replace(/_/g, '_\u200B')
+  }
+  
+  return props.data.name
+})
 
 async function openEditDialog() {
   emit('open-edit-dialog', {
@@ -270,6 +308,26 @@ function openEditParameterDialog() {
     componentName: props.data.componentName,
     sourceFile: props.data.sourceFile,
   })
+}
+
+function handleCompactAction(command) {
+  switch(command) {
+    case 'setDomainType':
+      // Show domain type submenu or modal
+      break
+    case 'addPort':
+      // Show port direction submenu or modal
+      break
+    case 'editPorts':
+      openEditDialog()
+      break
+    case 'editParameters':
+      openEditParameterDialog()
+      break
+    case 'editCellML':
+      openCellMLEditDialog()
+      break
+  }
 }
 
 const domainTypeClass = computed(() => {
@@ -388,9 +446,9 @@ const inputRef = ref(null) // This is a template ref for the input
 async function startEditing(event) {
 
   // Don't allow module name editing in compact mode
-  if (isCompactMode.value) {
-    return
-  }
+  // if (isCompactMode.value) {
+  //   return
+  // }
 
   // Don't allow click-through to the flow pane
   event.stopPropagation()
@@ -554,6 +612,20 @@ function handleDocumentContextmenu(e) {
   border-radius: 10px;
 }
 
+.button-group {
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0.2s; 
+}
+
+.module-node.compact-mode .button-group {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition-delay: 0s; 
+}
+
 .module-node > .el-card,
 .module-card {
   width: 100%;
@@ -563,6 +635,21 @@ function handleDocumentContextmenu(e) {
   box-sizing: border-box;
   position: relative;
   border: 3px solid rgba(0,0,0,0.04);
+  display: flex;
+  flex-direction: column;
+  transition: border-width 0.3s ease;
+}
+
+.module-card :deep(.el-card__body) {
+  transition: all 0.3s ease;
+}
+
+.module-node.compact-mode .el-card :deep(.el-card__body) {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 1;
+  padding: 8px;
 }
 
 .status-indicator {
@@ -570,10 +657,6 @@ function handleDocumentContextmenu(e) {
   top: 0px;
   right: 0px;
   z-index: 10;
-  /* Ensure it sits above other card content */
-
-  /* Optional: Add a white background circle so the icon pops 
-     if it overlaps a border or busy background */
   background-color: white;
   border-radius: 50%;
   width: 20px;
@@ -582,13 +665,77 @@ function handleDocumentContextmenu(e) {
   align-items: center;
   justify-content: center;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: opacity 0.3s ease;
+  transition-delay: 0s;
+}
+
+.module-name {
+  font-size: 14px;
+  transition: font-size 0.3s ease, 
+              font-weight 0.3s ease, 
+              padding 0.3s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  &.compact-name {
+    font-size: 18px;
+    margin-left: 10px;
+    font-weight: 600;
+    padding: 8px 4px;
+    white-space: normal;
+    word-break: keep-all;
+    overflow-wrap: break-word;
+    line-height: 1.3;
+
+    :deep(.el-input__wrapper) {
+      font-size: 18px;
+      padding: 8px 12px;
+      min-height: 40px;
+    }
+    
+    :deep(.el-input__inner) {
+      font-size: 18px;
+      font-weight: 600;
+      text-align: center;
+      white-space: normal;
+      word-break: keep-all;
+      overflow-wrap: break-word;
+      line-height: 1.3;
+    }
+  }
+}
+
+.compact-actions {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  transition: opacity 0.2s ease;
+  opacity: 0;
+  pointer-events: none;
+  transition-delay: 0s;
+}
+
+.module-node.compact-mode .compact-actions {
+  opacity: 1;
+  pointer-events: auto;
+  transition-delay: 0.2s;
+}
+
+.module-node.compact-mode .warning-icon {
+  font-size: 24px;
+}
+
+.module-node.compact-mode .status-indicator {
+  top: 8px;
+  right: 8px;
 }
 
 .warning-icon {
   color: var(--el-color-warning);
-  /* Standard Element Plus Orange */
   font-size: 18px;
   cursor: help;
+  transition: font-size 0.3s ease;
 
   &:hover {
     color: var(--el-color-warning-dark-2);

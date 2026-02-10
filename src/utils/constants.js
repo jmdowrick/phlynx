@@ -10,9 +10,7 @@ export const RESCALE_TARGET_SPACING = 1000
 
 // constants for zoom-based dynamic module node content 
 export const ZOOM_BREAKPOINTS = {
-  COMPACT: 0.6,
-  NORMAL: 0.75,
-  LARGE: 1.0,
+  COMPACT: 0.7,
 }
 
 export const ZOOM_LIMITS = {
