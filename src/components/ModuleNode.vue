@@ -3,11 +3,18 @@
     class="module-node"
     :id="id"
     ref="moduleNode"
-    :class="{ selected: selected }"
+    :class="{ 
+      selected: selected, 
+      'compact-mode': isCompactMode 
+    }"
     @contextmenu.stop.prevent="openContextMenu"
     @mousedown.capture="StopDrag"
   >
-    <NodeResizer min-width="180" min-height="105" :is-visible="selected" />
+    <NodeResizer
+      min-width="180"
+      min-height="105"
+      :is-visible="selected && !isCompactMode"
+    />
 
     <el-card :class="[domainTypeClass, 'module-card']" shadow="hover">
       <div v-if="isMissingParameters" class="status-indicator">
@@ -18,14 +25,27 @@
         </el-tooltip>
       </div>
 
-      <div class="module-name" @dblclick="startEditing">
-        <span v-if="!isEditing">
-          {{ data.name }}
-        </span>
-        <el-input v-else ref="inputRef" v-model="editingName" size="small" @blur="saveEdit" @keyup.enter="saveEdit" />
+      <div 
+        class="module-name"
+        :class="{ 'compact-name': isCompactMode }"
+        @dblclick="startEditing"
+      >
+        <span v-if="!isEditing">{{ data.name }}</span>
+        <el-input
+          v-else
+          ref="inputRef"
+          v-model="editingName"
+          size="small"
+          @blur="saveEdit"
+          @keyup.enter="saveEdit"
+        />
       </div>
+
       <!-- non-editable label showing CellML component and source file (no white box) -->
-      <div v-if="data.label" class="module-label">{{ data.label }}</div>
+      <!-- hide in compact mode -->
+      <div v-if="data.label && !isCompactMode" class="module-label">
+        {{ data.label }}
+      </div>
       <div class="button-group">
         <el-tooltip
           effect="dark"
@@ -182,9 +202,10 @@ import { getHandleId, getHandleStyle, portPosition } from '../utils/ports'
 import { sanitiseModuleName } from '../utils/nodes'
 import { notify } from '../utils/notify'
 import { isEditableVariableType, isEmpty } from '../utils/variables'
+import { ZOOM_BREAKPOINTS } from '../utils/constants'
 import '../assets/vueflownode.css'
 
-const { addEdges, edges, removeEdges, updateNodeData, updateNodeInternals, nodes } = useVueFlow()
+const { addEdges, edges, viewport, removeEdges, updateNodeData, updateNodeInternals, nodes } = useVueFlow()
 const historyStore = useFlowHistoryStore()
 const builderStore = useBuilderStore()
 
@@ -211,6 +232,16 @@ const emit = defineEmits([
 ])
 
 const moduleNode = ref(null)
+
+// zoom-based display mode
+const displayMode = computed(() => {
+  const zoom = viewport.value.zoom
+  if (zoom < ZOOM_BREAKPOINTS.COMPACT) return 'compact'
+  if (zoom < ZOOM_BREAKPOINTS.NORMAL) return 'simplified'
+  return 'normal'
+})
+
+const isCompactMode = computed(() => displayMode.value === 'compact')
 
 async function openEditDialog() {
   emit('open-edit-dialog', {
@@ -355,6 +386,12 @@ const inputRef = ref(null) // This is a template ref for the input
 
 // This function is triggered by the double-click
 async function startEditing(event) {
+
+  // Don't allow module name editing in compact mode
+  if (isCompactMode.value) {
+    return
+  }
+
   // Don't allow click-through to the flow pane
   event.stopPropagation()
 

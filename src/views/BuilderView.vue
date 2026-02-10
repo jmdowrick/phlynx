@@ -207,8 +207,8 @@
             @dragleave="onDragLeave"
             @nodes-change="onNodeChange"
             @edges-change="onEdgeChange"
-            :max-zoom="1.5"
-            :min-zoom="0.1"
+            :max-zoom="ZOOM_LIMITS.MAX"
+            :min-zoom="ZOOM_LIMITS.MIN"
             :default-edge-options="edgeLineOptions"
             :connection-line-options="edgeLineOptions"
             :nodes="nodes"
@@ -351,6 +351,7 @@ import {
   EXPORT_KEYS,
   JSON_FILE_TYPES,
   ZIP_FILE_TYPES,
+  ZOOM_LIMITS,
 } from '../utils/constants'
 import { getId as getNextNodeId, generateUniqueModuleName } from '../utils/nodes'
 import { getId as getNextEdgeId } from '../utils/edges'
