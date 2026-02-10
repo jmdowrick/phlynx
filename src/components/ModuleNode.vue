@@ -613,17 +613,17 @@ function handleDocumentContextmenu(e) {
 }
 
 .button-group {
-  transition: opacity 0.3s ease, visibility 0.3s ease;
+ // transition: opacity 0.3s ease, visibility 0.3s ease;
   opacity: 1;
   visibility: visible;
-  transition-delay: 0.2s; 
+ // transition-delay: 0.2s; 
 }
 
 .module-node.compact-mode .button-group {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition-delay: 0s; 
+//  transition-delay: 0s; 
 }
 
 .module-node > .el-card,
@@ -637,11 +637,15 @@ function handleDocumentContextmenu(e) {
   border: 3px solid rgba(0,0,0,0.04);
   display: flex;
   flex-direction: column;
-  transition: border-width 0.3s ease;
+//  transition: border-width 0.3s ease;
 }
 
+// .module-card :deep(.el-card__body) {
+//  transition: all 0.3s ease;
+// }
+
 .module-card :deep(.el-card__body) {
-  transition: all 0.3s ease;
+  padding: 20px; 
 }
 
 .module-node.compact-mode .el-card :deep(.el-card__body) {
@@ -665,15 +669,15 @@ function handleDocumentContextmenu(e) {
   align-items: center;
   justify-content: center;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  transition: opacity 0.3s ease;
-  transition-delay: 0s;
+//  transition: opacity 0.3s ease;
+//  transition-delay: 0s;
 }
 
 .module-name {
   font-size: 14px;
-  transition: font-size 0.3s ease, 
-              font-weight 0.3s ease, 
-              padding 0.3s ease;
+//  transition: font-size 0.3s ease, 
+ //             font-weight 0.3s ease, 
+ //             padding 0.3s ease;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -710,16 +714,16 @@ function handleDocumentContextmenu(e) {
   position: absolute;
   bottom: 8px;
   right: 8px;
-  transition: opacity 0.2s ease;
+ // transition: opacity 0.2s ease;
   opacity: 0;
   pointer-events: none;
-  transition-delay: 0s;
+ // transition-delay: 0s;
 }
 
 .module-node.compact-mode .compact-actions {
   opacity: 1;
   pointer-events: auto;
-  transition-delay: 0.2s;
+ // transition-delay: 0.2s;
 }
 
 .module-node.compact-mode .warning-icon {
@@ -735,7 +739,7 @@ function handleDocumentContextmenu(e) {
   color: var(--el-color-warning);
   font-size: 18px;
   cursor: help;
-  transition: font-size 0.3s ease;
+ // transition: font-size 0.3s ease;
 
   &:hover {
     color: var(--el-color-warning-dark-2);
@@ -744,9 +748,5 @@ function handleDocumentContextmenu(e) {
 
 .module-button {
   margin: 0;
-}
-
-.module-node {
-  will-change: transform;
 }
 </style>
