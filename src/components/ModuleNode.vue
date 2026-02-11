@@ -41,14 +41,13 @@
         />
       </div>
 
-      <!-- non-editable label showing CellML component and source file (no white box) -->
-      <!-- hide in compact mode -->
-      <div v-if="data.label && !isCompactMode" class="module-label">
-        {{ data.label }}
+      <div class="module-label-container">
+        <div v-if="data.label" class="module-label">
+          {{ data.label }}
+        </div>
       </div>
 
-      <!-- Buttons - dropdown in compact, full in normal -->
-      <div v-if="!isCompactMode" class="button-group">
+      <div class="button-group full-mode-group">
         <el-tooltip
           effect="dark"
           content="Set key (colour)"
@@ -56,7 +55,11 @@
           :show-after="300"
           :auto-close="TOOLTIP_AUTO_CLOSE"
         >
-          <el-dropdown trigger="click" @command="handleSetDomainType" @visible-change="(val) => isDropdownOpen = val">
+          <el-dropdown
+            trigger="click"
+            @command="handleSetDomainType"
+            @visible-change="(val) => isDropdownOpen = val"
+          >
             <el-button size="small" circle class="module-button">
               <el-icon><Key /></el-icon>
             </el-button>
@@ -73,19 +76,17 @@
         </el-tooltip>
 
         <el-tooltip
-            class="box-item"
-            effect="dark"
-            content="Add port node"
-            placement="bottom"
-            :show-after="300"
-            :auto-close="TOOLTIP_AUTO_CLOSE"
+          class="box-item"
+          effect="dark"
+          content="Add port node"
+          placement="bottom"
+          :show-after="300"
+          :auto-close="TOOLTIP_AUTO_CLOSE"
         >
           <el-dropdown trigger="click" @command="addPort({ side: $event })">
-          
             <el-button size="small" circle class="module-button">
               <el-icon><Place /></el-icon>
             </el-button>
-          
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="left">Left</el-dropdown-item>
@@ -96,31 +97,27 @@
             </template>
           </el-dropdown>
         </el-tooltip>
+
         <el-tooltip
-            class="box-item"
-            effect="dark"
-            content="Edit port labels"
-            placement="bottom"
-            :show-after="300"
-            :auto-close="TOOLTIP_AUTO_CLOSE"
+          class="box-item"
+          effect="dark"
+          content="Edit port labels"
+          placement="bottom"
+          :show-after="300"
+          :auto-close="TOOLTIP_AUTO_CLOSE"
         >
-          <el-button
-            size="small"
-            circle
-            @click="openEditDialog"
-            class="module-button"
-          >
+          <el-button size="small" circle @click="openEditDialog" class="module-button">
             <el-icon><Edit /></el-icon>
           </el-button>
         </el-tooltip>
 
         <el-tooltip
-            class="box-item"
-            effect="dark"
-            content="Edit parameters"
-            placement="bottom"
-            :show-after="300"
-            :auto-close="TOOLTIP_AUTO_CLOSE"
+          class="box-item"
+          effect="dark"
+          content="Edit parameters"
+          placement="bottom"
+          :show-after="300"
+          :auto-close="TOOLTIP_AUTO_CLOSE"
         >
           <el-button size="small" circle @click="openEditParameterDialog" class="module-button">
             <el-icon><Operation /></el-icon>
@@ -128,21 +125,14 @@
         </el-tooltip>
 
         <el-tooltip
-            class="box-item"
-            effect="dark"
-            content="Edit CellML Text"
-            placement="bottom"
-            :show-after="300"
-            :auto-close="TOOLTIP_AUTO_CLOSE"
+          class="box-item"
+          effect="dark"
+          content="Edit CellML Text"
+          placement="bottom"
+          :show-after="300"
+          :auto-close="TOOLTIP_AUTO_CLOSE"
         >
-          <el-button
-            size="small"
-            circle
-            @click="openCellMLEditDialog"
-            class="module-button"
-            :show-after="300"
-            :auto-close="TOOLTIP_AUTO_CLOSE"
-          >
+          <el-button size="small" circle @click="openCellMLEditDialog" class="module-button">
             <el-icon><CellMLIcon /></el-icon>
           </el-button>
         </el-tooltip>
@@ -162,7 +152,12 @@
                 :show-after="300"
                 :auto-close="TOOLTIP_AUTO_CLOSE"
               >
-                <el-dropdown trigger="click" teleport="false" @command="handleSetDomainType" @visible-change="(val) => isDropdownOpen = val">
+                <el-dropdown
+                  trigger="click"
+                  teleport="false"
+                  @command="handleSetDomainType"
+                  @visible-change="(val) => isDropdownOpen = val"
+                >
                   <el-button size="default" circle class="module-button">
                     <el-icon><Key /></el-icon>
                   </el-button>
@@ -179,18 +174,16 @@
               </el-tooltip>
 
               <el-tooltip
-                  effect="dark"
-                  content="Add port node"
-                  placement="bottom"
-                  :show-after="300"
-                  :auto-close="TOOLTIP_AUTO_CLOSE"
+                effect="dark"
+                content="Add port node"
+                placement="bottom"
+                :show-after="300"
+                :auto-close="TOOLTIP_AUTO_CLOSE"
               >
                 <el-dropdown trigger="click" teleport="false" @command="addPort({ side: $event })">
-                
                   <el-button size="default" circle class="module-button">
                     <el-icon><Place /></el-icon>
                   </el-button>
-                
                   <template #dropdown>
                     <el-dropdown-menu>
                       <el-dropdown-item command="left">Left</el-dropdown-item>
@@ -201,29 +194,25 @@
                   </template>
                 </el-dropdown>
               </el-tooltip>
+
               <el-tooltip
-                  effect="dark"
-                  content="Edit port labels"
-                  placement="bottom"
-                  :show-after="300"
-                  :auto-close="TOOLTIP_AUTO_CLOSE"
+                effect="dark"
+                content="Edit port labels"
+                placement="bottom"
+                :show-after="300"
+                :auto-close="TOOLTIP_AUTO_CLOSE"
               >
-                <el-button
-                  size="default"
-                  circle
-                  @click="openEditDialog"
-                  class="module-button"
-                >
+                <el-button size="default" circle @click="openEditDialog" class="module-button">
                   <el-icon><Edit /></el-icon>
                 </el-button>
               </el-tooltip>
 
               <el-tooltip
-                  effect="dark"
-                  content="Edit parameters"
-                  placement="bottom"
-                  :show-after="300"
-                  :auto-close="TOOLTIP_AUTO_CLOSE"
+                effect="dark"
+                content="Edit parameters"
+                placement="bottom"
+                :show-after="300"
+                :auto-close="TOOLTIP_AUTO_CLOSE"
               >
                 <el-button size="default" circle @click="openEditParameterDialog" class="module-button">
                   <el-icon><Operation /></el-icon>
@@ -231,20 +220,13 @@
               </el-tooltip>
 
               <el-tooltip
-                  effect="dark"
-                  content="Edit CellML Text"
-                  placement="bottom"
-                  :show-after="300"
-                  :auto-close="TOOLTIP_AUTO_CLOSE"
+                effect="dark"
+                content="Edit CellML Text"
+                placement="bottom"
+                :show-after="300"
+                :auto-close="TOOLTIP_AUTO_CLOSE"
               >
-                <el-button
-                  size="default"
-                  circle
-                  @click="openCellMLEditDialog"
-                  class="module-button"
-                  :show-after="300"
-                  :auto-close="TOOLTIP_AUTO_CLOSE"
-                >
+                <el-button size="default" circle @click="openCellMLEditDialog" class="module-button">
                   <el-icon><CellMLIcon /></el-icon>
                 </el-button>
               </el-tooltip>
@@ -252,11 +234,16 @@
           </template>
         </el-dropdown>
       </div>
-
     </el-card>
 
     <template v-for="port in data.ports" :key="port.uid" class="port">
-      <el-tooltip class="box-item" effect="dark" :content="port.name" placement="bottom" :show-after="1000">
+      <el-tooltip
+        class="box-item"
+        effect="dark"
+        :content="port.name"
+        placement="bottom"
+        :show-after="1000"
+      >
         <Handle
           :id="getHandleId(port)"
           :ref="'handle_' + port.side + '_' + port.uid"
@@ -277,7 +264,7 @@
         </template>
       </el-tooltip>
     </template>
-    <!-- context menu -->
+    
     <teleport to="body">
       <div
         v-if="contextMenuVisible"
@@ -295,7 +282,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, inject } from 'vue'
 import { Handle, useVueFlow } from '@vue-flow/core'
 import { NodeResizer } from '@vue-flow/node-resizer'
 import { Delete, Edit, Key, Place, MoreFilled, WarningFilled, Operation } from '@element-plus/icons-vue'
@@ -306,26 +293,17 @@ import { getHandleId, getHandleStyle, portPosition } from '../utils/ports'
 import { sanitiseModuleName } from '../utils/nodes'
 import { notify } from '../utils/notify'
 import { isEditableVariableType, isEmpty } from '../utils/variables'
-import { TOOLTIP_AUTO_CLOSE, ZOOM_BREAKPOINTS, NODE_SIZE_LIMITS } from '../utils/constants'
+import { TOOLTIP_AUTO_CLOSE, NODE_SIZE_LIMITS } from '../utils/constants'
 import '../assets/vueflownode.css'
 
-const { addEdges, edges, viewport, removeEdges, updateNodeData, updateNodeInternals, nodes } = useVueFlow()
+const { addEdges, edges, removeEdges, updateNodeData, updateNodeInternals, nodes } = useVueFlow()
 const historyStore = useFlowHistoryStore()
 const builderStore = useBuilderStore()
 
 const props = defineProps({
-  data: {
-    type: Object,
-    required: true,
-  },
-  id: {
-    type: String,
-    required: true,
-  },
-  selected: {
-    type: Boolean,
-    default: false,
-  },
+  data: { type: Object, required: true },
+  id: { type: String, required: true },
+  selected: { type: Boolean, default: false },
 })
 
 const emit = defineEmits([
@@ -335,26 +313,19 @@ const emit = defineEmits([
   'open-parameter-editor-dialog',
 ])
 
-const isInViewport = ref(false)
-const moduleNode = ref(null)
+const isCompactMode = inject('isCompactMode', ref(false))
 
-// zoom-based display mode
-const isCompactMode = computed(() => {
-  if (!isInViewport.value) return false
-  const zoom = viewport.value.zoom
-  return (zoom < ZOOM_BREAKPOINTS.COMPACT) 
-})
+const moduleNode = ref(null)
+const isDropdownOpen = ref(false)
 
 const displayName = computed(() => {
   if (!props.data.name) return ''
-  
-  // In compact mode, insert zero-width space after underscores to allow breaks
   if (isCompactMode.value) {
     return props.data.name.replace(/_/g, '_\u200B')
   }
-  
   return props.data.name
 })
+
 
 async function openEditDialog() {
   emit('open-edit-dialog', {
@@ -385,26 +356,6 @@ function openEditParameterDialog() {
   })
 }
 
-function handleCompactAction(command) {
-  switch(command) {
-    case 'setDomainType':
-      // Show domain type submenu or modal
-      break
-    case 'addPort':
-      // Show port direction submenu or modal
-      break
-    case 'editPorts':
-      openEditDialog()
-      break
-    case 'editParameters':
-      openEditParameterDialog()
-      break
-    case 'editCellML':
-      openCellMLEditDialog()
-      break
-  }
-}
-
 const domainTypeClass = computed(() => {
   return props.data.domainType ? `domain-type-${props.data.domainType}` : 'domain-type-default'
 })
@@ -425,7 +376,6 @@ const isMissingParameters = computed(() => {
       }
     }
   }
-
   return false
 })
 
@@ -436,28 +386,24 @@ function handleSetDomainType(typeCommand) {
 
 const applyPorts = async (portsToSet) => {
   updateNodeData(props.id, { ports: portsToSet })
-
-  // Changing ports adds/removes handles, so we MUST refresh internals
   await nextTick()
   updateNodeInternals(props.id)
 }
 
 async function removePort(portIdToRemove) {
   const oldPorts = JSON.parse(JSON.stringify(props.data.ports))
-
   const port = oldPorts.find((p) => p.uid === portIdToRemove)
   if (!port) return
 
   const handleId = getHandleId(port)
 
   // Find all edges connected to this specific port handle.
-  // We need to snapshot these edge objects so we can restore them later
   const connectedEdges = edges.value.filter(
     (edge) =>
       (edge.source === props.id && edge.sourceHandle === handleId) ||
       (edge.target === props.id && edge.targetHandle === handleId)
   )
-
+  // Snapshot edge objects for later restoration.
   const edgesSnapshot = connectedEdges.map((edge) => JSON.parse(JSON.stringify(edge)))
 
   // Define New Ports (for Redo)
@@ -489,52 +435,25 @@ async function removePort(portIdToRemove) {
 
 const addPort = async (portToAdd) => {
   const oldPorts = [...props.data.ports]
-  // create stable node id
-  const newPort = {
-    ...portToAdd,
-    uid: crypto.randomUUID(),
-  }
-
-  // Create a new array with the old ports + the new one
+  const newPort = { ...portToAdd, uid: crypto.randomUUID() }
   const newPorts = [...props.data.ports, newPort]
-
-  // Tell Vue Flow to update this node's data
-  // This will cause the component to re-render
   await applyPorts(newPorts)
-
   historyStore.addCommand({
     type: 'add-port',
-    undo: async () => {
-      applyPorts(oldPorts)
-    },
-    redo: async () => {
-      applyPorts(newPorts)
-    },
+    undo: async () => applyPorts(oldPorts),
+    redo: async () => applyPorts(newPorts),
   })
 }
 
 const isEditing = ref(false)
 const editingName = ref('')
-const inputRef = ref(null) // This is a template ref for the input
+const inputRef = ref(null)
 
-// This function is triggered by the double-click
 async function startEditing(event) {
-
-  // Don't allow module name editing in compact mode
-  // if (isCompactMode.value) {
-  //   return
-  // }
-
-  // Don't allow click-through to the flow pane
   event.stopPropagation()
-
   isEditing.value = true
   editingName.value = props.data.name
-
-  // Wait for Vue to re-render and show the input
   await nextTick()
-
-  // Focus the input
   inputRef.value?.focus()
 }
 
@@ -544,7 +463,6 @@ function StopDrag(event) {
   }
 }
 
-// This is triggered by pressing Enter or clicking away
 function saveEdit() {
   if (!editingName.value || editingName.value.trim() === '') {
     isEditing.value = false
@@ -565,7 +483,6 @@ function saveEdit() {
     return
   }
 
-  // Update the node's data in the store
   updateNodeData(props.id, { name: sanitisedName })
   isEditing.value = false
   setTimeout(() => {
@@ -577,7 +494,7 @@ function saveEdit() {
       props.data.configIndex
     )
     updateNodeData(props.id, { variables: props.data.variables })
-  }, 100) // Delay to ensure the DOM has updated
+  }, 100)
 }
 
 const contextMenuVisible = ref(false)
@@ -609,31 +526,15 @@ function closeContextMenu() {
   removeMenuOpenListeners()
 }
 
-let observer
-
 onMounted(() => {
   document.addEventListener('module-context-open', handleExternalContextOpen)
   document.addEventListener('contextmenu', handleDocumentContextmenu)
-  observer = new IntersectionObserver(
-    ([entry]) => {
-      isInViewport.value = entry.isIntersecting
-    },
-    {
-      root: document.querySelector('.vue-flow__viewport'),
-      threshold: 0.2, // 20% visible before marked 'visible'
-    }
-  )
-
-  if (moduleNode.value) {
-    observer?.observe(moduleNode.value)
-  }
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('module-context-open', handleExternalContextOpen)
   document.removeEventListener('contextmenu', handleDocumentContextmenu)
   removeMenuOpenListeners()
-  observer?.disconnect()
 })
 
 async function openContextMenu(event) {
@@ -654,10 +555,7 @@ async function openContextMenu(event) {
   contextMenuX.value = x
   contextMenuY.value = y
   contextMenuVisible.value = true
-
   await nextTick()
-
-  // close when clicking elsewhere and pointer down/drag start
   document.addEventListener('click', closeContextMenu)
   document.addEventListener('dragstart', closeContextMenu)
   document.addEventListener('pointerdown', onDocumentPointerDown, true)
@@ -674,7 +572,6 @@ async function openReplacementDialog() {
   closeContextMenu()
 }
 
-// Close when another module opens a context menu or when right-click happens outside this node
 function handleExternalContextOpen(e) {
   const openId = e?.detail?.nodeId ?? null
   if (openId !== props.id) {
@@ -701,20 +598,8 @@ function handleDocumentContextmenu(e) {
   height: 100%;
   box-sizing: border-box;
   border-radius: 10px;
-}
-
-.button-group {
- // transition: opacity 0.3s ease, visibility 0.3s ease;
-  opacity: 1;
-  visibility: visible;
- // transition-delay: 0.2s; 
-}
-
-.module-node.compact-mode .button-group {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-//  transition-delay: 0s; 
+  contain: layout style;
+  will-change: transform; 
 }
 
 .module-node > .el-card,
@@ -728,23 +613,58 @@ function handleDocumentContextmenu(e) {
   border: 3px solid rgba(0,0,0,0.04);
   display: flex;
   flex-direction: column;
-//  transition: border-width 0.3s ease;
 }
-
-// .module-card :deep(.el-card__body) {
-//  transition: all 0.3s ease;
-// }
 
 .module-card :deep(.el-card__body) {
   padding: 20px; 
-}
-
-.module-node.compact-mode .el-card :deep(.el-card__body) {
+  transition: padding 0.2s ease;
+  flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  flex: 1;
+}
+
+/* COMPACT MODE STYLES */
+.module-node.compact-mode .el-card :deep(.el-card__body) {
   padding: 8px;
+  justify-content: center;
+}
+
+.module-node.compact-mode .button-group,
+.module-node.compact-mode .module-label-container {
+  display: none !important;
+}
+
+.module-node.compact-mode .compact-actions {
+  opacity: 1;
+  pointer-events: auto;
+  display: block;
+}
+
+.module-node.compact-mode .warning-icon {
+  font-size: 24px;
+}
+
+.module-node.compact-mode .status-indicator {
+  top: 8px;
+  right: 8px;
+}
+
+/* NORMAL MODE STYLES */
+.button-group {
+  opacity: 1;
+  visibility: visible;
+  display: flex;
+  margin-top: auto;
+  gap: 4px;
+}
+
+.compact-actions {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  opacity: 0;
+  pointer-events: none;
+  display: none;
 }
 
 .status-indicator {
@@ -760,18 +680,14 @@ function handleDocumentContextmenu(e) {
   align-items: center;
   justify-content: center;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-//  transition: opacity 0.3s ease;
-//  transition-delay: 0s;
 }
 
 .module-name {
   font-size: 14px;
-//  transition: font-size 0.3s ease, 
- //             font-weight 0.3s ease, 
- //             padding 0.3s ease;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: font-size 0.2s ease; 
 
   &.compact-name {
     font-size: 18px;
@@ -801,37 +717,10 @@ function handleDocumentContextmenu(e) {
   }
 }
 
-.compact-actions {
-  position: absolute;
-  bottom: 8px;
-  right: 8px;
- // transition: opacity 0.2s ease;
-  opacity: 0;
-  pointer-events: none;
- // transition-delay: 0s;
-}
-
-.module-node.compact-mode .compact-actions {
-  opacity: 1;
-  pointer-events: auto;
- // transition-delay: 0.2s;
-}
-
-.module-node.compact-mode .warning-icon {
-  font-size: 24px;
-}
-
-.module-node.compact-mode .status-indicator {
-  top: 8px;
-  right: 8px;
-}
-
 .warning-icon {
   color: var(--el-color-warning);
   font-size: 18px;
   cursor: help;
- // transition: font-size 0.3s ease;
-
   &:hover {
     color: var(--el-color-warning-dark-2);
   }
@@ -846,5 +735,4 @@ function handleDocumentContextmenu(e) {
   gap: 8px;
   display: flex;
 }
-
 </style>

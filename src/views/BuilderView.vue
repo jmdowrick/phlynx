@@ -211,7 +211,6 @@
             :min-zoom="ZOOM_LIMITS.MIN"
             :default-edge-options="edgeLineOptions"
             :connection-line-options="edgeLineOptions"
-            :nodes="nodes"
             :delete-key-code="['Backspace', 'Delete']"
           >
             <HelperLines :horizontal="helperLineHorizontal" :vertical="helperLineVertical" :alignment="alignment" />
@@ -300,7 +299,8 @@ export default {
 </script>
 
 <script setup>
-import { computed, h, inject, markRaw, nextTick, onMounted, onUnmounted, ref, watch, watchPostEffect } from 'vue'
+import { computed, h, inject, markRaw, nextTick, provide, 
+  onMounted, onUnmounted, ref, watch, watchPostEffect } from 'vue'
 import { useVueFlow, VueFlow } from '@vue-flow/core'
 import {
   DCaret,
@@ -342,7 +342,8 @@ import { getHelperLines } from '../utils/helperLines'
 import { getPurgedUrlForResource, getUrlForResource, loadManifest } from '../utils/resources'
 import { useClearWorkspace } from '../utils/workspace'
 import { relayoutNodes } from '../services/layouts/physics'
-import { generateFlattenedModel, initLibCellML, processModuleData, processUnitsData } from '../utils/cellml'
+import { generateFlattenedModel, initLibCellML, 
+  processModuleData, processUnitsData } from '../utils/cellml'
 import {
   edgeLineOptions,
   CELLML_FILE_TYPES,
@@ -350,6 +351,7 @@ import {
   IMPORT_KEYS,
   EXPORT_KEYS,
   JSON_FILE_TYPES,
+  ZOOM_BREAKPOINTS,
   ZIP_FILE_TYPES,
   ZOOM_LIMITS,
 } from '../utils/constants'
@@ -359,11 +361,6 @@ import { getImportConfig, parseParametersFile } from '../utils/import'
 import { legacyDownload, saveFileHandle, writeFileHandle } from '../utils/save'
 import CellMLEditorDialog from '../components/CellMLEditorDialog.vue'
 import EditParameterDialog from '../components/EditParameterDialog.vue'
-
-// import testModuleBGContent from '../assets/bg_modules.cellml?raw'
-// import testModuleColonContent from '../assets/colon_FTU_modules.cellml?raw'
-// import testModuleNewColonContent from '../assets/colon_FTU_modules_new.cellml?raw'
-// import testParamertersCSV from '../assets/colon_FTU_parameters.csv?raw'
 
 const {
   addEdges,
@@ -422,6 +419,12 @@ const currentEditingNode = ref({
   ports: [],
   name: '',
 })
+
+const isCompactMode = computed(() => {
+  return viewport.value.zoom < ZOOM_BREAKPOINTS.COMPACT
+})
+provide('isCompactMode', isCompactMode)
+
 const importDialogRef = ref(null)
 
 const currentImportMode = ref(null)
