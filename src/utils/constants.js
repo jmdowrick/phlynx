@@ -15,7 +15,7 @@ export const ZOOM_BREAKPOINTS = {
 
 export const ZOOM_LIMITS = {
   MAX: 1.5,
-  MIN: 0.4,
+  MIN: 0.1,
 }
 
 export const NODE_SIZE_LIMITS = {
