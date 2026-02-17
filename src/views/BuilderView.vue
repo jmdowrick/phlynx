@@ -23,6 +23,17 @@
           </el-button>
 
           <el-divider direction="vertical" style="margin: 10 15px" />
+          
+          <el-button 
+            type="primary"
+            plain
+            @click="handleLoadTurtleFile"
+            style="margin-left: 10px"
+          >
+            Load Turtle
+          </el-button>
+
+          <el-divider direction="vertical" style="margin: 10 15px" />
 
           <el-button
             type="warning"
@@ -366,7 +377,8 @@ import {
 } from '../utils/save'
 import CellMLEditorDialog from '../components/CellMLEditorDialog.vue'
 import EditParameterDialog from '../components/EditParameterDialog.vue'
-
+import { loadTurtle } from '../utils/annotations'
+import testTurtle from '../assets/annotation_files/SGLT1_BG_annotated.ttl?raw'
 // import testModuleBGContent from '../assets/bg_modules.cellml?raw'
 // import testModuleColonContent from '../assets/colon_FTU_modules.cellml?raw'
 // import testModuleNewColonContent from '../assets/colon_FTU_modules_new.cellml?raw'
@@ -891,6 +903,10 @@ const onEdgeChange = (changes) => {
 }
 
 const screenshotDisabled = computed(() => nodes.value.length === 0 && vueFlowRef.value !== null)
+
+function handleLoadTurtleFile() {
+  console.log(loadTurtle(testTurtle))
+}
 
 function updateNodesWithNewParameters() {
   nodes.value.forEach((node) => {
