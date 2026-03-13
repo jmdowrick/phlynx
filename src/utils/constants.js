@@ -89,6 +89,7 @@ export const IMPORT_KEYS = {
   MODULE_CONFIG: 'moduleConfig',
   CELLML_FILE: 'cellMLFile',
   PARAMETER: 'parameter',
+  TURTLE: 'turtle',
 }
 
 export const IMPORT_LABELS = {
@@ -96,11 +97,19 @@ export const IMPORT_LABELS = {
   MODULE_CONFIG: 'Module Configurations (.json)',
   CELLML_FILE: 'CellML File (.cellml or .xml)',
   PARAMETER: 'Parameters (.csv)',
+  TURTLE: 'Annotations (.ttl)',
 }
 export const EXPORT_KEYS = {
   CA: 'circulatoryAutogen',
   CELLML: 'cellml',
 }
+
+export const TTL_FILE_TYPES = [
+  {
+    description: 'Turtle RDF File',
+    accept: { 'application/ttl': ['.ttl'] },
+  },
+]
 
 export const CELLML_FILE_TYPES = [
   {
