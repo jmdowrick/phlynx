@@ -172,6 +172,25 @@ export const useBuilderStore = defineStore('builder', () => {
     }
   }
 
+  /** 
+   * Adds annotations to the appropriate module
+   * - probably need to pass the raw cellml as this contains the variable ids?
+   */
+  function addAnnotationFileToModule(payload, filename, module = null) {
+    const annotations = payload
+    const annotationFilename = filename
+    if (!annotations || !Array.isArray(annotations)) {
+      return false
+    }
+
+    console.log(annotationFilename)
+
+    annotations.forEach((annotation) => {
+      console.log(annotation)
+    })
+    return true
+  }
+
   /**
    * Adds configuration(s) to the appropriate module(s)
    */
@@ -240,6 +259,7 @@ export const useBuilderStore = defineStore('builder', () => {
   }
 
   function addModuleFile(payload) {
+    console.log(payload)
     const existingFile = availableModules.value.find((f) => f.filename === payload.filename)
 
     if (existingFile) {
@@ -385,6 +405,7 @@ export const useBuilderStore = defineStore('builder', () => {
     addConfigFile,
     addModuleFile,
     addParameterFile,
+    addAnnotationFileToModule,
     addUnitsFile,
     assignGlobalConstant,
     clearGlobalConstants,
