@@ -1,5 +1,6 @@
 import Papa from 'papaparse'
 
+import { Parser } from 'n3'
 import { IMPORT_KEYS, IMPORT_LABELS } from './constants'
 import { isCellML } from './cellml'
 
@@ -376,6 +377,32 @@ export const parseParametersFile = (file) => {
   })
 }
 
+const parseTurtle = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      try {
+        const content = e.target.result;
+
+        const parser = new Parser();
+        const quads = parser.parse(content);
+
+        if (!quads || quads.length === 0) {
+          reject(new Error('Invalid or empty Turtle file.'));
+          return;
+        }
+
+        resolve(quads); // or resolve(content) if you just want raw text
+      } catch (err) {
+        reject(new Error('Invalid Turtle file.'));
+      }
+    };
+
+    reader.onerror = () => reject(new Error('Failed to read file.'));
+    reader.readAsText(file);
+  });
+};
 const parseCellML = (file) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -510,6 +537,24 @@ const configs = {
       },
     ],
   },
+  [IMPORT_KEYS.TURTLE]: {
+    title: 'Import CellML File and Annotations',
+    fields: [
+      {
+        key: IMPORT_KEYS.CELLML_FILE,
+        label: 'Select CellML File (.cellml or .xml)',
+        required: true,
+        accept: '.cellml, .xml',
+        parser: parseCellML,
+      },
+      {
+        key: IMPORT_KEYS.TURTLE,
+        label: 'Select Turtle Annotation File (.ttl)',
+        accept: '.ttl',
+        parser: parseTurtle,
+      }
+    ]
+  }
 }
 
 export function getImportConfig(type) {
