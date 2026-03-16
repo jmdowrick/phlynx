@@ -1,16 +1,31 @@
 import { isEmpty } from './variables.js'
-import { STANDARD_UNITS, AFFINE_UNIT_CONVERSIONS } from './constants.js'
+import { STANDARD_UNITS, 
+  AFFINE_UNIT_CONVERSIONS, 
+  CELLML_NS,
+  MATHML_NS, 
+  GLOBAL_PARAMETERS, 
+  MODEL_PARAMETERS,
+ } from './constants.js'
 
 let _libcellml = null
 
-// Define the Namespaces.
-const CELLML_NS = 'http://www.cellml.org/cellml/2.0#'
-const MATHML_NS = 'http://www.w3.org/1998/Math/MathML'
-const GLOBAL_PARAMETERS = 'parameters_global'
-const MODEL_PARAMETERS = 'parameters'
-
 export function initLibCellML(instance) {
   _libcellml = instance
+}
+
+/**
+ * Builds a Map from CellML element id -> variable name by parsing the raw CellML XML.
+ * Used to resolve annotation variable ids to human-readable names.
+ */
+export function buildVariableIdMap(cellmlString) {
+  const doc = new DOMParser().parseFromString(cellmlString, 'application/xml')
+  const map = new Map()
+  Array.from(doc.getElementsByTagNameNS(CELLML_NS, 'variable')).forEach((v) => {
+    const id   = v.getAttribute('id')
+    const name = v.getAttribute('name')
+    if (id && name) map.set(id, name)
+  })
+  return map
 }
 
 /**

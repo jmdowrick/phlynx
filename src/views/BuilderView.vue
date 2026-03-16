@@ -315,10 +315,10 @@ import {
   Menu as IconVessel,
   Operation as IconParameters,
   Setting as IconModuleConfig,
+  InfoFilled as IconAnnotations,
 } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus'
 import CellMLIcon from '../components/icons/CellMLIcon.vue'
-import UnitsIcon from '../components/icons/UnitsIcon.vue'
 
 import { Controls, ControlButton } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
@@ -441,6 +441,39 @@ const readFileAsText = (file) =>
     reader.readAsText(file)
   })
 
+const loadTurtleFiles = async (entries) => {
+  const multiFile = entries.length > 1
+  const results = await Promise.all(
+    entries.map(async (entry) => {
+      try {
+        const content = entry instanceof File ? await readFileAsText(entry) : entry.content
+        return loadTurtleData(content, entry.name, { notify: !multiFile })
+      } catch {
+        return { ok: false, annotationCount: 0 }
+      }
+    })
+  )
+
+  if (multiFile) {
+    const succeeded = results.filter((r) => r.ok)
+    const failed = results.length - succeeded.length
+    const totalAnnotations = succeeded.reduce((sum, r) => sum + r.annotationCount, 0)
+    const fileWord = (n) => `${n} file${n !== 1 ? 's' : ''}`
+    const summary = [
+      totalAnnotations > 0 ? `${totalAnnotations} annotation${totalAnnotations !== 1 ? 's' : ''}` : '',
+    ].filter(Boolean).join(' and ')
+    if (succeeded.length > 0 && failed === 0) {
+      notify.success({ title: 'Annotation Files Loaded', message: `Loaded ${summary} from ${fileWord(succeeded.length)}.` })
+    } else if (succeeded.length > 0) {
+      notify.warning({ title: 'Partial Import', message: `Loaded ${summary} from ${fileWord(succeeded.length)}. ${fileWord(failed)} failed.` })
+    } else {
+      notify.error({ title: 'Import Failed', message: `Failed to load all ${fileWord(failed)}.` })
+    }
+  }
+
+  return results
+}
+
 /**
  * Load an array of CellML entries, each being either a browser File object or a
  * plain `{ name, content }` object (used when content is already in memory).
@@ -452,9 +485,9 @@ const readFileAsText = (file) =>
  *
  * Shows per-file notifications for a single file; a combined summary for multiple.
  */
-const loadCellMLFiles = async (entries) => {
+const loadCellMLFiles = async (entries, isAnnotated = false) => {
   // Single-file fast path: check for connections and load as a graph if present
-  if (entries.length === 1) {
+  if (entries.length === 1 && !isAnnotated) {
     const entry = entries[0]
     const content = entry instanceof File ? await readFileAsText(entry) : entry.content
     const { components } = parseCellMLConnections(content, entry.name)
@@ -687,7 +720,13 @@ const importOptions = computed(() => [
     label: 'Parameters',
     icon: markRaw(IconParameters),
     disabled: false,
-  }
+  },
+  {
+    key: IMPORT_KEYS.TURTLE,
+    label: 'Annotations',
+    icon: markRaw(IconAnnotations),
+    disabled: libcellml.status !== 'ready',
+  },
 ])
 currentImportMode.value = importOptions.value[0]
 
@@ -1109,6 +1148,33 @@ function updateNodesWithNewParameters() {
     }
   })
 }
+ 
+/**
+
+ */
+const loadTurtleData = (content, filename, { notify: shouldNotify = true, trackEvents = true } = {}) => {
+  return new Promise((resolve) => {
+    try {
+      const annotationCount = builderStore.addAnnotationFile(filename, content)
+
+      if (shouldNotify) {
+        notify.success({
+          title: 'Annotations Loaded',
+          message: `Loaded ${annotationCount} annotation${annotationCount !== 1 ? 's' : ''} from ${filename}.`,
+        })
+      }
+      resolve({ ok: true, annotationCount: annotationCount })
+    } catch(err) {
+      if (shouldNotify) {
+        notify.error({
+          title: 'Annotation Load Error',
+          message: err.message || `Failed to load annotations from ${filename}.`,
+        })
+      }
+      resolve({ ok: false, annotationCount: 0 })
+    } 
+  })
+}
 
 const loadCellMLData = (content, filename, { notify: shouldNotify = true, trackEvents = true } = {}) => {
   return new Promise((resolve) => {
@@ -1335,6 +1401,16 @@ async function onImportConfirm(importPayload, updateProgress) {
       notifyMultiFileResults(results, { successTitle: 'Parameters Loaded' })
     }
     updateNodesWithNewParameters()
+  } else if (currentImportMode.value.key === IMPORT_KEYS.TURTLE) {
+    const cellmlEntries = [...importPayload]
+      .filter(([filename]) => filename.endsWith('.cellml') || filename.endsWith('.xml'))
+      .map(([name, data]) => ({ name, content: data?.payload }))
+    await loadCellMLFiles(cellmlEntries, true)
+
+    const turtleEntries = [...importPayload].filter(([filename]) =>
+      filename.endsWith('.ttl')
+    ).map(([name, data]) => ({ name, content: data?.payload }))
+    await loadTurtleFiles(turtleEntries)
   } else {
     console.log("Cannot get here this shouldn't be an import:", currentImportMode.value.key)
   }

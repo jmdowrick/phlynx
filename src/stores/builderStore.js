@@ -2,6 +2,11 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 import { isEditableVariableType } from '../utils/variables'
+import { 
+  inferModelBasePrefix, 
+  cellmlFilenameFromPrefix,
+  buildConfigFromAnnotations,
+} from '../utils/annotations' 
 
 function mergeIntoStore(newModules, target) {
   const moduleMap = new Map(target.map((mod) => [mod.filename, mod]))
@@ -52,11 +57,11 @@ export const useBuilderStore = defineStore('builder', () => {
 
   // --- ACTIONS ---
   function normalizeValue(val) {
-    if (!val || val === '-') return val // Ignore placeholders
+    if (!val || val === '-') return val
 
     const num = parseFloat(val)
 
-    // If it's not a number, return original string (e.g. text values)
+    // If it's not a number, return original string (e.g., text values)
     if (isNaN(num)) return val
 
     return String(num)
@@ -76,7 +81,6 @@ export const useBuilderStore = defineStore('builder', () => {
       if (availableParameters.value.has(key)) {
         availableParameters.value.get(key).count += 1
         availableParameters.value.get(key).source.push(filename)
-        // console.log(`Parameter already exists, skipping: ${key}, count: ${availableParameters.value.get(key).count}`)
         continue
       }
 
@@ -120,7 +124,6 @@ export const useBuilderStore = defineStore('builder', () => {
     if (paramKeys) {
       results = paramKeys.map((key) => availableParameters.value.get(key))
     }
-
     return results
   }
 
@@ -162,7 +165,6 @@ export const useBuilderStore = defineStore('builder', () => {
 
   function addOrUpdateFile(collection, payload) {
     const existingFile = collection.value.find((f) => f.filename === payload.filename)
-
     if (existingFile) {
       // Replace existing file's data
       Object.assign(existingFile, payload)
@@ -172,23 +174,50 @@ export const useBuilderStore = defineStore('builder', () => {
     }
   }
 
-  /** 
-   * Adds annotations to the appropriate module
-   * - probably need to pass the raw cellml as this contains the variable ids?
+  /**
+   * Attaches annotations to the appropriate module as a config.
    */
-  function addAnnotationFileToModule(payload, filename, module = null) {
+  function addAnnotationFile(filename, payload) {
     const annotations = payload
-    const annotationFilename = filename
+    const annotationsFilename = filename
+
     if (!annotations || !Array.isArray(annotations)) {
+      console.warn('[builderStore] Invalid annotations file payload:', filename)
       return false
     }
+    
+    const modelBasePrefix = inferModelBasePrefix(annotations)
+    if (!modelBasePrefix) {
+      console.warn(`Could not determine target CellML file from ${filename}.`)
+      return false
+    }
+    const cellmlFilename = cellmlFilenameFromPrefix(modelBasePrefix)
+    const cellmlString = getModuleContent(cellmlFilename)
+    const config = buildConfigFromAnnotations(annotations, modelBasePrefix, cellmlString)
 
-    console.log(annotationFilename)
+    const moduleFile = availableModules.value.find((f) => f.filename === cellmlFilename)
+    const module = moduleFile.modules.find((m) => m.name === config.module_type)
+    if (!module.configs) {
+      module.configs = []
+    }
 
-    annotations.forEach((annotation) => {
-      console.log(annotation)
-    })
-    return true
+    const existingConfigIndex = module.configs.findIndex(
+        (c) => c.BC_type === config.BC_type && c.vessel_type === config.vessel_type
+      )
+
+    const configWithMetadata = {
+      ...config,
+      _sourceFile: annotationsFilename,
+      _loadedAt: new Date().toISOString(),
+    }
+
+    if (existingConfigIndex !== -1) {
+      module.configs[existingConfigIndex] = configWithMetadata
+    } else {
+      module.configs.push(configWithMetadata)
+    }
+
+    return config.general_ports.length
   }
 
   /**
@@ -208,7 +237,7 @@ export const useBuilderStore = defineStore('builder', () => {
     configs.forEach((config) => {
       if (!config.module_file || typeof config.module_file !== 'string') {
         console.warn('[builderStore] Skipping config: missing module_file declaration', config)
-        return 
+        return
       }
 
       let moduleFile = availableModules.value.find((f) => f.filename === config.module_file)
@@ -259,7 +288,6 @@ export const useBuilderStore = defineStore('builder', () => {
   }
 
   function addModuleFile(payload) {
-    console.log(payload)
     const existingFile = availableModules.value.find((f) => f.filename === payload.filename)
 
     if (existingFile) {
@@ -270,8 +298,14 @@ export const useBuilderStore = defineStore('builder', () => {
       if (existingFile.modules) {
         payload.modules.forEach((newMod) => {
           const oldMod = existingFile.modules.find((m) => m.name === newMod.name)
-          if (oldMod && oldMod.configs && oldMod.configs.length > 0) {
-            newMod.configs = oldMod.configs
+          if (oldMod) {
+            if (oldMod.configs && oldMod.configs.length > 0) {
+              newMod.configs = oldMod.configs
+            }
+            // Preserve annotations that arrived before the CellML file
+            if (oldMod.annotationPortLabels) {
+              newMod.annotationPortLabels = oldMod.annotationPortLabels
+            }
           }
         })
       }
@@ -281,7 +315,12 @@ export const useBuilderStore = defineStore('builder', () => {
   }
 
   function addUnitsFile(payload) {
-    addOrUpdateFile(availableUnits, payload)
+    const existingFile = availableUnits.value.find((f) => f.filename === payload.filename)
+    if (existingFile) {
+      existingFile.model = payload.model
+    } else {
+      availableUnits.value.push(payload)
+    }
   }
 
   function loadState(state) {
@@ -309,7 +348,6 @@ export const useBuilderStore = defineStore('builder', () => {
 
   /**
    * Removes a module file and its modules from the list.
-   * @param {string} filename - The name of the file to remove.
    */
   function removeModuleFile(filename) {
     removeFile(availableModules, filename)
@@ -326,29 +364,13 @@ export const useBuilderStore = defineStore('builder', () => {
   function getModulesModule(filename, moduleName) {
     const file = availableModules.value.find((f) => f.filename === filename)
     if (!file) return null
-
     const module = file.modules.find((m) => m.name === moduleName)
     return module || null
   }
 
-  /**
-   * Adds a new units file and its model.
-   * If the units file already exists it will be replaced.
-   * @param {*} payload
-   */
-  function addUnitsFile(payload) {
-    const existingFile = availableUnits.value.find((f) => f.filename === payload.filename)
-    if (existingFile) {
-      existingFile.model = payload.model
-    } else {
-      availableUnits.value.push(payload)
-    }
-  }
 
   /**
    * Checks if a module file is already loaded.
-   * @param {string} filename - The name of the file to check.
-   * @returns {boolean} - True if the file is loaded, false otherwise.
    */
   function hasModuleFile(filename) {
     return availableModules.value.some((f) => f.filename === filename)
@@ -405,7 +427,7 @@ export const useBuilderStore = defineStore('builder', () => {
     addConfigFile,
     addModuleFile,
     addParameterFile,
-    addAnnotationFileToModule,
+    addAnnotationFile,
     addUnitsFile,
     assignGlobalConstant,
     clearGlobalConstants,

@@ -27,6 +27,12 @@ export const AFFINE_UNIT_CONVERSIONS = {
   fahrenheit: { baseUnit: 'kelvin',  scale: 5 / 9,    offset: 255.372 },
 }
 
+export const CELLML_NS = 'http://www.cellml.org/cellml/2.0#'
+export const MATHML_NS = 'http://www.w3.org/1998/Math/MathML'
+export const BQBIOL_NS = 'http://biomodels.net/biology-qualifiers/'
+export const GLOBAL_PARAMETERS = 'parameters_global'
+export const MODEL_PARAMETERS = 'parameters'
+
 export const STANDARD_UNITS = [
     'ampere',
     'becquerel',
