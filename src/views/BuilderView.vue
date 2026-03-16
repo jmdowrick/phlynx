@@ -236,6 +236,9 @@
                 :ref="(el) => (nodeRefs[props.id] = el)"
               />
             </template>
+            <template #edge-suggestedEdge="props">
+              <SuggestedEdge v-bind="props" />
+            </template>
             <Workbench>
               <p v-if="isDragOver">Drop here</p>
             </Workbench>
@@ -328,12 +331,14 @@ import { useFlowHistoryStore } from '../stores/historyStore'
 import useDragAndDrop from '../composables/useDnD'
 import { useLoadFromVesselArray } from '../composables/useLoadFromVesselArray'
 import { useLoadFromCellML } from '../composables/useLoadFromCellml'
+import { useAutoCoupling } from '../composables/useAutoCouplings'
 import { parseCellMLConnections } from '../services/import/parseCellmlConnections'
 import { useResizableAside } from '../composables/useResizableAside'
 import { useGtm } from '../composables/useGtm'
 import ModuleList from '../components/ModuleList.vue'
 import Workbench from '../components/WorkbenchArea.vue'
 import ModuleNode from '../components/ModuleNode.vue'
+import SuggestedEdge from '../components/SuggestedEdge.vue'
 import EditModuleDialog from '../components/EditModuleDialog.vue'
 import ImportDialog from '../components/ImportDialog.vue'
 import ModuleReplacementDialog from '../components/ModuleReplacementDialog.vue'
@@ -375,11 +380,6 @@ import {
 import CellMLEditorDialog from '../components/CellMLEditorDialog.vue'
 import EditParameterDialog from '../components/EditParameterDialog.vue'
 
-// import testModuleBGContent from '../assets/bg_modules.cellml?raw'
-// import testModuleColonContent from '../assets/colon_FTU_modules.cellml?raw'
-// import testModuleNewColonContent from '../assets/colon_FTU_modules_new.cellml?raw'
-// import testParamertersCSV from '../assets/colon_FTU_parameters.csv?raw'
-
 const {
   addEdges,
   addNodes,
@@ -410,6 +410,7 @@ const pendingHistoryNodes = new Set()
 
 const { onDragOver: onDragOverModule, onDrop: onDropModule, onDragLeave, isDragOver, createModuleNode } = useDragAndDrop(pendingHistoryNodes)
 
+const { resolveAutoCouplings } = useAutoCoupling()
 /**
  * Shared multi-file notification helper.
  * `results` must be an array of `{ ok, summary }` objects where `summary` is a
@@ -638,6 +639,8 @@ const onDrop = async (event) => {
     await loadCellMLFiles(cellmlFiles)
   } else {
     onDropModule(event)
+    await nextTick()   // let addNodes complete
+    resolveAutoCouplings()
   }
 }
 
