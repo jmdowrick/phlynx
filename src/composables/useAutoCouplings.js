@@ -54,7 +54,7 @@ export function useAutoCoupling() {
     )
 
     const edgesToAdd = []
-
+    const sides = ['left', 'right', 'top', 'bottom']
     for (const [label, participants] of labelToNodes) {
       // Only act when 2+ different nodes share the same annotation label
       const uniqueNodeIds = [...new Set(participants.map((p) => p.nodeId))]
@@ -81,6 +81,13 @@ export function useAutoCoupling() {
           const targetNode = nodes.value.find((n) => n.id === targetId)
           const dismissed  = sourceNode?.data?.dismissedSuggestions || []
           if (dismissed.includes(suggestionKey)) continue
+
+          for (const node of [sourceNode, targetNode]) {
+            if (!node.data.ports?.length) {
+              const side = sides[Math.floor(Math.random() * sides.length)]
+              node.data.ports = [{ side, uid: crypto.randomUUID() }]
+            }
+          }
 
           const edgeId = getNextEdgeId(edges.value.map((e) => e.id))
           edgesToAdd.push({
