@@ -379,30 +379,29 @@ export const parseParametersFile = (file) => {
 
 const parseTurtle = (file) => {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-
+    const reader = new FileReader()
     reader.onload = (e) => {
       try {
-        const content = e.target.result;
+        const content = e.target.result
 
-        const parser = new Parser();
-        const quads = parser.parse(content);
+        const parser = new Parser()
+        const quads = parser.parse(content)
 
         if (!quads || quads.length === 0) {
-          reject(new Error('Invalid or empty Turtle file.'));
+          reject(new Error('Invalid or empty Turtle file.'))
           return;
         }
 
-        resolve(quads); // or resolve(content) if you just want raw text
+        resolve(quads)
       } catch (err) {
-        reject(new Error('Invalid Turtle file.'));
+        reject(new Error('Invalid Turtle file.'))
       }
-    };
-
-    reader.onerror = () => reject(new Error('Failed to read file.'));
+    }
+    reader.onerror = () => reject(new Error('Failed to read file.'))
     reader.readAsText(file);
-  });
-};
+  })
+}
+
 const parseCellML = (file) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
