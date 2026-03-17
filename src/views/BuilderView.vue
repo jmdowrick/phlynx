@@ -355,7 +355,10 @@ import { getHelperLines } from '../utils/helperLines'
 import { getPurgedUrlForResource, getUrlForResource, loadManifest } from '../utils/resources'
 import { useClearWorkspace } from '../utils/workspace'
 import { relayoutNodes } from '../services/layouts/physics'
-import { generateFlattenedModel, initLibCellML, processCellMLData } from '../utils/cellml'
+import { generateFlattenedModel, initLibCellML, processCellMLData,
+  inferComponentNameFromConnections, inferPrimaryComponentName,
+  extractParametersFromCellML,
+ } from '../utils/cellml'
 import {
   edgeLineOptions,
   CELLML_FILE_TYPES,
@@ -365,6 +368,7 @@ import {
   JSON_FILE_TYPES,
   ZIP_FILE_TYPES,
   DEFAULT_FILE_NAME,
+  CELLML_NS,
 } from '../utils/constants'
 import { getId as getNextNodeId, generateUniqueModuleName } from '../utils/nodes'
 import { getId as getNextEdgeId } from '../utils/edges'
@@ -641,6 +645,7 @@ const onDrop = async (event) => {
     onDropModule(event)
     await nextTick()   // let addNodes complete
     resolveAutoCouplings()
+    updateNodesWithNewParameters()
   }
 }
 
@@ -1151,7 +1156,7 @@ function updateNodesWithNewParameters() {
     }
   })
 }
- 
+
 /**
 
  */
@@ -1406,14 +1411,57 @@ async function onImportConfirm(importPayload, updateProgress) {
     updateNodesWithNewParameters()
   } else if (currentImportMode.value.key === IMPORT_KEYS.TURTLE) {
     const cellmlEntries = [...importPayload]
-      .filter(([filename]) => filename.endsWith('.cellml') || filename.endsWith('.xml'))
-      .map(([name, data]) => ({ name, content: data?.payload }))
-    await loadCellMLFiles(cellmlEntries, true)
+      .filter(([filename]) => filename.endsWith('.cellml'))
+      .map(([name , data]) => data.payload ? { name, content: data?.payload } : null)
+      .filter(Boolean)
 
-    const turtleEntries = [...importPayload].filter(([filename]) =>
-      filename.endsWith('.ttl')
-    ).map(([name, data]) => ({ name, content: data?.payload }))
+    const allImportedHrefs = new Set(
+      cellmlEntries.flatMap(({ content }) => {
+        const doc = new DOMParser().parseFromString(content, 'application/xml')
+        return Array.from(doc.getElementsByTagNameNS(CELLML_NS, 'import'))
+          .map((el) => el.getAttributeNS('http://www.w3.org/1999/xlink', 'href'))
+          .map((href) => href?.replace(/^.*\//, ''))  // strip path, keep filename
+          .filter(Boolean)
+      })
+    )
+
+    const moduleEntries = cellmlEntries.filter((e) => !allImportedHrefs.has(e.name))
+    const paramEntries  = cellmlEntries.filter((e) =>  allImportedHrefs.has(e.name))
+
+    await loadCellMLFiles(moduleEntries, true)
+
+    const turtleEntries = [...importPayload]
+      .filter(([filename]) => filename.endsWith('.ttl'))
+      .map(([name, data]) => ({ name, content: data?.payload }))
     await loadTurtleFiles(turtleEntries)
+
+    for (const paramEntry of paramEntries) {
+      // Find the module that imports this param file
+      const moduleEntry = moduleEntries.find(({ content }) => {
+        const doc = new DOMParser().parseFromString(content, 'application/xml')
+        return Array.from(doc.getElementsByTagNameNS(CELLML_NS, 'import'))
+          .map((el) => el.getAttributeNS('http://www.w3.org/1999/xlink', 'href')?.replace(/^.*\//, ''))
+          .includes(paramEntry.name)
+      })
+  
+      if (!moduleEntry) continue
+
+      const cellmlFilename = moduleEntry.name
+      const paramsComponentName = inferPrimaryComponentName(paramEntry.content)
+      const componentName = inferComponentNameFromConnections(moduleEntry.content, paramsComponentName)
+
+      const params = extractParametersFromCellML(paramEntry.content, paramEntry.name)
+      const instanceSuffixedParams = params.map((p) => ({
+        ...p,
+        variable_name: `${p.variable_name}_${componentName}`,
+      }))
+      builderStore.addParameterFile(paramEntry.name, instanceSuffixedParams)
+
+      const paramNames = new Set(params.map((p) => p.variable_name))
+      builderStore.markParamVariablesAsConstant(cellmlFilename, componentName, paramNames)
+    }
+
+    if (paramEntries.length) updateNodesWithNewParameters()
   } else {
     console.log("Cannot get here this shouldn't be an import:", currentImportMode.value.key)
   }

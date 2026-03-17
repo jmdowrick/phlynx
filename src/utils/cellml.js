@@ -28,6 +28,62 @@ export function buildVariableIdMap(cellmlString) {
   return map
 }
 
+export function extractParametersFromCellML(cellmlString, filename) {
+  const doc = new DOMParser().parseFromString(cellmlString, 'application/xml')
+  const model = doc.getElementsByTagName('model')[0]
+  if (!model) return []
+
+  const params = []
+  for (const node of model.childNodes) {
+    if (node.nodeType !== Node.ELEMENT_NODE || node.localName !== 'component') continue
+    for (const variable of node.getElementsByTagName('variable')) {
+      const initialValue = variable.getAttribute('initial_value')
+      if (!initialValue || isNaN(parseFloat(initialValue))) continue
+      params.push({
+        variable_name:  variable.getAttribute('name'),
+        units:          variable.getAttribute('units'),
+        value:          initialValue,
+        data_reference: filename,
+      })
+    }
+  }
+  return params
+}
+
+export function inferPrimaryComponentName(cellmlString) {
+  const doc = new DOMParser().parseFromString(cellmlString, 'application/xml')
+  const model = doc.getElementsByTagName('model')[0]
+  if (!model) return null
+  for (const node of model.childNodes) {
+    if (node.nodeType === Node.ELEMENT_NODE && node.localName === 'component') {
+      return node.getAttribute('name')
+    }
+  }
+  return null
+}
+
+export function inferComponentNameFromConnections(cellmlString, paramsComponentName) {
+  const doc = new DOMParser().parseFromString(cellmlString, 'application/xml')
+
+  // CellML 2.0: component names on <map_components> child of <connection>
+  for (const mapComponents of doc.getElementsByTagName('map_components')) {
+    const c1 = mapComponents.getAttribute('component_1')
+    const c2 = mapComponents.getAttribute('component_2')
+    if (c2 === paramsComponentName) return c1
+    if (c1 === paramsComponentName) return c2
+  }
+
+  // CellML 1.x: component names directly on <connection>
+  for (const connection of doc.getElementsByTagName('connection')) {
+    const c1 = connection.getAttribute('component_1')
+    const c2 = connection.getAttribute('component_2')
+    if (c2 === paramsComponentName) return c1
+    if (c1 === paramsComponentName) return c2
+  }
+
+  return null
+}
+
 /**
  * Parses a CellML file once and extracts both component and units data.
  *

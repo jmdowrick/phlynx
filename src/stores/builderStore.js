@@ -339,6 +339,19 @@ export const useBuilderStore = defineStore('builder', () => {
     lastExportName.value = state.lastExportName || 'phlynx-export'
   }
 
+  const markParamVariablesAsConstant = (cellmlFilename, componentName, paramNames) => {
+    const module = getModulesModule(cellmlFilename, componentName)
+    if (!module?.configs) return
+
+    for (const config of module.configs) {
+      if (!config.variables_and_units) continue
+      config.variables_and_units = config.variables_and_units.map((entry) => {
+        const [name, units, access] = entry
+        return paramNames.has(name) ? [name, units, access, 'constant'] : entry
+      })
+    }
+  }
+
   function removeFile(collection, filename) {
     const index = collection.value.findIndex((f) => f.filename === filename)
     if (index !== -1) {
@@ -436,6 +449,7 @@ export const useBuilderStore = defineStore('builder', () => {
     setLastExportName,
     setLastSaveName,
     setVariableParameterValuesForInstance,
+    markParamVariablesAsConstant,
 
     // Getters
     getConfigForVessel,
