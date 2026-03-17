@@ -4,8 +4,18 @@
       :d="pathData[0]"
       fill="none"
       :stroke="SUGGESTED_COLOUR"
-      stroke-width="2"
-      stroke-dasharray="6 4"
+      stroke-width="6"
+      stroke-linecap="round"
+      opacity="0.15"
+      class="suggested-edge-glow"
+    />
+
+    <path
+      :d="pathData[0]"
+      fill="none"
+      :stroke="SUGGESTED_COLOUR"
+      stroke-width="1.5"
+      stroke-dasharray="8 5"
       stroke-linecap="round"
       class="suggested-edge-path"
     />
@@ -18,14 +28,14 @@
       class="suggested-edge-foreign"
     >
       <div class="suggested-edge-badge">
-        <span class="suggested-edge-label">Suggested connection</span>
+        <span class="suggested-edge-label">Suggested</span>
         <div class="suggested-edge-actions">
-          <el-tooltip content="Accept connection" placement="top" :show-after="400">
+          <el-tooltip content="Accept" placement="top" :show-after="400">
             <button class="action-btn accept-btn" @click.stop="handleAccept">
               <el-icon><Check /></el-icon>
             </button>
           </el-tooltip>
-          <el-tooltip content="Dismiss suggestion" placement="top" :show-after="400">
+          <el-tooltip content="Dismiss" placement="top" :show-after="400">
             <button class="action-btn dismiss-btn" @click.stop="handleDismiss">
               <el-icon><Close /></el-icon>
             </button>
@@ -43,9 +53,9 @@ import { Check, Close } from '@element-plus/icons-vue'
 import { useAutoCoupling } from '../composables/useAutoCouplings'
 import { useFlowHistoryStore } from '../stores/historyStore'
 
-const SUGGESTED_COLOUR = 'var(--el-color-warning)'
-const BADGE_WIDTH  = 180
-const BADGE_HEIGHT = 48
+const SUGGESTED_COLOUR = 'var(--el-color-info)'
+const BADGE_WIDTH  = 120
+const BADGE_HEIGHT = 40
 
 const props = defineProps({
   id:             { type: String,  required: true },
@@ -105,8 +115,17 @@ function handleDismiss() {
 </script>
 
 <style scoped>
+.suggested-edge-glow {
+  pointer-events: none;
+}
+
 .suggested-edge-path {
   pointer-events: none;
+  animation: dash-march 1.2s linear infinite;
+}
+
+@keyframes dash-march {
+  to { stroke-dashoffset: -26; }  /* 8 + 5 + 8 + 5 = one full cycle */
 }
 
 .suggested-edge-foreign {
@@ -115,45 +134,46 @@ function handleDismiss() {
 
 .suggested-edge-badge {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   background: var(--el-bg-color);
-  border: 1.5px dashed v-bind(SUGGESTED_COLOUR);
-  border-radius: var(--el-border-radius-base);
-  padding: 4px 8px;
+  border: 1.5px solid v-bind(SUGGESTED_COLOUR);
+  border-radius: 20px;           /* pill shape */
+  padding: 4px 8px 4px 10px;
   font-size: var(--el-font-size-extra-small);
-  box-shadow: var(--el-box-shadow-light);
-  width: 100%;
-  box-sizing: border-box;
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.2);
+  width: fit-content;
   pointer-events: all;
+  white-space: nowrap;
 }
 
 .suggested-edge-label {
-  color: var(--el-text-color-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
+  color: v-bind(SUGGESTED_COLOUR);
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
 
 .suggested-edge-actions {
   display: flex;
-  gap: 6px;
+  gap: 4px;
 }
 
 .action-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  border: 1px solid currentColor;
-  background: var(--el-bg-color);
+  border: 1.5px solid currentColor;
+  background: transparent;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s, transform 0.1s;
   padding: 0;
+}
+
+.action-btn:hover {
+  transform: scale(1.15);
 }
 
 .accept-btn {
@@ -166,11 +186,11 @@ function handleDismiss() {
 }
 
 .dismiss-btn {
-  color: var(--el-color-danger);
+  color: var(--el-text-color-placeholder);
 }
 
 .dismiss-btn:hover {
-  background: var(--el-color-danger);
-  color: #fff;
+  background: var(--el-fill-color-dark);
+  color: var(--el-text-color-primary);
 }
 </style>
