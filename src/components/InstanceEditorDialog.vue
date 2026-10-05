@@ -87,6 +87,7 @@
             </span>
           </div>
         </Message>
+        <MultiportSummary v-if="isEditorReady" :entries="multiportEntries" />
         <div ref="editorWrapperRef" class="editor-wrapper">
           <div v-if="!isEditorReady" class="editor-pending">
             <ProgressSpinner style="width: 32px; height: 32px" strokeWidth="4" />
@@ -450,6 +451,7 @@ import MathWorkbenchEditor from './MathWorkbenchEditor.vue'
 import ParameterTable from './ParameterTable.vue'
 import SanitisedInput from './SanitisedInput.vue'
 import MultiportKey from './MultiportKey.vue'
+import MultiportSummary from './MultiportSummary.vue'
 import PortVariableChips from './PortVariableChips.vue'
 import ComponentSaveAsDialog from './dialogs/ComponentSaveAsDialog.vue'
 
@@ -472,7 +474,7 @@ import { waitUntilStable } from '../utils/layout'
 import { notify } from '../utils/notify'
 import { getModelComponentNames, renameLayoutComponent, renameModelComponent } from '../utils/cellml'
 import { findPort } from '../utils/ports'
-import { isMultiport, multiplyVariables, setMultiport, setPortVariables, variableFactor } from '../utils/multiport'
+import { isMultiport, multiplyVariables, multiportSummary, setMultiport, setPortVariables, variableFactor } from '../utils/multiport'
 import { suggestUnits } from '../utils/unitExpression'
 
 const props = defineProps({
@@ -1009,12 +1011,16 @@ const isPortFlagged = (port) => flaggedPorts.value.has(port)
 
 // The modules each port is connected to, read from the canvas edges when the editor opens.
 const connectionsByPort = new WeakMap()
+// Each editable port's saved self, which the canvas edges hold.
+const originalByPort = new WeakMap()
 
-/** Records, for each editable port, the names of the modules its couplings reach. */
+const nameOf = (id) => nodes.value.find((node) => node.id === id)?.data.name ?? id
+
+/** Records, for each editable port, its saved self and the names of the modules its couplings reach. */
 function indexPortConnections() {
-  const nameOf = (id) => nodes.value.find((node) => node.id === id)?.data.name ?? id
   editablePorts.value.forEach((port, i) => {
     const original = props.initialPorts[i]
+    originalByPort.set(toRaw(port), original)
     const names = edges.value.flatMap((edge) =>
       (edge.data?.couplings ?? []).flatMap(({ sourcePort, targetPort }) => {
         const own = edge.source === props.id ? sourcePort : edge.target === props.id ? targetPort : null
@@ -1024,6 +1030,14 @@ function indexPortConnections() {
     connectionsByPort.set(toRaw(port), names)
   })
 }
+
+/** The math export builds for this instance's Sum and Multiply variables, as the ports are edited. */
+const multiportEntries = computed(() =>
+  multiportSummary(props.id, edges.value ?? [], {
+    nameOf,
+    ownPorts: editablePorts.value.map((current) => ({ original: originalByPort.get(toRaw(current)), current })),
+  })
+)
 
 const portConnections = (port) => connectionsByPort.get(toRaw(port)) ?? []
 
