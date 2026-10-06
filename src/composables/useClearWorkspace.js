@@ -7,7 +7,7 @@ import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
-import { cancelSimulation } from './useSimulation'
+import { cancelSimulation, forgetSimulationSession } from './useSimulation'
 import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
 
 import { FLOW_IDS } from '../utils/constants'
@@ -53,6 +53,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
       if (flowId === FLOW_IDS.MAIN) {
         simStore.resetState()
         cancelSimulation()
+        forgetSimulationSession()
         useSimulationResultsStore().resetState()
         inspectionStore.resetState()
         omexStore.resetState()

@@ -7,7 +7,8 @@ import { buildAlgorithm, buildUniformTimeCourse, findSolverSettingsProblem, reso
 // Above this, a run's results risk exhausting WebAssembly's 4 GB of memory.
 export const MAX_RESULT_BYTES = 1.5 * 1024 ** 3
 
-const POLL_INTERVAL_MS = 50
+// libOpenCOR runs in a worker, so polling often costs the page nothing and returns results sooner.
+const POLL_INTERVAL_MS = 10
 const RUNNING = 1
 
 // libOpenCOR's enum member for each SED-ML value of the CVODE settings that are enums.
@@ -38,12 +39,15 @@ export class SimulationError extends Error {
    * @param {string} message
    * @param {Array<{type: string, description: string}>} [issues]
    * @param {Object|null} [partialResults] - `{ voi, variables }` up to the failure.
+   * @param {string|null} [code]
    */
-  constructor(message, issues = [], partialResults = null) {
+  constructor(message, issues = [], partialResults = null, code = null) {
     super(message)
     this.name = 'SimulationError'
     this.issues = issues
     this.partialResults = partialResults
+    // 'no-session' when a rerun found the worker no longer had its model.
+    this.code = code
   }
 }
 
@@ -183,92 +187,178 @@ export function estimateResultBytes(task, numberOfSteps) {
 }
 
 /**
- * Starts simulating a CellML model with the given settings. libOpenCOR runs it on its own threads; this
- * polls its progress until it finishes.
+ * Reads a CellML model into libOpenCOR once, to run it as often as needed: each run sets its own time
+ * course, solver and parameter changes, so a slider moving needs no new model. Runs on one session must
+ * not overlap.
+ *
+ * @param {Object} options
+ * @param {Object} options.module - The libOpenCOR module (see libopencorLoader.js).
+ * @param {string} options.cellml - The flattened CellML model.
+ * @returns {{run: Function, dispose: Function}}
+ * @throws {SimulationError} When libOpenCOR can't read the model.
+ */
+export function createSimulationSession({ module: loc, cellml }) {
+  const file = new loc.File(`phlynx-simulation-${++fileCount}.cellml`)
+  // The session's handles, freed when it is disposed.
+  const handles = []
+  const keep = (handle) => (handle && handles.push(handle), handle)
+  let document = null
+  let simulation = null
+  let model = null
+  // The changes the last run applied, freed once replaced.
+  let changeHandles = []
+
+  /** Frees everything the session holds, and releases its file. */
+  function dispose() {
+    changeHandles.forEach((handle) => handle.delete())
+    changeHandles = []
+    handles.reverse().forEach((handle) => handle.delete())
+    handles.length = 0
+    document?.delete()
+    document = null
+    const fileManager = loc.FileManager.instance()
+    fileManager.unmanage(file)
+    fileManager.delete()
+    file.delete()
+  }
+
+  try {
+    file.setContents(new TextEncoder().encode(cellml))
+    throwOnErrors(file, 'The model has errors.')
+    document = new loc.SedDocument(file)
+    throwOnErrors(document, 'The model could not be simulated.')
+    simulation = keep(document.simulation(0))
+    model = keep(document.model(0))
+  } catch (error) {
+    dispose()
+    throw error
+  }
+
+  /**
+   * Replaces the model's parameter changes. libOpenCOR applies them as a run starts, recomputing the
+   * values that depend on them.
+   *
+   * @param {Array<{component: string, variable: string, value: number}>} changes
+   */
+  function applyChanges(changes) {
+    model.removeAllChanges()
+    changeHandles.forEach((handle) => handle.delete())
+    changeHandles = changes.map(({ component, variable, value }) => new loc.SedChangeAttribute(component, variable, String(value)))
+    changeHandles.forEach((change) => model.addChange(change))
+  }
+
+  /**
+   * Starts a run with the given settings and parameter changes. libOpenCOR runs it on its own threads;
+   * this polls its progress until it finishes.
+   *
+   * @param {Object} options
+   * @param {Object} options.settings - Simulation settings (simulationSettingsStore.simulationSettings).
+   * @param {Array<{component: string, variable: string, value: number}>} [options.changes] - Values to run
+   *   with in place of the model's, by the names libOpenCOR reports; each must be a constant or a state.
+   * @param {Function} [options.onProgress] - Called with the progress, from 0 to 1.
+   * @returns {{promise: Promise<Object>, stop: Function}} `promise` resolves with `{ voi, variables, issues,
+   *   elapsedMs, isStopped }` or rejects with a SimulationError; `stop` ends the run early, keeping what it has.
+   */
+  function run({ settings, changes = [], onProgress = () => {} }) {
+    let instance = null
+    let isStopped = false
+
+    const promise = (async () => {
+      // Start after returning, so the caller has `stop` before the first progress report.
+      await Promise.resolve()
+      // The run's handles, freed once it ends.
+      const runHandles = []
+      const keepForRun = (handle) => (handle && runHandles.push(handle), handle)
+      try {
+        checkSettings(settings)
+        const timeCourse = buildUniformTimeCourse(settings)
+        Object.assign(simulation, timeCourse)
+        // The instance takes its own copy of the solver, so the solver is set before each one. The
+        // simulation holds the solver, so the run's handles on it can go once the run ends.
+        applySolver(loc, simulation, settings, keepForRun)
+        applyChanges(changes)
+
+        instance = document.instantiate()
+        throwOnErrors(instance, 'The model could not be simulated.')
+
+        const task = keepForRun(instance.task(0))
+        if (!task?.voiName) {
+          throw new SimulationError('The model has no differential equation, so there is nothing to simulate over time.')
+        }
+        const bytes = estimateResultBytes(task, timeCourse.numberOfSteps)
+        if (bytes > MAX_RESULT_BYTES) {
+          const gigabytes = (bytes / 1024 ** 3).toFixed(1)
+          throw new SimulationError(`The results would need ${gigabytes} GB of memory. Use fewer points (a larger point interval).`)
+        }
+
+        if (isStopped) return { ...readResults(task, timeCourse, 0), issues: [], elapsedMs: 0, isStopped }
+        if (!instance.startRun()) throw new SimulationError('The simulation could not start.', readIssues(instance))
+        while (instance.status.value === RUNNING) {
+          onProgress(instance.progress)
+          await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+        }
+        const elapsedMs = instance.waitForRun()
+        if (instance.hasErrors) {
+          // The points computed before the failure help to see what went wrong.
+          const partial = readResults(task, timeCourse)
+          throw new SimulationError(describeRunFailure(instance, settings), readIssues(instance), partial.voi.values.length > 1 ? partial : null)
+        }
+        onProgress(1)
+
+        return { ...readResults(task, isStopped ? timeCourse : null), issues: readIssues(instance), elapsedMs, isStopped }
+      } finally {
+        // A run still going (a throwing onProgress, say) is stopped first: freeing it mid-run blocks the page.
+        if (instance?.status.value === RUNNING) {
+          instance.stopRun()
+          instance.waitForRun()
+        }
+        runHandles.reverse().forEach((handle) => handle.delete())
+        instance?.delete()
+        instance = null
+      }
+    })()
+
+    return {
+      promise,
+      stop: () => {
+        isStopped = true
+        instance?.stopRun()
+      },
+    }
+  }
+
+  return { run, dispose }
+}
+
+/**
+ * Simulates a CellML model once with the given settings, in a session of its own.
  *
  * @param {Object} options
  * @param {Object} options.module - The libOpenCOR module (see libopencorLoader.js).
  * @param {string} options.cellml - The flattened CellML model.
  * @param {Object} options.settings - Simulation settings (simulationSettingsStore.simulationSettings).
  * @param {Function} [options.onProgress] - Called with the progress, from 0 to 1.
- * @returns {{promise: Promise<Object>, stop: Function}} `promise` resolves with `{ voi, variables, issues,
- *   elapsedMs, isStopped }` or rejects with a SimulationError; `stop` ends the run early, keeping what it has.
+ * @returns {{promise: Promise<Object>, stop: Function}} As a session's run.
  */
-export function startSimulation({ module: loc, cellml, settings, onProgress = () => {} }) {
-  let instance = null
+export function startSimulation({ module, cellml, settings, onProgress = () => {} }) {
+  let current = null
   let isStopped = false
-
   const promise = (async () => {
-    // Start after returning, so the caller has `stop` before the first progress report.
     await Promise.resolve()
-    const file = new loc.File(`phlynx-simulation-${++fileCount}.cellml`)
-    // Every handle libOpenCOR gives back, freed once the run ends.
-    const handles = []
-    const keep = (handle) => (handle && handles.push(handle), handle)
-    let document = null
+    const session = createSimulationSession({ module, cellml })
     try {
-      file.setContents(new TextEncoder().encode(cellml))
-      throwOnErrors(file, 'The model has errors.')
-
-      document = new loc.SedDocument(file)
-      throwOnErrors(document, 'The model could not be simulated.')
-
-      checkSettings(settings)
-      const timeCourse = buildUniformTimeCourse(settings)
-      const simulation = keep(document.simulation(0))
-      Object.assign(simulation, timeCourse)
-      applySolver(loc, simulation, settings, keep)
-
-      instance = document.instantiate()
-      throwOnErrors(instance, 'The model could not be simulated.')
-
-      const task = keep(instance.task(0))
-      if (!task?.voiName) {
-        throw new SimulationError('The model has no differential equation, so there is nothing to simulate over time.')
-      }
-      const bytes = estimateResultBytes(task, timeCourse.numberOfSteps)
-      if (bytes > MAX_RESULT_BYTES) {
-        const gigabytes = (bytes / 1024 ** 3).toFixed(1)
-        throw new SimulationError(`The results would need ${gigabytes} GB of memory. Use fewer points (a larger point interval).`)
-      }
-
-      if (isStopped) return { ...readResults(task, timeCourse, 0), issues: [], elapsedMs: 0, isStopped }
-      if (!instance.startRun()) throw new SimulationError('The simulation could not start.', readIssues(instance))
-      while (instance.status.value === RUNNING) {
-        onProgress(instance.progress)
-        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
-      }
-      const elapsedMs = instance.waitForRun()
-      if (instance.hasErrors) {
-        // The points computed before the failure help to see what went wrong.
-        const partial = readResults(task, timeCourse)
-        throw new SimulationError(describeRunFailure(instance, settings), readIssues(instance), partial.voi.values.length > 1 ? partial : null)
-      }
-      onProgress(1)
-
-      return { ...readResults(task, isStopped ? timeCourse : null), issues: readIssues(instance), elapsedMs, isStopped }
+      current = session.run({ settings, onProgress })
+      if (isStopped) current.stop()
+      return await current.promise
     } finally {
-      // A run still going (a throwing onProgress, say) is stopped first: freeing it mid-run blocks the page.
-      if (instance?.status.value === RUNNING) {
-        instance.stopRun()
-        instance.waitForRun()
-      }
-      handles.reverse().forEach((handle) => handle.delete())
-      instance?.delete()
-      instance = null
-      document?.delete()
-      const fileManager = loc.FileManager.instance()
-      fileManager.unmanage(file)
-      fileManager.delete()
-      file.delete()
+      session.dispose()
     }
   })()
-
   return {
     promise,
     stop: () => {
       isStopped = true
-      instance?.stopRun()
+      current?.stop()
     },
   }
 }

@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { checkSettings, countComputedPoints, MAX_RESULT_BYTES, SimulationError, startSimulation } from '../../../../src/services/simulation/engine.js'
+import {
+  checkSettings,
+  countComputedPoints,
+  createSimulationSession,
+  MAX_RESULT_BYTES,
+  SimulationError,
+  startSimulation,
+} from '../../../../src/services/simulation/engine.js'
 
 const SETTINGS = { initialPoint: 0, startingPoint: 0, endingPoint: 2, pointInterval: 0.5 }
 
@@ -22,6 +29,18 @@ function createFakeLibOpenCOR({ fileErrors = [], instanceErrors = [], voiName = 
   class SolverCvode {}
   const solver = Object.assign(new SolverCvode(), { delete: () => freed.push('solver') })
   const simulation = { odeSolver: solver, delete: () => freed.push('simulation') }
+  const model = {
+    changes: [],
+    addChange(change) {
+      this.changes.push(change)
+      return true
+    },
+    removeAllChanges() {
+      this.changes = []
+      return true
+    },
+    delete: () => freed.push('model'),
+  }
   let polls = 0
   const voi = new Float64Array([0, 0.5, 1, 1.5, 2])
   const task = {
@@ -67,8 +86,21 @@ function createFakeLibOpenCOR({ fileErrors = [], instanceErrors = [], voiName = 
         return simulation
       }
 
+      model() {
+        return model
+      }
+
       instantiate() {
         return instance
+      }
+    },
+    SedChangeAttribute: class SedChangeAttribute {
+      constructor(componentName, variableName, newValue) {
+        Object.assign(this, { componentName, variableName, newValue })
+      }
+
+      delete() {
+        freed.push('change')
       }
     },
     SolverForwardEuler: class SolverForwardEuler {
@@ -92,7 +124,7 @@ function createFakeLibOpenCOR({ fileErrors = [], instanceErrors = [], voiName = 
       }),
     },
   }
-  return { loc, freed, solver, simulation, instance, task, unmanaged }
+  return { loc, freed, solver, simulation, model, instance, task, unmanaged }
 }
 
 const failureOf = (promise) => promise.then(
@@ -129,7 +161,7 @@ describe('startSimulation', () => {
     const error = await failureOf(startSimulation({ module: fake.loc, cellml: '<model/>', settings: SETTINGS }).promise)
 
     expect(error.issues).toEqual([{ type: 'Error', description: 'Unsupported model.' }])
-    expect(fake.freed).toEqual(['instance issue', 'solver', 'simulation', 'instance', 'document', 'unmanage file', 'file manager', 'file'])
+    expect(fake.freed).toEqual(['instance issue', 'solver', 'instance', 'model', 'simulation', 'document', 'unmanage file', 'file manager', 'file'])
   })
 
   it('gives each run its own file', async () => {
@@ -195,7 +227,8 @@ describe('startSimulation', () => {
 
     await startSimulation({ module: fake.loc, cellml: '<model/>', settings: SETTINGS }).promise
 
-    expect(fake.freed).toEqual(['task', 'solver', 'simulation', 'instance', 'document', 'unmanage file', 'file manager', 'file'])
+    // The run's objects go when it ends, and the model's when its session does.
+    expect(fake.freed).toEqual(['task', 'solver', 'instance', 'model', 'simulation', 'document', 'unmanage file', 'file manager', 'file'])
     expect(fake.unmanaged).toEqual([expect.stringMatching(/^phlynx-simulation-\d+\.cellml$/)])
   })
 
@@ -307,6 +340,23 @@ describe('startSimulation', () => {
     expect(result.isStopped).toBe(true)
     expect([...result.voi.values]).toEqual([0, 0.5, 1])
     expect([...result.variables.get('c/x').values]).toEqual([1, 0.8, 0.6])
+  })
+})
+
+describe('createSimulationSession', () => {
+  it('reruns its model with new parameter changes, freeing each run’s objects as it ends', async () => {
+    const fake = createFakeLibOpenCOR()
+    const session = createSimulationSession({ module: fake.loc, cellml: '<model/>' })
+
+    await session.run({ settings: SETTINGS, changes: [{ component: 'instance_parameters', variable: 'k', value: 2 }] }).promise
+    await session.run({ settings: SETTINGS, changes: [{ component: 'instance_parameters', variable: 'k', value: 3 }] }).promise
+
+    expect(fake.model.changes.map((change) => [change.componentName, change.variableName, change.newValue])).toEqual([['instance_parameters', 'k', '3']])
+    expect(fake.freed).toEqual(['task', 'solver', 'instance', 'change', 'task', 'solver', 'instance'])
+    expect(fake.unmanaged).toEqual([])
+
+    session.dispose()
+    expect(fake.freed.slice(7)).toEqual(['change', 'model', 'simulation', 'document', 'unmanage file', 'file manager', 'file'])
   })
 })
 
