@@ -481,6 +481,7 @@
     @generate="onMacroBuilderGenerate"
   />
 
+  <SimulationFloatingViewer :nodes="nodes" />
   <SimSettingsDialog v-model="simSettingsDialog.visible" :section="simSettingsDialog.section" :nodes="nodes" />
 
   <SettingsDialog v-model="settingsDialogVisible" />
@@ -564,6 +565,7 @@ import ModuleReplacementDialog from '../components/ModuleReplacementDialog.vue'
 import SaveDialog from '../components/SaveDialog.vue'
 import MacroBuilderDialog from '../components/MacroBuilderDialog.vue'
 import SimSettingsDialog from '../components/SimSettingsDialog.vue'
+import SimulationFloatingViewer from '../components/simulation/SimulationFloatingViewer.vue'
 import EdgeConnectionDialog from '../components/EdgeConnectionDialog.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
 import HelperLines from '../components/HelperLines.vue'

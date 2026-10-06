@@ -30,25 +30,8 @@
     </header>
 
     <!-- Plots and controls each scroll on their own, so a slider and the plot it moves stay in view. -->
-    <Splitter
-      v-if="layout"
-      :key="layout"
-      :layout="layout === 'columns' ? 'horizontal' : 'vertical'"
-      class="panel-split"
-      :class="`panel-split--${layout}`"
-      @resizeend="saveSizes"
-    >
-      <SplitterPanel v-if="layout === 'columns'" :size="sizes.columns[0]" :min-size="25" class="panel-region">
-        <SimulationControls
-          v-model:view="controlsView"
-          v-model:target-plot-id="targetPlotId"
-          :nodes="nodes"
-          :scope-node-ids="hasScope ? store.scopeNodeIds : null"
-          :keep-current="keepCurrent"
-          @change="rerunForSliders"
-        />
-      </SplitterPanel>
-      <SplitterPanel :size="layout === 'columns' ? sizes.columns[1] : sizes.rows[0]" :min-size="20" class="panel-region panel-figures">
+    <Splitter layout="vertical" class="panel-split" @resizeend="saveSizes">
+      <SplitterPanel :size="sizes[0]" :min-size="20" class="panel-region panel-figures">
         <template v-if="charts.length">
           <SimulationPlot
             v-for="chart in charts"
@@ -58,12 +41,13 @@
             :unit="chart.unit"
             :x="xAxis"
             :series="chart.series"
+            :height="chartHeight"
             sync-key="simulation-panel"
           />
         </template>
         <p v-else class="panel-empty">{{ figuresHint }}</p>
       </SplitterPanel>
-      <SplitterPanel v-if="layout === 'rows'" :size="sizes.rows[1]" :min-size="20" class="panel-region">
+      <SplitterPanel :size="sizes[1]" :min-size="20" class="panel-region">
         <SimulationControls
           v-model:view="controlsView"
           v-model:target-plot-id="targetPlotId"
@@ -94,7 +78,7 @@
  * The context sidebar's Simulation tab: runs scoped simulations and plots the chosen variables of one of
  * the simulated instances.
  */
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
 import ProgressBar from 'primevue/progressbar'
@@ -109,6 +93,7 @@ import SimulationStatusLine from './SimulationStatusLine.vue'
 import SimulationToolbar from './SimulationToolbar.vue'
 import { useSimulation } from '../../composables/useSimulation'
 import { useSimulationCharts } from '../../composables/useSimulationCharts'
+import { useSliderReruns } from '../../composables/useSliderReruns'
 import { libopencor } from '../../services/simulation/libopencorLoader'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../../stores/simulationSettingsStore'
@@ -156,32 +141,33 @@ const resultsSummary = computed(() => {
 })
 const isResultsDialogOpen = ref(false)
 
-// Side by side once there is room for both, else plots above the controls.
-const COLUMNS_FROM_PX = 640
+// Plots above the controls at any width; a wider tab gives taller plots.
 const SIZES_KEY = 'phlynx.simulation.splitSizes'
 const panelEl = ref(null)
-// Null until measured, so the tab is drawn once, in the layout that fits.
-const layout = ref(null)
-// Kept here, so the Splitter rebuilding for the other layout doesn't reset them.
+const panelWidth = ref(0)
 const controlsView = ref('plots')
 const targetPlotId = ref(null)
-const sizes = reactive(readSizes())
+const sizes = ref(readSizes())
 let resizeObserver = null
+
+// About two fifths of the tab's width, within what keeps a plot readable and the controls in view.
+const chartHeight = computed(() => Math.round(Math.min(460, Math.max(200, panelWidth.value * 0.42))))
 
 /**
  * Reads the split sizes this viewer chose last, as percentages.
  *
- * @returns {{rows: number[], columns: number[]}}
+ * @returns {number[]}
  */
 function readSizes() {
-  const fallback = { rows: [55, 45], columns: [38, 62] }
   try {
     const saved = JSON.parse(localStorage.getItem(SIZES_KEY) ?? 'null')
-    const isPair = (pair) => Array.isArray(pair) && pair.length === 2 && pair.every(Number.isFinite)
-    return { rows: isPair(saved?.rows) ? saved.rows : fallback.rows, columns: isPair(saved?.columns) ? saved.columns : fallback.columns }
+    // Earlier versions saved a size per layout; only the plots-above-controls one remains.
+    const pair = Array.isArray(saved) ? saved : saved?.rows
+    if (Array.isArray(pair) && pair.length === 2 && pair.every(Number.isFinite)) return pair
   } catch {
-    return fallback
+    // Without storage, the split starts as it does the first time.
   }
+  return [55, 45]
 }
 
 /**
@@ -190,19 +176,18 @@ function readSizes() {
  * @param {{sizes: number[]}} event
  */
 function saveSizes({ sizes: next }) {
-  sizes[layout.value] = next
+  sizes.value = next
   try {
-    localStorage.setItem(SIZES_KEY, JSON.stringify(sizes))
+    localStorage.setItem(SIZES_KEY, JSON.stringify(next))
   } catch {
     // Without storage, the sizes last for the session.
   }
 }
 
 onMounted(() => {
-  const layoutFor = (width) => (width >= COLUMNS_FROM_PX ? 'columns' : 'rows')
-  layout.value = layoutFor(panelEl.value.clientWidth)
+  panelWidth.value = panelEl.value.clientWidth
   resizeObserver = new ResizeObserver(([entry]) => {
-    if (entry.contentRect.width > 0) layout.value = layoutFor(entry.contentRect.width)
+    if (entry.contentRect.width > 0) panelWidth.value = entry.contentRect.width
   })
   resizeObserver.observe(panelEl.value)
 })
@@ -288,45 +273,8 @@ const statusLine = computed(() => {
   return { severity: 'info', icon: null, text: 'Press play to simulate the whole model or the selected instances.', details: [] }
 })
 
-// While a slider moves, rerun as often as the simulator keeps up, always with the latest values: one run
-// at a time, and only the newest value waits. A run taking far longer than usual, as some values make a
-// model hard to solve, gives way to the newest value rather than holding the slider up.
-const SLOW_RUN_MIN_MS = 150
-const SLOW_RUN_FACTOR = 3
-let sliderRun = null
-let sliderRunStartedAt = 0
-let isSliderRerunWaiting = false
-const recentRunMs = []
-
-/** Reruns the scope with the slider values, or queues the newest values behind the run going. */
-function rerunForSliders() {
-  // Before any run there is no scope to rerun: the next play uses the slider values.
-  if (isSimulatorMissing.value || !store.results) return
-  if (!sliderRun) {
-    startSliderRun()
-    return
-  }
-  isSliderRerunWaiting = true
-  const typical = [...recentRunMs].sort((a, b) => a - b)[Math.floor(recentRunMs.length / 2)] ?? SLOW_RUN_MIN_MS
-  // run() stops the run going and ignores its results.
-  if (performance.now() - sliderRunStartedAt > Math.max(SLOW_RUN_MIN_MS, typical * SLOW_RUN_FACTOR)) startSliderRun()
-}
-
-/** Starts a rerun, then the newest waiting values once it is done. */
-function startSliderRun() {
-  isSliderRerunWaiting = false
-  const startedAt = performance.now()
-  sliderRunStartedAt = startedAt
-  const thisRun = run(store.scopeNodeIds).finally(() => {
-    // Superseded by a newer run, which carries on.
-    if (sliderRun !== thisRun) return
-    recentRunMs.push(performance.now() - startedAt)
-    if (recentRunMs.length > 5) recentRunMs.shift()
-    sliderRun = null
-    if (isSliderRerunWaiting) startSliderRun()
-  })
-  sliderRun = thisRun
-}
+// Slider moves rerun the scope through one shared, lossy queue (see useSliderReruns).
+const { rerunForSliders } = useSliderReruns()
 
 const { xAxis, charts } = useSimulationCharts(scopeNodes)
 </script>
@@ -345,6 +293,8 @@ const { xAxis, charts } = useSimulationCharts(scopeNodes)
   flex-direction: column;
   gap: 4px;
   flex-shrink: 0;
+  /* Room for the play button's shadow, hover growth and out-of-date dot, which the sidebar would crop. */
+  padding: 4px 4px 0;
 }
 
 .panel-progress-slot {
@@ -369,14 +319,7 @@ const { xAxis, charts } = useSimulationCharts(scopeNodes)
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.panel-split--rows .panel-region {
   padding: 8px 4px 8px 0;
-}
-
-.panel-split--columns .panel-region {
-  padding: 4px 8px;
 }
 
 .panel-empty {

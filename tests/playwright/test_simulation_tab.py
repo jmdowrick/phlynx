@@ -328,6 +328,49 @@ class TestSimulationTab(unittest.TestCase):
             context.close()
             browser.close()
 
+    def test_floating_viewer_stays_over_the_canvas_with_the_sidebar_closed(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+
+            context = browser.new_context(viewport={"width": 1600, "height": 1000})
+            context.add_init_script(OPT_IN_TO_ISOLATION)
+            page = context.new_page()
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+
+            # ---------- START -----------
+            page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
+            page.evaluate(SHORTEN_SIMULATION)
+            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
+            simulate_whole_model(page)
+            expect(page.get_by_text("Simulated the whole model")).to_be_visible(timeout=120000)
+            plot_variable(page, "soma_SN/V")
+
+            add_slider(page, "soma_SN/g_Na")
+
+            page.get_by_role("button", name="Float the results over the canvas").click()
+            viewer = page.locator(".simulation-floating-viewer")
+            expect(viewer.locator(".simulation-plot .plot-title")).to_have_text("soma_SN/V")
+
+            # Closing the sidebar leaves the viewer up, and its sliders still rerun the model.
+            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            expect(viewer).to_be_visible()
+            viewer.get_by_role("button", name="Show the sliders").click()
+            page.evaluate(f"window.__shownResults = {RESULTS_STORE}.results")
+            viewer.locator(".p-slider-handle").first.focus()
+            for _ in range(10):
+                page.keyboard.press("ArrowRight")
+            page.wait_for_function(
+                f"{RESULTS_STORE}.results !== window.__shownResults && {RESULTS_STORE}.status === 'done'", timeout=60000
+            )
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
     def test_whole_model_run_shows_inspection_modules(self):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)

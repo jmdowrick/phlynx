@@ -33,6 +33,17 @@
 
     <span class="toolbar-spacer"></span>
     <Button
+      icon="pi pi-clone"
+      text
+      rounded
+      size="small"
+      :severity="floatingViewer.visible ? 'primary' : 'secondary'"
+      :aria-pressed="floatingViewer.visible"
+      aria-label="Float the results over the canvas"
+      v-tooltip.bottom="floatingViewer.visible ? 'Close the floating viewer' : 'Float over the canvas'"
+      @click="toggleFloatingViewer"
+    />
+    <Button
       icon="pi pi-window-maximize"
       text
       rounded
@@ -67,6 +78,7 @@ import { computed } from 'vue'
 import Button from 'primevue/button'
 import ToggleSwitch from 'primevue/toggleswitch'
 
+import { useFloatingViewer } from '../../composables/useFloatingViewer'
 import { useSimSettingsDialog } from '../../composables/useSimSettingsDialog'
 
 const scopeMode = defineModel('scopeMode', { type: String, default: 'model' })
@@ -88,6 +100,7 @@ const props = defineProps({
 const emit = defineEmits(['play', 'stop', 'expand'])
 
 const { open: openSimSettings } = useSimSettingsDialog()
+const { state: floatingViewer, toggle: toggleFloatingViewer } = useFloatingViewer()
 
 const isWholeModel = computed({
   get: () => scopeMode.value === 'model',
