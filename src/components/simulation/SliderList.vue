@@ -1,13 +1,34 @@
 <template>
   <section class="slider-list" aria-label="Parameter sliders">
-    <VariablePathPicker
-      v-if="withPicker"
-      :index="index"
+    <!-- The search shows when asked for, or while there are no sliders yet, and tucks away after a pick. -->
+    <div v-if="withPicker && isAdding" ref="pickerEl" class="slider-picker">
+      <VariablePathPicker
+        :index="index"
       :filter="(entry) => entry.slidable && !sliderKeys.has(entry.key)"
       :describe="describeSlidable"
-      placeholder="Add a slider…"
-      aria-label="Add a slider"
-      @pick="addSlider"
+        placeholder="Add a slider…"
+        aria-label="Add a slider"
+        @pick="addSlider"
+      />
+      <Button
+        v-if="sliders.length || elsewhere.length"
+        icon="pi pi-times"
+        text
+        rounded
+        size="small"
+        severity="secondary"
+        aria-label="Close the slider search"
+        @click="isAdding = false"
+      />
+    </div>
+    <Button
+      v-else-if="withPicker"
+      label="Add slider"
+      icon="pi pi-plus"
+      text
+      size="small"
+      class="slider-add-button"
+      @click="startAdding"
     />
     <div v-for="slider in sliders" :key="slider.valueKey" class="slider-row">
       <div class="slider-head">
@@ -43,7 +64,7 @@
     </div>
 
     <p v-if="!sliders.length && !elsewhere.length && !missing.length" class="slider-hint">
-      {{ withPicker ? 'No sliders yet. Search above for a constant to try out.' : 'No sliders yet.' }}
+      {{ withPicker ? 'No sliders yet. Search for a constant to try out.' : 'No sliders yet.' }}
     </p>
 
     <details v-if="elsewhere.length" class="slider-elsewhere">
@@ -100,7 +121,7 @@
  * model until it is applied; moving one asks for runs as it moves. Sliders of instances the last run left
  * out are listed apart.
  */
-import { computed, onBeforeUnmount, ref, useId } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, useId } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
 import Button from 'primevue/button'
@@ -224,6 +245,16 @@ const missing = computed(() => resolved.value.filter(({ row }) => !row).map(({ d
 
 // What can be given a slider: constants and global constants, which libOpenCOR can change between runs.
 // A computed constant comes from the constants in its equation, which are what to slide.
+const pickerEl = ref(null)
+const isAdding = ref(definitions.value.length === 0)
+
+/** Shows the slider search and puts the cursor in it. */
+async function startAdding() {
+  isAdding.value = true
+  await nextTick()
+  pickerEl.value?.querySelector('input')?.focus()
+}
+
 const index = computed(() => (props.withPicker ? buildVariableIndex(props.nodes, { scopeNodeIds: props.scopeNodeIds, mapping: resultsStore.mapping }) : []))
 const sliderKeys = computed(() => new Set(definitions.value.map((definition) => sliderValueKey(definition))))
 
@@ -254,6 +285,7 @@ function addSlider(entry) {
   const valueKey = sliderValueKey(definition)
   if (!definitions.value.some((other) => sliderValueKey(other) === valueKey)) resultsStore.setSliderValue(valueKey, null)
   settingsStore.setParameterScanConfig(putSlider(settingsStore.parameterScanConfig, definition))
+  isAdding.value = false
 }
 
 let rerunFrame = null
@@ -428,6 +460,21 @@ function openRange(slider) {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.slider-picker {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.slider-picker > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.slider-add-button {
+  align-self: flex-start;
 }
 
 .slider-row {

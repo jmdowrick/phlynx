@@ -11,7 +11,7 @@ import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 
 // Inspection modules belong to no instance or plot group, so their outputs make a plot of their own.
-const INSPECTION_PLOT = '__inspection_modules__'
+export const INSPECTION_PLOT = '__inspection_modules__'
 
 /**
  * Builds the charts of the shown results.
@@ -112,6 +112,7 @@ export function useSimulationCharts(scopeNodes) {
         slots.forEach((slot, key) => nextSlots.set(key, slot))
         result.push({
           key: `${id}#${index}`,
+          plotId: plot,
           ...titleFor(group, plotName),
           // The plot's name, with what tells its charts apart when it makes several.
           plotLabel: chartsPerPlot.get(plot) > 1 && parts.length ? `${plotName} (${parts.join(', ')})` : plotName,

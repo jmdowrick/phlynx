@@ -54,7 +54,14 @@ def add_slider(page, path, within=None):
     """Adds a slider for a parameter by its instance/variable path, from the Sliders view."""
     scope = within or page
     scope.get_by_role("button", name=re.compile(r"^Sliders \(")).click()
+    open_slider_search(scope)
     pick_path(page, "Add a slider", path, within)
+
+
+def open_slider_search(scope):
+    """Shows the slider search, which tucks away once there are sliders."""
+    if not scope.get_by_role("combobox", name="Add a slider").is_visible():
+        scope.get_by_role("button", name="Add slider", exact=True).click()
 
 
 class TestSimulationTab(unittest.TestCase):

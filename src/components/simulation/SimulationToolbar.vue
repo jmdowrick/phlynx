@@ -1,30 +1,33 @@
 <template>
   <div class="simulation-toolbar" role="toolbar" aria-label="Simulation">
-    <Button
-      v-if="isRunning"
-      rounded
-      severity="danger"
-      class="toolbar-run toolbar-run--stop"
-      aria-label="Stop the simulation"
-      v-tooltip.bottom="'Stop'"
-      @click="emit('stop')"
-    >
-      <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" /></svg>
-    </Button>
-    <Button
-      v-else
-      rounded
-      :disabled="!canPlay"
-      :aria-label="playLabel"
-      v-tooltip.bottom="playHint"
-      class="toolbar-run"
-      :class="{ 'toolbar-run--outdated': isOutdated }"
-      @click="emit('play')"
-    >
-      <i v-if="isLoading" class="pi pi-spin pi-spinner" aria-hidden="true"></i>
-      <!-- Solid, and nudged right, so the triangle looks centred in the circle. -->
-      <svg v-else viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3.6v8.8c0 .5.6.8 1 .5l6.6-4.4c.4-.3.4-.8 0-1.1L6.5 3c-.4-.2-1 0-1 .6z" fill="currentColor" /></svg>
-    </Button>
+    <!-- The out-of-date dot sits on a wrapper, since the button crops what overflows it. -->
+    <span class="toolbar-run-wrap">
+      <Button
+        v-if="isRunning"
+        rounded
+        severity="danger"
+        class="toolbar-run toolbar-run--stop"
+        aria-label="Stop the simulation"
+        v-tooltip.bottom="'Stop'"
+        @click="emit('stop')"
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" /></svg>
+      </Button>
+      <Button
+        v-else
+        rounded
+        :disabled="!canPlay"
+        :aria-label="playLabel"
+        v-tooltip.bottom="playHint"
+        class="toolbar-run"
+        @click="emit('play')"
+      >
+        <i v-if="isLoading" class="pi pi-spin pi-spinner" aria-hidden="true"></i>
+        <!-- Solid, and nudged right, so the triangle looks centred in the circle. -->
+        <svg v-else viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3.6v8.8c0 .5.6.8 1 .5l6.6-4.4c.4-.3.4-.8 0-1.1L6.5 3c-.4-.2-1 0-1 .6z" fill="currentColor" /></svg>
+      </Button>
+      <span v-if="isOutdated && !isRunning" class="toolbar-run-dot" aria-hidden="true"></span>
+    </span>
 
     <label class="toolbar-scope" v-tooltip.bottom="scopeLabel">
       <ToggleSwitch v-model="isWholeModel" :aria-label="`Simulate the whole model, not ${partName}`" />
@@ -162,8 +165,6 @@ const playHint = computed(() => props.blockedReason ?? (props.isLoading ? 'Loadi
   width: 34px;
   height: 34px;
   padding: 0;
-  /* The out-of-date dot sits on the circle's edge, so the button mustn't crop it. */
-  overflow: visible;
   box-shadow: 0 1px 2px color-mix(in srgb, var(--p-text-color) 25%, transparent);
   transition: transform 120ms ease, box-shadow 120ms ease;
 }
@@ -187,8 +188,13 @@ const playHint = computed(() => props.blockedReason ?? (props.isLoading ? 'Loadi
 }
 
 /* Out-of-date results: a dot on play says it would update them. */
-.toolbar-run--outdated::after {
-  content: '';
+.toolbar-run-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.toolbar-run-dot {
   position: absolute;
   top: -1px;
   right: -1px;
@@ -197,5 +203,6 @@ const playHint = computed(() => props.blockedReason ?? (props.isLoading ? 'Loadi
   border-radius: 50%;
   background: var(--p-orange-500);
   box-shadow: 0 0 0 2px var(--p-content-background);
+  pointer-events: none;
 }
 </style>
