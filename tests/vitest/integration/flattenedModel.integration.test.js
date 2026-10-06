@@ -13,6 +13,7 @@ import { resolvePortCouplings } from '../../../src/utils/edges.js'
 import { generateFlattenedModel } from '../../../src/utils/cellml.js'
 import { interpretUnitExpression } from '../../../src/utils/unitExpression.js'
 import { resolveBoundaryValues } from '../../../src/services/export/boundaryValues.js'
+import { buildScopedModel, checkScope, resolveScope } from '../../../src/services/simulation/scopedModel.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
 const MATH_REF = 'file:decay'
@@ -165,6 +166,21 @@ const HUB_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="hub">
         <apply><minus/><ci>v_sum</ci></apply>
       </apply>
       <apply><eq/><ci>u</ci><ci>q</ci></apply>
+    </math>
+  </component>
+</model>`
+// A tank filled through v_in: dq/dt = v_in - q.
+const TANK_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="tank">
+  <component name="tank">
+    <variable name="t" units="second" interface="public"/>
+    <variable name="q" units="dimensionless" initial_value="q_init" interface="public"/>
+    <variable name="q_init" units="dimensionless" initial_value="0" interface="public"/>
+    <variable name="v_in" units="per_second" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>q</ci></apply>
+        <apply><minus/><ci>v_in</ci><apply><times/><cn cellml:units="per_second" xmlns:cellml="http://www.cellml.org/cellml/2.0#">1</cn><ci>q</ci></apply></apply>
+      </apply>
     </math>
   </component>
 </model>`
@@ -327,5 +343,134 @@ describe('generateFlattenedModel multiport couplings', () => {
     expect(() => generateFlattenedModel([hub, ...leaves], edges, store)).toThrow(
       '"hub" sums "v_sum" through ports "flow" and "drain"; a variable can be summed through one port only.'
     )
+  })
+})
+
+describe('scoped models', () => {
+  let store
+
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  }, 120000)
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    store = useLibraryStore()
+    store.addUnitsFile({ componentFile: 'units.cellml', model: UNITS })
+    store.addMath('file:hub', HUB_XML)
+    store.addMath('file:leaf', LEAF_XML)
+  })
+
+  afterEach(() => vi.restoreAllMocks())
+
+  /** A node built from the stored math, its port inputs typed as boundary conditions. */
+  function buildNode(id, mathRef, ports, values = {}) {
+    const portVariables = new Set(ports.flatMap((port) => port.variables))
+    const rows = reconcileRows(analyzeMathXml(store.availableMath.get(mathRef)), [], {
+      defaults: store.getMathDefaults(mathRef),
+    }).map((row) => ({
+      ...row,
+      type: row.type === 'constant' && portVariables.has(row.name) ? 'boundary_condition' : row.type,
+      ...(row.name in values && { value: values[row.name] }),
+    }))
+    return { id, type: 'instanceNode', data: { name: id, mathRef, variables: rows, ports } }
+  }
+
+  /** A hub summing the flows of two leaves, each given the hub's pressure. */
+  function buildNetwork(leafValues = {}) {
+    const hub = buildNode('hub', 'file:hub', [
+      { portType: 'exit_ports', label: 'vessel', variables: ['v_sum', 'u'], multiportType: ['sum', 'True'] },
+    ])
+    const leaves = ['leaf_1', 'leaf_2'].map((id) =>
+      buildNode(id, 'file:leaf', [{ portType: 'entrance_ports', label: 'vessel', variables: ['v', 'u'], multiportType: 'None' }], leafValues)
+    )
+    const edges = leaves.map((leaf) => ({
+      id: `hub_${leaf.id}`,
+      source: hub.id,
+      target: leaf.id,
+      data: { couplings: resolvePortCouplings(hub.data.ports, leaf.data.ports) },
+    }))
+    return { nodes: [hub, ...leaves], edges }
+  }
+
+  const componentOf = (text, name) => text.match(new RegExp(`<component name="${name}">[\\s\\S]*?</component>`))?.[0] ?? ''
+
+  it('stops a selection with nothing to integrate, which the build would reject', () => {
+    const { nodes, edges } = buildNetwork()
+    const scope = resolveScope(['leaf_1'], nodes, edges)
+    const report = checkScope(scope, store)
+
+    expect(report.errors).toEqual([expect.stringMatching(/no instance in this selection has a differential equation/i)])
+    expect(report.zeroedBoundaries).toEqual([{ nodeId: 'leaf_1', nodeName: 'leaf_1', variableName: 'u' }])
+    expect(report.canBuild).toBe(false)
+    expect(() => buildScopedModel(scope, store)).toThrow()
+  })
+
+  it('sets a boundary condition the cut leaves without a value to 0', async () => {
+    store.addMath('file:tank', TANK_XML)
+    const tank = buildNode('tank', 'file:tank', [{ portType: 'entrance_ports', label: 'inflow', variables: ['v_in'], multiportType: 'None' }])
+    const source = buildNode('source', 'file:hub', [{ portType: 'exit_ports', label: 'inflow', variables: ['u'], multiportType: 'None' }])
+    const edges = [{ id: 'e', source: 'source', target: 'tank', data: { couplings: resolvePortCouplings(source.data.ports, tank.data.ports) } }]
+    const scope = resolveScope(['tank'], [source, tank], edges)
+
+    const report = checkScope(scope, store)
+    expect(report.canBuild).toBe(true)
+    expect(report.zeroedBoundaries).toEqual([{ nodeId: 'tank', nodeName: 'tank', variableName: 'v_in' }])
+
+    const text = await buildScopedModel(scope, store).text()
+    expect(text).toMatch(/<variable name="v_in"[^>]*initial_value="0"/)
+    expect(tank.data.variables.find((row) => row.name === 'v_in').value).toBeFalsy()
+  })
+
+  it('flattens a single instance on its own', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { nodes, edges } = buildNetwork()
+    const scope = resolveScope(['hub'], nodes, edges)
+    expect(checkScope(scope, store).canBuild).toBe(true)
+
+    const text = await buildScopedModel(scope, store).text()
+    expect(text).toMatch(/<component name="hub">/)
+    expect(text).not.toMatch(/<component name="leaf_/)
+  })
+
+  it('sums only the terms inside the scope, and warns about the one left out', async () => {
+    const { nodes, edges } = buildNetwork()
+    const scope = resolveScope(['hub', 'leaf_1'], nodes, edges)
+
+    const report = checkScope(scope, store)
+    expect(report.canBuild).toBe(true)
+    expect(report.lostSumTerms).toEqual([{ nodeId: 'hub', nodeName: 'hub', variableName: 'v_sum', lost: 1 }])
+
+    const math = componentOf(await buildScopedModel(scope, store).text(), 'generated_summations')
+    expect(math.match(/<ci>op_v[^<]*<\/ci>/g)).toHaveLength(1)
+  })
+
+  it('keeps an inspection module’s variables inside the scope', async () => {
+    const { nodes, edges } = buildNetwork()
+    const total = {
+      name: 'total_flow',
+      units: 'per_second',
+      variables: ['leaf_1', 'leaf_2'].map((nodeId) => ({ nodeId, variableName: 'v', units: 'per_second', sign: 1 })),
+    }
+    const scope = resolveScope(['hub', 'leaf_1'], nodes, edges, [total])
+    expect(scope.trimmedModules).toEqual([{ name: 'total_flow', removed: 1, isLeftOut: false }])
+
+    const math = componentOf(await buildScopedModel(scope, store).text(), 'inspection_modules')
+    expect(math.match(/<variable name="op_v[^"]*"/g)).toHaveLength(1)
+  })
+
+  it('stops an empty selection, which the build would reject', () => {
+    const scope = resolveScope([], [], [])
+    expect(checkScope(scope, store).canBuild).toBe(false)
+    expect(() => buildScopedModel(scope, store)).toThrow()
+  })
+
+  it('flattens the whole model as the scope of every node', async () => {
+    const { nodes, edges } = buildNetwork()
+    const scope = resolveScope(null, nodes, edges)
+    expect(checkScope(scope, store).lostSumTerms).toEqual([])
+
+    const math = componentOf(await buildScopedModel(scope, store).text(), 'generated_summations')
+    expect(math.match(/<ci>op_v[^<]*<\/ci>/g)).toHaveLength(2)
   })
 })
