@@ -68,6 +68,20 @@ function throwOnErrors(logger, message) {
 }
 
 /**
+ * Words a failed run, explaining the solver errors users can fix.
+ *
+ * @param {Object} instance - A SedInstance with errors.
+ * @returns {string}
+ */
+function describeRunFailure(instance) {
+  const maximumSteps = CVODE_PARAMETERS.find(({ name }) => name === 'maximumNumberOfSteps').value
+  const tookTooManySteps = readIssues(instance).some(({ description }) => description?.includes('mxstep'))
+  return tookTooManySteps
+    ? `The simulation failed: the solver needed more than ${maximumSteps} steps between two output points. Try a smaller point interval.`
+    : 'The simulation failed.'
+}
+
+/**
  * Applies the shared CVODE settings to a simulation's solver.
  *
  * @param {Object} loc - The libOpenCOR module.
@@ -208,7 +222,7 @@ export function startSimulation({ module: loc, cellml, settings, onProgress = ()
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
       }
       const elapsedMs = instance.waitForRun()
-      throwOnErrors(instance, 'The simulation failed.')
+      throwOnErrors(instance, describeRunFailure(instance))
       onProgress(1)
 
       return { ...readResults(task, isStopped ? timeCourse : null), issues: readIssues(instance), elapsedMs, isStopped }

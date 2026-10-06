@@ -181,6 +181,10 @@
             </section>
           </TabPanel>
 
+          <TabPanel value="sim">
+            <SimulationPanel v-if="isSimulationVisible" />
+          </TabPanel>
+
           <TabPanel value="sysmod">
             <section class="context-section context-section--modules">
               <div class="modules-header">
@@ -265,6 +269,8 @@ import TabPanel from 'primevue/tabpanel'
 import InputIcon from 'primevue/inputicon'
 import IconField from 'primevue/iconfield'
 
+import SimulationPanel from './simulation/SimulationPanel.vue'
+
 import { FLOW_IDS } from '../utils/constants'
 import { isTypeFixed, typeOptionsFor } from '../utils/parameterRows'
 import { detachReactivity } from '../utils/reactivity'
@@ -314,6 +320,7 @@ const tabs = [
   { id: 'params', label: 'Instance parameters', icon: 'pi-sliders-h' },
   { id: 'sysmod', label: 'Inspection modules', icon: 'pi-question-circle' },
   { id: 'props', label: 'Properties', icon: 'pi-wrench' },
+  { id: 'sim', label: 'Simulation', icon: 'pi-chart-line' },
 ]
 const activeTabId = ref('global')
 
@@ -328,6 +335,19 @@ const selectedNode = computed(() => getSelectedNodes.value[0] || null)
 const isMultipleSelected = computed(() => getSelectedNodes.value.length > 1)
 
 const isParamsVisible = computed(() => !isCollapsed.value && activeTabId.value === 'params')
+const isSimulationVisible = computed(() => !isCollapsed.value && activeTabId.value === 'sim')
+
+/**
+ * Opens the panel on a tab.
+ *
+ * @param {string} tabId
+ */
+function showTab(tabId) {
+  activeTabId.value = tabId
+  isCollapsed.value = false
+}
+
+defineExpose({ showTab })
 
 // Leaving this for future settings configuration to enable auto-popout / switch to instance parameters
 // watch(selectedNode, (node) => {
@@ -603,7 +623,8 @@ function handleParameterTypeChange(row) {
 :deep(.context-tabs.p-tabs) {
   flex: 1 1 auto;
   flex-direction: row;
-  min-width: v-bind('props.minWidth + "px"');
+  /* The aside's width less its padding and border, so the content fits at the minimum width */
+  min-width: calc(v-bind('props.minWidth + "px"') - 2rem - 1px);
   min-height: 0;
   gap: 0.75rem;
 }

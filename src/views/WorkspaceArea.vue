@@ -421,6 +421,7 @@
         </div>
       </main>
       <ContextSidebar
+        ref="contextSidebarRef"
         :initial-width="480"
         :min-width="260"
         :max-width="1200"
@@ -578,6 +579,7 @@ import { useScreenshot } from '../services/useScreenshot'
 import { useMacroGenerator } from '../services/generate/generateWorkflow'
 import { migrateWorkspace, separateNodeParameters } from '../services/workspaceMigrator'
 import { buildWorkspaceFile } from '../services/workspaceFile'
+import { useSimulation } from '../composables/useSimulation'
 import { scopeFlowObject } from '../services/simulation/scopedModel'
 import { relayoutNodes } from '../services/layouts/physics'
 import { extractSimData as extractSimDataFromSedml } from '../services/import/sedml'
@@ -2274,6 +2276,8 @@ function handleCreateInspectionModule(payload) {
 }
 
 const contextMenuRef = ref(null)
+const contextSidebarRef = ref(null)
+const { run: runSimulation } = useSimulation()
 
 const paneContextMenuItems = [
   {
@@ -2312,8 +2316,44 @@ function onNodeContextMenu({ clientX, clientY, id }) {
         onOpenReplacementDialog(node)
       },
     },
+    {
+      label: simulateLabelFor(id),
+      action: () => simulateFromNode(id),
+    },
   ]
   contextMenuRef.value.open(clientX, clientY)
+}
+
+/**
+ * Gets the nodes a node's Simulate menu item runs: its selection, or the node alone when it isn't selected.
+ *
+ * @param {string} id
+ * @returns {string[]}
+ */
+function simulationScopeFor(id) {
+  const selectedIds = getSelectedNodes.value.map((node) => node.id)
+  return selectedIds.includes(id) ? selectedIds : [id]
+}
+
+/**
+ * Names a node's Simulate menu item by what it will run.
+ *
+ * @param {string} id
+ * @returns {string}
+ */
+function simulateLabelFor(id) {
+  const count = simulationScopeFor(id).length
+  return count > 1 ? `Simulate Selection (${count})` : 'Simulate Instance'
+}
+
+/**
+ * Simulates a node's selection, or the node alone, and shows the Simulation tab.
+ *
+ * @param {string} id
+ */
+function simulateFromNode(id) {
+  contextSidebarRef.value?.showTab('sim')
+  runSimulation(simulationScopeFor(id))
 }
 
 function createNewInstanceAtPosition(clientX, clientY) {
