@@ -183,7 +183,7 @@ class TestSimulationTab(unittest.TestCase):
             context.close()
             browser.close()
 
-    def test_results_dialog_syncs_cursors_shows_a_table_and_downloads(self):
+    def test_results_dialog_syncs_cursors_and_downloads(self):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
 
@@ -244,10 +244,6 @@ class TestSimulationTab(unittest.TestCase):
             with open(download.value.path(), "rb") as f:
                 self.assertEqual(f.read(8), b"\x89PNG\r\n\x1a\n")
 
-            dialog.get_by_text("Table", exact=True).click()
-            table = dialog.locator(".results-table").get_by_role("table")
-            expect(table.get_by_role("columnheader")).to_have_text(["time (second)", "soma_SN/V (milliV)", "soma_SN/m (dimensionless)"])
-            expect(table.locator("tbody tr").first.locator("td").first).to_have_text("0")
 
             dialog.get_by_role("button", name="Maximise the results").click()
             expect(dialog.get_by_role("button", name="Restore the results to their size")).to_be_visible()

@@ -18,24 +18,40 @@
       <section :ref="(el) => (sections.time = el)" class="block">
         <div class="block-header">
           <h4>Time course</h4>
-          <span class="subtle">Define simulation bounds and time intervals, in seconds.</span>
+          <span class="subtle">In seconds.</span>
         </div>
         <div class="settings-grid">
           <div class="field">
-            <label>Starting Point</label>
+            <label for="sim-initial-point">Simulation starts at</label>
+            <InputNumber
+              v-model="localSimulationSettings.initialPoint"
+              input-id="sim-initial-point"
+              :pt:pcInputText:root="{ 'data-testid': 'sim-initial-point' }"
+              suffix=" s"
+              :minFractionDigits="0"
+              :maxFractionDigits="8"
+              fluid
+            />
+            <small class="subtle">Where the solver starts, from the initial values.</small>
+          </div>
+          <div class="field">
+            <label for="sim-starting-point">Plots start at</label>
             <InputNumber
               v-model="localSimulationSettings.startingPoint"
+              input-id="sim-starting-point"
               :pt:pcInputText:root="{ 'data-testid': 'sim-starting-point' }"
               suffix=" s"
               :minFractionDigits="0"
               :maxFractionDigits="8"
               fluid
             />
+            <small class="subtle">Results before this are solved but not kept, so a model can settle first.</small>
           </div>
           <div class="field">
-            <label>Ending Point</label>
+            <label for="sim-ending-point">Ends at</label>
             <InputNumber
               v-model="localSimulationSettings.endingPoint"
+              input-id="sim-ending-point"
               :pt:pcInputText:root="{ 'data-testid': 'sim-ending-point' }"
               suffix=" s"
               :minFractionDigits="0"
@@ -44,20 +60,10 @@
             />
           </div>
           <div class="field">
-            <label>Initial Point</label>
-            <InputNumber
-              v-model="localSimulationSettings.initialPoint"
-              :pt:pcInputText:root="{ 'data-testid': 'sim-initial-point' }"
-              suffix=" s"
-              :minFractionDigits="0"
-              :maxFractionDigits="8"
-              fluid
-            />
-          </div>
-          <div class="field">
-            <label>Point Interval</label>
+            <label for="sim-point-interval">Point interval</label>
             <InputNumber
               v-model="localSimulationSettings.pointInterval"
+              input-id="sim-point-interval"
               :pt:pcInputText:root="{ 'data-testid': 'sim-point-interval' }"
               suffix=" s"
               :min="0"
@@ -65,8 +71,13 @@
               :maxFractionDigits="8"
               fluid
             />
+            <small class="subtle">Time between the points kept.</small>
           </div>
         </div>
+        <Message v-if="isSettling" severity="secondary" size="small" class="time-note">
+          The model is solved from {{ localSimulationSettings.initialPoint }} s and plotted from {{ localSimulationSettings.startingPoint }} s.
+          Web OpenCOR doesn’t support a later plot start, so an export may not match.
+        </Message>
       </section>
 
       <section :ref="(el) => (sections.parameters = el)" class="block">
@@ -331,6 +342,12 @@ watch(
   }
 )
 
+// The solver starts before the plots do, to let the model settle; web OpenCOR doesn't support it.
+const isSettling = computed(() => {
+  const { initialPoint, startingPoint } = localSimulationSettings.value
+  return Number.isFinite(initialPoint) && Number.isFinite(startingPoint) && initialPoint < startingPoint
+})
+
 // Settings the simulator would refuse can't be saved, so they never reach a run or an export.
 const solverProblem = computed(() => findSolverSettingsProblem(localSimulationSettings.value))
 
@@ -436,6 +453,10 @@ async function requestClose() {
 }
 .solver-problem {
   margin-right: auto;
+}
+
+.time-note {
+  margin-top: 12px;
 }
 
 .plots-search {

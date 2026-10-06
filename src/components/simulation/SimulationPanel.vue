@@ -137,10 +137,15 @@ const stoppedAt = computed(() => {
   return voi?.values.length ? `${voi.values.at(-1).toPrecision(4)} ${voi.unit}` : 'the start'
 })
 
+// A solve that starts before the plots do, to let the model settle, says so.
+const settleNote = computed(() => {
+  const { initialPoint, startingPoint } = simulationSettingsStore.simulationSettings
+  return initialPoint < startingPoint ? ` from ${initialPoint} s, plotted from ${startingPoint} s` : ''
+})
 const resultsSummary = computed(() => {
-  if (store.status === 'stopped') return `${scopeSummary.value}, stopped at ${stoppedAt.value}.`
-  if (store.status === 'error') return `${scopeSummary.value}, up to ${stoppedAt.value} before the solver failed.`
-  return `${scopeSummary.value}.`
+  if (store.status === 'stopped') return `${scopeSummary.value}${settleNote.value}, stopped at ${stoppedAt.value}.`
+  if (store.status === 'error') return `${scopeSummary.value}${settleNote.value}, up to ${stoppedAt.value} before the solver failed.`
+  return `${scopeSummary.value}${settleNote.value}.`
 })
 const isResultsDialogOpen = ref(false)
 
@@ -256,25 +261,45 @@ const statusLine = computed(() => {
   return { severity: 'info', icon: null, text: 'Press play to simulate the whole model or the selected instances.', details: [] }
 })
 
-// While a slider moves, rerun as often as the simulator keeps up, always with the latest values.
+// While a slider moves, rerun as often as the simulator keeps up, always with the latest values: one run
+// at a time, and only the newest value waits. A run taking far longer than usual, as some values make a
+// model hard to solve, gives way to the newest value rather than holding the slider up.
+const SLOW_RUN_MIN_MS = 150
+const SLOW_RUN_FACTOR = 3
 let sliderRun = null
+let sliderRunStartedAt = 0
 let isSliderRerunWaiting = false
+const recentRunMs = []
+
+/** Reruns the scope with the slider values, or queues the newest values behind the run going. */
 function rerunForSliders() {
   // Before any run there is no scope to rerun: the next play uses the slider values.
   if (isSimulatorMissing.value || !store.results) return
-  if (sliderRun) {
-    isSliderRerunWaiting = true
+  if (!sliderRun) {
+    startSliderRun()
     return
   }
-  sliderRun = run(store.scopeNodeIds).finally(() => {
-    sliderRun = null
-    if (isSliderRerunWaiting) {
-      isSliderRerunWaiting = false
-      rerunForSliders()
-    }
-  })
+  isSliderRerunWaiting = true
+  const typical = [...recentRunMs].sort((a, b) => a - b)[Math.floor(recentRunMs.length / 2)] ?? SLOW_RUN_MIN_MS
+  // run() stops the run going and ignores its results.
+  if (performance.now() - sliderRunStartedAt > Math.max(SLOW_RUN_MIN_MS, typical * SLOW_RUN_FACTOR)) startSliderRun()
 }
 
+/** Starts a rerun, then the newest waiting values once it is done. */
+function startSliderRun() {
+  isSliderRerunWaiting = false
+  const startedAt = performance.now()
+  sliderRunStartedAt = startedAt
+  const thisRun = run(store.scopeNodeIds).finally(() => {
+    // Superseded by a newer run, which carries on.
+    if (sliderRun !== thisRun) return
+    recentRunMs.push(performance.now() - startedAt)
+    if (recentRunMs.length > 5) recentRunMs.shift()
+    sliderRun = null
+    if (isSliderRerunWaiting) startSliderRun()
+  })
+  sliderRun = thisRun
+}
 
 const { xAxis, charts } = useSimulationCharts(scopeNodes)
 </script>

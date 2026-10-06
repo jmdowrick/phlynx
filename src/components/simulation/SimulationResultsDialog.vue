@@ -18,15 +18,6 @@
   >
     <div class="results-toolbar">
       <p class="results-summary">{{ summary }}</p>
-      <SelectButton
-        v-model="view"
-        :options="VIEWS"
-        option-label="label"
-        option-value="value"
-        :allow-empty="false"
-        size="small"
-        aria-label="Show the results as"
-      />
       <ToggleButton
         v-model="isEditing"
         on-label="Edit"
@@ -42,7 +33,6 @@
         icon="pi pi-image"
         size="small"
         outlined
-        :disabled="view !== 'charts'"
         aria-label="Download the charts as a PNG image"
         @click="downloadPng"
       />
@@ -50,8 +40,7 @@
 
     <div class="results-body" :class="{ 'results-body--editing': isEditing }">
       <div class="results-main">
-        <!-- The charts stay mounted under the table, so their zoom survives a look at the numbers. -->
-        <div v-show="view === 'charts'" ref="chartsEl" class="results-charts">
+        <div ref="chartsEl" class="results-charts">
           <SimulationPlot
             v-for="chart in charts"
             :key="chart.key"
@@ -67,21 +56,6 @@
           <p class="results-hint">Drag across a chart to zoom in; double-click it to zoom out.</p>
         </div>
 
-        <DataTable
-          v-if="view === 'table'"
-          :value="rows"
-          :virtual-scroller-options="{ itemSize: ROW_HEIGHT }"
-          scrollable
-          scroll-height="flex"
-          size="small"
-          class="results-table"
-          data-key="index"
-          aria-label="Plotted results"
-        >
-          <Column v-for="column in columns" :key="column.key" :header="columnHeader(column)">
-            <template #body="{ data }">{{ formatValue(column.values[data.index]) }}</template>
-          </Column>
-        </DataTable>
       </div>
 
       <SimulationControls
@@ -98,29 +72,21 @@
 
 <script setup>
 /**
- * The plotted results at full size: the Simulation tab's charts with their cursors in step, or a table of
- * their values, and either downloaded as CSV or the charts as one PNG. Beside them, as in the tab, an
+ * The plotted results at full size: the Simulation tab's charts with their cursors in step, their values
+ * downloadable as CSV and the charts as one PNG. Beside them, as in the tab, an
  * instance's plotted variables and sliders can be changed.
  */
 import { computed, ref } from 'vue'
 
 import Button from 'primevue/button'
-import Column from 'primevue/column'
-import DataTable from 'primevue/datatable'
 import Dialog from 'primevue/dialog'
-import SelectButton from 'primevue/selectbutton'
 import ToggleButton from 'primevue/togglebutton'
 
 import SimulationControls from './SimulationControls.vue'
 import SimulationPlot from './SimulationPlot.vue'
-import { buildResultsCsv, collectResultColumns, columnHeader, composeChartsImage } from '../../services/simulation/resultsExport'
+import { buildResultsCsv, collectResultColumns, composeChartsImage } from '../../services/simulation/resultsExport'
 import { legacyDownload } from '../../utils/save'
 
-const VIEWS = [
-  { label: 'Charts', value: 'charts' },
-  { label: 'Table', value: 'table' },
-]
-const ROW_HEIGHT = 33
 const FILE_NAME = 'simulation-results'
 
 const visible = defineModel('visible', { type: Boolean, default: false })
@@ -137,7 +103,6 @@ const props = defineProps({
 // A slider moved, so the scope wants running again.
 const emit = defineEmits(['change'])
 
-const view = ref('charts')
 const isEditing = ref(true)
 const isMaximized = ref(false)
 const chartsEl = ref(null)
@@ -159,15 +124,7 @@ const xAxis = computed(() => props.x)
 // Taller charts when there's room for them.
 const chartHeight = computed(() => (isMaximized.value ? 360 : 280))
 const columns = computed(() => collectResultColumns(props.x, props.charts))
-const rows = computed(() => Array.from({ length: props.x.values.length }, (_, index) => ({ index })))
 
-/**
- * Formats a value for the table, to 6 significant figures.
- *
- * @param {number|undefined} value
- * @returns {string}
- */
-const formatValue = (value) => (Number.isFinite(value) ? Number(value.toPrecision(6)).toString() : String(value ?? ''))
 
 /** Downloads every plotted series as CSV, at full precision. */
 function downloadCsv() {
@@ -245,9 +202,4 @@ function downloadPng() {
   color: var(--p-text-muted-color);
 }
 
-.results-table {
-  flex: 1;
-  min-height: 0;
-  font-variant-numeric: tabular-nums;
-}
 </style>
