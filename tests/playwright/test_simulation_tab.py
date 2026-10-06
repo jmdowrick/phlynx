@@ -115,5 +115,38 @@ class TestSimulationTab(unittest.TestCase):
             browser.close()
 
 
+    def test_whole_model_run_shows_inspection_modules(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+
+            context = browser.new_context(viewport={"width": 1600, "height": 1000})
+            context.add_init_script(OPT_IN_TO_ISOLATION)
+            page = context.new_page()
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+
+            # ---------- START -----------
+            page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
+            page.evaluate(SHORTEN_SIMULATION)
+            page.evaluate(
+                "document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('inspectionModules')"
+                ".addModule({ name: 'Soma voltage', units: 'milliV',"
+                " variables: [{ key: 'dndnode_0::V', nodeId: 'dndnode_0', nodeName: 'soma_SN', variableName: 'V', units: 'milliV' }] })"
+            )
+            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
+            page.get_by_role("button", name="Whole model").click()
+
+            expect(page.get_by_text("Simulated the whole model")).to_be_visible(timeout=120000)
+            expect(page.locator(".panel-select")).to_contain_text("Inspection modules")
+            expect(page.locator(".simulation-plot .plot-title")).to_have_text("Soma voltage")
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -191,7 +191,7 @@ export function startSimulation({ module: loc, cellml, settings, onProgress = ()
     let document = null
     try {
       file.setContents(new TextEncoder().encode(cellml))
-      throwOnErrors(file, 'The model could not be read.')
+      throwOnErrors(file, 'The model has errors.')
 
       document = new loc.SedDocument(file)
       throwOnErrors(document, 'The model could not be simulated.')

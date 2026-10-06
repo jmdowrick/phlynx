@@ -18,15 +18,26 @@ SIMULATOR_STATUS = "document.querySelector('#app')?.__vue_app__?._context?.provi
 APP_MOUNT_TIMEOUT = 60000
 
 # Whether the page comes from Vite's dev server, which serves the app's source modules.
+# Fails an in-page script that hasn't finished in time, rather than letting the test hang.
+WITHIN_A_MINUTE = (
+    "(script) => Promise.race([script(), new Promise((resolve, reject) =>"
+    " setTimeout(() => reject(new Error('The in-page script took over a minute.')), 60000))])"
+)
+
+
+def evaluate_within_a_minute(page, script):
+    """Runs an async in-page script, failing it after a minute."""
+    return page.evaluate(f"({WITHIN_A_MINUTE})({script})")
+
+
 IS_DEV_SERVER = (
     "fetch('/@vite/client').then((response) => response.ok"
     " && /javascript/.test(response.headers.get('content-type') ?? ''), () => false)"
 )
 
-# A decay model, dx/dt = -k x, solved through the app's engine. It imports source modules, so it needs the
+# A decay model, dx/dt = -k x, solved by the app's simulator, in its worker. It imports source modules, so it needs the
 # dev server (as CI uses).
 SOLVE_DECAY = """async () => {
-  const engine = await import('/src/services/simulation/engine.js')
   const loader = await import('/src/services/simulation/libopencorLoader.js')
   const cellml = `<?xml version="1.0" encoding="UTF-8"?>
 <model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
@@ -40,9 +51,9 @@ SOLVE_DECAY = """async () => {
     </math>
   </component>
 </model>`
-  const module = await loader.whenLibOpenCORReady()
+  const simulator = await loader.whenLibOpenCORReady()
   const settings = { initialPoint: 0, startingPoint: 0, endingPoint: 4, pointInterval: 0.1 }
-  const result = await engine.startSimulation({ module, cellml, settings }).promise
+  const result = await simulator.startSimulation({ cellml, settings }).promise
   return { points: result.voi.values.length, tEnd: result.voi.values.at(-1), xEnd: result.variables.get('decay/x').values.at(-1) }
 }"""
 
@@ -55,14 +66,13 @@ MAP_WORKSPACE_RESULTS = """async () => {
   const { nodes, edges } = useVueFlow('main-flow-editor')
   const { resolveScope, buildScopedModel } = await import('/src/services/simulation/scopedModel.js')
   const { buildVariableMapping, mappingKey } = await import('/src/services/simulation/variableMapping.js')
-  const { startSimulation } = await import('/src/services/simulation/engine.js')
   const { whenLibOpenCORReady } = await import('/src/services/simulation/libopencorLoader.js')
   const { whenLibCellMLReady } = await import('/src/utils/cellml.js')
   const { useLibraryStore } = await import('/src/stores/libraryStore.js')
   const scope = resolveScope(null, nodes.value, edges.value, [])
   const cellml = await buildScopedModel(scope, useLibraryStore()).text()
   const settings = { initialPoint: 0, startingPoint: 0, endingPoint: 1, pointInterval: 0.1 }
-  const results = await startSimulation({ module: await whenLibOpenCORReady(), cellml, settings }).promise
+  const results = await (await whenLibOpenCORReady()).startSimulation({ cellml, settings }).promise
   const mapping = buildVariableMapping({ libcellml: await whenLibCellMLReady(), cellml, nodes: scope.nodes, results })
   const soma = scope.nodes.find((node) => node.data.name === 'soma_SN')
   return {
@@ -103,7 +113,7 @@ class TestSimulator(unittest.TestCase):
             context.close()
             browser.close()
 
-    def test_engine_solves_a_model(self):
+    def test_simulator_solves_a_model(self):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
 
@@ -116,7 +126,7 @@ class TestSimulator(unittest.TestCase):
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             if not page.evaluate(IS_DEV_SERVER):
                 self.skipTest("The app's source modules aren't served here; run against the dev server.")
-            result = page.evaluate(SOLVE_DECAY)
+            result = evaluate_within_a_minute(page, SOLVE_DECAY)
             self.assertEqual(result["points"], 41)
             self.assertAlmostEqual(result["tEnd"], 4)
             self.assertAlmostEqual(result["xEnd"], math.exp(-2), places=5)
@@ -141,7 +151,7 @@ class TestSimulator(unittest.TestCase):
             if not page.evaluate(IS_DEV_SERVER):
                 self.skipTest("The app's source modules aren't served here; run against the dev server.")
             page.get_by_text("SN_varicositycell_modules.cellmlvar_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
-            result = page.evaluate(MAP_WORKSPACE_RESULTS)
+            result = evaluate_within_a_minute(page, MAP_WORKSPACE_RESULTS)
             self.assertEqual(result["mapped"], result["rows"])
             self.assertGreater(result["underAnotherName"], 0)
             self.assertEqual(result["somaCurrentOut"], "axon_SN/I")

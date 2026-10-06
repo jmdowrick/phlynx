@@ -59,7 +59,7 @@
       <Select
         v-model="shownNodeId"
         input-id="simulation-instance"
-        :options="scopeNodes"
+        :options="instanceOptions"
         option-label="data.name"
         option-value="id"
         size="small"
@@ -144,20 +144,32 @@ const stoppedAt = computed(() => {
   return voi?.values.length ? `${voi.values.at(-1).toPrecision(4)} ${voi.unit}` : 'the start'
 })
 
-// The instance shown: the one selected on the canvas when it was simulated, else the first simulated.
+// Inspection modules belong to no instance, so they are shown as an entry of their own.
+const INSPECTION_MODULES = '__inspection_modules__'
+const hasInspectionOutputs = computed(() => store.inspectionOutputs.length > 0)
+const instanceOptions = computed(() => [
+  ...scopeNodes.value,
+  ...(hasInspectionOutputs.value ? [{ id: INSPECTION_MODULES, data: { name: 'Inspection modules' } }] : []),
+])
+
+// What is shown: the instance selected on the canvas when it was simulated; else, after a whole-model run,
+// the inspection modules; else the first simulated instance.
 const shownNodeId = ref(null)
 const shownNode = computed(() => scopeNodes.value.find((node) => node.id === shownNodeId.value) ?? null)
+const isInspectionShown = computed(() => shownNodeId.value === INSPECTION_MODULES && hasInspectionOutputs.value)
 watch(
   [
     () => getSelectedNodes.value.map((node) => node.id).join(','),
     () => scopeNodes.value.map((node) => node.id).join(','),
     () => store.results,
   ],
-  () => {
+  ([, , results], [, , previousResults] = []) => {
     const selected = getSelectedNodes.value
-    const inScope = (id) => scopeNodes.value.some((node) => node.id === id)
-    if (selected.length === 1 && inScope(selected[0].id)) shownNodeId.value = selected[0].id
-    else if (!inScope(shownNodeId.value)) shownNodeId.value = scopeNodes.value[0]?.id ?? null
+    const isShowable = (id) => instanceOptions.value.some((option) => option.id === id)
+    const prefersModules = !store.scopeNodeIds && !selected.length && hasInspectionOutputs.value
+    if (selected.length === 1 && isShowable(selected[0].id)) shownNodeId.value = selected[0].id
+    else if (prefersModules && results !== previousResults) shownNodeId.value = INSPECTION_MODULES
+    else if (!isShowable(shownNodeId.value)) shownNodeId.value = prefersModules ? INSPECTION_MODULES : (scopeNodes.value[0]?.id ?? null)
   },
   { immediate: true }
 )
@@ -179,17 +191,34 @@ const xAxis = computed(() => {
   return { label: voi?.name.split('/').pop() ?? '', unit: voi?.unit ?? '', values: voi?.values ?? new Float64Array() }
 })
 
+/**
+ * Gets the series to plot: the shown instance's plotted variables, or every inspection module's output.
+ *
+ * @returns {Array<{label: string, unit: string, values: Float64Array}>}
+ */
+function collectShownSeries() {
+  if (isInspectionShown.value) {
+    return store.inspectionOutputs.map((output) => ({
+      id: output.id,
+      label: output.name,
+      unit: output.units,
+      values: store.results.variables.get(output.reportedName).values,
+    }))
+  }
+  return plotEntries.value.flatMap(({ name }) => {
+    const series = readNodeSeries(store.results, store.mapping, shownNode.value.id, name)
+    return series ? [{ id: name, label: name, unit: series.unit || 'dimensionless', values: series.values }] : []
+  })
+}
+
 // One chart per unit, since one axis can't carry two; a series keeps its colour while it stays plotted.
 const charts = computed(() => {
   const previousSlots = store.getSeriesSlots()
-  if (!store.results || !shownNode.value) return []
+  if (!store.results || !(shownNode.value || isInspectionShown.value)) return []
   const byUnit = new Map()
-  for (const { name } of plotEntries.value) {
-    const series = readNodeSeries(store.results, store.mapping, shownNode.value.id, name)
-    if (!series) continue
-    const unit = series.unit || 'dimensionless'
+  for (const { id, label, unit, values } of collectShownSeries()) {
     if (!byUnit.has(unit)) byUnit.set(unit, [])
-    byUnit.get(unit).push({ key: `${unit}::${name}`, label: name, values: series.values })
+    byUnit.get(unit).push({ key: `${shownNodeId.value}::${unit}::${id}`, label, values })
   }
 
   const nextSlots = new Map()

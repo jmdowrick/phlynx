@@ -276,12 +276,14 @@ export function applyParameterOverrides(scope, libraryStore, { rows = new Map(),
  *
  * @param {ReturnType<typeof resolveScope>} scope
  * @param {Object} libraryStore
+ * @param {{check?: boolean}} [options] - See generateFlattenedModel; a simulation run skips the check, since
+ *   libOpenCOR checks the model and reports its issues.
  * @returns {Blob} The flattened CellML model.
  * @throws {Error} When the scope can't be flattened; run checkScope first for a readable report.
  */
-export function buildScopedModel(scope, libraryStore) {
+export function buildScopedModel(scope, libraryStore, options = {}) {
   const nodes = zeroUnsuppliedBoundaries(scope.nodes, scope.internalEdges)
-  return generateFlattenedModel(nodes, scope.internalEdges, libraryStore, scope.inspectionModules)
+  return generateFlattenedModel(nodes, scope.internalEdges, libraryStore, scope.inspectionModules, options)
 }
 
 /**
