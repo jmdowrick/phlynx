@@ -31,7 +31,7 @@
 
     <!-- Plots and controls each scroll on their own, so a slider and the plot it moves stay in view. -->
     <Splitter layout="vertical" class="panel-split" @resizeend="saveSizes">
-      <SplitterPanel :size="sizes[0]" :min-size="20" class="panel-region panel-figures">
+      <SplitterPanel ref="figuresPanel" :size="sizes[0]" :min-size="20" class="panel-region panel-figures">
         <template v-if="charts.length">
           <SimulationPlot
             v-for="chart in charts"
@@ -145,13 +145,22 @@ const isResultsDialogOpen = ref(false)
 const SIZES_KEY = 'phlynx.simulation.splitSizes'
 const panelEl = ref(null)
 const panelWidth = ref(0)
+const figuresPanel = ref(null)
+const figuresHeight = ref(0)
 const controlsView = ref('plots')
 const targetPlotId = ref(null)
 const sizes = ref(readSizes())
 let resizeObserver = null
+let figuresObserver = null
 
-// About two fifths of the tab's width, within what keeps a plot readable and the controls in view.
-const chartHeight = computed(() => Math.round(Math.min(460, Math.max(200, panelWidth.value * 0.42))))
+// About two fifths of the tab's width, within what keeps a plot readable, and no taller than the plots'
+// pane less a chart's title and legend, so one chart is seen whole.
+const CHART_CHROME_PX = 64
+const chartHeight = computed(() => {
+  const byWidth = Math.min(460, Math.max(200, panelWidth.value * 0.42))
+  const byPane = figuresHeight.value ? figuresHeight.value - CHART_CHROME_PX : byWidth
+  return Math.round(Math.max(160, Math.min(byWidth, byPane)))
+})
 
 /**
  * Reads the split sizes this viewer chose last, as percentages.
@@ -190,8 +199,16 @@ onMounted(() => {
     if (entry.contentRect.width > 0) panelWidth.value = entry.contentRect.width
   })
   resizeObserver.observe(panelEl.value)
+  const figuresEl = figuresPanel.value?.$el
+  if (figuresEl) {
+    figuresObserver = new ResizeObserver(([entry]) => (figuresHeight.value = entry.contentRect.height))
+    figuresObserver.observe(figuresEl)
+  }
 })
-onBeforeUnmount(() => resizeObserver?.disconnect())
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
+  figuresObserver?.disconnect()
+})
 
 const figuresHint = computed(() => {
   if (!store.results) return 'Plots appear here after a run.'

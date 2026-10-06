@@ -5,14 +5,27 @@
     draggable
     position="bottomright"
     :close-on-escape="false"
-    :style="{ width: '460px', height: '440px' }"
     :content-style="{ display: 'flex', flexDirection: 'column', minHeight: 0, padding: '0 12px 12px' }"
     :pt="{ root: { class: 'simulation-floating-viewer' }, header: { style: { padding: '8px 12px' } } }"
     aria-label="Floating simulation viewer"
+    @show="pinWhereShown"
   >
     <template #header>
       <div class="viewer-head">
-        <span class="viewer-title">Simulation</span>
+        <!-- The header drags the window; the grip shows where, and its controls don't drag it. -->
+        <i class="pi pi-ellipsis-v viewer-grip" aria-hidden="true"></i>
+        <Select
+          v-if="charts.length"
+          v-model="chartKey"
+          :options="charts"
+          option-label="plotLabel"
+          option-value="key"
+          size="small"
+          class="viewer-chart-select"
+          aria-label="Plot to show"
+          @mousedown.stop
+        />
+        <span v-else class="viewer-title">Simulation</span>
         <Button
           v-if="isRunning"
           icon="pi pi-stop"
@@ -21,6 +34,7 @@
           size="small"
           severity="danger"
           aria-label="Stop the simulation"
+          @mousedown.stop
           v-tooltip.top="'Stop'"
           @click="stop"
         />
@@ -32,6 +46,7 @@
           size="small"
           :disabled="!store.results"
           aria-label="Run the shown simulation again"
+          @mousedown.stop
           v-tooltip.top="'Run again'"
           @click="run(store.scopeNodeIds)"
         />
@@ -44,26 +59,24 @@
           size="small"
           class="viewer-sliders-toggle"
           aria-label="Show the sliders"
+          @mousedown.stop
           v-tooltip.top="'Sliders'"
         />
       </div>
     </template>
 
-    <div ref="bodyEl" class="viewer-body">
-      <div class="viewer-charts">
-        <template v-if="charts.length">
-          <SimulationPlot
-            v-for="chart in charts"
-            :key="chart.key"
-            :title="chart.title"
-            :title-parts="chart.titleParts"
-            :unit="chart.unit"
-            :x="xAxis"
-            :series="chart.series"
-            :height="chartHeight"
-            sync-key="simulation-floating-viewer"
-          />
-        </template>
+    <div class="viewer-body">
+      <div ref="chartEl" class="viewer-chart">
+        <SimulationPlot
+          v-if="chart"
+          :key="chart.key"
+          :title="chart.title"
+          :title-parts="chart.titleParts"
+          :unit="chart.unit"
+          :x="xAxis"
+          :series="chart.series"
+          :height="chartHeight"
+        />
         <p v-else class="viewer-empty">{{ store.results ? 'Nothing is plotted yet.' : 'Run a simulation to see it here.' }}</p>
       </div>
       <SliderList
@@ -80,14 +93,16 @@
 
 <script setup>
 /**
- * The results in a small window that floats over the canvas, as picture-in-picture does: drag it by its
- * header, resize it from its corner, and keep it in view while editing the model. It can show the sliders
- * too, which rerun the shown scope as in the Simulation tab.
+ * One plot of the results in a small window that floats over the canvas, as picture-in-picture does: pick
+ * the plot in its header, drag it by the header, resize it from its corner (the plot follows), and keep it in
+ * view while editing the model. It can show the sliders too, which rerun the shown scope as in the
+ * Simulation tab.
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
+import Select from 'primevue/select'
 import ToggleButton from 'primevue/togglebutton'
 
 import SimulationPlot from './SimulationPlot.vue'
@@ -112,24 +127,37 @@ const isRunning = computed(() => store.status === 'running')
 const scopeNodes = computed(() => (store.scopeNodeIds ? props.nodes.filter((node) => store.scopeNodeIds.includes(node.id)) : props.nodes))
 const { xAxis, charts } = useSimulationCharts(scopeNodes)
 
-// Charts share the window's height, so resizing it resizes them, within reason.
-const bodyEl = ref(null)
-const bodyHeight = ref(300)
+// The plot shown: the one picked, or the first while that one is gone.
+const chartKey = ref(null)
+const chart = computed(() => charts.value.find((candidate) => candidate.key === chartKey.value) ?? charts.value[0] ?? null)
+watch(chart, (shown) => (chartKey.value = shown?.key ?? null), { immediate: true })
+
+// The plot fills the space left to it, so resizing the window resizes the plot.
+const chartEl = ref(null)
+const chartAreaHeight = ref(300)
 let resizeObserver = null
-watch(bodyEl, (element) => {
+watch(chartEl, (element) => {
   resizeObserver?.disconnect()
   if (!element) return
-  resizeObserver = new ResizeObserver(([entry]) => (bodyHeight.value = entry.contentRect.height))
+  resizeObserver = new ResizeObserver(([entry]) => (chartAreaHeight.value = entry.contentRect.height))
   resizeObserver.observe(element)
 })
 onBeforeUnmount(() => resizeObserver?.disconnect())
 
-// Each chart's title, legend and gap take about 58px besides its plot (which includes its axes).
-const CHART_CHROME_PX = 58
-const chartHeight = computed(() => {
-  const available = showSliders.value ? bodyHeight.value * 0.55 : bodyHeight.value
-  return Math.round(Math.min(320, Math.max(150, available / Math.max(1, charts.value.length) - CHART_CHROME_PX)))
-})
+// The plot's title and legend take about 54px besides the drawing, which includes its axes.
+const CHART_CHROME_PX = 54
+const chartHeight = computed(() => Math.max(120, Math.round(chartAreaHeight.value - CHART_CHROME_PX)))
+
+/**
+ * Pins the window where it opened, as a drag would, so resizing grows it from its corner rather than
+ * against the edge of the page it starts against.
+ */
+function pinWhereShown() {
+  const element = document.querySelector('.simulation-floating-viewer')
+  if (!element) return
+  const { left, top } = element.getBoundingClientRect()
+  Object.assign(element.style, { position: 'fixed', left: `${left}px`, top: `${top}px`, margin: '0' })
+}
 </script>
 
 <style scoped>
@@ -139,12 +167,26 @@ const chartHeight = computed(() => {
   gap: 4px;
   flex: 1;
   min-width: 0;
+  margin-right: 4px;
+}
+
+.viewer-grip {
+  padding: 4px 2px;
+  color: var(--p-text-muted-color);
+  cursor: move;
 }
 
 .viewer-title {
-  flex: 1;
+  margin-right: auto;
   font-weight: 600;
   font-size: 0.875rem;
+}
+
+.viewer-chart-select {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: calc(100% - 7rem);
+  margin-right: auto;
 }
 
 .viewer-sliders-toggle {
@@ -159,13 +201,12 @@ const chartHeight = computed(() => {
   gap: 8px;
 }
 
-.viewer-charts {
+.viewer-chart {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
 
 .viewer-sliders {
@@ -185,12 +226,15 @@ const chartHeight = computed(() => {
 </style>
 
 <style>
-/* Resizable from its corner, as the Dialog itself isn't. */
+/* Its first size, and resizable from its corner, as the Dialog itself isn't. Set here rather than as an
+   inline style, which the Dialog would write back over a resize each time it renders. */
 .simulation-floating-viewer {
+  width: 460px;
+  height: 400px;
   resize: both;
   overflow: hidden;
   min-width: 300px;
-  min-height: 220px;
+  min-height: 240px;
   max-width: 90vw;
   max-height: 90vh;
 }

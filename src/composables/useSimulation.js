@@ -27,6 +27,8 @@ let runToken = 0
 // from, and how its results map to the nodes. A rerun of it needs only parameter changes.
 let session = null
 let sessionCount = 0
+// Whether the run going reruns the kept model, rather than flattening it afresh.
+let isCurrentRunKept = false
 
 /**
  * Abandons the current run: stops its simulation and ignores anything it reports later. For a workspace
@@ -37,6 +39,21 @@ export function cancelSimulation() {
   currentRun?.stop()
   currentRun = null
 }
+
+/**
+ * Checks whether the run going only reruns the kept model with new parameter values, so stopping it loses
+ * nothing a newer run won't redo quickly.
+ *
+ * @returns {boolean}
+ */
+export const isRerunningKeptModel = () => !!currentRun && isCurrentRunKept
+
+/**
+ * Gets the latest run's token, which any newer run or cancel changes.
+ *
+ * @returns {number}
+ */
+export const getRunToken = () => runToken
 
 /** Forgets the model the worker keeps, so the next run flattens afresh. For a workspace cleared or replaced. */
 export function forgetSimulationSession() {
@@ -131,6 +148,7 @@ export function useSimulation() {
       const onProgress = (progress) => token === runToken && (store.progress = progress)
       let results
       let mapped = null
+      isCurrentRunKept = !!changes
       if (changes) {
         currentRun = simulator.startSimulation({ key: kept.key, settings, changes, onProgress })
         try {
@@ -162,7 +180,8 @@ export function useSimulation() {
       if (!mapped) {
         mapped = await mapResults(built, scope, results)
         if (token !== runToken) return
-        session = mapped
+        // A run stopped early may not have read its model, so only a finished one is kept.
+        if (!results.isStopped) session = mapped
       }
       store.finishRun({ results, mapping: mapped.mapping, signature, inspectionOutputs: mapped.inspectionOutputs })
     } catch (error) {

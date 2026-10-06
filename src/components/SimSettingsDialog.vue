@@ -163,7 +163,7 @@
           <h4>Plots</h4>
           <span class="subtle">Each plot shows variables in one unit, as in web OpenCOR.</span>
         </div>
-        <div class="plots-search">
+        <div ref="plotsSearchEl" class="plots-search">
           <VariablePathPicker
             :index="variableIndex"
             :filter="(entry) => entry.plottable"
@@ -188,6 +188,7 @@
           v-model:plot-config="draftPlotConfig"
           :nodes="nodes"
           class="plots-list"
+          @add-here="focusPlotPicker"
         />
       </section>
       <section :ref="(el) => (sections.sliders = el)" class="block">
@@ -205,9 +206,9 @@
 
     <template #footer>
       <div class="dialog-footer">
-        <!-- In the footer, so it shows whichever tab is open. -->
+        <!-- In the footer, so it shows wherever the page is scrolled. -->
         <Message v-if="solverProblem" severity="error" size="small" class="solver-problem" data-testid="sim-solver-problem">
-          {{ solverProblem }} Change it under Simulation Parameters to save.
+          {{ solverProblem }} Change it under Solver to save.
         </Message>
         <Button label="Cancel" severity="secondary" text @click="requestClose" />
         <Button label="Save" severity="primary" :disabled="!!solverProblem" @click="handleConfirm" />
@@ -289,6 +290,12 @@ function describePlotted(entry) {
 
 // Says where a picked variable went when that wasn't the target plot.
 const plotNote = ref('')
+const plotsSearchEl = ref(null)
+
+/** Puts the cursor in the plots' search box, for a plot's add button. */
+function focusPlotPicker() {
+  plotsSearchEl.value?.querySelector('input')?.focus()
+}
 
 /**
  * Plots a picked variable on the target plot, or one in its units (see plotVariable).

@@ -188,6 +188,21 @@ function downloadPng() {
 }
 
 
+/* Too narrow for both side by side: the controls go under the charts, each taking half the height. */
+@media (max-width: 820px) {
+  .results-body--editing {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .results-edit {
+    padding-left: 0;
+    padding-top: 12px;
+    border-left: none;
+    border-top: 1px solid var(--p-content-border-color);
+  }
+}
+
 .results-charts {
   display: flex;
   flex-direction: column;

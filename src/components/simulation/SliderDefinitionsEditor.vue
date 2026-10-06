@@ -2,7 +2,7 @@
   <section class="slider-definitions" aria-label="Slider ranges">
     <VariablePathPicker
       :index="index"
-      :filter="(entry) => entry.slidable && !definedKeys.has(definitionKeyFor(entry))"
+      :filter="(entry) => entry.slidable && !definedKeys.has(entry.key)"
       placeholder="Add a slider…"
       aria-label="Add a slider"
       @pick="addDefinition"
@@ -19,7 +19,7 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="row in rows" :key="row.key" :class="{ 'definition--missing': !row.isSlidable }">
+        <tr v-for="row in rows" :key="row.valueKey" :class="{ 'definition--missing': !row.isSlidable }">
           <th scope="row" class="definition-path" :title="row.isSlidable ? `${row.componentLabel}/${row.parameterName}` : 'No longer a parameter'">
             <span class="definition-component">{{ row.componentLabel }}/</span><span class="definition-name">{{ row.parameterName }}</span>
             <span class="definition-units">{{ row.units }}</span>
@@ -44,7 +44,7 @@
               size="small"
               severity="secondary"
               :aria-label="`Remove the ${row.parameterName} slider`"
-              @click="emit('update:scanConfig', removeSlider(scanConfig, row.key))"
+              @click="removeRow(row)"
             />
           </td>
         </tr>
@@ -65,7 +65,7 @@ import Button from 'primevue/button'
 import InputNumber from 'primevue/inputnumber'
 
 import VariablePathPicker from './VariablePathPicker.vue'
-import { createSliderDefinition, isSlidableRow, putSlider, removeSlider } from '../../services/simulation/parameterSliders'
+import { createSliderDefinition, isSlidableRow, putSlider, removeSlider, sliderValueKey } from '../../services/simulation/parameterSliders'
 import { GLOBAL_COMPONENT, buildVariableIndex } from '../../services/simulation/variableIndex'
 
 // A slider moves smoothly across its range, so no step is asked for.
@@ -81,27 +81,35 @@ const emit = defineEmits(['update:scanConfig'])
 const index = computed(() => buildVariableIndex(props.nodes))
 const nodesById = computed(() => new Map(props.nodes.map((node) => [node.id, node])))
 const definitions = computed(() => props.scanConfig?.selections ?? [])
-const definedKeys = computed(() => new Set(definitions.value.map((definition) => definition.key)))
-
-const rows = computed(() =>
-  definitions.value.map((definition) => {
-    const node = nodesById.value.get(definition.nodeId)
-    const row = node?.data?.variables?.find((candidate) => candidate.name === definition.parameterName)
-    return {
-      ...definition,
-      isSlidable: isSlidableRow(row),
-      componentLabel: definition.type === 'global_constant' ? GLOBAL_COMPONENT : node?.data?.name ?? definition.nodeName,
-    }
-  })
+// Sliders by their value: a global constant's is one value however many instances it was added from.
+const definedKeys = computed(() => new Set(definitions.value.map((definition) => sliderValueKey(definition))))
+const globalsInUse = computed(
+  () => new Set(props.nodes.flatMap((node) => (node.data?.variables ?? []).filter((row) => row.type === 'global_constant').map((row) => row.name)))
 )
 
-/**
- * Gets the definition key an index entry would have: its node and row.
- *
- * @param {Object} entry
- * @returns {string}
- */
-const definitionKeyFor = (entry) => `${entry.nodeId}::${entry.rowName}`
+// One row per slider value, the first definition standing for any others sharing it.
+const rows = computed(() => {
+  const byValue = new Map()
+  for (const definition of definitions.value) {
+    const valueKey = sliderValueKey(definition)
+    if (byValue.has(valueKey)) {
+      byValue.get(valueKey).keys.push(definition.key)
+      continue
+    }
+    const isGlobal = definition.type === 'global_constant'
+    const node = nodesById.value.get(definition.nodeId)
+    const row = node?.data?.variables?.find((candidate) => candidate.name === definition.parameterName)
+    byValue.set(valueKey, {
+      ...definition,
+      valueKey,
+      keys: [definition.key],
+      // A global constant is still a parameter while any instance uses it.
+      isSlidable: isGlobal ? globalsInUse.value.has(definition.parameterName) : isSlidableRow(row),
+      componentLabel: isGlobal ? GLOBAL_COMPONENT : node?.data?.name ?? definition.nodeName,
+    })
+  }
+  return [...byValue.values()]
+})
 
 /**
  * Adds a slider for a picked parameter, its range around the parameter's value.
@@ -116,14 +124,24 @@ function addDefinition(entry) {
 }
 
 /**
- * Changes a slider's range, keeping its place in the list.
+ * Changes a slider's range, on every definition sharing its value, keeping their places in the list.
  *
  * @param {Object} row
  * @param {Object} change
  */
 function updateDefinition(row, change) {
-  const selections = definitions.value.map((definition) => (definition.key === row.key ? { ...definition, ...change } : definition))
+  const keys = new Set(row.keys)
+  const selections = definitions.value.map((definition) => (keys.has(definition.key) ? { ...definition, ...change } : definition))
   emit('update:scanConfig', { ...props.scanConfig, selections })
+}
+
+/**
+ * Removes a slider, with every definition sharing its value.
+ *
+ * @param {Object} row
+ */
+function removeRow(row) {
+  emit('update:scanConfig', row.keys.reduce((config, key) => removeSlider(config, key), props.scanConfig))
 }
 </script>
 

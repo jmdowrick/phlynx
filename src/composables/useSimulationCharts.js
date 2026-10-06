@@ -98,13 +98,23 @@ export function useSimulationCharts(scopeNodes) {
 
     const nextSlots = new Map()
     const result = []
+    // A plot normally makes one chart; one that mixes units, or holds more series than colours, makes several.
+    const chartsPerPlot = new Map()
+    for (const [, { plot, series }] of byPlotAndUnit) chartsPerPlot.set(plot, (chartsPerPlot.get(plot) ?? 0) + chunkSeries(series).length)
+    const unitsPerPlot = new Map()
+    for (const [, { plot }] of byPlotAndUnit) unitsPerPlot.set(plot, (unitsPerPlot.get(plot) ?? 0) + 1)
     for (const [id, { plot, unit, series }] of byPlotAndUnit) {
-      chunkSeries(series).forEach((group, index) => {
+      const chunks = chunkSeries(series)
+      chunks.forEach((group, index) => {
+        const plotName = plotNames.get(plot) ?? 'Ungrouped'
+        const parts = [unitsPerPlot.get(plot) > 1 ? unit : null, chunks.length > 1 ? String(index + 1) : null].filter(Boolean)
         const slots = assignSeriesSlots(previousSlots, group.map((item) => item.key))
         slots.forEach((slot, key) => nextSlots.set(key, slot))
         result.push({
           key: `${id}#${index}`,
-          ...titleFor(group, plotNames.get(plot) ?? 'Ungrouped'),
+          ...titleFor(group, plotName),
+          // The plot's name, with what tells its charts apart when it makes several.
+          plotLabel: chartsPerPlot.get(plot) > 1 && parts.length ? `${plotName} (${parts.join(', ')})` : plotName,
           unit,
           series: group.map((item) => ({ key: item.key, label: item.label, values: item.values, slot: slots.get(item.key) })),
         })

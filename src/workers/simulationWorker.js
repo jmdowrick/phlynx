@@ -49,6 +49,13 @@ function forPosting(results) {
  *   session to reuse.
  */
 async function run({ id, cellml, key, settings, changes }) {
+  // Asked to stop before its turn, as when a newer run took its place: reading its model would be wasted.
+  if (cellml != null && runs.get(id)?.isStopped) {
+    runs.delete(id)
+    const results = { voi: { name: '', unit: '', values: new Float64Array() }, variables: [], issues: [], elapsedMs: 0, isStopped: true }
+    self.postMessage({ type: 'done', id, results })
+    return
+  }
   try {
     if (cellml != null) {
       session?.dispose()
