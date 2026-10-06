@@ -1,0 +1,282 @@
+import { describe, expect, it, vi } from 'vitest'
+
+import { checkSettings, countComputedPoints, MAX_RESULT_BYTES, SimulationError, startSimulation } from '../../../../src/services/simulation/engine.js'
+
+const SETTINGS = { initialPoint: 0, startingPoint: 0, endingPoint: 2, pointInterval: 0.5 }
+
+/**
+ * Builds a fake libOpenCOR: a decay model whose run takes `pollsToFinish` polls, recording what is freed.
+ *
+ * @param {Object} [options]
+ * @returns {{loc: Object, freed: string[], solver: Object, simulation: Object, unmanaged: Array}}
+ */
+function createFakeLibOpenCOR({ fileErrors = [], instanceErrors = [], voiName = 'c/t', pollsToFinish = 2, stateCount = 1 } = {}) {
+  const freed = []
+  const unmanaged = []
+  const logger = (name, errors) => ({
+    hasErrors: errors.length > 0,
+    issueCount: errors.length,
+    issue: (i) => ({ typeAsString: 'Error', description: errors[i], delete: () => freed.push(`${name} issue`) }),
+    delete: () => freed.push(name),
+  })
+  class SolverCvode {}
+  const solver = Object.assign(new SolverCvode(), { delete: () => freed.push('solver') })
+  const simulation = { odeSolver: solver, delete: () => freed.push('simulation') }
+  let polls = 0
+  const voi = new Float64Array([0, 0.5, 1, 1.5, 2])
+  const task = {
+    voiName,
+    voiUnit: 'second',
+    voi,
+    stateCount,
+    stateName: () => 'c/x',
+    stateUnit: () => 'metre',
+    state: () => new Float64Array([1, 0.8, 0.6, 0.5, 0.4]),
+    rateCount: 0,
+    constantCount: 0,
+    computedConstantCount: 0,
+    algebraicVariableCount: 0,
+    delete: () => freed.push('task'),
+  }
+  let isRunning = false
+  const instance = {
+    ...logger('instance', instanceErrors),
+    startRun: vi.fn(() => (isRunning = true)),
+    stopRun: vi.fn(() => freed.push('stopRun')),
+    waitForRun: () => 12,
+    get status() {
+      if (isRunning && polls++ >= pollsToFinish) isRunning = false
+      return { value: isRunning ? 1 : 0 }
+    },
+    progress: 0.5,
+    task: () => task,
+  }
+  const loc = {
+    File: class {
+      constructor(name) {
+        Object.assign(this, logger('file', fileErrors), { name })
+        this.setContents = vi.fn()
+      }
+    },
+    SedDocument: class {
+      constructor() {
+        Object.assign(this, logger('document', []))
+      }
+
+      simulation() {
+        return simulation
+      }
+
+      instantiate() {
+        return instance
+      }
+    },
+    SolverCvode: Object.assign(SolverCvode, {
+      IntegrationMethod: { BDF: 'bdf' },
+      IterationType: { NEWTON: 'newton' },
+      LinearSolver: { DENSE: 'dense' },
+      Preconditioner: { BANDED: 'banded' },
+    }),
+    FileManager: {
+      instance: () => ({
+        unmanage: (file) => {
+          freed.push('unmanage file')
+          unmanaged.push(file.name)
+        },
+        delete: () => freed.push('file manager'),
+      }),
+    },
+  }
+  return { loc, freed, solver, simulation, instance, task, unmanaged }
+}
+
+const failureOf = (promise) => promise.then(
+  () => null,
+  (error) => error
+)
+
+describe('startSimulation', () => {
+  it('copies the results out of libOpenCOR’s memory, which the run frees', async () => {
+    const fake = createFakeLibOpenCOR()
+    const state = new Float64Array([1, 0.8, 0.6, 0.5, 0.4])
+    fake.task.state = () => state
+
+    const result = await startSimulation({ module: fake.loc, cellml: '<model/>', settings: SETTINGS }).promise
+    fake.task.voi.fill(-1)
+    state.fill(-1)
+
+    expect([...result.voi.values]).toEqual([0, 0.5, 1, 1.5, 2])
+    expect([...result.variables.get('c/x').values]).toEqual([1, 0.8, 0.6, 0.5, 0.4])
+  })
+
+  it('rejects settings without a time course to run, before starting it', async () => {
+    const fake = createFakeLibOpenCOR()
+
+    const error = await failureOf(startSimulation({ module: fake.loc, cellml: '<model/>', settings: { ...SETTINGS, endingPoint: 0 } }).promise)
+
+    expect(error.message).toMatch(/end after the start/)
+    expect(fake.instance.startRun).not.toHaveBeenCalled()
+  })
+
+  it('frees everything when the instance can’t be made', async () => {
+    const fake = createFakeLibOpenCOR({ instanceErrors: ['Unsupported model.'] })
+
+    const error = await failureOf(startSimulation({ module: fake.loc, cellml: '<model/>', settings: SETTINGS }).promise)
+
+    expect(error.issues).toEqual([{ type: 'Error', description: 'Unsupported model.' }])
+    expect(fake.freed).toEqual(['instance issue', 'solver', 'simulation', 'instance', 'document', 'unmanage file', 'file manager', 'file'])
+  })
+
+  it('gives each run its own file', async () => {
+    const fake = createFakeLibOpenCOR()
+
+    await startSimulation({ module: fake.loc, cellml: '<model/>', settings: SETTINGS }).promise
+    await startSimulation({ module: fake.loc, cellml: '<model/>', settings: SETTINGS }).promise
+
+    expect(new Set(fake.unmanaged).size).toBe(2)
+  })
+
+  it('returns no points when stopped before the run starts', async () => {
+    const fake = createFakeLibOpenCOR()
+    const run = startSimulation({ module: fake.loc, cellml: '<model/>', settings: SETTINGS })
+    run.stop()
+
+    const result = await run.promise
+
+    expect(fake.instance.startRun).not.toHaveBeenCalled()
+    expect(result.isStopped).toBe(true)
+    expect(result.voi.values).toHaveLength(0)
+  })
+
+  it('stops a run before freeing it when onProgress throws', async () => {
+    const fake = createFakeLibOpenCOR({ pollsToFinish: 5 })
+    const onProgress = () => {
+      throw new Error('The page went away.')
+    }
+
+    const error = await failureOf(startSimulation({ module: fake.loc, cellml: '<model/>', settings: SETTINGS, onProgress }).promise)
+
+    expect(error.message).toBe('The page went away.')
+    expect(fake.freed.indexOf('stopRun')).toBeLessThan(fake.freed.indexOf('instance'))
+  })
+
+  it('runs the model with the shared settings and returns its results', async () => {
+    const fake = createFakeLibOpenCOR()
+    const progress = []
+
+    const result = await startSimulation({ module: fake.loc, cellml: '<model/>', settings: SETTINGS, onProgress: (p) => progress.push(p) }).promise
+
+    expect(fake.simulation).toMatchObject({ initialTime: 0, outputStartTime: 0, outputEndTime: 2, numberOfSteps: 4 })
+    expect(fake.solver).toMatchObject({
+      relativeTolerance: 1e-7,
+      absoluteTolerance: 1e-7,
+      maximumNumberOfSteps: 500,
+      maximumStep: 0,
+      integrationMethod: 'bdf',
+      iterationType: 'newton',
+      linearSolver: 'dense',
+      preconditioner: 'banded',
+      interpolateSolution: true,
+    })
+    expect(result.voi).toMatchObject({ name: 'c/t', unit: 'second' })
+    expect([...result.voi.values]).toEqual([0, 0.5, 1, 1.5, 2])
+    expect(result.variables.get('c/x')).toMatchObject({ kind: 'state', unit: 'metre' })
+    expect(result).toMatchObject({ elapsedMs: 12, isStopped: false, issues: [] })
+    expect(progress).toEqual([0.5, 0.5, 1])
+  })
+
+  it('frees every libOpenCOR object it made, and releases the file', async () => {
+    const fake = createFakeLibOpenCOR()
+
+    await startSimulation({ module: fake.loc, cellml: '<model/>', settings: SETTINGS }).promise
+
+    expect(fake.freed).toEqual(['task', 'solver', 'simulation', 'instance', 'document', 'unmanage file', 'file manager', 'file'])
+    expect(fake.unmanaged).toEqual([expect.stringMatching(/^phlynx-simulation-\d+\.cellml$/)])
+  })
+
+  it('rejects an unreadable model with its issues, still freeing what it made', async () => {
+    const fake = createFakeLibOpenCOR({ fileErrors: ['Not a CellML file.'] })
+
+    const error = await failureOf(startSimulation({ module: fake.loc, cellml: 'nonsense', settings: SETTINGS }).promise)
+
+    expect(error).toBeInstanceOf(SimulationError)
+    expect(error.issues).toEqual([{ type: 'Error', description: 'Not a CellML file.' }])
+    expect(fake.freed).toEqual(['file issue', 'unmanage file', 'file manager', 'file'])
+  })
+
+  it('rejects a model with nothing to simulate over time', async () => {
+    const fake = createFakeLibOpenCOR({ voiName: '' })
+
+    const error = await failureOf(startSimulation({ module: fake.loc, cellml: '<model/>', settings: SETTINGS }).promise)
+
+    expect(error.message).toMatch(/no differential equation/)
+    expect(fake.instance.startRun).not.toHaveBeenCalled()
+  })
+
+  it('rejects a run whose results wouldn’t fit in memory, before starting it', async () => {
+    const fake = createFakeLibOpenCOR({ stateCount: 1000 })
+    const settings = { ...SETTINGS, endingPoint: MAX_RESULT_BYTES / 8 / 1000, pointInterval: 1 }
+
+    const error = await failureOf(startSimulation({ module: fake.loc, cellml: '<model/>', settings }).promise)
+
+    expect(error.message).toMatch(/GB of memory/)
+    expect(fake.instance.startRun).not.toHaveBeenCalled()
+  })
+
+  it('reports a run the solver failed', async () => {
+    const fake = createFakeLibOpenCOR({ instanceErrors: [] })
+    fake.instance.waitForRun = () => {
+      Object.assign(fake.instance, { hasErrors: true, issueCount: 1 })
+      return 3
+    }
+
+    const error = await failureOf(startSimulation({ module: fake.loc, cellml: '<model/>', settings: SETTINGS }).promise)
+
+    expect(error.message).toBe('The simulation failed.')
+  })
+
+  it('stops a run, keeping the points it computed', async () => {
+    const fake = createFakeLibOpenCOR({ pollsToFinish: 3 })
+    fake.task.voi = new Float64Array([0, 0.5, 1, 0, 0])
+    const run = startSimulation({ module: fake.loc, cellml: '<model/>', settings: SETTINGS, onProgress: () => run.stop() })
+
+    const result = await run.promise
+
+    expect(fake.instance.stopRun).toHaveBeenCalled()
+    expect(result.isStopped).toBe(true)
+    expect([...result.voi.values]).toEqual([0, 0.5, 1])
+    expect([...result.variables.get('c/x').values]).toEqual([1, 0.8, 0.6])
+  })
+})
+
+describe('checkSettings', () => {
+  it.each([
+    ['a cleared start', { startingPoint: null }, /needs a value/],
+    ['a cleared initial time', { initialPoint: null }, /needs a value/],
+    ['an end before the start', { startingPoint: 0, endingPoint: -10, pointInterval: -1 }, /end after the start/],
+    ['a negative interval', { pointInterval: -0.5 }, /above 0/],
+    ['an interval longer than the time course', { pointInterval: 5 }, /longer than/],
+    ['an initial time after the start', { initialPoint: 1 }, /can’t be after the start/],
+  ])('rejects %s', (_, change, message) => {
+    expect(() => checkSettings({ ...SETTINGS, ...change })).toThrow(message)
+  })
+
+  it('accepts a time course that starts before zero', () => {
+    expect(() => checkSettings({ initialPoint: -2, startingPoint: -1, endingPoint: 1, pointInterval: 0.5 })).not.toThrow()
+  })
+})
+
+describe('countComputedPoints', () => {
+  const course = (outputStartTime, outputEndTime, numberOfSteps) => ({ outputStartTime, outputEndTime, numberOfSteps })
+
+  it('counts the points that lie on the time course’s output times', () => {
+    expect(countComputedPoints(new Float64Array([0, 1, 2, 3]), course(0, 3, 3))).toBe(4)
+    expect(countComputedPoints(new Float64Array([0, 1, 0, 0]), course(0, 3, 3))).toBe(2)
+    expect(countComputedPoints(new Float64Array([]), course(0, 3, 3))).toBe(0)
+  })
+
+  it('stops at the unfilled points of a time course before zero', () => {
+    expect(countComputedPoints(new Float64Array([-10, -9.5, -9, 0, 0]), course(-10, -8, 4))).toBe(3)
+    expect(countComputedPoints(new Float64Array([-1, -0.5, 0, 0, 0]), course(-1, 1, 4))).toBe(3)
+  })
+})
