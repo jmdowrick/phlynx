@@ -81,7 +81,7 @@ class TestSimulator(unittest.TestCase):
             page.goto(BASE_URL, wait_until="commit")
 
             # ---------- START -----------
-            page.wait_for_function("window.crossOriginIsolated === true", timeout=30000)
+            page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             if not page.evaluate(IS_DEV_SERVER):
                 self.skipTest("The app's source modules aren't served here; run against the dev server.")
             result = page.evaluate(SOLVE_DECAY)
