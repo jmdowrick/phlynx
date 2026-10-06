@@ -24,14 +24,49 @@ const CHROME = {
   light: { text: '#52514e', grid: '#e1e0d9', axis: '#c3c2b7' },
   dark: { text: '#c3c2b7', grid: '#2c2c2a', axis: '#383835' },
 }
-const HEIGHT = 220
-
 const props = defineProps({
   title: { type: String, required: true },
   unit: { type: String, required: true },
   x: { type: Object, required: true }, // { label, unit, values }
   series: { type: Array, required: true }, // [{ key, label, slot, values }]
+  height: { type: Number, default: 220 },
+  // Charts with the same key show their cursors at the same time.
+  syncKey: { type: String, default: null },
 })
+
+/**
+ * Formats axis ticks to as many decimals as their spacing needs, or in exponent form when very small or
+ * large, so ticks a thousandth apart don't all read 0.
+ *
+ * @param {Object} _ - The chart.
+ * @param {number[]} splits - The tick values.
+ * @returns {string[]}
+ */
+function formatTicks(_, splits) {
+  const step = splits.length > 1 ? Math.abs(splits[1] - splits[0]) : Math.abs(splits[0]) || 1
+  const largest = Math.max(...splits.map(Math.abs))
+  if (largest >= 1e6 || (largest > 0 && step < 1e-4)) return splits.map((value) => (value === 0 ? '0' : value.toExponential(2)))
+  const decimals = Math.max(0, Math.ceil(-Math.log10(step) - 1e-9))
+  return splits.map((value) => value.toFixed(decimals))
+}
+
+/**
+ * Formats a legend value to 5 significant figures.
+ *
+ * @param {Object} _ - The chart.
+ * @param {number|null} value
+ * @returns {string}
+ */
+/**
+ * Sizes the value axis to fit its longest tick label, with room for its title.
+ *
+ * @param {Object} _ - The chart.
+ * @param {string[]|null} values - The tick labels, once known.
+ * @returns {number} Pixels.
+ */
+const sizeValueAxis = (_, values) => Math.max(50, Math.ceil(Math.max(0, ...(values ?? []).map((value) => value.length)) * 6.5) + 28)
+
+const formatLegendValue = (_, value) => (value == null ? '–' : String(Number(value.toPrecision(5))))
 
 const chartEl = ref(null)
 const { isDarkMode } = useColorScheme()
@@ -54,6 +89,7 @@ function buildOptions(width) {
   const chrome = CHROME[theme]
   const axis = (label) => ({
     label,
+    values: formatTicks,
     stroke: chrome.text,
     grid: { stroke: chrome.grid, width: 1 },
     ticks: { stroke: chrome.axis, width: 1 },
@@ -62,15 +98,17 @@ function buildOptions(width) {
   })
   return {
     width,
-    height: HEIGHT,
+    height: props.height,
     scales: { x: { time: false } },
-    cursor: { y: false, points: { size: 8 } },
+    // Synced charts plot different series, so hiding one mustn't hide its namesake by position elsewhere.
+    cursor: { y: false, points: { size: 8 }, ...(props.syncKey && { sync: { key: props.syncKey, setSeries: false } }) },
     legend: { live: true },
-    axes: [axis(props.x.unit ? `${props.x.label} (${props.x.unit})` : props.x.label), axis(props.unit)],
+    axes: [axis(props.x.unit ? `${props.x.label} (${props.x.unit})` : props.x.label), { ...axis(props.unit), size: sizeValueAxis }],
     series: [
-      { label: props.x.label },
+      { label: props.x.label, value: formatLegendValue },
       ...props.series.map((series) => ({
         label: series.label,
+        value: formatLegendValue,
         stroke: SERIES_COLOURS[theme][series.slot],
         width: 2,
         points: { show: false },
@@ -100,7 +138,7 @@ onMounted(() => {
   draw()
   resizeObserver = new ResizeObserver(([entry]) => {
     const width = Math.floor(entry.contentRect.width)
-    if (plot && width > 0 && width !== plot.width) plot.setSize({ width, height: HEIGHT })
+    if (plot && width > 0 && width !== plot.width) plot.setSize({ width, height: props.height })
   })
   resizeObserver.observe(chartEl.value)
 })
@@ -112,9 +150,26 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => [props.series.map((series) => `${series.key}:${series.slot}`).join('|'), isDarkMode.value, props.x.unit, props.unit],
+  () => [props.series.map((series) => `${series.key}:${series.slot}`).join('|'), isDarkMode.value, props.x.unit, props.unit, props.syncKey],
   draw
 )
+watch(
+  () => props.height,
+  (height) => plot?.setSize({ width: plot.width, height })
+)
+
+defineExpose({
+  /**
+   * Gets the chart as drawn, with the colours of its series, for an image of it.
+   *
+   * @returns {{title: string, canvas: HTMLCanvasElement, legend: Array<{label: string, colour: string}>}|null}
+   */
+  snapshot() {
+    if (!plot) return null
+    const colours = SERIES_COLOURS[isDarkMode.value ? 'dark' : 'light']
+    return { title: props.title, canvas: plot.ctx.canvas, legend: props.series.map((series) => ({ label: series.label, colour: colours[series.slot] })) }
+  },
+})
 watch(
   () => [props.x.values, ...props.series.map((series) => series.values)],
   () => {

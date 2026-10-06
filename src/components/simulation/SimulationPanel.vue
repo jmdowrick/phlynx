@@ -51,10 +51,18 @@
     </Message>
 
     <template v-if="hasScope">
-      <p v-if="store.results" class="panel-hint">
-        {{ scopeSummary }}<template v-if="store.status === 'stopped'">, stopped at {{ stoppedAt }}</template
-        ><template v-else-if="store.status === 'error'">, up to {{ stoppedAt }} before the solver failed</template>.
-      </p>
+      <div v-if="store.results" class="panel-summary">
+        <p class="panel-hint">{{ resultsSummary }}</p>
+        <Button
+          v-if="charts.length"
+          icon="pi pi-window-maximize"
+          label="Expand"
+          size="small"
+          text
+          aria-label="Open the results in a larger view, with a table and downloads"
+          @click="isResultsDialogOpen = true"
+        />
+      </div>
 
       <SimulationPlot
         v-for="chart in charts"
@@ -63,37 +71,27 @@
         :unit="chart.unit"
         :x="xAxis"
         :series="chart.series"
+        sync-key="simulation-panel"
+      />
+      <SimulationResultsDialog
+        v-model:visible="isResultsDialogOpen"
+        v-model:edited-node-id="editedNodeId"
+        :summary="resultsSummary"
+        :x="xAxis"
+        :charts="charts"
+        :scope-nodes="scopeNodes"
+        :keep-current="keepCurrent"
+        @change="rerunForSliders"
       />
       <p v-if="store.results && !charts.length" class="panel-hint">Tick variables below to plot them.</p>
 
-      <section class="panel-edit" aria-labelledby="simulation-edit-title">
-        <h5 id="simulation-edit-title" class="panel-subtitle">What gets plotted and tried out</h5>
-        <label class="panel-label" for="simulation-instance">Instance</label>
-        <Select
-          v-model="editedNodeId"
-          input-id="simulation-instance"
-          :options="scopeNodes"
-          option-label="data.name"
-          option-value="id"
-          size="small"
-          class="panel-select"
-        />
-
-        <details v-if="editedNode" class="panel-section" open>
-          <summary class="panel-section-title">Variables</summary>
-          <div class="panel-picker">
-            <InstancePlotVariables v-model="plotEntries" :rows="editedNode.data.variables" :initial-entries="initialEntries" />
-          </div>
-        </details>
-
-        <SimulationSliders
-          v-if="editedNode"
-          :key="editedNode.id"
-          :node="editedNode"
-          :keep-current="keepCurrent"
-          @change="rerunForSliders"
-        />
-      </section>
+      <SimulationEditSection
+        v-model:edited-node-id="editedNodeId"
+        class="panel-edit"
+        :scope-nodes="scopeNodes"
+        :keep-current="keepCurrent"
+        @change="rerunForSliders"
+      />
     </template>
     <p v-else-if="store.status === 'idle'" class="panel-hint">
       Select instances on the canvas and simulate them on their own, or simulate the whole model.
@@ -114,12 +112,12 @@ import Message from 'primevue/message'
 import ProgressBar from 'primevue/progressbar'
 import Select from 'primevue/select'
 
-import InstancePlotVariables from '../InstancePlotVariables.vue'
+import SimulationEditSection from './SimulationEditSection.vue'
 import SimulationPlot from './SimulationPlot.vue'
-import SimulationSliders from './SimulationSliders.vue'
+import SimulationResultsDialog from './SimulationResultsDialog.vue'
 import { useSimulation } from '../../composables/useSimulation'
 import { libopencor } from '../../services/simulation/libopencorLoader'
-import { getNodePlotEntries, normaliseGroups, setNodePlotVariables } from '../../services/simulation/plotSelections'
+import { normaliseGroups } from '../../services/simulation/plotSelections'
 import { assignSeriesSlots, chunkSeries } from '../../services/simulation/seriesSlots'
 import { readNodeSeries } from '../../services/simulation/variableMapping'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
@@ -151,10 +149,16 @@ const stoppedAt = computed(() => {
   return voi?.values.length ? `${voi.values.at(-1).toPrecision(4)} ${voi.unit}` : 'the start'
 })
 
+const resultsSummary = computed(() => {
+  if (store.status === 'stopped') return `${scopeSummary.value}, stopped at ${stoppedAt.value}.`
+  if (store.status === 'error') return `${scopeSummary.value}, up to ${stoppedAt.value} before the solver failed.`
+  return `${scopeSummary.value}.`
+})
+const isResultsDialogOpen = ref(false)
+
 // The instance whose plotted variables and sliders are edited: the one selected on the canvas, if it
 // was simulated, else the first simulated.
 const editedNodeId = ref(null)
-const editedNode = computed(() => scopeNodes.value.find((node) => node.id === editedNodeId.value) ?? null)
 watch(
   [() => getSelectedNodes.value.map((node) => node.id).join(','), () => scopeNodes.value.map((node) => node.id).join(',')],
   () => {
@@ -184,17 +188,6 @@ function rerunForSliders() {
   })
 }
 
-// The edited instance's plotted variables, shared with the instance editor and Simulation Settings.
-const plotEntries = computed({
-  get: () => (editedNode.value ? getNodePlotEntries(simulationSettingsStore.plotConfig, editedNode.value.id) : []),
-  set: (entries) => {
-    if (!editedNode.value) return
-    const plotConfig = setNodePlotVariables(simulationSettingsStore.plotConfig, editedNode.value, entries)
-    if (plotConfig !== simulationSettingsStore.plotConfig) simulationSettingsStore.setPlotConfig(plotConfig)
-  },
-})
-const initialEntries = ref([])
-watch(editedNodeId, () => (initialEntries.value = plotEntries.value), { immediate: true })
 
 const xAxis = computed(() => {
   const voi = store.results?.voi
@@ -324,47 +317,16 @@ const charts = computed(() => {
   color: var(--p-text-color);
 }
 
-.panel-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--p-text-muted-color);
-}
-
-.panel-select {
-  width: 100%;
+.panel-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .panel-edit {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
   margin-top: 6px;
   padding-top: 12px;
   border-top: 1px solid var(--p-content-border-color);
-}
-
-.panel-subtitle {
-  margin: 0;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--p-text-color);
-}
-
-.panel-section-title {
-  cursor: pointer;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--p-text-color);
-}
-
-.panel-section[open] > .panel-section-title {
-  margin-bottom: 8px;
-}
-
-.panel-picker {
-  height: 300px;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
 }
 </style>
