@@ -1,6 +1,8 @@
 import { useVueFlow } from '@vue-flow/core'
 import { useLibraryStore } from '../stores/libraryStore'
+import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { getPortVariables, reconcileRows } from '../services/math/reconcileRows'
+import { getNodeSelections, replaceNodeSelections, setNodePlotVariables } from '../services/simulation/plotSelections'
 import { FLOW_IDS } from '../utils/constants'
 import { resolvePortCouplings } from '../utils/edges'
 import { useNodeDataHistory } from './useNodeDataHistory'
@@ -20,6 +22,21 @@ function isSameMathEntry(entry, otherEntry) {
 }
 
 /**
+ * Combines the library states an edit changes into one recordEdit `library` option.
+ *
+ * @param {Array<Object|null>} libraries - Each `{ isAt(side), restore(side) }`, or null when unchanged.
+ * @returns {Object|null}
+ */
+function combineLibraries(libraries) {
+  const changed = libraries.filter(Boolean)
+  if (!changed.length) return null
+  return {
+    isAt: (side) => changed.every((library) => library.isAt(side)),
+    restore: (side) => changed.forEach((library) => library.restore(side)),
+  }
+}
+
+/**
  * Applies an instance editor save to the workspace as one canvas undo step.
  *
  * @param {string} [flowId=FLOW_IDS.MAIN]
@@ -28,6 +45,7 @@ function isSameMathEntry(entry, otherEntry) {
 export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   const { nodes, edges, findNode, updateNodeData } = useVueFlow(flowId)
   const libraryStore = useLibraryStore()
+  const simulationSettingsStore = useSimulationSettingsStore()
   const { recordEdit, findIncidentEdgeIds } = useNodeDataHistory(flowId)
 
   /**
@@ -127,6 +145,31 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
+   * Gets the plot config change a save makes, as a recordEdit `library` entry. Only the saved node's
+   * selections are compared and restored, so changes to other nodes' plots don't block the undo.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload.
+   * @returns {{apply: Function, library: Object}|null} Null when the save leaves the plot config as it is.
+   */
+  function preparePlotChange({ id, name, variables, plotVariables }) {
+    if (!plotVariables) return null
+    const plotBefore = JSON.parse(JSON.stringify(simulationSettingsStore.plotConfig ?? {}))
+    const plotAfter = setNodePlotVariables(plotBefore, { id, data: { name, variables } }, plotVariables)
+    if (plotAfter === plotBefore) return null
+
+    const states = { before: getNodeSelections(plotBefore, id), after: getNodeSelections(plotAfter, id) }
+    const current = () => getNodeSelections(simulationSettingsStore.plotConfig, id)
+    return {
+      apply: () => simulationSettingsStore.setPlotConfig(plotAfter),
+      library: {
+        isAt: (side) => JSON.stringify(current()) === JSON.stringify(states[side]),
+        restore: (side) =>
+          simulationSettingsStore.setPlotConfig(replaceNodeSelections(simulationSettingsStore.plotConfig, id, states[side])),
+      },
+    }
+  }
+
+  /**
    * Applies an instance editor save as one undo step. Undo puts back the math only while it is still
    * what the save wrote, and keeps math a save created while any node still uses it.
    *
@@ -147,6 +190,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     let mathAfter = null
 
     const isUsed = (ref) => nodes.value.some((node) => node.data?.mathRef === ref)
+    const plotChange = preparePlotChange(save)
 
     await recordEdit({
       type: 'edit-instance',
@@ -156,20 +200,24 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
       apply: () => {
         applySave(save)
         mathAfter = writtenMathRef && libraryStore.getMathEntry(writtenMathRef)
+        plotChange?.apply()
       },
-      library: writtenMathRef && {
-        // Math a save created stays while another node uses it, so an undo may leave it in place.
-        isAt: (side) => {
-          const current = libraryStore.getMathEntry(writtenMathRef)
-          if (side === 'after') return isSameMathEntry(current, mathAfter)
-          return isSameMathEntry(current, mathBefore) || (!mathBefore && isSameMathEntry(current, mathAfter))
+      library: combineLibraries([
+        writtenMathRef && {
+          // Math a save created stays while another node uses it, so an undo may leave it in place.
+          isAt: (side) => {
+            const current = libraryStore.getMathEntry(writtenMathRef)
+            if (side === 'after') return isSameMathEntry(current, mathAfter)
+            return isSameMathEntry(current, mathBefore) || (!mathBefore && isSameMathEntry(current, mathAfter))
+          },
+          restore: (side) => {
+            if (side === 'after') return libraryStore.restoreMathEntry(writtenMathRef, mathAfter)
+            if (!mathBefore && isUsed(writtenMathRef)) return
+            libraryStore.restoreMathEntry(writtenMathRef, mathBefore)
+          },
         },
-        restore: (side) => {
-          if (side === 'after') return libraryStore.restoreMathEntry(writtenMathRef, mathAfter)
-          if (!mathBefore && isUsed(writtenMathRef)) return
-          libraryStore.restoreMathEntry(writtenMathRef, mathBefore)
-        },
-      },
+        plotChange?.library,
+      ]),
     })
 
     return 1 + (updateAll ? siblings.length : 0)

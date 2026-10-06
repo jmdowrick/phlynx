@@ -550,6 +550,7 @@ import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { notify } from '../utils/notify'
+import { buildPlotConfig, buildPlotVariableRows, normaliseGroups } from '../services/simulation/plotSelections'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -797,56 +798,6 @@ function cloneSettings(input) {
   return { ...input }
 }
 
-function makeGroupId(index) {
-  return `plot-${index + 1}`
-}
-
-function normaliseGroups(existingGroups) {
-  if (!Array.isArray(existingGroups) || existingGroups.length === 0) {
-    return [{ id: makeGroupId(0), name: 'Plot 1' }]
-  }
-
-  return existingGroups.map((group, index) => ({
-    id: group.id || makeGroupId(index),
-    name: group.name || `Plot ${index + 1}`,
-  }))
-}
-
-function buildVariableRows(nodes, selectedByKey) {
-  const rows = []
-
-  for (const node of nodes || []) {
-    if (!node?.data?.name) continue
-    for (const variable of node.data.variables || []) {
-      if (!variable?.name) continue
-
-      const type = variable.type || 'variable'
-      if (type !== 'variable') continue
-
-      const key = `${node.id}::${variable.name}`
-      const existing = selectedByKey.get(key)
-
-      rows.push({
-        key,
-        nodeId: node.id,
-        nodeName: node.data.name,
-        variableName: variable.name,
-        units: variable.units || '',
-        type,
-        plot: existing?.plot ?? false,
-        groupId: existing?.groupId ?? null,
-        selected: false,
-      })
-    }
-  }
-
-  return rows.sort((a, b) => {
-    const nodeDiff = a.nodeName.localeCompare(b.nodeName)
-    if (nodeDiff !== 0) return nodeDiff
-    return a.variableName.localeCompare(b.variableName)
-  })
-}
-
 function pickDefaultValue(variable) {
   // A global constant's value is shared, so a node's own copy may be out of date.
   const value = variable.type === 'global_constant' ? libraryStore.getGlobalConstant(variable.name)?.value : variable.value
@@ -903,31 +854,8 @@ function buildConstantRows(nodes, selectedByKey) {
 }
 
 function createDraftPayload() {
-  const selectedPlotRows = variableRows.value.filter((row) => row.plot)
-  const groupsById = new Map(plotGroups.value.map((group) => [group.id, group]))
-
-  const groupedSelections = plotGroups.value
-    .map((group) => {
-      const selections = selectedPlotRows.filter((row) => row.groupId === group.id)
-      return {
-        id: group.id,
-        name: group.name,
-        selections: selections.map((row) => ({
-          key: row.key,
-          nodeId: row.nodeId,
-          nodeName: row.nodeName,
-          variableName: row.variableName,
-          units: row.units,
-          type: row.type,
-          plot: true,
-          groupId: row.groupId,
-        })),
-      }
-    })
-    .filter((group) => group.selections.length > 0)
-
-  const ungroupedSelections = selectedPlotRows
-    .filter((row) => !groupsById.has(row.groupId))
+  const plottedSelections = variableRows.value
+    .filter((row) => row.plot)
     .map((row) => ({
       key: row.key,
       nodeId: row.nodeId,
@@ -936,7 +864,7 @@ function createDraftPayload() {
       units: row.units,
       type: row.type,
       plot: true,
-      groupId: null,
+      groupId: row.groupId,
     }))
 
   const scanSelections = constantRows.value
@@ -957,11 +885,7 @@ function createDraftPayload() {
 
   return {
     simulationSettings: { ...localSimulationSettings.value },
-    plotConfig: {
-      groups: plotGroups.value.map((group) => ({ ...group })),
-      groupedSelections,
-      selections: [...groupedSelections.flatMap((group) => group.selections), ...ungroupedSelections],
-    },
+    plotConfig: buildPlotConfig(plotGroups.value, plottedSelections),
     parameterScanConfig: {
       selections: scanSelections,
     },
@@ -998,7 +922,7 @@ async function initialiseDialog() {
   }
 
   loadingText.value = 'Scanning nodes and variables...'
-  variableRows.value = buildVariableRows(props.nodes, selectedByKey)
+  variableRows.value = buildPlotVariableRows(props.nodes, selectedByKey)
   constantRows.value = buildConstantRows(props.nodes, scanSelectedByKey)
 
   resetVariableFilters()
