@@ -358,7 +358,11 @@ class TestSimulationTab(unittest.TestCase):
             # Closing the sidebar leaves the viewer up, and its sliders still rerun the model.
             page.locator(".resizable-context-panel .aside-collapse-toggle").click()
             expect(viewer).to_be_visible()
+            # Showing the sliders makes the window taller rather than squeezing the plot.
+            height_before = viewer.bounding_box()["height"]
             viewer.get_by_role("button", name="Show the sliders").click()
+            expect(viewer.locator(".slider-row")).to_have_count(1)
+            self.assertGreater(viewer.bounding_box()["height"], height_before + 40)
             page.evaluate(f"window.__shownResults = {RESULTS_STORE}.results")
             viewer.locator(".p-slider-handle").first.focus()
             for _ in range(10):
@@ -366,6 +370,11 @@ class TestSimulationTab(unittest.TestCase):
             page.wait_for_function(
                 f"{RESULTS_STORE}.results !== window.__shownResults && {RESULTS_STORE}.status === 'done'", timeout=60000
             )
+
+            # Back to the tab closes the window and opens the sidebar on the Simulation tab.
+            viewer.get_by_role("button", name="Back to the Simulation tab").click()
+            expect(viewer).to_have_count(0)
+            expect(page.get_by_role("button", name="Simulate the whole model")).to_be_visible()
             # ----------- END ------------
 
             context.close()

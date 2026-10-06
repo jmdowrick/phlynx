@@ -26,6 +26,13 @@
           @mousedown.stop
         />
         <span v-else class="viewer-title">Simulation</span>
+        <ToggleSwitch
+          v-model="isWholeModel"
+          class="viewer-scope"
+          aria-label="Simulate the whole model, not the selection"
+          v-tooltip.top="isWholeModel ? 'Whole model' : `Selection (${selectedIds.length})`"
+          @mousedown.stop
+        />
         <Button
           v-if="isRunning"
           icon="pi pi-stop"
@@ -34,21 +41,21 @@
           size="small"
           severity="danger"
           aria-label="Stop the simulation"
-          @mousedown.stop
           v-tooltip.top="'Stop'"
+          @mousedown.stop
           @click="stop"
         />
         <Button
           v-else
-          icon="pi pi-refresh"
+          icon="pi pi-play"
           text
           rounded
           size="small"
-          :disabled="!store.results"
-          aria-label="Run the shown simulation again"
+          :disabled="!canPlay"
+          :aria-label="isWholeModel ? 'Simulate the whole model' : `Simulate the selection (${selectedIds.length})`"
+          v-tooltip.top="playHint"
           @mousedown.stop
-          v-tooltip.top="'Run again'"
-          @click="run(store.scopeNodeIds)"
+          @click="play"
         />
         <ToggleButton
           v-model="showSliders"
@@ -59,8 +66,19 @@
           size="small"
           class="viewer-sliders-toggle"
           aria-label="Show the sliders"
-          @mousedown.stop
           v-tooltip.top="'Sliders'"
+          @mousedown.stop
+        />
+        <Button
+          icon="pi pi-sign-in"
+          text
+          rounded
+          size="small"
+          severity="secondary"
+          aria-label="Back to the Simulation tab"
+          v-tooltip.top="'Back to the Simulation tab'"
+          @mousedown.stop
+          @click="returnToTab"
         />
       </div>
     </template>
@@ -99,12 +117,14 @@
  * view while editing the model. It can show the sliders too, which rerun the shown scope as in the
  * Simulation tab.
  */
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { useVueFlow } from '@vue-flow/core'
 
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import Select from 'primevue/select'
 import ToggleButton from 'primevue/togglebutton'
+import ToggleSwitch from 'primevue/toggleswitch'
 
 import SimulationPlot from './SimulationPlot.vue'
 import SliderList from './SliderList.vue'
@@ -112,19 +132,72 @@ import { useFloatingViewer } from '../../composables/useFloatingViewer'
 import { useSimulation } from '../../composables/useSimulation'
 import { useSimulationCharts } from '../../composables/useSimulationCharts'
 import { useSliderReruns } from '../../composables/useSliderReruns'
+import { libopencor } from '../../services/simulation/libopencorLoader'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
+import { FLOW_IDS } from '../../utils/constants'
 
 const props = defineProps({
   nodes: { type: Array, default: () => [] },
 })
 
-const { state } = useFloatingViewer()
+const { state, returnToTab } = useFloatingViewer()
+const { getSelectedNodes } = useVueFlow(FLOW_IDS.MAIN)
 const store = useSimulationResultsStore()
 const { run, stop, keepCurrent } = useSimulation()
 const { rerunForSliders } = useSliderReruns()
 
 const showSliders = ref(false)
 const isRunning = computed(() => store.status === 'running')
+
+// Play here works as in the Simulation tab, sharing its choice of the selection or the whole model.
+const selectedIds = computed(() => getSelectedNodes.value.map((node) => node.id).sort())
+const isWholeModel = computed({
+  get: () => store.scopeMode === 'model',
+  set: (value) => (store.scopeMode = value ? 'model' : 'selection'),
+})
+const blockedReason = computed(() => {
+  if (['unavailable', 'error'].includes(libopencor.status)) return libopencor.reason ?? 'The simulator isn’t available.'
+  if (libopencor.status === 'loading') return 'Loading the simulator…'
+  if (!isWholeModel.value && !selectedIds.value.length) return 'Select instances on the canvas'
+  return null
+})
+const canPlay = computed(() => !blockedReason.value)
+const playHint = computed(() => blockedReason.value ?? (isWholeModel.value ? 'Simulate the whole model' : `Simulate the selection (${selectedIds.value.length})`))
+
+/** Simulates the whole model or the canvas selection, as the switch says. */
+function play() {
+  run(isWholeModel.value ? null : selectedIds.value)
+}
+
+// Showing the sliders makes the window taller by their height, rather than squeezing the plot; hiding them
+// gives that height back.
+let slidersHeight = 0
+watch(showSliders, async (isShown) => {
+  const element = document.querySelector('.simulation-floating-viewer')
+  if (!element) return
+  if (isShown) {
+    await nextTick()
+    slidersHeight = (element.querySelector('.viewer-sliders')?.offsetHeight ?? 0) + 8
+    resizeBy(element, slidersHeight)
+  } else {
+    resizeBy(element, -slidersHeight)
+    slidersHeight = 0
+  }
+})
+
+/**
+ * Makes the window taller or shorter, moving it up if it would run off the bottom of the page.
+ *
+ * @param {HTMLElement} element
+ * @param {number} change - Pixels.
+ */
+function resizeBy(element, change) {
+  const rect = element.getBoundingClientRect()
+  const height = Math.max(240, Math.min(window.innerHeight * 0.9, rect.height + change))
+  element.style.height = `${height}px`
+  const overflow = rect.top + height - (window.innerHeight - 8)
+  if (overflow > 0) element.style.top = `${Math.max(8, rect.top - overflow)}px`
+}
 const scopeNodes = computed(() => (store.scopeNodeIds ? props.nodes.filter((node) => store.scopeNodeIds.includes(node.id)) : props.nodes))
 const { xAxis, charts } = useSimulationCharts(scopeNodes)
 
@@ -186,8 +259,13 @@ function pinWhereShown() {
 .viewer-chart-select {
   flex: 0 1 auto;
   min-width: 0;
-  max-width: calc(100% - 7rem);
+  max-width: calc(100% - 11rem);
   margin-right: auto;
+}
+
+.viewer-scope {
+  flex-shrink: 0;
+  margin: 0 4px;
 }
 
 .viewer-sliders-toggle {
@@ -212,7 +290,7 @@ function pinWhereShown() {
 
 .viewer-sliders {
   flex-shrink: 0;
-  max-height: 45%;
+  max-height: 40vh;
   overflow-y: auto;
   padding-top: 8px;
   border-top: 1px solid var(--p-content-border-color);

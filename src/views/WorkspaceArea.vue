@@ -587,6 +587,7 @@ import { migrateWorkspace, separateNodeParameters } from '../services/workspaceM
 import { buildWorkspaceFile } from '../services/workspaceFile'
 import { useSimulation } from '../composables/useSimulation'
 import { useSimSettingsDialog } from '../composables/useSimSettingsDialog'
+import { useFloatingViewer } from '../composables/useFloatingViewer'
 import { scopeFlowObject } from '../services/simulation/scopedModel'
 import { relayoutNodes } from '../services/layouts/physics'
 import { extractSimData as extractSimDataFromSedml } from '../services/import/sedml'
@@ -2300,6 +2301,8 @@ function handleCreateInspectionModule(payload) {
 
 const contextMenuRef = ref(null)
 const contextSidebarRef = ref(null)
+// The floating viewer's way back to the Simulation tab.
+useFloatingViewer().setTabOpener(() => contextSidebarRef.value?.showTab('sim'))
 const { run: runSimulation } = useSimulation()
 const simulationResultsStore = useSimulationResultsStore()
 
