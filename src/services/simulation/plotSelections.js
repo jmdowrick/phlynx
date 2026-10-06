@@ -257,3 +257,125 @@ export function resolvePlotConfig(plotConfig, nodes) {
 
   return withSelections(plotConfig, plotConfig?.groups || [], selections)
 }
+
+/**
+ * Makes an id for a new plot that no other plot has, whatever was removed before.
+ *
+ * @returns {string}
+ */
+const newPlotId = () => `plot-${crypto.randomUUID()}`
+
+/**
+ * Adds an empty plot, named after the highest-numbered "Plot n" so far.
+ *
+ * @param {Object} plotConfig
+ * @param {string} [name]
+ * @returns {{plotConfig: Object, id: string}} The new config and the new plot's id.
+ */
+export function addPlot(plotConfig, name) {
+  const groups = resolveGroups(plotConfig)
+  const highest = Math.max(0, ...groups.map((group) => Number(/^Plot (\d+)$/.exec(group.name)?.[1] ?? 0)))
+  const id = newPlotId()
+  const nextGroups = [...groups, { id, name: name?.trim() || `Plot ${highest + 1}` }]
+  return { plotConfig: withSelections(plotConfig, nextGroups, plotConfig?.selections || []), id }
+}
+
+/**
+ * Renames a plot; a blank name leaves it as it is.
+ *
+ * @param {Object} plotConfig
+ * @param {string} id
+ * @param {string} name
+ * @returns {Object}
+ */
+export function renamePlot(plotConfig, id, name) {
+  if (!name?.trim()) return plotConfig
+  const groups = resolveGroups(plotConfig).map((group) => (group.id === id ? { ...group, name: name.trim() } : group))
+  return withSelections(plotConfig, groups, plotConfig?.selections || [])
+}
+
+/**
+ * Removes a plot and the variables on it. The last plot stays, so there is always one to add to.
+ *
+ * @param {Object} plotConfig
+ * @param {string} id
+ * @returns {Object}
+ */
+export function removePlot(plotConfig, id) {
+  const groups = resolveGroups(plotConfig)
+  if (groups.length <= 1 || !groups.some((group) => group.id === id)) return plotConfig
+  return withSelections(
+    plotConfig,
+    groups.filter((group) => group.id !== id),
+    (plotConfig?.selections || []).filter((selection) => selection.groupId !== id)
+  )
+}
+
+/**
+ * Moves a plot up (negative) or down (positive) the list, stopping at either end.
+ *
+ * @param {Object} plotConfig
+ * @param {string} id
+ * @param {number} delta
+ * @returns {Object}
+ */
+export function movePlot(plotConfig, id, delta) {
+  const groups = resolveGroups(plotConfig)
+  const from = groups.findIndex((group) => group.id === id)
+  const to = Math.min(groups.length - 1, Math.max(0, from + delta))
+  if (from < 0 || from === to) return plotConfig
+  const nextGroups = [...groups]
+  nextGroups.splice(to, 0, ...nextGroups.splice(from, 1))
+  return withSelections(plotConfig, nextGroups, plotConfig?.selections || [])
+}
+
+/**
+ * Plots a node's variable on a plot. A variable is on one plot at most, so one already plotted moves.
+ *
+ * @param {Object} plotConfig
+ * @param {Object} node
+ * @param {Object} row - One of the node's plottable rows.
+ * @param {string} groupId
+ * @returns {Object}
+ */
+export function addPlotSelection(plotConfig, node, row, groupId) {
+  const groups = resolveGroups(plotConfig)
+  const target = groups.some((group) => group.id === groupId) ? groupId : groups[0].id
+  const selection = createPlotSelection(node, row, target)
+  const selections = plotConfig?.selections || []
+  const index = selections.findIndex((existing) => existing.key === selection.key)
+  const next = index < 0 ? [...selections, selection] : selections.map((existing, i) => (i === index ? selection : existing))
+  return withSelections(plotConfig, groups, next)
+}
+
+/**
+ * Stops plotting a variable.
+ *
+ * @param {Object} plotConfig
+ * @param {string} key - The selection's `nodeId::name`.
+ * @returns {Object}
+ */
+export function removePlotSelection(plotConfig, key) {
+  const selections = plotConfig?.selections || []
+  if (!selections.some((selection) => selection.key === key)) return plotConfig
+  return withSelections(
+    plotConfig,
+    resolveGroups(plotConfig),
+    selections.filter((selection) => selection.key !== key)
+  )
+}
+
+/**
+ * Moves a plotted variable to another plot.
+ *
+ * @param {Object} plotConfig
+ * @param {string} key
+ * @param {string} groupId
+ * @returns {Object}
+ */
+export function assignSelection(plotConfig, key, groupId) {
+  const groups = resolveGroups(plotConfig)
+  if (!groups.some((group) => group.id === groupId)) return plotConfig
+  const selections = (plotConfig?.selections || []).map((selection) => (selection.key === key ? { ...selection, groupId } : selection))
+  return withSelections(plotConfig, groups, selections)
+}
