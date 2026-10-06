@@ -10,6 +10,7 @@ import MarkdownItAttrs from 'markdown-it-attrs'
 import MarkdownItGitHubAlerts from 'markdown-it-github-alerts'
 import packageJson from './package.json'
 import { execSync } from 'child_process'
+import { libopencorAssets } from './scripts/libopencorAssets.js'
 
 const latestChangelogPath = path.resolve(__dirname, 'changelogs/latest.md')
 
@@ -43,6 +44,7 @@ export default defineConfig({
       include: [/\.vue$/, /\.md$/],
     }),
     tailwindcss(),
+    libopencorAssets(),
     Markdown({
       headEnabled: false, // Set true to manage <head> tags
       markdownItSetup(md) {
