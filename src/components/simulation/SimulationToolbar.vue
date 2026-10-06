@@ -162,6 +162,8 @@ const playHint = computed(() => props.blockedReason ?? (props.isLoading ? 'Loadi
   width: 34px;
   height: 34px;
   padding: 0;
+  /* The out-of-date dot sits on the circle's edge, so the button mustn't crop it. */
+  overflow: visible;
   box-shadow: 0 1px 2px color-mix(in srgb, var(--p-text-color) 25%, transparent);
   transition: transform 120ms ease, box-shadow 120ms ease;
 }

@@ -1,5 +1,14 @@
 <template>
   <section class="slider-list" aria-label="Parameter sliders">
+    <VariablePathPicker
+      v-if="withPicker"
+      :index="index"
+      :filter="(entry) => entry.slidable && !sliderKeys.has(entry.key)"
+      :describe="describeSlidable"
+      placeholder="Add a slider…"
+      aria-label="Add a slider"
+      @pick="addSlider"
+    />
     <div v-for="slider in sliders" :key="slider.valueKey" class="slider-row">
       <div class="slider-head">
         <span class="slider-label" :title="`${slider.componentLabel}/${slider.parameterName}`">
@@ -34,7 +43,7 @@
     </div>
 
     <p v-if="!sliders.length && !elsewhere.length && !missing.length" class="slider-hint">
-      No sliders yet. Search above for a parameter to try out.
+      {{ withPicker ? 'No sliders yet. Search above for a constant to try out.' : 'No sliders yet.' }}
     </p>
 
     <details v-if="elsewhere.length" class="slider-elsewhere">
@@ -101,8 +110,16 @@ import Popover from 'primevue/popover'
 import Slider from 'primevue/slider'
 
 import { useNodeDataHistory } from '../../composables/useNodeDataHistory'
-import { isSlidableRow, pickDefaultValue, putSlider, removeSlider, sliderValueKey } from '../../services/simulation/parameterSliders'
-import { GLOBAL_COMPONENT } from '../../services/simulation/variableIndex'
+import VariablePathPicker from './VariablePathPicker.vue'
+import {
+  createSliderDefinition,
+  isSlidableRow,
+  pickDefaultValue,
+  putSlider,
+  removeSlider,
+  sliderValueKey,
+} from '../../services/simulation/parameterSliders'
+import { GLOBAL_COMPONENT, buildVariableIndex } from '../../services/simulation/variableIndex'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../../stores/simulationSettingsStore'
@@ -117,6 +134,8 @@ const props = defineProps({
   scopeNodeIds: { type: Array, default: null },
   // Makes a change that keeps the shown results true (see useSimulation).
   keepCurrent: { type: Function, default: (change) => change() },
+  // With a search to add sliders for constants and global constants across the model.
+  withPicker: { type: Boolean, default: false },
 })
 const emit = defineEmits(['change'])
 
@@ -202,6 +221,40 @@ const elsewhere = computed(() => {
     .map(({ definition, componentLabel }) => ({ ...definition, componentLabel }))
 })
 const missing = computed(() => resolved.value.filter(({ row }) => !row).map(({ definition }) => definition))
+
+// What can be given a slider: constants and global constants, which libOpenCOR can change between runs.
+// A computed constant comes from the constants in its equation, which are what to slide.
+const index = computed(() => (props.withPicker ? buildVariableIndex(props.nodes, { scopeNodeIds: props.scopeNodeIds, mapping: resultsStore.mapping }) : []))
+const sliderKeys = computed(() => new Set(definitions.value.map((definition) => sliderValueKey(definition))))
+
+/**
+ * Notes whether a constant was in the last run, and what the model makes the same as it.
+ *
+ * @param {Object} entry
+ * @returns {string|null}
+ */
+function describeSlidable(entry) {
+  const notes = []
+  if (!entry.inScope) notes.push('Not in the last run')
+  if (entry.equivalents.length) notes.push(`≡ ${entry.equivalents.join(', ')}`)
+  return notes.length ? notes.join(' · ') : null
+}
+
+/**
+ * Adds a slider for a picked constant, starting at the model's value unless it joins a global constant's
+ * shared slider.
+ *
+ * @param {Object} entry
+ */
+function addSlider(entry) {
+  const node = nodesById.value.get(entry.nodeId)
+  const row = node?.data?.variables?.find((candidate) => candidate.name === entry.rowName)
+  if (!node || !row) return
+  const definition = createSliderDefinition(node, row, libraryStore.getGlobalConstant)
+  const valueKey = sliderValueKey(definition)
+  if (!definitions.value.some((other) => sliderValueKey(other) === valueKey)) resultsStore.setSliderValue(valueKey, null)
+  settingsStore.setParameterScanConfig(putSlider(settingsStore.parameterScanConfig, definition))
+}
 
 let rerunFrame = null
 onBeforeUnmount(() => {

@@ -82,6 +82,7 @@
       <SliderList
         v-if="showSliders"
         class="viewer-sliders"
+        with-picker
         :nodes="nodes"
         :scope-node-ids="store.scopeNodeIds"
         :keep-current="keepCurrent"

@@ -44,17 +44,14 @@
       />
     </template>
 
-    <template v-else>
-      <VariablePathPicker
-        :index="index"
-        :filter="(entry) => entry.slidable && !sliderKeys.has(entry.key)"
-        :describe="describeSlidable"
-        placeholder="Add a slider…"
-        aria-label="Add a slider"
-        @pick="addSlider"
-      />
-      <SliderList :nodes="nodes" :scope-node-ids="scopeNodeIds" :keep-current="keepCurrent" @change="emit('change')" />
-    </template>
+    <SliderList
+      v-else
+      with-picker
+      :nodes="nodes"
+      :scope-node-ids="scopeNodeIds"
+      :keep-current="keepCurrent"
+      @change="emit('change')"
+    />
   </section>
 </template>
 
@@ -71,10 +68,9 @@ import SelectButton from 'primevue/selectbutton'
 import PlotListEditor from './PlotListEditor.vue'
 import SliderList from './SliderList.vue'
 import VariablePathPicker from './VariablePathPicker.vue'
-import { createSliderDefinition, putSlider, sliderValueKey } from '../../services/simulation/parameterSliders'
+import { sliderValueKey } from '../../services/simulation/parameterSliders'
 import { plotVariable, resolveGroups } from '../../services/simulation/plotSelections'
 import { buildVariableIndex } from '../../services/simulation/variableIndex'
-import { useLibraryStore } from '../../stores/libraryStore'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../../stores/simulationSettingsStore'
 
@@ -89,7 +85,6 @@ const props = defineProps({
 // A slider moved, so the scope wants running again.
 const emit = defineEmits(['change'])
 
-const libraryStore = useLibraryStore()
 const resultsStore = useSimulationResultsStore()
 const settingsStore = useSimulationSettingsStore()
 
@@ -130,19 +125,6 @@ const plottedGroups = computed(() => new Map((settingsStore.plotConfig?.selectio
 function describePlottable(entry) {
   const notes = []
   if (plottedGroups.value.has(entry.key)) notes.push(`On ${plotNames.value.get(plottedGroups.value.get(entry.key)) ?? 'no plot'}`)
-  if (!entry.inScope) notes.push('Not in the last run')
-  if (entry.equivalents.length) notes.push(`≡ ${entry.equivalents.join(', ')}`)
-  return notes.length ? notes.join(' · ') : null
-}
-
-/**
- * Notes a parameter's value and what it is the same as.
- *
- * @param {Object} entry
- * @returns {string|null}
- */
-function describeSlidable(entry) {
-  const notes = []
   if (!entry.inScope) notes.push('Not in the last run')
   if (entry.equivalents.length) notes.push(`≡ ${entry.equivalents.join(', ')}`)
   return notes.length ? notes.join(' · ') : null
@@ -190,21 +172,6 @@ function plotEntry(entry) {
     const name = resolveGroups(plotConfig).find((plot) => plot.id === plotId)?.name
     showPlotNote(`${entry.name} (${found.row.units || 'no units'}) went on ${name}: a plot shows one unit.`)
   }
-}
-
-/**
- * Adds a slider for a picked parameter, starting at the model's value unless it joins a global
- * constant's shared slider.
- *
- * @param {Object} entry
- */
-function addSlider(entry) {
-  const found = resolveEntry(entry)
-  if (!found) return
-  const definition = createSliderDefinition(found.node, found.row, libraryStore.getGlobalConstant)
-  const valueKey = sliderValueKey(definition)
-  if (!sliderDefinitions.value.some((other) => sliderValueKey(other) === valueKey)) resultsStore.setSliderValue(valueKey, null)
-  settingsStore.setParameterScanConfig(putSlider(settingsStore.parameterScanConfig, definition))
 }
 
 /** Puts the cursor in the search box, for a plot's add button. */
