@@ -43,9 +43,10 @@ function affineOutputKey(source, target) {
  * @param {Array} nodes - Workspace nodes with `data.name` and `data.variables` rows.
  * @param {Array} edges - Workspace edges with `data.couplings`.
  * @returns {{supplied: Map<string, Set<string>>, missing: Map<string, Set<string>>, conflicts: string[],
- *   emptySums: Map<string, Set<string>>}} `supplied` maps node id to the boundary condition names whose
- *   values to use, `missing` to those nothing supplies, and `emptySums` to the blank Sum variables
- *   nothing is connected to, which are set to 0; `conflicts` describes groups given several different values.
+ *   emptySums: Map<string, Set<string>>, unsupplied: Set<string>}} `supplied` maps node id to the boundary
+ *   condition names whose values to use, `missing` to those nothing supplies, and `emptySums` to the blank Sum
+ *   variables nothing is connected to, which are set to 0; `conflicts` describes groups given several different
+ *   values; `unsupplied` holds the `nodeId::name` of every boundary condition in a group nothing else supplies.
  */
 export function resolveBoundaryValues(nodes, edges) {
   const rows = new Map()
@@ -123,6 +124,7 @@ export function resolveBoundaryValues(nodes, edges) {
   const missing = new Map()
   const emptySums = new Map()
   const conflicts = []
+  const unsupplied = new Set()
   const addTo = (map, { nodeId, row }) => {
     if (!map.has(nodeId)) map.set(nodeId, new Set())
     map.get(nodeId).add(row.name)
@@ -137,6 +139,7 @@ export function resolveBoundaryValues(nodes, edges) {
       ({ key, row }) => computed.has(key) || row.type === 'variable' || VALUE_REQUIRED_TYPES.has(row.type)
     )
     if (isSupplied) continue
+    boundaries.forEach(({ key }) => unsupplied.add(key))
 
     const withValues = boundaries.filter(({ row }) => !isBlank(row.value))
     const label = ({ nodeName, row }) => `${nodeName}.${row.name}`
@@ -158,5 +161,5 @@ export function resolveBoundaryValues(nodes, edges) {
     addTo(supplied, withValues[0])
   }
 
-  return { supplied, missing, conflicts, emptySums }
+  return { supplied, missing, conflicts, emptySums, unsupplied }
 }
