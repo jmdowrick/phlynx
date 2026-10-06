@@ -143,14 +143,16 @@
           <Button
             iconOnly
             style="margin-left: 10px"
-            icon="pi pi-chart-line"
             size="small"
             variant="text"
             severity="info"
             :disabled="!somethingAvailable"
+            aria-label="Configure simulation settings"
             v-tooltip.bottom="{ value: 'Configure simulation settings', showDelay: 300 }"
             @click="onOpenSimSettingsDialog"
-          />
+          >
+            <SimulationSettingsIcon />
+          </Button>
 
           <Button
             iconOnly
@@ -574,6 +576,7 @@ import AddHandleLeft from '../components/icons/AddHandles/AddHandleLeft.vue'
 import AddHandleTop from '../components/icons/AddHandles/AddHandleTop.vue'
 import AddHandleRight from '../components/icons/AddHandles/AddHandleRight.vue'
 import DustpanBrush from '../components/icons/DustpanBrush.vue'
+import SimulationSettingsIcon from '../components/icons/SimulationSettingsIcon.vue'
 
 import { useScreenshot } from '../services/useScreenshot'
 import { useMacroGenerator } from '../services/generate/generateWorkflow'
