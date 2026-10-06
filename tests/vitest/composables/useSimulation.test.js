@@ -7,16 +7,9 @@ const nodes = ref([])
 const edges = ref([])
 vi.mock('@vue-flow/core', async (importOriginal) => ({ ...(await importOriginal()), useVueFlow: () => ({ nodes, edges }) }))
 
-const loader = vi.hoisted(() => ({ module: { name: 'libopencor' }, reason: null, ready: null }))
-vi.mock('../../../src/services/simulation/libopencorLoader', () => ({
-  libopencor: { get reason() {
-    return loader.reason
-  } },
-  whenLibOpenCORReady: () => loader.ready ?? Promise.resolve(loader.module),
-}))
-
 const engine = vi.hoisted(() => ({ runs: [] }))
-vi.mock('../../../src/services/simulation/engine', () => ({
+// Stands in for the simulator's worker client, recording each run so a test can finish it.
+const simulator = vi.hoisted(() => ({
   startSimulation: (options) => {
     let finish
     const promise = new Promise((resolve) => (finish = resolve))
@@ -25,6 +18,14 @@ vi.mock('../../../src/services/simulation/engine', () => ({
     return run
   },
 }))
+const loader = vi.hoisted(() => ({ module: simulator, reason: null, ready: null }))
+vi.mock('../../../src/services/simulation/libopencorLoader', () => ({
+  libopencor: { get reason() {
+    return loader.reason
+  } },
+  whenLibOpenCORReady: () => loader.ready ?? Promise.resolve(loader.module),
+}))
+
 
 const built = vi.hoisted(() => ({ scopes: [] }))
 vi.mock('../../../src/services/simulation/scopedModel', async (importOriginal) => ({
@@ -36,6 +37,7 @@ vi.mock('../../../src/services/simulation/scopedModel', async (importOriginal) =
 }))
 vi.mock('../../../src/services/simulation/variableMapping', () => ({
   buildVariableMapping: () => new Map([['a::x', 'a/x']]),
+  mapInspectionModules: () => [],
 }))
 vi.mock('../../../src/utils/cellml', () => ({ whenLibCellMLReady: async () => ({}) }))
 
@@ -73,7 +75,7 @@ describe('useSimulation', () => {
     edges.value = []
     engine.runs = []
     built.scopes = []
-    Object.assign(loader, { module: { name: 'libopencor' }, reason: null, ready: null })
+    Object.assign(loader, { module: simulator, reason: null, ready: null })
   })
 
   it('runs the selection with the current settings and keeps its mapped results', async () => {

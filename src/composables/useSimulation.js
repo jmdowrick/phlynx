@@ -1,7 +1,6 @@
 import { computed } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
-import { startSimulation } from '../services/simulation/engine'
 import { libopencor, whenLibOpenCORReady } from '../services/simulation/libopencorLoader'
 import { buildParameterOverrides } from '../services/simulation/parameterSliders'
 import {
@@ -12,7 +11,7 @@ import {
   resolveScope,
   summariseScopeReport,
 } from '../services/simulation/scopedModel'
-import { buildVariableMapping } from '../services/simulation/variableMapping'
+import { buildVariableMapping, mapInspectionModules } from '../services/simulation/variableMapping'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
@@ -90,21 +89,21 @@ export function useSimulation() {
     }
 
     try {
-      const module = await whenLibOpenCORReady()
+      const simulator = await whenLibOpenCORReady()
       if (token !== runToken) return
-      if (!module) {
+      if (!simulator) {
         store.failRun('error', { message: libopencor.reason ?? 'The simulator couldn’t load.', issues: [] })
         return
       }
 
       const overrides = currentOverrides()
       const withOverrides = applyParameterOverrides(scope, libraryStore, overrides)
-      const cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore).text()
+      // libOpenCOR checks the model and reports its issues, so the flatten's own check is skipped.
+      const cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore, { check: false }).text()
       if (token !== runToken) return
       const signature = signRun(scope, overrides)
       const settings = { ...simulationSettingsStore.simulationSettings }
-      currentRun = startSimulation({
-        module,
+      currentRun = simulator.startSimulation({
         cellml,
         settings,
         onProgress: (progress) => token === runToken && (store.progress = progress),
@@ -115,7 +114,8 @@ export function useSimulation() {
       const libcellml = await whenLibCellMLReady()
       if (token !== runToken) return
       const mapping = buildVariableMapping({ libcellml, cellml, nodes: scope.nodes, results })
-      store.finishRun({ results, mapping, signature })
+      const inspectionOutputs = mapInspectionModules(scope.inspectionModules, scope.nodes, results)
+      store.finishRun({ results, mapping, signature, inspectionOutputs })
     } catch (error) {
       if (token === runToken) store.failRun('error', { message: error.message, issues: error.issues ?? [] })
     } finally {

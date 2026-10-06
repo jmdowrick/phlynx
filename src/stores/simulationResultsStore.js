@@ -15,6 +15,8 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
   const error = ref(null)
   const results = shallowRef(null)
   const mapping = shallowRef(null)
+  /** The run's inspection module outputs: `[{ id, name, units, reportedName }]`. */
+  const inspectionOutputs = shallowRef([])
   /** The run's inputs, to tell when its results have gone stale. */
   const signature = ref(null)
   // Colour slots of the plotted series by key, kept for the run so a series keeps its colour when the tab is
@@ -55,19 +57,21 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
       results.value = null
       mapping.value = null
       seriesSlots = markRaw(new Map())
+      inspectionOutputs.value = []
     }
   }
 
   /**
    * Records a finished run.
    *
-   * @param {Object} run - `{ results, mapping, signature }`.
+   * @param {Object} run - `{ results, mapping, signature, inspectionOutputs }`.
    */
   function finishRun(run) {
     status.value = run.results.isStopped ? 'stopped' : 'done'
     progress.value = 1
     results.value = markRaw(run.results)
     mapping.value = markRaw(run.mapping)
+    inspectionOutputs.value = run.inspectionOutputs ?? []
     signature.value = run.signature
   }
 
@@ -82,6 +86,7 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     error.value = nextError
     results.value = null
     mapping.value = null
+    inspectionOutputs.value = []
   }
 
   function resetState() {
@@ -95,6 +100,7 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     signature.value = null
     seriesSlots = markRaw(new Map())
     sliderValues.value = new Map()
+    inspectionOutputs.value = []
   }
 
   return {
@@ -105,6 +111,7 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     error,
     results,
     mapping,
+    inspectionOutputs,
     signature,
     getSeriesSlots,
     setSeriesSlots,

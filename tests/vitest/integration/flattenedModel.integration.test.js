@@ -14,7 +14,7 @@ import { generateFlattenedModel } from '../../../src/utils/cellml.js'
 import { interpretUnitExpression } from '../../../src/utils/unitExpression.js'
 import { resolveBoundaryValues } from '../../../src/services/export/boundaryValues.js'
 import { applyParameterOverrides, buildScopedModel, checkScope, resolveScope } from '../../../src/services/simulation/scopedModel.js'
-import { buildVariableMapping, mappingKey, readNodeSeries } from '../../../src/services/simulation/variableMapping.js'
+import { buildVariableMapping, mapInspectionModules, mappingKey, readNodeSeries } from '../../../src/services/simulation/variableMapping.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
 const MATH_REF = 'file:decay'
@@ -543,6 +543,31 @@ describe('mapping a scoped run’s results back to instances', () => {
 
     expect(mapping.get(mappingKey('hub', 'u'))).toBe('leaf_2/u')
     expect(mapping.get(mappingKey('leaf_1', 'u'))).toBe('leaf_2/u')
+  })
+
+  it('finds each inspection module’s output under the name the flatten gave it', async () => {
+    const { scope } = await buildFlattenedNetwork()
+    const sumOfLeaves = (name) => ({
+      id: name,
+      name,
+      units: 'per_second',
+      variables: ['leaf_1', 'leaf_2'].map((nodeId) => ({ nodeId, variableName: 'v', units: 'per_second', sign: 1 })),
+    })
+    // The second module's name collides with the first's terms, op_v and op_v_1.
+    const modules = [sumOfLeaves('total flow'), sumOfLeaves('op_v')]
+    const scoped = resolveScope(null, scope.nodes, scope.internalEdges, modules)
+    const text = await buildScopedModel(scoped, store).text()
+    const inspection = text.match(/<component name="inspection_modules">[\s\S]*?<\/component>/)[0]
+    const declared = [...inspection.matchAll(/<variable name="([^"]+)"/g)].map(([, name]) => `inspection_modules/${name}`)
+    const results = resultsFor(declared)
+
+    const outputs = mapInspectionModules(scoped.inspectionModules, scoped.nodes, results)
+
+    expect(outputs).toEqual([
+      { id: 'total flow', name: 'total flow', units: 'per_second', reportedName: 'inspection_modules/total_flow' },
+      { id: 'op_v', name: 'op_v', units: 'per_second', reportedName: 'inspection_modules/op_v_2' },
+    ])
+    expect(mapInspectionModules(scoped.inspectionModules, scoped.nodes, resultsFor([]))).toEqual([])
   })
 
   it('leaves out rows whose values the run didn’t report', async () => {

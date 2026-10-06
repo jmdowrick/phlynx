@@ -4,6 +4,8 @@
  * module that computes it, a constant under instance_parameters, and time under environment.
  */
 
+import { sanitiseCellMLIdentifier } from '../../utils/cellml'
+
 /**
  * Builds the key of a node's variable in a mapping.
  *
@@ -102,4 +104,39 @@ export function readNodeSeries(results, mapping, nodeId, variableName) {
   if (name === results.voi.name) return { name, kind: 'voi', unit: results.voi.unit, values: results.voi.values }
   const series = results.variables.get(name)
   return series ? { name, ...series } : null
+}
+
+/**
+ * Finds the output of each inspection module in a run. createInspectionModuleComponent names a module's
+ * output after the module and each of its terms `op_<variable>`, adding a suffix to a name already taken,
+ * so the names are worked out in the same order.
+ *
+ * @param {Array<Object>} modules - The scope's inspection modules, as flattened.
+ * @param {Array<Object>} nodes - The scope's nodes.
+ * @param {{variables: Map<string, Object>}} results - The engine's results.
+ * @returns {Array<{id: string, name: string, units: string, reportedName: string}>} The modules whose output
+ *   the run reported.
+ */
+export function mapInspectionModules(modules, nodes, results) {
+  const taken = new Set()
+  const takeName = (base) => {
+    let name = base
+    for (let index = 1; taken.has(name); index++) name = `${base}_${index}`
+    taken.add(name)
+    return name
+  }
+  const nodesById = new Map(nodes.map((node) => [node.id, node]))
+  const outputs = []
+  for (const module of modules ?? []) {
+    const name = takeName(sanitiseCellMLIdentifier(module.name))
+    for (const entry of module.variables ?? []) {
+      const node = nodesById.get(entry.nodeId)
+      if (node?.data?.variables?.some((row) => row.name === entry.variableName)) takeName(`op_${entry.variableName}`)
+    }
+    const reportedName = `inspection_modules/${name}`
+    if (results.variables.has(reportedName)) {
+      outputs.push({ id: module.id, name: module.name, units: module.units || 'dimensionless', reportedName })
+    }
+  }
+  return outputs
 }

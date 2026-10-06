@@ -32,6 +32,10 @@ export default defineConfig({
     __BRANCH__: JSON.stringify(execSync('git rev-parse --abbrev-ref HEAD').toString().trim()),
     __BUILD_DATE__: JSON.stringify(new Date().toISOString()),
   },
+  worker: {
+    // The simulator's worker imports libOpenCOR's glue, an ES module, at run time.
+    format: 'es',
+  },
   optimizeDeps: {
     // Exclude the wasm-based library from pre-bundling
     exclude: ['vue3-libcellml.js'],

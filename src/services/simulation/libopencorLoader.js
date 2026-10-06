@@ -1,9 +1,11 @@
 /**
- * Loads libOpenCOR, the simulator, in the background. Its WebAssembly build needs SharedArrayBuffer, so
- * it loads only in a cross-origin isolated page (see utils/isolation.js).
+ * Loads libOpenCOR, the simulator, in the background, in a worker (see workers/simulationWorker.js) so
+ * that reading and running large models never freezes the page. Its WebAssembly build needs
+ * SharedArrayBuffer, so it loads only in a cross-origin isolated page (see utils/isolation.js).
  */
 import { markRaw, reactive } from 'vue'
 
+import { SimulationError } from './engine'
 import { getIsolationStatus } from '../../utils/isolation'
 
 // Defined by scripts/libopencorAssets.js; builds without it (Electron) have no simulator.
@@ -17,15 +19,68 @@ export const libopencor = reactive({ status: 'idle', reason: null, versionString
 
 let loading = null
 
+/** Starts the simulator's worker. */
+const createSimulationWorker = () => new Worker(new URL('../../workers/simulationWorker.js', import.meta.url), { type: 'module' })
+
+/**
+ * Wraps the worker in a client with the engine's startSimulation shape.
+ *
+ * @param {Worker} worker
+ * @param {Function} onReady - Called with the worker's ready or failed message.
+ * @returns {{startSimulation: Function}}
+ */
+function createClient(worker, onReady) {
+  const pending = new Map()
+  let nextId = 1
+
+  worker.onmessage = ({ data }) => {
+    if (data.type === 'ready' || data.type === 'failed') {
+      onReady(data)
+      return
+    }
+    const run = pending.get(data.id)
+    if (!run) return
+    if (data.type === 'progress') run.onProgress(data.value)
+    else if (data.type === 'done') {
+      pending.delete(data.id)
+      run.resolve({ ...data.results, variables: new Map(data.results.variables) })
+    } else if (data.type === 'error') {
+      pending.delete(data.id)
+      run.reject(new SimulationError(data.message, data.issues))
+    }
+  }
+  worker.onerror = (event) => {
+    const message = event?.message || 'The simulator stopped working.'
+    onReady({ type: 'failed', message })
+    for (const run of pending.values()) run.reject(new SimulationError(message))
+    pending.clear()
+  }
+
+  return markRaw({
+    /**
+     * Starts simulating a CellML model in the worker; see engine.js's startSimulation.
+     *
+     * @param {Object} options - `{ cellml, settings, onProgress }`.
+     * @returns {{promise: Promise<Object>, stop: Function}}
+     */
+    startSimulation({ cellml, settings, onProgress = () => {} }) {
+      const id = nextId++
+      const promise = new Promise((resolve, reject) => pending.set(id, { resolve, reject, onProgress }))
+      worker.postMessage({ type: 'run', id, cellml, settings: { ...settings } })
+      return { promise, stop: () => worker.postMessage({ type: 'stop', id }) }
+    },
+  })
+}
+
 /**
  * Starts loading libOpenCOR, once; later calls return the same promise.
  *
  * @param {Object} [options]
  * @param {Object} [options.scope=globalThis] - The window to check for isolation.
- * @param {Function} [options.importModule] - Imports the glue module from a URL.
- * @returns {Promise<Object|null>} The libOpenCOR module, or null when it can't or didn't load.
+ * @param {Function} [options.createWorker] - Starts the simulator's worker.
+ * @returns {Promise<Object|null>} A client to run simulations with, or null when it can't or didn't load.
  */
-export function loadLibOpenCOR({ scope = globalThis, importModule = (url) => import(/* @vite-ignore */ url) } = {}) {
+export function loadLibOpenCOR({ scope = globalThis, createWorker = createSimulationWorker } = {}) {
   if (loading) return loading
 
   const isolation = getIsolationStatus(scope)
@@ -37,23 +92,34 @@ export function loadLibOpenCOR({ scope = globalThis, importModule = (url) => imp
   }
 
   libopencor.status = 'loading'
-  loading = importModule(`${LIBOPENCOR_BASE}libopencor.js`)
-    .then(({ default: createModule }) => createModule({ locateFile: (file) => `${LIBOPENCOR_BASE}${file}` }))
-    .then((module) => {
-      Object.assign(libopencor, { status: 'ready', reason: null, versionString: module.versionString() })
-      return markRaw(module)
-    })
-    .catch((error) => {
+  loading = new Promise((resolve) => {
+    let isSettled = false
+    try {
+      const worker = createWorker()
+      const client = createClient(worker, (message) => {
+        if (message.type === 'ready' && !isSettled) {
+          Object.assign(libopencor, { status: 'ready', reason: null, versionString: message.versionString })
+          resolve(client)
+        } else if (message.type === 'failed') {
+          Object.assign(libopencor, { status: 'error', reason: message.message })
+          if (!isSettled) resolve(null)
+        }
+        isSettled = true
+      })
+      worker.postMessage({ type: 'load', base: LIBOPENCOR_BASE })
+    } catch (error) {
       Object.assign(libopencor, { status: 'error', reason: error?.message ?? String(error) })
-      return null
-    })
+      isSettled = true
+      resolve(null)
+    }
+  })
   return loading
 }
 
 /**
  * Waits for libOpenCOR, starting it if nothing has.
  *
- * @returns {Promise<Object|null>} The libOpenCOR module, or null when it can't or didn't load.
+ * @returns {Promise<Object|null>} A client to run simulations with, or null when it can't or didn't load.
  */
 export function whenLibOpenCORReady() {
   return loading ?? loadLibOpenCOR()
