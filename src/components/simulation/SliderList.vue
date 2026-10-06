@@ -129,7 +129,26 @@ const rangeId = useId()
 
 const definitions = computed(() => settingsStore.parameterScanConfig?.selections ?? [])
 const nodesById = computed(() => new Map(props.nodes.map((node) => [node.id, node])))
-const inScope = (nodeId) => !props.scopeNodeIds || props.scopeNodeIds.includes(nodeId)
+// The global constants the run's instances use: a global's slider counts for the run when any of them does.
+const globalsInScope = computed(() => {
+  if (!props.scopeNodeIds) return null
+  const names = props.nodes
+    .filter((node) => props.scopeNodeIds.includes(node.id))
+    .flatMap((node) => (node.data.variables ?? []).filter((row) => row.type === 'global_constant').map((row) => row.name))
+  return new Set(names)
+})
+
+/**
+ * Checks whether a slider's value reaches the last run.
+ *
+ * @param {Object} definition
+ * @returns {boolean}
+ */
+function inScope(definition) {
+  if (!props.scopeNodeIds) return true
+  if (definition.type === 'global_constant') return globalsInScope.value.has(definition.parameterName)
+  return props.scopeNodeIds.includes(definition.nodeId)
+}
 
 // Each definition with its row, or none when the row is gone or can no longer slide.
 const resolved = computed(() =>
@@ -155,7 +174,7 @@ const sliders = computed(() => {
     const entry = byValue.get(valueKey)
     if (entry) {
       entry.definitions.push(definition)
-      entry.inScope ||= inScope(definition.nodeId)
+      entry.inScope ||= inScope(definition)
       continue
     }
     const hasRange = Number.isFinite(definition.min) && Number.isFinite(definition.max) && definition.max > definition.min
@@ -167,7 +186,7 @@ const sliders = computed(() => {
       componentLabel,
       valueKey,
       hasRange,
-      inScope: inScope(definition.nodeId),
+      inScope: inScope(definition),
       positionStep: definition.step && hasRange ? Math.max(1, Math.round((definition.step / (definition.max - definition.min)) * POSITIONS)) : 1,
       // Unchanged, a slider shows the model's value as runs use it.
       value: override ?? pickDefaultValue(row, libraryStore.getGlobalConstant),
@@ -253,7 +272,7 @@ function removeDefinitions(removed) {
   for (const definition of removed) {
     const valueKey = sliderValueKey(definition)
     if (remaining.some((other) => sliderValueKey(other) === valueKey)) continue
-    wasApplied ||= resultsStore.sliderValues.has(valueKey) && inScope(definition.nodeId)
+    wasApplied ||= resultsStore.sliderValues.has(valueKey) && inScope(definition)
     resultsStore.setSliderValue(valueKey, null)
   }
   settingsStore.setParameterScanConfig(removed.reduce((config, definition) => removeSlider(config, definition.key), settingsStore.parameterScanConfig))

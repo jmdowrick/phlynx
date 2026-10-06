@@ -277,7 +277,7 @@ class TestSimulationTab(unittest.TestCase):
 
             # The cog opens Simulation Settings on its solver and time settings.
             page.get_by_role("button", name="Simulation settings", exact=True).click()
-            expect(page.get_by_role("tab", name="Simulation Parameters")).to_have_attribute("aria-selected", "true")
+            expect(page.get_by_role("heading", name="Solver")).to_be_in_viewport()
             page.get_by_role("dialog").get_by_role("button", name="Cancel").click()
 
             # Selection mode with nothing selected can't play; the whole model can, with F9 too.

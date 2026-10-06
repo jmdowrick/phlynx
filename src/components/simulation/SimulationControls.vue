@@ -72,7 +72,7 @@ import PlotListEditor from './PlotListEditor.vue'
 import SliderList from './SliderList.vue'
 import VariablePathPicker from './VariablePathPicker.vue'
 import { createSliderDefinition, putSlider, sliderValueKey } from '../../services/simulation/parameterSliders'
-import { addPlot, addPlotSelection, choosePlotForUnits, resolveGroups } from '../../services/simulation/plotSelections'
+import { plotVariable, resolveGroups } from '../../services/simulation/plotSelections'
 import { buildVariableIndex } from '../../services/simulation/variableIndex'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
@@ -93,8 +93,9 @@ const libraryStore = useLibraryStore()
 const resultsStore = useSimulationResultsStore()
 const settingsStore = useSimulationSettingsStore()
 
-const view = ref('plots')
-const targetPlotId = ref(null)
+// Given by the panel, so they last when its layout changes; local otherwise.
+const view = defineModel('view', { type: String, default: 'plots' })
+const targetPlotId = defineModel('targetPlotId', { type: String, default: null })
 const plotPicker = ref(null)
 
 const index = computed(() => buildVariableIndex(props.nodes, { scopeNodeIds: props.scopeNodeIds, mapping: resultsStore.mapping }))
@@ -183,19 +184,11 @@ function showPlotNote(text) {
 function plotEntry(entry) {
   const found = resolveEntry(entry)
   if (!found) return
-  let config = settingsStore.plotConfig
-  const units = found.row.units || ''
-  const key = `${found.node.id}::${found.row.name}`
-  let plotId = choosePlotForUnits(config, units, targetPlotId.value, key)
-  if (!plotId) {
-    const added = addPlot(config)
-    config = added.plotConfig
-    plotId = added.id
-  }
-  settingsStore.setPlotConfig(addPlotSelection(config, found.node, found.row, plotId))
+  const { plotConfig, plotId } = plotVariable(settingsStore.plotConfig, found.node, found.row, targetPlotId.value)
+  settingsStore.setPlotConfig(plotConfig)
   if (plotId !== targetPlotId.value) {
-    const name = resolveGroups(settingsStore.plotConfig).find((plot) => plot.id === plotId)?.name
-    showPlotNote(`${entry.name} (${units || 'no units'}) went on ${name}: a plot shows one unit.`)
+    const name = resolveGroups(plotConfig).find((plot) => plot.id === plotId)?.name
+    showPlotNote(`${entry.name} (${found.row.units || 'no units'}) went on ${name}: a plot shows one unit.`)
   }
 }
 

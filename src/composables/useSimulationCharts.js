@@ -4,7 +4,7 @@
  */
 import { computed, unref } from 'vue'
 
-import { normaliseGroups } from '../services/simulation/plotSelections'
+import { resolveGroups } from '../services/simulation/plotSelections'
 import { assignSeriesSlots, chunkSeries } from '../services/simulation/seriesSlots'
 import { readNodeSeries } from '../services/simulation/variableMapping'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
@@ -78,11 +78,19 @@ export function useSimulationCharts(scopeNodes) {
   const charts = computed(() => {
     const previousSlots = store.getSeriesSlots()
     if (!store.results) return []
-    const plotNames = new Map(normaliseGroups(simulationSettingsStore.plotConfig?.groups).map((group) => [group.id, group.name]))
+    // Named as the plot cards name them, even for an imported config that lists no plots.
+    const groups = resolveGroups(simulationSettingsStore.plotConfig)
+    const plotNames = new Map(groups.map((group) => [group.id, group.name]))
     plotNames.set(INSPECTION_PLOT, 'Inspection modules')
+    const plotOrder = new Map(groups.map((group, index) => [group.id, index]))
 
     const byPlotAndUnit = new Map()
-    for (const series of collectSeries()) {
+    // Charts follow the plots' order; inspection outputs, then anything not on a plot, come last.
+    const ordered = collectSeries()
+      .map((series, index) => ({ series, index }))
+      .sort((a, b) => (plotOrder.get(a.series.plot) ?? groups.length) - (plotOrder.get(b.series.plot) ?? groups.length) || a.index - b.index)
+      .map(({ series }) => series)
+    for (const series of ordered) {
       const id = `${series.plot}#${series.unit}`
       if (!byPlotAndUnit.has(id)) byPlotAndUnit.set(id, { plot: series.plot, unit: series.unit, series: [] })
       byPlotAndUnit.get(id).series.push(series)

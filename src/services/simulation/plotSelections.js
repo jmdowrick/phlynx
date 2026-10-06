@@ -158,13 +158,19 @@ export function resolveGroups(plotConfig) {
 
 /**
  * Sets a config's selections, keeping each one's group as it is and regrouping `groupedSelections` to match.
+ * Selections are put in plot order, as buildPlotConfig does, so whatever lists them follows the plots.
  *
  * @param {Object} plotConfig
  * @param {Array<{id: string, name: string}>} groups
- * @param {Array<Object>} selections
+ * @param {Array<Object>} unordered
  * @returns {{groups: Array, groupedSelections: Array, selections: Array}}
  */
-function withSelections(plotConfig, groups, selections) {
+function withSelections(plotConfig, groups, unordered) {
+  const groupIds = new Set(groups.map((group) => group.id))
+  const selections = [
+    ...groups.flatMap((group) => unordered.filter((selection) => selection.groupId === group.id)),
+    ...unordered.filter((selection) => !groupIds.has(selection.groupId)),
+  ]
   return {
     ...plotConfig,
     groups: groups.map((group) => ({ ...group })),
@@ -420,4 +426,25 @@ export function choosePlotForUnits(plotConfig, units, preferredId, ignoredKey = 
   const groups = resolveGroups(plotConfig)
   if (groups.some((group) => group.id === preferredId) && acceptsUnits(plotConfig, preferredId, units, ignoredKey)) return preferredId
   return groups.find((group) => acceptsUnits(plotConfig, group.id, units, ignoredKey))?.id ?? null
+}
+
+/**
+ * Plots a variable on the preferred plot, keeping one unit per plot: a variable in other units goes to
+ * the first plot in its units, or to a new plot.
+ *
+ * @param {Object} plotConfig
+ * @param {Object} node
+ * @param {Object} row - One of the node's plottable rows.
+ * @param {string|null} preferredId
+ * @returns {{plotConfig: Object, plotId: string}} The new config and the plot the variable went on.
+ */
+export function plotVariable(plotConfig, node, row, preferredId) {
+  let config = plotConfig
+  let plotId = choosePlotForUnits(config, row.units || '', preferredId, `${node.id}::${row.name}`)
+  if (!plotId) {
+    const added = addPlot(config)
+    config = added.plotConfig
+    plotId = added.id
+  }
+  return { plotConfig: addPlotSelection(config, node, row, plotId), plotId }
 }

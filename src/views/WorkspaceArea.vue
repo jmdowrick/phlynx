@@ -481,7 +481,7 @@
     @generate="onMacroBuilderGenerate"
   />
 
-  <SimSettingsDialog v-model="simSettingsDialog.visible" :initial-tab="simSettingsDialog.initialTab" :nodes="nodes" />
+  <SimSettingsDialog v-model="simSettingsDialog.visible" :section="simSettingsDialog.section" :nodes="nodes" />
 
   <SettingsDialog v-model="settingsDialogVisible" />
 
@@ -652,6 +652,7 @@ const {
   addEdges,
   addNodes,
   applyNodeChanges,
+  addSelectedNodes,
   applyEdgeChanges,
   dimensions,
   edges,
@@ -666,6 +667,7 @@ const {
   onConnectEnd,
   removeEdges,
   removeNodes,
+  removeSelectedNodes,
   screenToFlowCoordinate,
   setViewport,
   toObject,
@@ -2358,9 +2360,15 @@ function simulateLabelFor(id) {
  * @param {string} id
  */
 function simulateFromNode(id) {
+  const scope = [...simulationScopeFor(id)].sort()
+  // The canvas selection becomes what runs, so the Simulation tab doesn't see it as changed.
+  if (!getSelectedNodes.value.some((node) => node.id === id)) {
+    removeSelectedNodes(getSelectedNodes.value)
+    addSelectedNodes([findNode(id)].filter(Boolean))
+  }
   contextSidebarRef.value?.showTab('sim')
   simulationResultsStore.scopeMode = 'selection'
-  runSimulation(simulationScopeFor(id))
+  runSimulation(scope)
 }
 
 function createNewInstanceAtPosition(clientX, clientY) {

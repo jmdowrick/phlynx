@@ -29,6 +29,7 @@
 
     <!-- Plots and controls each scroll on their own, so a slider and the plot it moves stay in view. -->
     <Splitter
+      v-if="layout"
       :key="layout"
       :layout="layout === 'columns' ? 'horizontal' : 'vertical'"
       class="panel-split"
@@ -37,6 +38,8 @@
     >
       <SplitterPanel v-if="layout === 'columns'" :size="sizes.columns[0]" :min-size="25" class="panel-region">
         <SimulationControls
+          v-model:view="controlsView"
+          v-model:target-plot-id="targetPlotId"
           :nodes="nodes"
           :scope-node-ids="hasScope ? store.scopeNodeIds : null"
           :keep-current="keepCurrent"
@@ -60,6 +63,8 @@
       </SplitterPanel>
       <SplitterPanel v-if="layout === 'rows'" :size="sizes.rows[1]" :min-size="20" class="panel-region">
         <SimulationControls
+          v-model:view="controlsView"
+          v-model:target-plot-id="targetPlotId"
           :nodes="nodes"
           :scope-node-ids="hasScope ? store.scopeNodeIds : null"
           :keep-current="keepCurrent"
@@ -143,7 +148,11 @@ const isResultsDialogOpen = ref(false)
 const COLUMNS_FROM_PX = 640
 const SIZES_KEY = 'phlynx.simulation.splitSizes'
 const panelEl = ref(null)
-const layout = ref('rows')
+// Null until measured, so the tab is drawn once, in the layout that fits.
+const layout = ref(null)
+// Kept here, so the Splitter rebuilding for the other layout doesn't reset them.
+const controlsView = ref('plots')
+const targetPlotId = ref(null)
 const sizes = reactive(readSizes())
 let resizeObserver = null
 
@@ -178,8 +187,10 @@ function saveSizes({ sizes: next }) {
 }
 
 onMounted(() => {
+  const layoutFor = (width) => (width >= COLUMNS_FROM_PX ? 'columns' : 'rows')
+  layout.value = layoutFor(panelEl.value.clientWidth)
   resizeObserver = new ResizeObserver(([entry]) => {
-    layout.value = entry.contentRect.width >= COLUMNS_FROM_PX ? 'columns' : 'rows'
+    if (entry.contentRect.width > 0) layout.value = layoutFor(entry.contentRect.width)
   })
   resizeObserver.observe(panelEl.value)
 })
@@ -232,7 +243,8 @@ const statusLine = computed(() => {
       details: [...(issues.length ? [{ title: 'Solver messages', lines: issues }] : []), ...warnings],
     }
   }
-  if (isRunning.value) return { severity: 'info', icon: null, text: store.progress > 0 ? `Running… ${Math.round(store.progress * 100)}%` : 'Running…', details: warnings }
+  // The progress bar shows how far; announcing each percent would flood a screen reader.
+  if (isRunning.value) return { severity: 'info', icon: null, text: 'Running…', details: warnings }
   if (libopencor.status === 'loading') return { severity: 'info', icon: 'pi-spin pi-spinner', text: 'Loading the simulator…', details: [] }
   if (isStale.value && store.results) return { severity: 'warn', icon: 'pi-refresh', text: 'The model or settings changed · press play to update', details: warnings }
   if (isSelectionChanged.value) return { severity: 'warn', icon: 'pi-refresh', text: 'The selection changed · press play to update', details: warnings }
@@ -248,7 +260,8 @@ const statusLine = computed(() => {
 let sliderRun = null
 let isSliderRerunWaiting = false
 function rerunForSliders() {
-  if (isSimulatorMissing.value) return
+  // Before any run there is no scope to rerun: the next play uses the slider values.
+  if (isSimulatorMissing.value || !store.results) return
   if (sliderRun) {
     isSliderRerunWaiting = true
     return
