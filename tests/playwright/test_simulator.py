@@ -11,6 +11,9 @@ except ImportError:
 # Automated browsers skip the isolation service worker unless they opt in (see index.html).
 OPT_IN_TO_ISOLATION = "localStorage.setItem('phlynx.isolateUnderAutomation', 'true')"
 SIMULATOR_STATE = "({ ...document.querySelector('#app').__vue_app__._context.provides.$libopencor })"
+SIMULATOR_STATUS = "document.querySelector('#app')?.__vue_app__?._context?.provides?.$libopencor?.status"
+# A cold dev server compiles the app on its first request, which can take a while on CI.
+APP_MOUNT_TIMEOUT = 60000
 
 
 class TestSimulator(unittest.TestCase):
@@ -25,10 +28,9 @@ class TestSimulator(unittest.TestCase):
             page.goto(BASE_URL, wait_until="commit")
 
             # ---------- START -----------
-            page.locator(".mlc__group").first.wait_for(timeout=30000)
             page.wait_for_function(
-                "['ready', 'error', 'unavailable'].includes(document.querySelector('#app')?.__vue_app__?._context?.provides?.$libopencor?.status)",
-                timeout=90000,
+                f"['ready', 'error', 'unavailable'].includes({SIMULATOR_STATUS})",
+                timeout=APP_MOUNT_TIMEOUT + 90000,
             )
             state = page.evaluate(SIMULATOR_STATE)
             self.assertEqual(state["status"], "ready", state["reason"])
@@ -50,8 +52,7 @@ class TestSimulator(unittest.TestCase):
             page.goto(BASE_URL)
 
             # ---------- START -----------
-            page.locator(".mlc__group").first.wait_for(timeout=30000)
-            page.wait_for_function("document.querySelector('#app').__vue_app__._context.provides.$libopencor.status === 'unavailable'")
+            page.wait_for_function(f"{SIMULATOR_STATUS} === 'unavailable'", timeout=APP_MOUNT_TIMEOUT)
             self.assertEqual(requests, [])
             # ----------- END ------------
 
