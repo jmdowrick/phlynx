@@ -174,6 +174,9 @@ function setVisiblePlotted(plotted) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* A frame shows the list scrolls rather than running into what follows */
+  border: 1px solid var(--p-content-border-color);
+  border-radius: 6px;
 }
 
 .plot-variables-table {
