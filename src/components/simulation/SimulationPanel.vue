@@ -2,7 +2,9 @@
   <section ref="panelEl" class="simulation-panel" @keydown.f9.prevent="canPlay && play()">
     <header class="panel-head">
       <SimulationToolbar
-        v-model:scope-mode="store.scopeMode"
+        v-model:scope-mode="scopeMode"
+        :part-name="instanceId ? 'this instance' : 'the selection'"
+        :part-label="instanceId ? 'This instance' : null"
         :is-running="isRunning"
         :is-loading="libopencor.status === 'loading'"
         :blocked-reason="blockedReason"
@@ -112,6 +114,11 @@ import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../../stores/simulationSettingsStore'
 import { FLOW_IDS } from '../../utils/constants'
 
+const props = defineProps({
+  // In the instance editor: play runs this instance on its own, or the whole model.
+  instanceId: { type: String, default: null },
+})
+
 const { nodes, getSelectedNodes } = useVueFlow(FLOW_IDS.MAIN)
 const store = useSimulationResultsStore()
 const simulationSettingsStore = useSimulationSettingsStore()
@@ -206,29 +213,48 @@ const figuresHint = computed(() => {
   return 'Add variables to a plot to see them here.'
 })
 
+// Whether play runs the part (the selection, or the edited instance) or the whole model. The sidebar's
+// choice lasts for the session; the instance editor's starts on the instance each time.
+const editorScopeMode = ref('selection')
+const scopeMode = computed({
+  get: () => (props.instanceId ? editorScopeMode.value : store.scopeMode),
+  set: (mode) => {
+    if (props.instanceId) editorScopeMode.value = mode
+    else store.scopeMode = mode
+  },
+})
+
 // The canvas selection, sorted, as play runs it in Selection mode.
 const sortedSelectedIds = computed(() => [...selectedNodeIds.value].sort())
 // Why play can't run, if it can't.
 const blockedReason = computed(() => {
   if (isSimulatorMissing.value) return libopencor.reason ?? 'The simulator isn’t available.'
   if (!nodes.value.length) return 'Add instances to simulate'
-  if (store.scopeMode === 'selection' && !selectedNodeIds.value.length) return 'Select instances on the canvas'
+  if (!props.instanceId && scopeMode.value === 'selection' && !selectedNodeIds.value.length) return 'Select instances on the canvas'
   return null
 })
 const canPlay = computed(() => !isRunning.value && !blockedReason.value && libopencor.status !== 'loading')
 // In Selection mode, the results show a selection other than the one on the canvas now.
 const isSelectionChanged = computed(
   () =>
-    store.scopeMode === 'selection' &&
+    !props.instanceId &&
+    scopeMode.value === 'selection' &&
     !!store.results &&
     sortedSelectedIds.value.length > 0 &&
     JSON.stringify(sortedSelectedIds.value) !== JSON.stringify(store.scopeNodeIds ? [...store.scopeNodeIds].sort() : null)
 )
-const isOutdated = computed(() => !!store.results && (isStale.value || isSelectionChanged.value))
+// In the instance editor, results of another run than this instance on its own, or the whole model.
+const isOtherRun = computed(() => {
+  if (!props.instanceId || !store.results) return false
+  const expected = scopeMode.value === 'model' ? null : [props.instanceId]
+  return JSON.stringify(store.scopeNodeIds) !== JSON.stringify(expected)
+})
+const isOutdated = computed(() => !!store.results && (isStale.value || isSelectionChanged.value || isOtherRun.value))
 
 /** Simulates the whole model or the canvas selection, as the switch says. */
 function play() {
-  run(store.scopeMode === 'model' ? null : sortedSelectedIds.value)
+  if (scopeMode.value === 'model') run(null)
+  else run(props.instanceId ? [props.instanceId] : sortedSelectedIds.value)
 }
 
 // What the status line says: the most pressing thing first, with the full lists a click away.
@@ -253,6 +279,7 @@ const statusLine = computed(() => {
   if (libopencor.status === 'loading') return { severity: 'info', icon: 'pi-spin pi-spinner', text: 'Loading the simulator…', details: [] }
   if (isStale.value && store.results) return { severity: 'warn', icon: 'pi-refresh', text: 'The model or settings changed · press play to update', details: warnings }
   if (isSelectionChanged.value) return { severity: 'warn', icon: 'pi-refresh', text: 'The selection changed · press play to update', details: warnings }
+  if (isOtherRun.value) return { severity: 'warn', icon: 'pi-refresh', text: 'These results are from another run · press play to update', details: warnings }
   if (store.results) {
     const count = store.report.warnings.length
     const text = count ? `${resultsSummary.value} ${count} ${count === 1 ? 'warning' : 'warnings'}.` : resultsSummary.value

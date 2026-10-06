@@ -2113,6 +2113,20 @@ function onOpenSettingsDialog() {
 
 async function onInstanceEditConfirm(save) {
   const updatedCount = await saveInstanceEdit(save)
+  // Applied with the editor kept open: it reloads from the instance as saved.
+  if (save.keepOpen) {
+    const node = findNode(save.id)
+    if (node) {
+      currentEditingNode.value = {
+        ...currentEditingNode.value,
+        name: node.data.name,
+        mathRef: node.data.mathRef,
+        variables: node.data.variables,
+        ports: node.data.ports,
+        handles: node.data.handles,
+      }
+    }
+  }
   notify.success({
     title: 'CellML Updated',
     message: `Updated ${updatedCount} node${updatedCount !== 1 ? 's' : ''} to ${save.mathRef.split(':').pop()}.`,
