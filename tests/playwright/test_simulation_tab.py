@@ -37,6 +37,26 @@ def simulate_whole_model(page):
     page.get_by_role("button", name="Simulate the whole model").click()
 
 
+def pick_path(page, box_name, path, within=None):
+    """Searches for an instance/variable path in a Simulation tab search box and picks it."""
+    scope = within or page
+    scope.get_by_role("combobox", name=box_name).fill(path.replace("/", " "))
+    option = page.locator(".path-option").filter(has=page.locator(".path-text", has_text=re.compile(rf"^{re.escape(path)}$")))
+    option.first.click()
+
+
+def plot_variable(page, path, within=None):
+    """Plots a variable by its instance/variable path."""
+    pick_path(page, "Add a variable to plot", path, within)
+
+
+def add_slider(page, path, within=None):
+    """Adds a slider for a parameter by its instance/variable path, from the Sliders view."""
+    scope = within or page
+    scope.get_by_role("button", name=re.compile(r"^Sliders \(")).click()
+    pick_path(page, "Add a slider", path, within)
+
+
 class TestSimulationTab(unittest.TestCase):
 
     def test_simulate_a_selected_instance_and_plot_a_variable(self):
@@ -65,14 +85,14 @@ class TestSimulationTab(unittest.TestCase):
             simulate_selection(page)
 
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
-            page.get_by_role("checkbox", name="Plot V", exact=True).check()
+            plot_variable(page, "soma_SN/V")
             expect(page.locator(".simulation-plot canvas")).to_have_count(1)
             expect(page.locator(".simulation-plot .plot-title")).to_have_text("V")
             expect(page.locator(".simulation-plot .u-legend")).to_contain_text("V")
             expect(page.locator(".instance-node--simulated")).to_have_count(1)
 
             # A variable in another unit gets its own chart, which the tab scrolls to.
-            page.get_by_role("checkbox", name="Plot m", exact=True).check()
+            plot_variable(page, "soma_SN/m")
             expect(page.locator(".simulation-plot")).to_have_count(2)
             second_chart = page.locator(".simulation-plot").nth(1)
             second_chart.scroll_into_view_if_needed()
@@ -106,8 +126,7 @@ class TestSimulationTab(unittest.TestCase):
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
             before = page.evaluate(FINAL_SOMA_V)
 
-            page.get_by_role("combobox", name="Add a slider").click()
-            page.get_by_role("option", name="g_Na", exact=True).click()
+            add_slider(page, "soma_SN/g_Na")
             page.get_by_role("slider", name="g_Na value").focus()
             for _ in range(300):
                 page.keyboard.press("ArrowRight")
@@ -118,7 +137,8 @@ class TestSimulationTab(unittest.TestCase):
                 timeout=120000,
             )
 
-            page.get_by_role("button", name="Apply g_Na to the model").click()
+            page.get_by_role("button", name="More for g_Na").click()
+            page.get_by_role("menuitem", name="Apply this value to the model").click()
             expect(page.locator(".slider-value--changed")).to_have_count(0)
             expect(page.locator(".slider-value")).to_have_text("2.438 microS")
             expect(page.get_by_text("The model or settings have changed since this run.")).to_have_count(0)
@@ -153,9 +173,7 @@ class TestSimulationTab(unittest.TestCase):
             expect(page.get_by_text("Simulated 2 instances on their own")).to_be_visible(timeout=120000)
 
             for instance in ("soma_SN", "axon_SN"):
-                page.get_by_role("combobox", name="Instance").click()
-                page.get_by_role("option", name=instance, exact=True).click()
-                page.get_by_role("checkbox", name="Plot V", exact=True).check()
+                plot_variable(page, f"{instance}/V")
 
             # Same plot and unit, so both lines share a chart, named by instance.
             expect(page.locator(".simulation-plot")).to_have_count(1)
@@ -186,19 +204,18 @@ class TestSimulationTab(unittest.TestCase):
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             simulate_selection(page)
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
-            page.get_by_role("checkbox", name="Plot V", exact=True).check()
+            plot_variable(page, "soma_SN/V")
 
             page.get_by_role("button", name="Open the results in a larger view").click()
             dialog = page.get_by_role("dialog", name="Simulation results")
             charts = dialog.locator(".simulation-plot")
             expect(charts).to_have_count(1)
             # Variables can be plotted from beside the charts too.
-            dialog.get_by_role("checkbox", name="Plot m", exact=True).check()
+            plot_variable(page, "soma_SN/m", within=dialog)
             expect(charts).to_have_count(2)
 
             # So can sliders be added and moved, rerunning the simulation.
-            dialog.get_by_role("combobox", name="Add a slider").click()
-            page.get_by_role("option", name="g_Na", exact=True).click()
+            add_slider(page, "soma_SN/g_Na", within=dialog)
             page.evaluate(f"window.__shownResults = {RESULTS_STORE}.results")
             dialog.locator(".p-slider-handle").first.focus()
             for _ in range(10):
