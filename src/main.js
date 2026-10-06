@@ -26,6 +26,7 @@ import './assets/sanitisewarning.css'
 import router from './router'
 import App from './App.vue'
 import { waitForIsolationReload } from './utils/isolation'
+import { libopencor, loadLibOpenCOR } from './services/simulation/libopencorLoader'
 
 // The first visit reloads once to install the isolation service worker; starting the app before that
 // would load anything it was opened with twice.
@@ -55,5 +56,9 @@ waitForIsolationReload().then(() => {
   app.directive('ripple', Ripple)
   app.use(libcellmlPlugin)
   app.component('GlossaryLink', GlossaryLink)
+  app.provide('$libopencor', libopencor)
   app.mount('#app')
+
+  // In the background, so the simulator is ready by the time it's needed; nothing waits for it here.
+  loadLibOpenCOR()
 })
