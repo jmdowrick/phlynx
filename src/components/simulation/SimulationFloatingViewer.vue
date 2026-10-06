@@ -14,6 +14,8 @@
       <div class="viewer-head">
         <!-- The header drags the window; the grip shows where, and its controls don't drag it. -->
         <i class="pi pi-ellipsis-v viewer-grip" aria-hidden="true"></i>
+        <!-- The plot picker and its + are one control: the + changes what the picked plot shows. -->
+        <div class="viewer-plot-control">
         <Select
           v-model="plotId"
           :options="plotOptions"
@@ -27,14 +29,15 @@
         <Button
           icon="pi pi-plus"
           text
-          rounded
           size="small"
           :aria-label="`Change what ${shownPlotName} shows, or start a new plot`"
           aria-haspopup="true"
-          v-tooltip.top="'Edit or add a plot'"
+          v-tooltip.top="'Add variables to this plot, or start a new one'"
+          class="viewer-plot-plus"
           @mousedown.stop
           @click="(event) => plotEditor.toggle(event)"
         />
+        </div>
         <ToggleSwitch
           v-model="isWholeModel"
           class="viewer-scope"
@@ -139,7 +142,17 @@
               :height="chartHeight"
             />
           </template>
-          <p v-else class="viewer-empty">{{ emptyText }}</p>
+          <div v-else class="viewer-empty">
+            <p>{{ emptyText }}</p>
+            <Button
+              v-if="plotId !== INSPECTION_PLOT && !shownSelections.length"
+              label="Add a variable"
+              icon="pi pi-plus"
+              size="small"
+              outlined
+              @click="(event) => plotEditor.toggle(event)"
+            />
+          </div>
         </div>
       </SplitterPanel>
       <SplitterPanel v-if="showSliders" :size="40" :min-size="15" class="viewer-pane viewer-sliders-pane">
@@ -274,8 +287,8 @@ const shownPlotName = computed(() => plotOptions.value.find((plot) => plot.id ==
 // A plot from an older workspace that mixes units makes several charts, shown one under another.
 const shownCharts = computed(() => charts.value.filter((chart) => chart.plotId === plotId.value))
 const emptyText = computed(() => {
-  if (!store.results) return 'Run a simulation to see it here.'
-  return `Nothing on ${shownPlotName.value} yet: add a variable with +.`
+  if (!shownSelections.value.length) return `Nothing on ${shownPlotName.value} yet.`
+  return store.results ? `${shownPlotName.value}'s variables weren't in the last run.` : 'Press play to simulate it.'
 })
 
 // Changing what the plot shows, from the + beside its name.
@@ -354,11 +367,28 @@ function pinWhereShown() {
   cursor: move;
 }
 
+.viewer-plot-control {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin-right: auto;
+  max-width: calc(100% - 9rem);
+}
+
 .viewer-chart-select {
   flex: 0 1 auto;
   min-width: 0;
-  max-width: calc(100% - 11rem);
-  margin-right: auto;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* Joined to the picker's right edge, so it reads as part of it. */
+.viewer-plot-plus {
+  flex-shrink: 0;
+  height: 2rem;
+  border: 1px solid var(--p-select-border-color, var(--p-content-border-color));
+  border-left: none;
+  border-radius: 0 6px 6px 0;
 }
 
 .viewer-scope {
@@ -426,9 +456,17 @@ function pinWhereShown() {
 
 .viewer-empty {
   margin: auto 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
   text-align: center;
   font-size: 0.8125rem;
   color: var(--p-text-muted-color);
+}
+
+.viewer-empty p {
+  margin: 0;
 }
 </style>
 
