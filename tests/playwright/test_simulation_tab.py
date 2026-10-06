@@ -1,4 +1,5 @@
 import os
+import re
 import unittest
 
 from playwright.sync_api import expect, sync_playwright
@@ -22,6 +23,18 @@ FINAL_SOMA_V = (
     f"(() => {{ const store = {RESULTS_STORE}; const name = store.mapping.get('dndnode_0::V');"
     " return store.results.variables.get(name).values.at(-1) })()"
 )
+
+
+def simulate_selection(page):
+    """Switches the Simulation tab to the selection, then presses play."""
+    page.get_by_role("switch", name="Simulate the whole model, not the selection").uncheck()
+    page.get_by_role("button", name=re.compile(r"^Simulate the selection")).click()
+
+
+def simulate_whole_model(page):
+    """Switches the Simulation tab to the whole model, then presses play."""
+    page.get_by_role("switch", name="Simulate the whole model, not the selection").check()
+    page.get_by_role("button", name="Simulate the whole model").click()
 
 
 class TestSimulationTab(unittest.TestCase):
@@ -49,7 +62,7 @@ class TestSimulationTab(unittest.TestCase):
 
             page.locator(".resizable-context-panel .aside-collapse-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
-            page.get_by_role("button", name="Simulate selection").click()
+            simulate_selection(page)
 
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
             page.get_by_role("checkbox", name="Plot V", exact=True).check()
@@ -89,7 +102,7 @@ class TestSimulationTab(unittest.TestCase):
             soma.click()
             page.locator(".resizable-context-panel .aside-collapse-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
-            page.get_by_role("button", name="Simulate selection").click()
+            simulate_selection(page)
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
             before = page.evaluate(FINAL_SOMA_V)
 
@@ -136,7 +149,7 @@ class TestSimulationTab(unittest.TestCase):
             axon.click(modifiers=["ControlOrMeta"])
             page.locator(".resizable-context-panel .aside-collapse-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
-            page.get_by_role("button", name="Simulate selection").click()
+            simulate_selection(page)
             expect(page.get_by_text("Simulated 2 instances on their own")).to_be_visible(timeout=120000)
 
             for instance in ("soma_SN", "axon_SN"):
@@ -171,11 +184,11 @@ class TestSimulationTab(unittest.TestCase):
             soma.click()
             page.locator(".resizable-context-panel .aside-collapse-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
-            page.get_by_role("button", name="Simulate selection").click()
+            simulate_selection(page)
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
             page.get_by_role("checkbox", name="Plot V", exact=True).check()
 
-            page.get_by_role("button", name="Open the results in a larger view, with a table and downloads").click()
+            page.get_by_role("button", name="Open the results in a larger view").click()
             dialog = page.get_by_role("dialog", name="Simulation results")
             charts = dialog.locator(".simulation-plot")
             expect(charts).to_have_count(1)
@@ -226,6 +239,49 @@ class TestSimulationTab(unittest.TestCase):
             context.close()
             browser.close()
 
+    def test_toolbar_plays_with_f9_and_opens_the_solver_settings(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+
+            context = browser.new_context(viewport={"width": 1600, "height": 1000})
+            context.add_init_script(OPT_IN_TO_ISOLATION)
+            page = context.new_page()
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+
+            # ---------- START -----------
+            soma = page.get_by_text("SN_somacell_modules.cellmlsoma_SN")
+            soma.wait_for(timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
+            page.evaluate(SHORTEN_SIMULATION)
+            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
+
+            # The cog opens Simulation Settings on its solver and time settings.
+            page.get_by_role("button", name="Simulation settings", exact=True).click()
+            expect(page.get_by_role("tab", name="Simulation Parameters")).to_have_attribute("aria-selected", "true")
+            page.get_by_role("dialog").get_by_role("button", name="Cancel").click()
+
+            # Selection mode with nothing selected can't play; the whole model can, with F9 too.
+            switch = page.get_by_role("switch", name="Simulate the whole model, not the selection")
+            switch.uncheck()
+            expect(page.get_by_role("button", name=re.compile(r"^Simulate the selection"))).to_be_disabled()
+            switch.check()
+            page.get_by_role("button", name="Simulate the whole model").focus()
+            page.keyboard.press("F9")
+            expect(page.get_by_text("Simulated the whole model")).to_be_visible(timeout=120000)
+
+            # The context menu simulates the instance on its own, switching to the selection.
+            soma.click(button="right")
+            page.get_by_text("Simulate Instance").click()
+            expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
+            expect(switch).not_to_be_checked()
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
     def test_whole_model_run_shows_inspection_modules(self):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
@@ -248,7 +304,7 @@ class TestSimulationTab(unittest.TestCase):
             )
             page.locator(".resizable-context-panel .aside-collapse-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
-            page.get_by_role("button", name="Whole model").click()
+            simulate_whole_model(page)
 
             expect(page.get_by_text("Simulated the whole model")).to_be_visible(timeout=120000)
             expect(page.locator(".simulation-plot .plot-title")).to_have_text("Soma voltage")

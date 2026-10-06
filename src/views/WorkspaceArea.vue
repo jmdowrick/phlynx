@@ -481,7 +481,7 @@
     @generate="onMacroBuilderGenerate"
   />
 
-  <SimSettingsDialog v-model="simSettingsDialogVisible" :nodes="nodes" />
+  <SimSettingsDialog v-model="simSettingsDialog.visible" :initial-tab="simSettingsDialog.initialTab" :nodes="nodes" />
 
   <SettingsDialog v-model="settingsDialogVisible" />
 
@@ -534,6 +534,7 @@ import { MiniMap } from '@vue-flow/minimap'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
+import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
@@ -583,6 +584,7 @@ import { useMacroGenerator } from '../services/generate/generateWorkflow'
 import { migrateWorkspace, separateNodeParameters } from '../services/workspaceMigrator'
 import { buildWorkspaceFile } from '../services/workspaceFile'
 import { useSimulation } from '../composables/useSimulation'
+import { useSimSettingsDialog } from '../composables/useSimSettingsDialog'
 import { scopeFlowObject } from '../services/simulation/scopedModel'
 import { relayoutNodes } from '../services/layouts/physics'
 import { extractSimData as extractSimDataFromSedml } from '../services/import/sedml'
@@ -705,7 +707,7 @@ const dialogVisible = computed(() => {
     exportDialogVisible.value ||
     replacementDialogVisible.value ||
     macroBuilderDialogVisible.value ||
-    simSettingsDialogVisible.value ||
+    simSettingsDialog.visible ||
     settingsDialogVisible.value ||
     edgeConnectionDialogVisible.value ||
     instanceEditorDialogVisible.value ||
@@ -934,7 +936,7 @@ const importDialogVisible = ref(false)
 const exportDialogVisible = ref(false)
 const replacementDialogVisible = ref(false)
 const macroBuilderDialogVisible = ref(false)
-const simSettingsDialogVisible = ref(false)
+const { state: simSettingsDialog, open: openSimSettingsDialog } = useSimSettingsDialog()
 const settingsDialogVisible = ref(false)
 const edgeConnectionDialogVisible = ref(false)
 const inspectionModuleDialogVisible = ref(false)
@@ -2100,7 +2102,7 @@ function onOpenMacroBuilderDialog() {
 }
 
 function onOpenSimSettingsDialog() {
-  simSettingsDialogVisible.value = true
+  openSimSettingsDialog()
 }
 
 function onOpenSettingsDialog() {
@@ -2281,6 +2283,7 @@ function handleCreateInspectionModule(payload) {
 const contextMenuRef = ref(null)
 const contextSidebarRef = ref(null)
 const { run: runSimulation } = useSimulation()
+const simulationResultsStore = useSimulationResultsStore()
 
 const paneContextMenuItems = [
   {
@@ -2356,6 +2359,7 @@ function simulateLabelFor(id) {
  */
 function simulateFromNode(id) {
   contextSidebarRef.value?.showTab('sim')
+  simulationResultsStore.scopeMode = 'selection'
   runSimulation(simulationScopeFor(id))
 }
 

@@ -595,9 +595,12 @@ import { notify } from '../utils/notify'
 import { buildPlotConfig, buildPlotVariableRows, normaliseGroups } from '../services/simulation/plotSelections'
 import { buildParameterScanRows } from '../services/simulation/parameterSliders'
 import { MAX_SOLVER_STEPS, SOLVERS, findSolverSettingsProblem } from '../services/simulation/sedParameters'
+import { SIM_SETTINGS_TABS } from '../composables/useSimSettingsDialog'
 
 const props = defineProps({
   modelValue: Boolean,
+  // The tab to open on (see SIM_SETTINGS_TABS), or null for the one last shown.
+  initialTab: { type: String, default: null },
   nodes: {
     type: Array,
     default: () => [],
@@ -819,6 +822,7 @@ watch(
   () => props.modelValue,
   async (isOpen) => {
     if (isOpen) {
+      if (props.initialTab in SIM_SETTINGS_TABS) activeTabIndex.value = SIM_SETTINGS_TABS[props.initialTab]
       await initialiseDialog()
     }
   }
