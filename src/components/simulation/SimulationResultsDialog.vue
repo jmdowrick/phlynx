@@ -10,7 +10,7 @@
       rounded: true,
       'aria-label': isMaximized ? 'Restore the results to their size' : 'Maximise the results',
     }"
-    :style="{ width: 'min(1100px, 92vw)' }"
+    :style="{ width: 'min(1100px, 92vw)', height: '85vh' }"
     :content-style="{ display: 'flex', flexDirection: 'column', minHeight: 0 }"
     class="simulation-results-dialog"
     @maximize="isMaximized = true"
@@ -48,7 +48,7 @@
       />
     </div>
 
-    <div class="results-body" :class="{ 'results-body--editing': isEditing, 'results-body--fill': isMaximized }">
+    <div class="results-body" :class="{ 'results-body--editing': isEditing }">
       <div class="results-main">
         <!-- The charts stay mounted under the table, so their zoom survives a look at the numbers. -->
         <div v-show="view === 'charts'" ref="chartsEl" class="results-charts">
@@ -72,7 +72,7 @@
           :value="rows"
           :virtual-scroller-options="{ itemSize: ROW_HEIGHT }"
           scrollable
-          :scroll-height="isMaximized ? 'flex' : '60vh'"
+          scroll-height="flex"
           size="small"
           class="results-table"
           data-key="index"
@@ -204,57 +204,39 @@ function downloadPng() {
 .results-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 20px;
+  /* The dialog's height, shared by the charts and the controls, each scrolling on its own. */
+  flex: 1;
+  min-height: 0;
 }
 
 .results-body--editing {
   grid-template-columns: minmax(0, 1fr) 320px;
 }
 
-/* Maximised, the body fills the window, so the table can scroll within it. */
-.results-body--fill {
-  flex: 1;
-  min-height: 0;
-}
-
 .results-main {
   display: flex;
   flex-direction: column;
   min-width: 0;
-}
-
-.results-body--fill .results-main {
   min-height: 0;
 }
 
-/* Beside the charts, scrolling on its own so it stays in view as they scroll. */
+/* Beside the charts, as tall as the dialog, scrolling on its own when it needs to. */
 .results-edit {
-  align-self: start;
-  position: sticky;
-  top: 0;
-  max-height: 75vh;
+  min-height: 0;
   overflow-y: auto;
   padding-left: 20px;
   border-left: 1px solid var(--p-content-border-color);
 }
 
-@media (max-width: 760px) {
-  .results-body--editing {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .results-edit {
-    position: static;
-    max-height: none;
-    padding-left: 0;
-    border-left: none;
-  }
-}
 
 .results-charts {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .results-hint {
