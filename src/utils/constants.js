@@ -180,6 +180,7 @@ export const IMPORT_KEYS = {
 
 export const SEND_KEYS = {
   OPENCOR: 'OpenCOR',
+  OPENCOR_SELECTION: 'OpenCORSelection',
   CUFLYNX: 'CUFLynx',
 }
 
@@ -197,6 +198,8 @@ export const EXPORT_KEYS = {
   CELLML: 'cellml',
   OMEX: 'omex',
   CUFLYNX: 'cufLynx',
+  CELLML_SELECTION: 'cellmlSelection',
+  OMEX_SELECTION: 'omexSelection',
 }
 
 export const TTL_FILE_TYPES = [

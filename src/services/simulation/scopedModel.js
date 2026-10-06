@@ -6,6 +6,8 @@ import { resolveBoundaryValues } from '../export/boundaryValues'
 import { generateFlattenedModel } from '../../utils/cellml'
 import { cyrb53 } from '../../utils/misc'
 import { couplingConflicts, sharedSumConflicts, variableTypes } from '../../utils/multiport'
+import { getHandleId } from '../../utils/handles'
+import { HANDLE_VARIANT } from '../../utils/constants'
 import { isEmpty } from '../../utils/variables'
 
 /**
@@ -47,6 +49,35 @@ export function resolveScope(nodeIds, nodes, edges, inspectionModules = []) {
     allNodes: nodes,
     allEdges: edges,
   }
+}
+
+/**
+ * Narrows a Vue Flow object (`toObject()`) to some nodes and the edges between them. A handle whose
+ * every edge was cut becomes a ghost again, as an unused handle is.
+ *
+ * @param {{nodes: Array, edges: Array}} flowState
+ * @param {string[]|null} nodeIds - The nodes to keep, or null for every node.
+ * @returns {{nodes: Array, edges: Array}}
+ */
+export function scopeFlowObject(flowState, nodeIds) {
+  if (!nodeIds) return flowState
+  const selected = new Set(nodeIds)
+  const edges = flowState.edges.filter((edge) => selected.has(edge.source) && selected.has(edge.target))
+  const usedHandles = new Set(edges.flatMap((edge) => [`${edge.source}::${edge.sourceHandle}`, `${edge.target}::${edge.targetHandle}`]))
+
+  const nodes = flowState.nodes
+    .filter((node) => selected.has(node.id))
+    .map((node) => {
+      if (!node.data?.handles) return node
+      const handles = node.data.handles.map((handle) =>
+        handle.variant === HANDLE_VARIANT.GHOST || usedHandles.has(`${node.id}::${getHandleId(handle)}`)
+          ? handle
+          : { ...handle, variant: HANDLE_VARIANT.GHOST }
+      )
+      return { ...node, data: { ...node.data, handles } }
+    })
+
+  return { ...flowState, nodes, edges }
 }
 
 /**
@@ -247,4 +278,37 @@ export function buildScopeSignature(scope, libraryStore) {
   const units = (libraryStore.availableUnits ?? []).map(({ componentFile, model }) => [componentFile, model])
 
   return cyrb53(JSON.stringify({ nodes, edges, modules, units }))
+}
+
+/**
+ * Words a checkScope report as readable lines: errors stop the build, warnings don't.
+ *
+ * @param {ReturnType<typeof checkScope>} report
+ * @returns {{errors: string[], warnings: string[]}}
+ */
+export function summariseScopeReport(report) {
+  const variable = ({ nodeName, variableName }) => `"${nodeName}.${variableName}"`
+  const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`
+
+  const errors = [
+    ...report.errors,
+    ...report.incompleteNodes.map(({ nodeName, reason }) => `"${nodeName}" ${reason}.`),
+    ...report.missingValues.map((entry) => `${variable(entry)} needs a value.`),
+    ...report.conflicts,
+  ]
+
+  const warnings = [
+    ...report.lostSumTerms.map(
+      (entry) => `${variable(entry)} leaves out ${plural(entry.lost, 'term')} from outside the selection.`
+    ),
+    ...report.trimmedModules.map(({ name, removed, isLeftOut }) =>
+      isLeftOut
+        ? `Inspection module "${name}" has no variables in the selection, so it is left out.`
+        : `Inspection module "${name}" leaves out ${plural(removed, 'variable')} from outside the selection.`
+    ),
+    ...report.usesOwnValue.map((entry) => `${variable(entry)} uses its own value, since what supplies it is outside the selection.`),
+    ...report.zeroedBoundaries.map((entry) => `${variable(entry)} has no value and nothing in the selection supplies it, so it is set to 0.`),
+  ]
+
+  return { errors, warnings }
 }
