@@ -2,10 +2,17 @@ import { describe, expect, it } from 'vitest'
 
 import { buildSimulationJson } from '../../../../src/services/export/simulation.js'
 import {
+  addPlot,
+  addPlotSelection,
+  assignSelection,
   buildPlotConfig,
   buildPlotVariableRows,
   getNodePlotEntries,
+  movePlot,
   normaliseGroups,
+  removePlot,
+  removePlotSelection,
+  renamePlot,
   resolveGroups,
   resolvePlotConfig,
   setNodePlotVariables,
@@ -232,5 +239,57 @@ describe('setNodePlotVariables on other nodes', () => {
     const next = setNodePlotVariables(config, createNode('a'), [{ name: 'x' }])
 
     expect(next.selections.find((selection) => selection.nodeId === 'b').groupId).toBe('deleted')
+  })
+})
+
+describe('editing plots', () => {
+  const node = createNode('a')
+  const [x, y] = node.data.variables
+  const config = buildPlotConfig(GROUPS, [selectionOf('a', 'x', 'plot-1'), selectionOf('a', 'y', 'plot-2')])
+
+  it('adds a plot with an id no other plot has, named after the highest "Plot n"', () => {
+    const first = addPlot(config)
+    const second = addPlot(first.plotConfig)
+    expect(first.plotConfig.groups.at(-1)).toEqual({ id: first.id, name: 'Plot 2' })
+    expect(second.plotConfig.groups.at(-1).name).toBe('Plot 3')
+    expect(new Set(second.plotConfig.groups.map((group) => group.id)).size).toBe(4)
+    expect(addPlot(config, ' Currents ').plotConfig.groups.at(-1).name).toBe('Currents')
+  })
+
+  it('gives a config without plots one to add to', () => {
+    expect(addPlot({}).plotConfig.groups.map((group) => group.name)).toEqual(['Plot 1', 'Plot 2'])
+  })
+
+  it('renames a plot, ignoring a blank name', () => {
+    expect(renamePlot(config, 'plot-2', 'Volumes').groups[1].name).toBe('Volumes')
+    expect(renamePlot(config, 'plot-2', '  ')).toBe(config)
+  })
+
+  it('removes a plot with its variables, but never the last plot', () => {
+    const removed = removePlot(config, 'plot-2')
+    expect(removed.groups.map((group) => group.id)).toEqual(['plot-1'])
+    expect(removed.selections.map((selection) => selection.key)).toEqual(['a::x'])
+    expect(removePlot(removed, 'plot-1')).toBe(removed)
+  })
+
+  it('moves a plot along the list, stopping at the ends', () => {
+    expect(movePlot(config, 'plot-2', -1).groups.map((group) => group.id)).toEqual(['plot-2', 'plot-1'])
+    expect(movePlot(config, 'plot-2', 1)).toBe(config)
+  })
+
+  it('plots a variable once: adding it again moves it', () => {
+    const added = addPlotSelection(buildPlotConfig(GROUPS, []), node, x, 'plot-2')
+    expect(added.selections).toEqual([selectionOf('a', 'x', 'plot-2', { nodeName: 'a' })])
+    const moved = addPlotSelection(added, node, x, 'plot-1')
+    expect(moved.selections.map((selection) => [selection.key, selection.groupId])).toEqual([['a::x', 'plot-1']])
+    expect(moved.groupedSelections.map((group) => group.id)).toEqual(['plot-1'])
+  })
+
+  it('moves and removes a plotted variable', () => {
+    expect(assignSelection(config, 'a::y', 'plot-1').selections.every((selection) => selection.groupId === 'plot-1')).toBe(true)
+    expect(assignSelection(config, 'a::y', 'missing')).toBe(config)
+    expect(removePlotSelection(config, 'a::y').selections.map((selection) => selection.key)).toEqual(['a::x'])
+    expect(removePlotSelection(config, 'a::zz')).toBe(config)
+    expect(addPlotSelection(config, node, y, 'missing').selections.find((selection) => selection.key === 'a::y').groupId).toBe('plot-1')
   })
 })
