@@ -87,6 +87,42 @@ MAP_WORKSPACE_RESULTS = """async () => {
   }
 }"""
 
+# Runs the loaded workspace twice: in the app, and as web OpenCOR would, from the OMEX the export writes,
+# with libOpenCOR reading the archive's own SED-ML. Dev server only.
+COMPARE_WITH_EXPORT = """async () => {
+  const vueFlowUrl = performance.getEntriesByType('resource').map((entry) => entry.name).find((name) => name.includes('@vue-flow_core.js'))
+  const { useVueFlow } = await import(vueFlowUrl)
+  const { nodes, edges } = useVueFlow('main-flow-editor')
+  const { resolveScope, buildScopedModel } = await import('/src/services/simulation/scopedModel.js')
+  const { generateOmexArchive } = await import('/src/services/compress.js')
+  const { whenLibOpenCORReady } = await import('/src/services/simulation/libopencorLoader.js')
+  const { useLibraryStore } = await import('/src/stores/libraryStore.js')
+  const settings = { initialPoint: 0, startingPoint: 0, endingPoint: 1, pointInterval: 0.01 }
+  const scope = resolveScope(null, nodes.value, edges.value, [])
+  const blob = buildScopedModel(scope, useLibraryStore())
+  const inApp = await (await whenLibOpenCORReady()).startSimulation({ cellml: await blob.text(), settings }).promise
+
+  const omex = await generateOmexArchive({ blob }, '{}', { simulationSettings: settings, plotConfig: {}, parameterScanConfig: {} },
+    { extractedData: { voi: null, mappedParameters: {} }, modified: false, cellmlFileName: 'model.cellml' })
+  const base = '/libopencor/' + document.querySelector('#app').__vue_app__._context.provides.$libopencor.versionString + '/'
+  const loc = await (await import(base + 'libopencor.js')).default({ locateFile: (file) => base + file })
+  const file = new loc.File('export.omex')
+  file.setContents(new Uint8Array(await omex.arrayBuffer()))
+  const document_ = new loc.SedDocument(file)
+  const instance = document_.instantiate()
+  instance.run()
+  const task = instance.task(0)
+  let largestDifference = 0
+  let compared = 0
+  for (let i = 0; i < task.stateCount; i++) {
+    const exported = task.state(i)
+    const own = inApp.variables.get(task.stateName(i)).values
+    for (let j = 0; j < exported.length; j++) largestDifference = Math.max(largestDifference, Math.abs(exported[j] - own[j]))
+    compared++
+  }
+  return { points: [task.voi.length, inApp.voi.values.length], states: compared, largestDifference }
+}"""
+
 
 class TestSimulator(unittest.TestCase):
 
@@ -156,6 +192,32 @@ class TestSimulator(unittest.TestCase):
             self.assertGreater(result["underAnotherName"], 0)
             self.assertEqual(result["somaCurrentOut"], "axon_SN/I")
             self.assertEqual(result["somaTime"], "environment/time")
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
+    def test_results_match_a_run_of_the_exported_omex(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+
+            context = browser.new_context()
+            context.add_init_script(OPT_IN_TO_ISOLATION)
+            page = context.new_page()
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+
+            # ---------- START -----------
+            page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
+            if not page.evaluate(IS_DEV_SERVER):
+                self.skipTest("The app's source modules aren't served here; run against the dev server.")
+            page.get_by_text("SN_varicositycell_modules.cellmlvar_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function(f"{SIMULATOR_STATUS} === 'ready'", timeout=APP_MOUNT_TIMEOUT)
+            result = evaluate_within_a_minute(page, COMPARE_WITH_EXPORT)
+            self.assertEqual(result["points"][0], result["points"][1])
+            self.assertGreater(result["states"], 0)
+            self.assertEqual(result["largestDifference"], 0)
             # ----------- END ------------
 
             context.close()

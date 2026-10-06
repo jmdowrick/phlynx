@@ -2,7 +2,6 @@ import { extractComponentsFromCellmlString } from '../utils/cellml'
 import {
   MAIN_NODE_TYPE,
   HANDLE_VARIANT,
-  BASELINE_SIMULATION_SETTINGS,
   PHLYNX_PROJECT_VERSION,
   PHLYNX_PROJECT_IDENTIFIER,
 } from '../utils/constants'
@@ -418,13 +417,26 @@ export function detectVersion(doc) {
   return doc?.version ?? doc?.info?.format_version ?? LEGACY_VERSION
 }
 
+// The settings files saved without any were given when 1.0.0 came in. Kept as they were, so those files
+// load the same however the app's defaults change.
+const SETTINGS_FOR_FILES_WITHOUT_ANY = Object.freeze({
+  pointInterval: 0.01,
+  startingPoint: 0.0,
+  endingPoint: 10.0,
+  initialPoint: 0.0,
+  solver: 'CVODE',
+  timeStep: 0.0,
+  tolerance: 1e-6,
+  maxSteps: 10000,
+})
+
 /**
  * Gets the simulation block 1.0.0 requires, for files saved before it was always written.
  *
  * @returns {Object}
  */
 function defaultSimulation() {
-  return { simulationSettings: { ...BASELINE_SIMULATION_SETTINGS }, plotConfig: {}, parameterScanConfig: {} }
+  return { simulationSettings: { ...SETTINGS_FOR_FILES_WITHOUT_ANY }, plotConfig: {}, parameterScanConfig: {} }
 }
 
 /**
@@ -539,7 +551,7 @@ function migrateLegacyTo1_0_0(doc) {
     flow: newFlow,
     store: convertStore(oldStore, globalConstantNames),
     simulation: {
-      simulationSettings: { ...BASELINE_SIMULATION_SETTINGS },
+      simulationSettings: { ...SETTINGS_FOR_FILES_WITHOUT_ANY },
       plotConfig: {},
       parameterScanConfig: {},
     },

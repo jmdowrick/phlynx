@@ -248,7 +248,7 @@ export const SOURCE_HANDLE_PRIORITY = ["right", "bottom", "top", "left"]
 export const TARGET_HANDLE_PRIORITY = ["left", "top", "bottom", "right"]
 
 export const BASELINE_SIMULATION_SETTINGS = {
-  pointInterval: 0.01,
+  pointInterval: 0.001,
   startingPoint: 0.0,
   endingPoint: 10.0,
   initialPoint: 0.0,

@@ -29,16 +29,21 @@ const VARIABLE_KINDS = [
 
 let fileCount = 0
 
-/** A failed simulation, with libOpenCOR's issues when it gave any. */
+/**
+ * A failed simulation, with libOpenCOR's issues when it gave any, and the results it computed before
+ * failing when it got that far.
+ */
 export class SimulationError extends Error {
   /**
    * @param {string} message
    * @param {Array<{type: string, description: string}>} [issues]
+   * @param {Object|null} [partialResults] - `{ voi, variables }` up to the failure.
    */
-  constructor(message, issues = []) {
+  constructor(message, issues = [], partialResults = null) {
     super(message)
     this.name = 'SimulationError'
     this.issues = issues
+    this.partialResults = partialResults
   }
 }
 
@@ -222,7 +227,11 @@ export function startSimulation({ module: loc, cellml, settings, onProgress = ()
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
       }
       const elapsedMs = instance.waitForRun()
-      throwOnErrors(instance, describeRunFailure(instance))
+      if (instance.hasErrors) {
+        // The points computed before the failure help to see what went wrong.
+        const partial = readResults(task, timeCourse)
+        throw new SimulationError(describeRunFailure(instance), readIssues(instance), partial.voi.values.length > 1 ? partial : null)
+      }
       onProgress(1)
 
       return { ...readResults(task, isStopped ? timeCourse : null), issues: readIssues(instance), elapsedMs, isStopped }

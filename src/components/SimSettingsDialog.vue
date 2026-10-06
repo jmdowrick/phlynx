@@ -423,7 +423,7 @@
           <section class="block">
             <div class="block-header">
               <h4>Time Configuration</h4>
-              <span class="subtle">Define simulation bounds and time intervals.</span>
+              <span class="subtle">Define simulation bounds and time intervals, in seconds.</span>
             </div>
             <div class="settings-grid">
               <div class="field">
@@ -431,6 +431,7 @@
                 <InputNumber
                   v-model="localSimulationSettings.startingPoint"
                   :pt:pcInputText:root="{ 'data-testid': 'sim-starting-point' }"
+                  suffix=" s"
                   :minFractionDigits="0"
                   :maxFractionDigits="8"
                   fluid
@@ -441,6 +442,7 @@
                 <InputNumber
                   v-model="localSimulationSettings.endingPoint"
                   :pt:pcInputText:root="{ 'data-testid': 'sim-ending-point' }"
+                  suffix=" s"
                   :minFractionDigits="0"
                   :maxFractionDigits="8"
                   fluid
@@ -451,6 +453,7 @@
                 <InputNumber
                   v-model="localSimulationSettings.initialPoint"
                   :pt:pcInputText:root="{ 'data-testid': 'sim-initial-point' }"
+                  suffix=" s"
                   :minFractionDigits="0"
                   :maxFractionDigits="8"
                   fluid
@@ -461,6 +464,7 @@
                 <InputNumber
                   v-model="localSimulationSettings.pointInterval"
                   :pt:pcInputText:root="{ 'data-testid': 'sim-point-interval' }"
+                  suffix=" s"
                   :min="0"
                   :minFractionDigits="0"
                   :maxFractionDigits="8"

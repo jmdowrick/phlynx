@@ -52,7 +52,8 @@
 
     <template v-if="hasScope">
       <p v-if="store.results" class="panel-hint">
-        {{ scopeSummary }}<template v-if="store.status === 'stopped'">, stopped at {{ stoppedAt }}</template>.
+        {{ scopeSummary }}<template v-if="store.status === 'stopped'">, stopped at {{ stoppedAt }}</template
+        ><template v-else-if="store.status === 'error'">, up to {{ stoppedAt }} before the solver failed</template>.
       </p>
 
       <SimulationPlot
@@ -78,9 +79,12 @@
           class="panel-select"
         />
 
-        <div v-if="editedNode" class="panel-picker">
-          <InstancePlotVariables v-model="plotEntries" :rows="editedNode.data.variables" :initial-entries="initialEntries" />
-        </div>
+        <details v-if="editedNode" class="panel-section" open>
+          <summary class="panel-section-title">Variables</summary>
+          <div class="panel-picker">
+            <InstancePlotVariables v-model="plotEntries" :rows="editedNode.data.variables" :initial-entries="initialEntries" />
+          </div>
+        </details>
 
         <SimulationSliders
           v-if="editedNode"
@@ -344,6 +348,17 @@ const charts = computed(() => {
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--p-text-color);
+}
+
+.panel-section-title {
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--p-text-color);
+}
+
+.panel-section[open] > .panel-section-title {
+  margin-bottom: 8px;
 }
 
 .panel-picker {

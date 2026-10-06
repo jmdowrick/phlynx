@@ -41,7 +41,11 @@ async function run({ id, cellml, settings }) {
     const buffers = [results.voi.values.buffer, ...variables.map(([, series]) => series.values.buffer)]
     self.postMessage({ type: 'done', id, results: { ...results, variables } }, buffers)
   } catch (error) {
-    self.postMessage({ type: 'error', id, message: error.message, issues: error.issues ?? [] })
+    const partial = error.partialResults
+    const variables = partial ? [...partial.variables] : []
+    const buffers = partial ? [partial.voi.values.buffer, ...variables.map(([, series]) => series.values.buffer)] : []
+    const partialResults = partial ? { ...partial, variables } : null
+    self.postMessage({ type: 'error', id, message: error.message, issues: error.issues ?? [], partialResults }, buffers)
   } finally {
     runs.delete(id)
   }

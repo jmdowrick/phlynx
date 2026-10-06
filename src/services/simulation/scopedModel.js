@@ -156,7 +156,7 @@ function resolveWholeBoundaryValues(scope) {
  * @param {ReturnType<typeof resolveScope>} scope
  * @param {Object} libraryStore - Provides availableMath, getMathAnalysis(mathRef) and getGlobalConstant(name).
  * @returns {{canBuild: boolean, errors: string[], incompleteNodes: Array, missingValues: Array, conflicts: string[],
- *   lostSumTerms: Array, trimmedModules: Array, usesOwnValue: Array, zeroedBoundaries: Array}}
+ *   lostSumTerms: Array, trimmedModules: Array, usesOwnValue: Array, zeroedBoundaries: Array, usesCelsius: Array}}
  */
 export function checkScope(scope, libraryStore) {
   const errors = []
@@ -166,6 +166,7 @@ export function checkScope(scope, libraryStore) {
   let lostSumTerms = []
   const usesOwnValue = []
   const zeroedBoundaries = []
+  const usesCelsius = []
 
   for (const node of scope.nodes) {
     const nodeName = node.data?.name ?? node.id
@@ -191,6 +192,7 @@ export function checkScope(scope, libraryStore) {
       const nodeName = node.data?.name ?? node.id
       for (const row of node.data?.variables ?? []) {
         const entry = { nodeId: node.id, nodeName, variableName: row.name }
+        if (row.units === 'celsius') usesCelsius.push(entry)
         if (scoped.missing.get(node.id)?.has(row.name)) zeroedBoundaries.push(entry)
         else if (row.type === 'constant' && isEmpty(row.value)) missingValues.push({ ...entry, kind: 'constant' })
         else if (row.type === 'global_constant' && isEmpty(libraryStore.getGlobalConstant(row.name)?.value)) {
@@ -217,6 +219,7 @@ export function checkScope(scope, libraryStore) {
     trimmedModules: scope.trimmedModules,
     usesOwnValue,
     zeroedBoundaries,
+    usesCelsius,
   }
 }
 
@@ -341,6 +344,10 @@ export function summariseScopeReport(report) {
     ),
     ...report.usesOwnValue.map((entry) => `${variable(entry)} uses its own value, since what supplies it is outside the selection.`),
     ...report.zeroedBoundaries.map((entry) => `${variable(entry)} has no value and nothing in the selection supplies it, so it is set to 0.`),
+    // stripCelsiusToArbitraryUnit (utils/cellml.js) drops the 273.15 K offset, which only differences survive.
+    ...(report.usesCelsius ?? []).map(
+      (entry) => `${variable(entry)} is in celsius, which is simulated without its 273.15 K offset: absolute temperatures will be wrong.`
+    ),
   ]
 
   return { errors, warnings }

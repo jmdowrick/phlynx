@@ -223,6 +223,20 @@ describe('startSimulation', () => {
     expect(fake.instance.startRun).not.toHaveBeenCalled()
   })
 
+  it('keeps the points computed before the solver failed', async () => {
+    const fake = createFakeLibOpenCOR()
+    fake.task.voi = new Float64Array([0, 0.5, 1, 0, 0])
+    fake.instance.waitForRun = () => {
+      Object.assign(fake.instance, { hasErrors: true, issueCount: 0 })
+      return 3
+    }
+
+    const error = await failureOf(startSimulation({ module: fake.loc, cellml: '<model/>', settings: SETTINGS }).promise)
+
+    expect([...error.partialResults.voi.values]).toEqual([0, 0.5, 1])
+    expect([...error.partialResults.variables.get('c/x').values]).toEqual([1, 0.8, 0.6])
+  })
+
   it('reports a run the solver failed', async () => {
     const fake = createFakeLibOpenCOR({ instanceErrors: [] })
     fake.instance.waitForRun = () => {

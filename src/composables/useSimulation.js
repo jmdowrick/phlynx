@@ -88,6 +88,19 @@ export function useSimulation() {
       return
     }
 
+    let cellml = null
+    /**
+     * Maps a failed run's partial results back to the nodes, as for a finished run.
+     *
+     * @param {Object} partialResults
+     * @returns {Promise<{results: Object, mapping: Map}|null>}
+     */
+    const mapPartialResults = async (partialResults) => {
+      if (!cellml) return null
+      const libcellml = await whenLibCellMLReady()
+      return { results: partialResults, mapping: buildVariableMapping({ libcellml, cellml, nodes: scope.nodes, results: partialResults }) }
+    }
+
     try {
       const simulator = await whenLibOpenCORReady()
       if (token !== runToken) return
@@ -99,7 +112,7 @@ export function useSimulation() {
       const overrides = currentOverrides()
       const withOverrides = applyParameterOverrides(scope, libraryStore, overrides)
       // libOpenCOR checks the model and reports its issues, so the flatten's own check is skipped.
-      const cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore, { check: false }).text()
+      cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore, { check: false }).text()
       if (token !== runToken) return
       const signature = signRun(scope, overrides)
       const settings = { ...simulationSettingsStore.simulationSettings }
@@ -117,7 +130,10 @@ export function useSimulation() {
       const inspectionOutputs = mapInspectionModules(scope.inspectionModules, scope.nodes, results)
       store.finishRun({ results, mapping, signature, inspectionOutputs })
     } catch (error) {
-      if (token === runToken) store.failRun('error', { message: error.message, issues: error.issues ?? [] })
+      if (token === runToken) {
+        const partial = error.partialResults && (await mapPartialResults(error.partialResults))
+        if (token === runToken) store.failRun('error', { message: error.message, issues: error.issues ?? [] }, partial)
+      }
     } finally {
       if (token === runToken) currentRun = null
     }

@@ -1,6 +1,7 @@
 <template>
-  <section class="simulation-sliders" aria-label="Parameter sliders">
-    <h5 class="sliders-title">Parameters</h5>
+  <!-- Collapsing only hides the sliders: values being tried out still apply to runs. -->
+  <details class="simulation-sliders" aria-label="Parameter sliders" open>
+    <summary class="sliders-title">Parameters</summary>
 
     <div v-for="slider in sliders" :key="slider.key" class="slider-row">
       <div class="slider-head">
@@ -82,7 +83,7 @@
       aria-label="Add a slider"
       @update:model-value="addSlider"
     />
-  </section>
+  </details>
 </template>
 
 <script setup>
@@ -295,14 +296,14 @@ function applyToModel(slider) {
 </script>
 
 <style scoped>
-.simulation-sliders {
+.simulation-sliders[open] {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
 .sliders-title {
-  margin: 0;
+  cursor: pointer;
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--p-text-color);

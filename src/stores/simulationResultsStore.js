@@ -76,16 +76,18 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
   }
 
   /**
-   * Records a run that couldn't start, failed, or was abandoned before it started ('idle').
+   * Records a run that couldn't start, failed, or was abandoned before it started ('idle'). A failed run's
+   * partial results are kept, to show where it got to.
    *
    * @param {'blocked'|'error'|'idle'} nextStatus
    * @param {{message: string, issues?: Array}|null} [nextError]
+   * @param {{results: Object, mapping: Map}|null} [partial] - The results computed before the failure.
    */
-  function failRun(nextStatus, nextError = null) {
+  function failRun(nextStatus, nextError = null, partial = null) {
     status.value = nextStatus
     error.value = nextError
-    results.value = null
-    mapping.value = null
+    results.value = partial ? markRaw(partial.results) : null
+    mapping.value = partial ? markRaw(partial.mapping) : null
     inspectionOutputs.value = []
   }
 
