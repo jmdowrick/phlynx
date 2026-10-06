@@ -52,7 +52,7 @@
 
       <ul v-if="plot.selections.length" class="plot-variables">
         <li v-for="selection in plot.selections" :key="selection.key" class="plot-variable" :class="{ 'plot-variable--elsewhere': !selection.inScope }">
-          <span class="plot-swatch" :style="{ background: selection.colour ?? 'transparent' }" aria-hidden="true"></span>
+          <span class="plot-swatch" :class="{ 'plot-swatch--none': !selection.colour }" :style="{ background: selection.colour ?? 'transparent' }" aria-hidden="true"></span>
           <span class="plot-variable-text" :title="selection.title">
             <span class="plot-variable-component">{{ selection.componentLabel }}/</span><span class="plot-variable-name">{{ selection.variableName }}</span>
           </span>
@@ -139,6 +139,7 @@ import {
   acceptsUnits,
   addPlot,
   assignSelection,
+  choosePlotForUnits,
   getPlotUnits,
   movePlot,
   removePlot,
@@ -274,7 +275,17 @@ async function removeWithConfirm(plot) {
  * @param {string} id
  */
 function moveUnassigned(id) {
-  emitConfig(unassigned.value.reduce((config, selection) => assignSelection(config, selection.key, id), props.plotConfig))
+  // One unit per plot: a variable in other units goes to a plot in its units, or a new one.
+  const config = unassigned.value.reduce((current, selection) => {
+    let plotId = choosePlotForUnits(current, selection.units, id, selection.key)
+    if (!plotId) {
+      const added = addPlot(current)
+      current = added.plotConfig
+      plotId = added.id
+    }
+    return assignSelection(current, selection.key, plotId)
+  }, props.plotConfig)
+  emitConfig(config)
 }
 
 const menuItems = computed(() => {
@@ -398,6 +409,10 @@ function openMenu(event, plot) {
   height: 10px;
   border-radius: 2px;
   box-shadow: inset 0 0 0 1px var(--p-content-border-color);
+}
+
+.plot-swatch--none {
+  visibility: hidden;
 }
 
 .plot-variable-text {

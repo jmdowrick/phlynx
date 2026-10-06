@@ -2,26 +2,29 @@
   <div class="simulation-toolbar" role="toolbar" aria-label="Simulation">
     <Button
       v-if="isRunning"
-      icon="pi pi-stop"
       rounded
       severity="danger"
-      size="small"
+      class="toolbar-run toolbar-run--stop"
       aria-label="Stop the simulation"
       v-tooltip.bottom="'Stop'"
       @click="emit('stop')"
-    />
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" /></svg>
+    </Button>
     <Button
       v-else
-      :icon="isLoading ? 'pi pi-spin pi-spinner' : 'pi pi-play'"
       rounded
-      size="small"
       :disabled="!canPlay"
       :aria-label="playLabel"
       v-tooltip.bottom="playHint"
-      class="toolbar-play"
-      :class="{ 'toolbar-play--outdated': isOutdated }"
+      class="toolbar-run"
+      :class="{ 'toolbar-run--outdated': isOutdated }"
       @click="emit('play')"
-    />
+    >
+      <i v-if="isLoading" class="pi pi-spin pi-spinner" aria-hidden="true"></i>
+      <!-- Solid, and nudged right, so the triangle looks centred in the circle. -->
+      <svg v-else viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3.6v8.8c0 .5.6.8 1 .5l6.6-4.4c.4-.3.4-.8 0-1.1L6.5 3c-.4-.2-1 0-1 .6z" fill="currentColor" /></svg>
+    </Button>
 
     <label class="toolbar-scope" v-tooltip.bottom="scopeLabel">
       <ToggleSwitch v-model="isWholeModel" :aria-label="`Simulate the whole model, not the selection`" />
@@ -132,19 +135,43 @@ const playHint = computed(() => props.blockedReason ?? (props.isLoading ? 'Loadi
   flex: 1;
 }
 
-/* Out-of-date results: a dot on play says it would update them. */
-.toolbar-play {
+/* A filled circle a little larger than the other buttons, as the toolbar's main action. */
+.toolbar-run {
   position: relative;
   flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--p-text-color) 25%, transparent);
+  transition: transform 120ms ease, box-shadow 120ms ease;
 }
 
-.toolbar-play--outdated::after {
+.toolbar-run:not(:disabled):hover {
+  transform: scale(1.06);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--p-primary-color) 40%, transparent);
+}
+
+.toolbar-run:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+.toolbar-run svg {
+  width: 16px;
+  height: 16px;
+}
+
+.toolbar-run--stop:not(:disabled):hover {
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--p-red-500) 40%, transparent);
+}
+
+/* Out-of-date results: a dot on play says it would update them. */
+.toolbar-run--outdated::after {
   content: '';
   position: absolute;
-  top: 0;
-  right: 0;
-  width: 8px;
-  height: 8px;
+  top: -1px;
+  right: -1px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   background: var(--p-orange-500);
   box-shadow: 0 0 0 2px var(--p-content-background);

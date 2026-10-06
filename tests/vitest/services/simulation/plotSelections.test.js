@@ -131,9 +131,10 @@ describe('setNodePlotVariables', () => {
     const next = setNodePlotVariables(config, createNode('a'), [{ name: 'x', groupId: 'plot-2' }, { name: 'y' }])
 
     expect(next.selections.map((selection) => [selection.key, selection.groupId])).toEqual([
+      // In plot order, as the charts and the export list them.
       ['b::x', 'plot-1'],
-      ['a::x', 'plot-2'],
       ['a::y', 'plot-1'],
+      ['a::x', 'plot-2'],
     ])
   })
 
@@ -219,10 +220,10 @@ describe('an imported config, whose selections name groups it doesn’t list', (
     const next = setNodePlotVariables(imported(), createNode('a'), [{ name: 'x', groupId: 'plot-1' }, { name: 'y' }])
 
     expect(next.selections.map((selection) => [selection.key, selection.groupId])).toEqual([
-      ['b::x', 'plot-2'],
-      ['c::x', 'plot-3'],
       ['a::x', 'plot-1'],
       ['a::y', 'plot-1'],
+      ['b::x', 'plot-2'],
+      ['c::x', 'plot-3'],
     ])
   })
 
@@ -275,8 +276,10 @@ describe('editing plots', () => {
     expect(removePlot(removed, 'plot-1')).toBe(removed)
   })
 
-  it('moves a plot along the list, stopping at the ends', () => {
-    expect(movePlot(config, 'plot-2', -1).groups.map((group) => group.id)).toEqual(['plot-2', 'plot-1'])
+  it('moves a plot along the list, its variables following, stopping at the ends', () => {
+    const moved = movePlot(config, 'plot-2', -1)
+    expect(moved.groups.map((group) => group.id)).toEqual(['plot-2', 'plot-1'])
+    expect(moved.selections.map((selection) => selection.key)).toEqual(['a::y', 'a::x'])
     expect(movePlot(config, 'plot-2', 1)).toBe(config)
   })
 

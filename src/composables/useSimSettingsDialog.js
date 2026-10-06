@@ -4,24 +4,22 @@
  */
 import { reactive } from 'vue'
 
-// The dialog's tabs, by name.
-export const SIM_SETTINGS_TABS = { plots: 0, sliders: 1, parameters: 2 }
-
-const state = reactive({ visible: false, initialTab: null })
+const state = reactive({ visible: false, section: null })
 
 /**
  * Gives the dialog's shared state, and a way to open it.
  *
- * @returns {{state: {visible: boolean, initialTab: string|null}, open: Function}}
+ * @returns {{state: {visible: boolean, section: string|null}, open: Function}}
  */
 export function useSimSettingsDialog() {
   /**
-   * Opens the dialog, on a tab when given one.
+   * Opens the dialog, scrolled to a section when given one: 'time', 'parameters' (the solver), 'plots' or
+   * 'sliders'.
    *
-   * @param {keyof SIM_SETTINGS_TABS} [tab]
+   * @param {string} [section]
    */
-  function open(tab = null) {
-    state.initialTab = tab
+  function open(section = null) {
+    state.section = section
     state.visible = true
   }
 
