@@ -14,6 +14,7 @@ import { generateFlattenedModel } from '../../../src/utils/cellml.js'
 import { interpretUnitExpression } from '../../../src/utils/unitExpression.js'
 import { resolveBoundaryValues } from '../../../src/services/export/boundaryValues.js'
 import { buildScopedModel, checkScope, resolveScope } from '../../../src/services/simulation/scopedModel.js'
+import { buildVariableMapping, mappingKey, readNodeSeries } from '../../../src/services/simulation/variableMapping.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
 const MATH_REF = 'file:decay'
@@ -472,5 +473,86 @@ describe('scoped models', () => {
 
     const math = componentOf(await buildScopedModel(scope, store).text(), 'generated_summations')
     expect(math.match(/<ci>op_v[^<]*<\/ci>/g)).toHaveLength(2)
+  })
+})
+
+describe('mapping a scoped run’s results back to instances', () => {
+  let store, libcellml
+
+  beforeAll(async () => {
+    ;({ instance: libcellml } = await ensureLibCellmlReady())
+  }, 120000)
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    store = useLibraryStore()
+    store.addUnitsFile({ componentFile: 'units.cellml', model: UNITS })
+    store.addMath('file:hub', HUB_XML)
+    store.addMath('file:leaf', LEAF_XML)
+  })
+
+  /** A hub summing the flows of two leaves, each given the hub's pressure, flattened as a scope. */
+  async function buildFlattenedNetwork() {
+    const node = (id, mathRef, ports) => ({
+      id,
+      type: 'instanceNode',
+      data: {
+        name: id,
+        mathRef,
+        // Port inputs are boundary conditions, as the editor types them.
+        variables: reconcileRows(analyzeMathXml(store.availableMath.get(mathRef)), [], { defaults: store.getMathDefaults(mathRef) }).map((row) =>
+          row.type === 'constant' && ports.some((port) => port.variables.includes(row.name)) ? { ...row, type: 'boundary_condition' } : row
+        ),
+        ports,
+      },
+    })
+    const hub = node('hub', 'file:hub', [{ portType: 'exit_ports', label: 'vessel', variables: ['v_sum', 'u'], multiportType: ['sum', 'True'] }])
+    const leaves = ['leaf_1', 'leaf_2'].map((id) => node(id, 'file:leaf', [{ portType: 'entrance_ports', label: 'vessel', variables: ['v', 'u'], multiportType: 'None' }]))
+    const edges = leaves.map((leaf) => ({ id: `hub_${leaf.id}`, source: 'hub', target: leaf.id, data: { couplings: resolvePortCouplings(hub.data.ports, leaf.data.ports) } }))
+    const scope = resolveScope(null, [hub, ...leaves], edges)
+    return { scope, cellml: await buildScopedModel(scope, store).text() }
+  }
+
+  /** Results reporting values under the given names, as the engine returns them. */
+  const resultsFor = (names) => ({
+    voi: { name: 'environment/time', unit: 'second', values: new Float64Array([0, 1]) },
+    variables: new Map(names.map((name, i) => [name, { kind: 'algebraic', unit: '', values: new Float64Array([i, i]) }])),
+  })
+
+  it('maps each row to whichever member of its equivalent variables the run reported', async () => {
+    const { scope, cellml } = await buildFlattenedNetwork()
+    const results = resultsFor(['hub/q', 'hub/u', 'leaf_1/v', 'leaf_2/v', 'instance_parameters/leaf_1_k', 'instance_parameters/leaf_2_k'])
+
+    const mapping = buildVariableMapping({ libcellml, cellml, nodes: scope.nodes, results })
+
+    expect(mapping.get(mappingKey('hub', 't'))).toBe('environment/time')
+    expect(mapping.get(mappingKey('hub', 'u'))).toBe('hub/u')
+    expect(mapping.get(mappingKey('leaf_1', 'u'))).toBe('hub/u')
+    expect(mapping.get(mappingKey('leaf_2', 'u'))).toBe('hub/u')
+    expect(mapping.get(mappingKey('leaf_1', 'v'))).toBe('leaf_1/v')
+    expect(mapping.get(mappingKey('leaf_2', 'k'))).toBe('instance_parameters/leaf_2_k')
+    expect(readNodeSeries(results, mapping, 'leaf_2', 'u')).toMatchObject({ name: 'hub/u', kind: 'algebraic' })
+    expect(readNodeSeries(results, mapping, 'hub', 't')).toMatchObject({ name: 'environment/time', kind: 'voi' })
+  })
+
+  it('follows the run when it reports another member of the same variables', async () => {
+    const { scope, cellml } = await buildFlattenedNetwork()
+    const results = resultsFor(['hub/q', 'leaf_2/u'])
+
+    const mapping = buildVariableMapping({ libcellml, cellml, nodes: scope.nodes, results })
+
+    expect(mapping.get(mappingKey('hub', 'u'))).toBe('leaf_2/u')
+    expect(mapping.get(mappingKey('leaf_1', 'u'))).toBe('leaf_2/u')
+  })
+
+  it('leaves out rows whose values the run didn’t report', async () => {
+    const { scope, cellml } = await buildFlattenedNetwork()
+    const results = resultsFor(['hub/q'])
+
+    const mapping = buildVariableMapping({ libcellml, cellml, nodes: scope.nodes, results })
+
+    expect(mapping.has(mappingKey('leaf_1', 'v'))).toBe(false)
+    expect(readNodeSeries(results, mapping, 'leaf_1', 'v')).toBeNull()
+    expect(readNodeSeries(results, mapping, 'missing', 'v')).toBeNull()
   })
 })
