@@ -7,6 +7,7 @@ import { useInstanceSave } from '../../../src/composables/useInstanceSave.js'
 import { useNodeDataHistory } from '../../../src/composables/useNodeDataHistory.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
+import { useSimulationSettingsStore } from '../../../src/stores/simulationSettingsStore.js'
 import { detachReactivity } from '../../../src/utils/reactivity.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
@@ -287,5 +288,76 @@ describe('useInstanceSave', () => {
 
     await saveInstanceEdit(buildSave({ globalConstants }))
     expect(library.getGlobalConstant('g').value).toBe('1')
+  })
+
+  describe('plotted variables', () => {
+    const plotOf = (nodeId, variableName, nodeName = nodeId) => ({
+      key: `${nodeId}::${variableName}`,
+      nodeId,
+      nodeName,
+      variableName,
+      units: 'metre',
+      type: 'variable',
+      plot: true,
+      groupId: 'plot-1',
+    })
+
+    it('plots the chosen variables under the saved name, and undo puts the plot config back with the edit', async () => {
+      const simulation = useSimulationSettingsStore()
+      simulation.setPlotConfig({ groups: [{ id: 'plot-1', name: 'Plot 1' }], selections: [plotOf('b', 'x')] })
+      const before = simulation.getState().plotConfig
+
+      await saveInstanceEdit(buildSave({ plotVariables: [{ name: 'x' }] }))
+      const after = simulation.getState().plotConfig
+      expect(after.selections).toEqual([plotOf('b', 'x'), plotOf('a', 'x', 'a2')])
+
+      await history.undo()
+      expect(simulation.getState().plotConfig.selections).toEqual(before.selections)
+      expect(findNode('a').data.name).toBe('a')
+
+      await history.redo()
+      expect(simulation.getState().plotConfig.selections).toEqual(after.selections)
+    })
+
+    it('records a save that only changes the plotted variables', async () => {
+      await saveInstanceEdit(buildSave({ name: 'a', plotVariables: [{ name: 'x' }] }))
+      expect(history.canUndo).toBe(true)
+
+      await history.undo()
+      expect(useSimulationSettingsStore().plotConfig.selections).toEqual([])
+    })
+
+    it('still undoes the edit after Simulation Settings rewrites the other nodes’ plots', async () => {
+      const simulation = useSimulationSettingsStore()
+      simulation.setPlotConfig({ groups: [{ id: 'plot-1', name: 'Plot 1' }], selections: [plotOf('b', 'x')] })
+      await saveInstanceEdit(buildSave({ plotVariables: [{ name: 'x' }] }))
+
+      // Simulation Settings saves every selection again, sorted by node name, with others changed.
+      const { selections } = simulation.getState().plotConfig
+      simulation.setPlotConfig({ groups: [{ id: 'plot-2', name: 'Other' }], selections: [...selections].reverse().map((s) => (s.nodeId === 'b' ? { ...s, groupId: 'plot-2' } : s)) })
+
+      await history.undo()
+      expect(findNode('a').data.name).toBe('a')
+      expect(simulation.plotConfig.selections.map((selection) => selection.key)).toEqual(['b::x'])
+    })
+
+    it('leaves the edit in place when its own plotted variables have changed since', async () => {
+      const simulation = useSimulationSettingsStore()
+      await saveInstanceEdit(buildSave({ plotVariables: [{ name: 'x' }] }))
+      simulation.setPlotConfig({ groups: [{ id: 'plot-1', name: 'Plot 1' }], selections: [] })
+
+      await history.undo()
+      expect(findNode('a').data.name).toBe('a2')
+    })
+
+    it('records nothing when the save changes nothing, plotted variables included', async () => {
+      // The first save fills in the edge's couplings, which the fixture leaves empty.
+      await saveInstanceEdit(buildSave({ name: 'a' }))
+      history.clear()
+
+      await saveInstanceEdit(buildSave({ name: 'a', plotVariables: [] }))
+      expect(history.canUndo).toBe(false)
+      expect(useSimulationSettingsStore().plotConfig).toEqual({})
+    })
   })
 })
