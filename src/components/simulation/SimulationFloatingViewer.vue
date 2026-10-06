@@ -14,30 +14,37 @@
       <div class="viewer-head">
         <!-- The header drags the window; the grip shows where, and its controls don't drag it. -->
         <i class="pi pi-ellipsis-v viewer-grip" aria-hidden="true"></i>
-        <!-- The plot picker and its + are one control: the + changes what the picked plot shows. -->
-        <div class="viewer-plot-control">
+        <!-- Pick a plot, or start a new one from the list's last option; the pencil edits its variables. -->
         <Select
-          v-model="plotId"
-          :options="plotOptions"
+          v-model="pickedPlot"
+          :options="pickerOptions"
           option-label="name"
           option-value="id"
           size="small"
           class="viewer-chart-select"
           aria-label="Plot to show"
           @mousedown.stop
-        />
+        >
+          <template #option="{ option }">
+            <span :class="{ 'viewer-new-plot': option.id === NEW_PLOT }">
+              <i v-if="option.id === NEW_PLOT" class="pi pi-plus" aria-hidden="true"></i>
+              {{ option.name }}
+            </span>
+          </template>
+        </Select>
         <Button
-          icon="pi pi-plus"
+          v-if="plotId !== INSPECTION_PLOT"
+          icon="pi pi-pencil"
           text
+          rounded
           size="small"
-          :aria-label="`Change what ${shownPlotName} shows, or start a new plot`"
+          :aria-label="`Edit the variables on ${shownPlotName}`"
           aria-haspopup="true"
-          v-tooltip.top="'Add variables to this plot, or start a new one'"
-          class="viewer-plot-plus"
+          v-tooltip.top="'Edit this plot’s variables'"
+          class="viewer-plot-edit"
           @mousedown.stop
           @click="(event) => plotEditor.toggle(event)"
         />
-        </div>
         <ToggleSwitch
           v-model="isWholeModel"
           class="viewer-scope"
@@ -98,10 +105,11 @@
     <Popover ref="plotEditor">
       <div class="viewer-plot-editor">
         <template v-if="plotId !== INSPECTION_PLOT">
+          <h3 class="viewer-editor-title">Variables on {{ shownPlotName }}</h3>
           <VariablePathPicker
             :index="variableIndex"
             :filter="(entry) => entry.plottable"
-            :placeholder="`Add to ${shownPlotName}…`"
+            placeholder="Add a variable…"
             :aria-label="`Add a variable to ${shownPlotName}`"
             @pick="plotEntry"
           />
@@ -122,7 +130,6 @@
           </ul>
           <p v-else class="viewer-muted">Nothing on {{ shownPlotName }} yet.</p>
         </template>
-        <Button label="New plot" icon="pi pi-plus" size="small" outlined @click="startNewPlot" />
       </div>
     </Popover>
 
@@ -283,6 +290,13 @@ watch(
   },
   { immediate: true }
 )
+// The picker's last option starts a new plot rather than showing one.
+const NEW_PLOT = '__new_plot__'
+const pickerOptions = computed(() => [...plotOptions.value, { id: NEW_PLOT, name: 'New plot' }])
+const pickedPlot = computed({
+  get: () => plotId.value,
+  set: (id) => (id === NEW_PLOT ? startNewPlot() : (plotId.value = id)),
+})
 const shownPlotName = computed(() => plotOptions.value.find((plot) => plot.id === plotId.value)?.name ?? 'the plot')
 // A plot from an older workspace that mixes units makes several charts, shown one under another.
 const shownCharts = computed(() => charts.value.filter((chart) => chart.plotId === plotId.value))
@@ -367,28 +381,22 @@ function pinWhereShown() {
   cursor: move;
 }
 
-.viewer-plot-control {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  margin-right: auto;
-  max-width: calc(100% - 9rem);
-}
-
 .viewer-chart-select {
   flex: 0 1 auto;
   min-width: 0;
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
+  max-width: calc(100% - 11rem);
 }
 
-/* Joined to the picker's right edge, so it reads as part of it. */
-.viewer-plot-plus {
+.viewer-plot-edit {
   flex-shrink: 0;
-  height: 2rem;
-  border: 1px solid var(--p-select-border-color, var(--p-content-border-color));
-  border-left: none;
-  border-radius: 0 6px 6px 0;
+  margin-right: auto;
+}
+
+.viewer-new-plot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--p-primary-color);
 }
 
 .viewer-scope {
@@ -422,8 +430,10 @@ function pinWhereShown() {
   font-size: 0.8125rem;
 }
 
-.viewer-plot-editor > :last-child {
-  align-self: flex-start;
+.viewer-editor-title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
 }
 
 .viewer-plot-variables {
