@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { getIsolationStatus } from '../../../src/utils/isolation.js'
+import { getIsolationStatus, isIsolationReloadPending, waitForIsolationReload } from '../../../src/utils/isolation.js'
 
 describe('getIsolationStatus', () => {
   it('reports an isolated page as ready', () => {
@@ -15,5 +15,38 @@ describe('getIsolationStatus', () => {
     const status = getIsolationStatus(scope)
     expect(status.isIsolated).toBe(false)
     expect(status.reason).toMatch(reason)
+  })
+})
+
+describe('waitForIsolationReload', () => {
+  const firstVisit = (overrides = {}) => ({
+    crossOriginIsolated: false,
+    isSecureContext: true,
+    navigator: { serviceWorker: { controller: null } },
+    coi: { shouldRegister: () => true },
+    setTimeout: (callback, ms) => setTimeout(callback, ms),
+    ...overrides,
+  })
+
+  it('expects a reload only on a first visit the worker may register for', () => {
+    expect(isIsolationReloadPending(firstVisit())).toBe(true)
+    expect(isIsolationReloadPending(firstVisit({ crossOriginIsolated: true }))).toBe(false)
+    expect(isIsolationReloadPending(firstVisit({ navigator: { serviceWorker: { controller: {} } } }))).toBe(false)
+    expect(isIsolationReloadPending(firstVisit({ navigator: {} }))).toBe(false)
+    expect(isIsolationReloadPending(firstVisit({ coi: { shouldRegister: () => false } }))).toBe(false)
+    expect(isIsolationReloadPending(firstVisit({ isSecureContext: false }))).toBe(false)
+  })
+
+  it('resolves at once when no reload is pending, and after the timeout when one never comes', async () => {
+    await expect(waitForIsolationReload(firstVisit({ crossOriginIsolated: true }))).resolves.toBeUndefined()
+
+    vi.useFakeTimers()
+    let resolved = false
+    waitForIsolationReload(firstVisit(), 3000).then(() => (resolved = true))
+    await vi.advanceTimersByTimeAsync(2999)
+    expect(resolved).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(resolved).toBe(true)
+    vi.useRealTimers()
   })
 })

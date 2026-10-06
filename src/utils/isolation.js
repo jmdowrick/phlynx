@@ -22,3 +22,33 @@ export function getIsolationStatus(scope = globalThis) {
   }
   return { isIsolated: false, reason: 'The simulator isn’t ready yet. Reload the page to finish setting it up.' }
 }
+
+/**
+ * Checks whether coi-serviceworker is about to reload the page to make it isolated: the page isn't
+ * isolated, no worker controls it yet, and one may register.
+ *
+ * @param {Object} [scope=globalThis] - The window to check.
+ * @returns {boolean}
+ */
+export function isIsolationReloadPending(scope = globalThis) {
+  return (
+    scope.crossOriginIsolated === false &&
+    !!scope.isSecureContext &&
+    !!scope.navigator?.serviceWorker &&
+    !scope.navigator.serviceWorker.controller &&
+    scope.coi?.shouldRegister?.() !== false
+  )
+}
+
+/**
+ * Waits while coi-serviceworker may be about to reload the page, so the app starts once. Resolves at
+ * once when no reload is pending, or after `timeoutMs` if none comes (registration failed, say).
+ *
+ * @param {Object} [scope=globalThis] - The window to check.
+ * @param {number} [timeoutMs=3000]
+ * @returns {Promise<void>}
+ */
+export function waitForIsolationReload(scope = globalThis, timeoutMs = 3000) {
+  if (!isIsolationReloadPending(scope)) return Promise.resolve()
+  return new Promise((resolve) => scope.setTimeout(resolve, timeoutMs))
+}

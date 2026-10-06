@@ -6,8 +6,17 @@
          It runs before anything else loads; the first visit reloads once to install it. Chrome and Firefox use
          COEP credentialless, which loads cross-origin scripts without credentials; other browsers require CORP. -->
     <script>
+      function isolatesUnderAutomation() {
+        try {
+          return localStorage.getItem('phlynx.isolateUnderAutomation') === 'true'
+        } catch {
+          return false
+        }
+      }
       window.coi = {
-        shouldRegister: () => !navigator.userAgent.includes('Electron'),
+        // Automated browsers (Playwright) skip it unless a test opts in, since page.route can't see requests
+        // that go through a service worker.
+        shouldRegister: () => !navigator.userAgent.includes('Electron') && (!navigator.webdriver || isolatesUnderAutomation()),
         coepCredentialless: () => !!(window.chrome || window.netscape),
       }
     </script>
