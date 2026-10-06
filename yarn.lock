@@ -990,10 +990,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@opencor/libopencor@npm:1.20260803.0":
-  version: 1.20260803.0
-  resolution: "@opencor/libopencor@npm:1.20260803.0"
-  checksum: 10c0/3920c78f11d0b79be1a698a3d69dc4d3a7a6f376ab01bbc74ce6744c0fadd2caa29c5f720cd6f6d196ba85d90b3e70de668edb50358bb59116501ceb1621000f
+"@opencor/libopencor@npm:^1.20261006.1":
+  version: 1.20261006.1
+  resolution: "@opencor/libopencor@npm:1.20261006.1"
+  checksum: 10c0/bd2fdeff0cd8da4fb59e066efbcadd91871393935f3297508acf98fc65810d1d03bca2c84229ad54626d330a089fa18fe287d67d8ebd9ae7a6bccdcb35ac1729
   languageName: node
   linkType: hard
 
@@ -1172,6 +1172,13 @@ __metadata:
   dependencies:
     "@primeuix/styled": "npm:^0.7.4"
   checksum: 10c0/4e51aa7ce0a73946b5605c485c281e3e5d82937efa5da1881e31aaae810ccbef34e29b888d24823428ad3303fa2825c99a88dfcb53718e15bfee18b63a12a53d
+  languageName: node
+  linkType: hard
+
+"@primeuix/utils@npm:0.6.2":
+  version: 0.6.2
+  resolution: "@primeuix/utils@npm:0.6.2"
+  checksum: 10c0/15014eac0a3c62a5d154fd5ba730417099643645545f04a01d107cd11e8c8578d8696c7901d6154dd9185c760073cd2336527744920e24ba148028b0fb8369b9
   languageName: node
   linkType: hard
 
@@ -5745,7 +5752,8 @@ __metadata:
     "@hsorby/changelog": "npm:^3.0.3"
     "@lezer/highlight": "npm:^1.2.3"
     "@lezer/lr": "npm:^1.4.8"
-    "@opencor/libopencor": "npm:1.20260803.0"
+    "@opencor/libopencor": "npm:^1.20261006.1"
+    "@primeuix/utils": "npm:0.6.2"
     "@primevue/themes": "npm:4"
     "@tailwindcss/vite": "npm:^4.3.3"
     "@vitejs/plugin-vue": "npm:^6.0.1"
