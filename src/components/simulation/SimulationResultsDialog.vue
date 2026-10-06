@@ -83,11 +83,11 @@
         </DataTable>
       </div>
 
-      <SimulationEditSection
+      <SimulationControls
         v-if="isEditing"
-        v-model:edited-node-id="editedNodeId"
         class="results-edit"
-        :scope-nodes="scopeNodes"
+        :nodes="nodes"
+        :scope-node-ids="scopeNodeIds"
         :keep-current="keepCurrent"
         @change="emit('change')"
       />
@@ -110,7 +110,7 @@ import Dialog from 'primevue/dialog'
 import SelectButton from 'primevue/selectbutton'
 import ToggleButton from 'primevue/togglebutton'
 
-import SimulationEditSection from './SimulationEditSection.vue'
+import SimulationControls from './SimulationControls.vue'
 import SimulationPlot from './SimulationPlot.vue'
 import { buildResultsCsv, collectResultColumns, columnHeader, composeChartsImage } from '../../services/simulation/resultsExport'
 import { legacyDownload } from '../../utils/save'
@@ -123,13 +123,14 @@ const ROW_HEIGHT = 33
 const FILE_NAME = 'simulation-results'
 
 const visible = defineModel('visible', { type: Boolean, default: false })
-const editedNodeId = defineModel('editedNodeId', { type: String, default: null })
 const props = defineProps({
   summary: { type: String, default: '' },
   x: { type: Object, required: true }, // { label, unit, values }
   charts: { type: Array, required: true }, // [{ key, title, unit, series }], as the Simulation tab shows them
-  // The simulated instances, whose plotted variables and sliders can be edited beside the charts.
-  scopeNodes: { type: Array, required: true },
+  // Every node, whose variables can be plotted or given sliders beside the charts.
+  nodes: { type: Array, required: true },
+  // The nodes the shown run simulated, or null for all of them.
+  scopeNodeIds: { type: Array, default: null },
   keepCurrent: { type: Function, required: true },
 })
 // A slider moved, so the scope wants running again.

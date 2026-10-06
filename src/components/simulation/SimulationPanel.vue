@@ -34,24 +34,24 @@
       />
       <SimulationResultsDialog
         v-model:visible="isResultsDialogOpen"
-        v-model:edited-node-id="editedNodeId"
         :summary="resultsSummary"
         :x="xAxis"
         :charts="charts"
-        :scope-nodes="scopeNodes"
+        :nodes="nodes"
+        :scope-node-ids="store.scopeNodeIds"
         :keep-current="keepCurrent"
         @change="rerunForSliders"
       />
-      <p v-if="store.results && !charts.length" class="panel-hint">Tick variables below to plot them.</p>
-
-      <SimulationEditSection
-        v-model:edited-node-id="editedNodeId"
-        class="panel-edit"
-        :scope-nodes="scopeNodes"
-        :keep-current="keepCurrent"
-        @change="rerunForSliders"
-      />
+      <p v-if="store.results && !charts.length" class="panel-hint">Add variables below to plot them.</p>
     </template>
+
+    <SimulationControls
+      class="panel-edit"
+      :nodes="nodes"
+      :scope-node-ids="hasScope ? store.scopeNodeIds : null"
+      :keep-current="keepCurrent"
+      @change="rerunForSliders"
+    />
   </section>
 </template>
 
@@ -60,13 +60,13 @@
  * The context sidebar's Simulation tab: runs scoped simulations and plots the chosen variables of one of
  * the simulated instances.
  */
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
 import ProgressBar from 'primevue/progressbar'
 import Select from 'primevue/select'
 
-import SimulationEditSection from './SimulationEditSection.vue'
+import SimulationControls from './SimulationControls.vue'
 import SimulationPlot from './SimulationPlot.vue'
 import SimulationResultsDialog from './SimulationResultsDialog.vue'
 import SimulationStatusLine from './SimulationStatusLine.vue'
@@ -163,20 +163,6 @@ const statusLine = computed(() => {
   }
   return { severity: 'info', icon: null, text: 'Press play to simulate the whole model or the selected instances.', details: [] }
 })
-
-// The instance whose plotted variables and sliders are edited: the one selected on the canvas, if it
-// was simulated, else the first simulated.
-const editedNodeId = ref(null)
-watch(
-  [() => getSelectedNodes.value.map((node) => node.id).join(','), () => scopeNodes.value.map((node) => node.id).join(',')],
-  () => {
-    const selected = getSelectedNodes.value
-    const isSimulated = (id) => scopeNodes.value.some((node) => node.id === id)
-    if (selected.length === 1 && isSimulated(selected[0].id)) editedNodeId.value = selected[0].id
-    else if (!isSimulated(editedNodeId.value)) editedNodeId.value = scopeNodes.value[0]?.id ?? null
-  },
-  { immediate: true }
-)
 
 // While a slider moves, rerun as often as the simulator keeps up, always with the latest values.
 let sliderRun = null

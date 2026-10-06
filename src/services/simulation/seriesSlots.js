@@ -6,6 +6,12 @@
 /** How many series one chart holds, one per colour of the categorical palette. */
 export const SLOT_COUNT = 8
 
+/** The categorical palette by slot, stepped for each theme (validated against the sidebar's surfaces). */
+export const SERIES_COLOURS = {
+  light: ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'],
+  dark: ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'],
+}
+
 /**
  * Assigns slots to a chart's series, keeping each one's previous slot and giving new ones the lowest free.
  *
