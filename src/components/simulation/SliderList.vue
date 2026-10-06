@@ -3,8 +3,7 @@
     <div v-for="slider in sliders" :key="slider.valueKey" class="slider-row">
       <div class="slider-head">
         <span class="slider-label" :title="`${slider.componentLabel}/${slider.parameterName}`">
-          <span class="slider-name">{{ slider.parameterName }}</span>
-          <span class="slider-component">{{ slider.componentLabel }}</span>
+          <span class="slider-component">{{ slider.componentLabel }}/</span><span class="slider-name">{{ slider.parameterName }}</span>
         </span>
         <span class="slider-value" :class="{ 'slider-value--changed': slider.isChanged }">
           {{ formatValue(slider.value) }} {{ slider.units }}
@@ -387,7 +386,6 @@ function openRange(slider) {
 }
 
 .slider-component {
-  margin-left: 6px;
   color: var(--p-text-muted-color);
 }
 

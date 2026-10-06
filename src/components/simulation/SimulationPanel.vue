@@ -1,54 +1,81 @@
 <template>
-  <section class="simulation-panel" @keydown.f9.prevent="canPlay && play()">
-    <SimulationToolbar
-      v-model:scope-mode="store.scopeMode"
-      :is-running="isRunning"
-      :is-loading="libopencor.status === 'loading'"
-      :blocked-reason="blockedReason"
-      :selected-count="selectedNodeIds.length"
-      :is-outdated="isOutdated"
-      :can-expand="charts.length > 0"
-      @play="play"
-      @stop="stop"
-      @expand="isResultsDialogOpen = true"
-    />
-    <ProgressBar
-      v-if="isRunning"
-      :mode="store.progress > 0 ? 'determinate' : 'indeterminate'"
-      :value="Math.round(store.progress * 100)"
-      :show-value="false"
-      class="panel-progress"
-      aria-label="Simulation progress"
-    />
-    <SimulationStatusLine :status="statusLine" />
-
-    <template v-if="hasScope">
-      <SimulationPlot
-        v-for="chart in charts"
-        :key="chart.key"
-        :title="chart.title"
-        :unit="chart.unit"
-        :x="xAxis"
-        :series="chart.series"
-        sync-key="simulation-panel"
+  <section ref="panelEl" class="simulation-panel" @keydown.f9.prevent="canPlay && play()">
+    <header class="panel-head">
+      <SimulationToolbar
+        v-model:scope-mode="store.scopeMode"
+        :is-running="isRunning"
+        :is-loading="libopencor.status === 'loading'"
+        :blocked-reason="blockedReason"
+        :selected-count="selectedNodeIds.length"
+        :is-outdated="isOutdated"
+        :can-expand="charts.length > 0"
+        @play="play"
+        @stop="stop"
+        @expand="isResultsDialogOpen = true"
       />
-      <SimulationResultsDialog
-        v-model:visible="isResultsDialogOpen"
-        :summary="resultsSummary"
-        :x="xAxis"
-        :charts="charts"
-        :nodes="nodes"
-        :scope-node-ids="store.scopeNodeIds"
-        :keep-current="keepCurrent"
-        @change="rerunForSliders"
-      />
-      <p v-if="store.results && !charts.length" class="panel-hint">Add variables below to plot them.</p>
-    </template>
+      <!-- Always there, so the bar showing and hiding never moves what is below it. -->
+      <div class="panel-progress-slot">
+        <ProgressBar
+          v-if="isRunning"
+          :mode="store.progress > 0 ? 'determinate' : 'indeterminate'"
+          :value="Math.round(store.progress * 100)"
+          :show-value="false"
+          class="panel-progress"
+          aria-label="Simulation progress"
+        />
+      </div>
+      <SimulationStatusLine :status="statusLine" />
+    </header>
 
-    <SimulationControls
-      class="panel-edit"
+    <!-- Plots and controls each scroll on their own, so a slider and the plot it moves stay in view. -->
+    <Splitter
+      :key="layout"
+      :layout="layout === 'columns' ? 'horizontal' : 'vertical'"
+      class="panel-split"
+      :class="`panel-split--${layout}`"
+      @resizeend="saveSizes"
+    >
+      <SplitterPanel v-if="layout === 'columns'" :size="sizes.columns[0]" :min-size="25" class="panel-region">
+        <SimulationControls
+          :nodes="nodes"
+          :scope-node-ids="hasScope ? store.scopeNodeIds : null"
+          :keep-current="keepCurrent"
+          @change="rerunForSliders"
+        />
+      </SplitterPanel>
+      <SplitterPanel :size="layout === 'columns' ? sizes.columns[1] : sizes.rows[0]" :min-size="20" class="panel-region panel-figures">
+        <template v-if="charts.length">
+          <SimulationPlot
+            v-for="chart in charts"
+            :key="chart.key"
+            :title="chart.title"
+            :title-parts="chart.titleParts"
+            :unit="chart.unit"
+            :x="xAxis"
+            :series="chart.series"
+            sync-key="simulation-panel"
+          />
+        </template>
+        <p v-else class="panel-empty">{{ figuresHint }}</p>
+      </SplitterPanel>
+      <SplitterPanel v-if="layout === 'rows'" :size="sizes.rows[1]" :min-size="20" class="panel-region">
+        <SimulationControls
+          :nodes="nodes"
+          :scope-node-ids="hasScope ? store.scopeNodeIds : null"
+          :keep-current="keepCurrent"
+          @change="rerunForSliders"
+        />
+      </SplitterPanel>
+    </Splitter>
+
+    <SimulationResultsDialog
+      v-if="hasScope"
+      v-model:visible="isResultsDialogOpen"
+      :summary="resultsSummary"
+      :x="xAxis"
+      :charts="charts"
       :nodes="nodes"
-      :scope-node-ids="hasScope ? store.scopeNodeIds : null"
+      :scope-node-ids="store.scopeNodeIds"
       :keep-current="keepCurrent"
       @change="rerunForSliders"
     />
@@ -60,10 +87,12 @@
  * The context sidebar's Simulation tab: runs scoped simulations and plots the chosen variables of one of
  * the simulated instances.
  */
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
 import ProgressBar from 'primevue/progressbar'
+import Splitter from 'primevue/splitter'
+import SplitterPanel from 'primevue/splitterpanel'
 import Select from 'primevue/select'
 
 import SimulationControls from './SimulationControls.vue'
@@ -109,6 +138,57 @@ const resultsSummary = computed(() => {
   return `${scopeSummary.value}.`
 })
 const isResultsDialogOpen = ref(false)
+
+// Side by side once there is room for both, else plots above the controls.
+const COLUMNS_FROM_PX = 640
+const SIZES_KEY = 'phlynx.simulation.splitSizes'
+const panelEl = ref(null)
+const layout = ref('rows')
+const sizes = reactive(readSizes())
+let resizeObserver = null
+
+/**
+ * Reads the split sizes this viewer chose last, as percentages.
+ *
+ * @returns {{rows: number[], columns: number[]}}
+ */
+function readSizes() {
+  const fallback = { rows: [55, 45], columns: [38, 62] }
+  try {
+    const saved = JSON.parse(localStorage.getItem(SIZES_KEY) ?? 'null')
+    const isPair = (pair) => Array.isArray(pair) && pair.length === 2 && pair.every(Number.isFinite)
+    return { rows: isPair(saved?.rows) ? saved.rows : fallback.rows, columns: isPair(saved?.columns) ? saved.columns : fallback.columns }
+  } catch {
+    return fallback
+  }
+}
+
+/**
+ * Keeps the split sizes the viewer dragged to.
+ *
+ * @param {{sizes: number[]}} event
+ */
+function saveSizes({ sizes: next }) {
+  sizes[layout.value] = next
+  try {
+    localStorage.setItem(SIZES_KEY, JSON.stringify(sizes))
+  } catch {
+    // Without storage, the sizes last for the session.
+  }
+}
+
+onMounted(() => {
+  resizeObserver = new ResizeObserver(([entry]) => {
+    layout.value = entry.contentRect.width >= COLUMNS_FROM_PX ? 'columns' : 'rows'
+  })
+  resizeObserver.observe(panelEl.value)
+})
+onBeforeUnmount(() => resizeObserver?.disconnect())
+
+const figuresHint = computed(() => {
+  if (!store.results) return 'Plots appear here after a run.'
+  return 'Add variables to a plot to see them here.'
+})
 
 // The canvas selection, sorted, as play runs it in Selection mode.
 const sortedSelectedIds = computed(() => [...selectedNodeIds.value].sort())
@@ -190,26 +270,54 @@ const { xAxis, charts } = useSimulationCharts(scopeNodes)
 .simulation-panel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
   height: 100%;
   min-height: 0;
-  overflow-y: auto;
-  padding: 0 4px 16px 0;
 }
 
-.panel-hint {
-  margin: 0;
-  font-size: 0.8125rem;
-  color: var(--p-text-muted-color);
+.panel-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.panel-progress-slot {
+  height: 3px;
 }
 
 .panel-progress {
   height: 3px;
 }
 
-.panel-edit {
-  margin-top: 6px;
-  padding-top: 12px;
-  border-top: 1px solid var(--p-content-border-color);
+.panel-split {
+  flex: 1;
+  min-height: 0;
+  border: none;
+  background: transparent;
+}
+
+.panel-region {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel-split--rows .panel-region {
+  padding: 8px 4px 8px 0;
+}
+
+.panel-split--columns .panel-region {
+  padding: 4px 8px;
+}
+
+.panel-empty {
+  margin: auto 0;
+  font-size: 0.8125rem;
+  text-align: center;
+  color: var(--p-text-muted-color);
 }
 </style>

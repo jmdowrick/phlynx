@@ -1,6 +1,14 @@
 <template>
   <figure class="simulation-plot">
-    <figcaption class="plot-title">{{ title }}</figcaption>
+    <figcaption class="plot-title">
+      <template v-if="titleParts">
+        <template v-for="(part, index) in titleParts" :key="index"
+          ><span v-if="index" class="plot-title-separator">, </span
+          ><span v-if="part.component" class="plot-title-component">{{ part.component }}/</span><span>{{ part.name }}</span></template
+        >
+      </template>
+      <template v-else>{{ title }}</template>
+    </figcaption>
     <div ref="chartEl" class="plot-chart"></div>
   </figure>
 </template>
@@ -22,6 +30,8 @@ const CHROME = {
 }
 const props = defineProps({
   title: { type: String, required: true },
+  // The title as instance/variable paths, to show each instance muted, or null to show `title`.
+  titleParts: { type: Array, default: null },
   unit: { type: String, required: true },
   x: { type: Object, required: true }, // { label, unit, values }
   series: { type: Array, required: true }, // [{ key, label, slot, values }]
@@ -181,6 +191,12 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.plot-title-component,
+.plot-title-separator {
+  font-weight: 400;
+  color: var(--p-text-muted-color);
 }
 
 .plot-title {

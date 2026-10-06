@@ -87,7 +87,7 @@ class TestSimulationTab(unittest.TestCase):
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
             plot_variable(page, "soma_SN/V")
             expect(page.locator(".simulation-plot canvas")).to_have_count(1)
-            expect(page.locator(".simulation-plot .plot-title")).to_have_text("V")
+            expect(page.locator(".simulation-plot .plot-title")).to_have_text("soma_SN/V")
             expect(page.locator(".simulation-plot .u-legend")).to_contain_text("V")
             expect(page.locator(".instance-node--simulated")).to_have_count(1)
 
@@ -177,7 +177,7 @@ class TestSimulationTab(unittest.TestCase):
 
             # Same plot and unit, so both lines share a chart, named by instance.
             expect(page.locator(".simulation-plot")).to_have_count(1)
-            expect(page.locator(".simulation-plot .plot-title")).to_have_text("soma_SN.V, axon_SN.V")
+            expect(page.locator(".simulation-plot .plot-title")).to_have_text("soma_SN/V, axon_SN/V")
             # ----------- END ------------
 
             context.close()
@@ -235,7 +235,7 @@ class TestSimulationTab(unittest.TestCase):
                 dialog.get_by_role("button", name="Download the results as CSV").click()
             with open(download.value.path()) as f:
                 lines = f.read().splitlines()
-            self.assertEqual(lines[0], "time (second),V (milliV),m (dimensionless)")
+            self.assertEqual(lines[0], "time (second),soma_SN/V (milliV),soma_SN/m (dimensionless)")
             self.assertEqual(len(lines), 1 + 101)
             self.assertEqual(lines[1].split(",")[0], "0")
 
@@ -246,7 +246,7 @@ class TestSimulationTab(unittest.TestCase):
 
             dialog.get_by_text("Table", exact=True).click()
             table = dialog.locator(".results-table").get_by_role("table")
-            expect(table.get_by_role("columnheader")).to_have_text(["time (second)", "V (milliV)", "m (dimensionless)"])
+            expect(table.get_by_role("columnheader")).to_have_text(["time (second)", "soma_SN/V (milliV)", "soma_SN/m (dimensionless)"])
             expect(table.locator("tbody tr").first.locator("td").first).to_have_text("0")
 
             dialog.get_by_role("button", name="Maximise the results").click()

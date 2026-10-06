@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest'
 
 import { buildSimulationJson } from '../../../../src/services/export/simulation.js'
 import {
+  acceptsUnits,
   addPlot,
   addPlotSelection,
   assignSelection,
   buildPlotConfig,
   buildPlotVariableRows,
+  choosePlotForUnits,
+  getPlotUnits,
   getNodePlotEntries,
   movePlot,
   normaliseGroups,
@@ -291,5 +294,29 @@ describe('editing plots', () => {
     expect(removePlotSelection(config, 'a::y').selections.map((selection) => selection.key)).toEqual(['a::x'])
     expect(removePlotSelection(config, 'a::zz')).toBe(config)
     expect(addPlotSelection(config, node, y, 'missing').selections.find((selection) => selection.key === 'a::y').groupId).toBe('plot-1')
+  })
+})
+
+describe('one unit per plot', () => {
+  // plot-1 holds metres, plot-2 seconds, and an extra empty plot-3.
+  const config = buildPlotConfig([...GROUPS, { id: 'plot-3', name: 'Plot 3' }], [selectionOf('a', 'x', 'plot-1'), selectionOf('a', 'y', 'plot-2')])
+
+  it('reads the units on a plot', () => {
+    expect([...getPlotUnits(config, 'plot-1')]).toEqual(['metre'])
+    expect(getPlotUnits(config, 'plot-3').size).toBe(0)
+  })
+
+  it('accepts a variable on an empty plot or one in its units, leaving out the one being moved', () => {
+    expect(acceptsUnits(config, 'plot-1', 'metre')).toBe(true)
+    expect(acceptsUnits(config, 'plot-1', 'second')).toBe(false)
+    expect(acceptsUnits(config, 'plot-3', 'second')).toBe(true)
+    expect(acceptsUnits(config, 'plot-1', 'second', 'a::x')).toBe(true)
+  })
+
+  it('chooses the preferred plot when it fits, else the first that does, else none', () => {
+    expect(choosePlotForUnits(config, 'metre', 'plot-1')).toBe('plot-1')
+    expect(choosePlotForUnits(config, 'second', 'plot-1')).toBe('plot-2')
+    expect(choosePlotForUnits(config, 'volt', 'plot-1')).toBe('plot-3')
+    expect(choosePlotForUnits(buildPlotConfig(GROUPS, config.selections), 'volt', 'plot-1')).toBeNull()
   })
 })

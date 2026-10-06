@@ -23,7 +23,7 @@
       @click="emit('play')"
     />
 
-    <label class="toolbar-scope">
+    <label class="toolbar-scope" v-tooltip.bottom="scopeLabel">
       <ToggleSwitch v-model="isWholeModel" :aria-label="`Simulate the whole model, not the selection`" />
       <span class="toolbar-scope-label">{{ scopeLabel }}</span>
     </label>
@@ -94,6 +94,7 @@ const playHint = computed(() => props.blockedReason ?? (props.isLoading ? 'Loadi
 
 <style scoped>
 .simulation-toolbar {
+  container-type: inline-size;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -118,6 +119,13 @@ const playHint = computed(() => props.blockedReason ?? (props.isLoading ? 'Loadi
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Too narrow for the label: the switch alone, its scope in the tooltip. */
+@container (max-width: 220px) {
+  .toolbar-scope-label {
+    display: none;
+  }
 }
 
 .toolbar-spacer {
