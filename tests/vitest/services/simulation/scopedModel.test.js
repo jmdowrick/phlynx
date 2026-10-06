@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildScopeSignature, checkScope, resolveScope } from '../../../../src/services/simulation/scopedModel.js'
+import { getHandleId } from '../../../../src/utils/handles.js'
+
+import { buildScopeSignature, checkScope, resolveScope, scopeFlowObject, summariseScopeReport } from '../../../../src/services/simulation/scopedModel.js'
 
 const flowPort = (portType, multiportType = 'None') => ({ portType, label: 'flow', variables: ['v'], multiportType })
 
@@ -242,5 +244,71 @@ describe('buildScopeSignature', () => {
     ['the units libraries', { store: { availableUnits: [{ componentFile: 'units.cellml', model: '<model/>' }] } }],
   ])('changes with %s', (_, changes) => {
     expect(signatureOf(changes)).not.toBe(before)
+  })
+})
+
+describe('summariseScopeReport', () => {
+  it('words errors and warnings, one line each', () => {
+    const entry = (variableName) => ({ nodeId: 'a', nodeName: 'a_name', variableName })
+    const { errors, warnings } = summariseScopeReport({
+      errors: ['Select at least one instance to simulate.'],
+      incompleteNodes: [{ nodeId: 'o', nodeName: 'o_name', reason: 'has no module' }],
+      missingValues: [{ ...entry('k'), kind: 'constant' }],
+      conflicts: ['Conflicting values'],
+      lostSumTerms: [{ ...entry('q'), lost: 1 }, { ...entry('r'), lost: 2 }],
+      trimmedModules: [
+        { name: 'total', removed: 2, isLeftOut: false },
+        { name: 'outside', removed: 1, isLeftOut: true },
+      ],
+      usesOwnValue: [entry('u')],
+      zeroedBoundaries: [entry('w')],
+    })
+
+    expect(errors).toEqual(['Select at least one instance to simulate.', '"o_name" has no module.', '"a_name.k" needs a value.', 'Conflicting values'])
+    expect(warnings).toEqual([
+      '"a_name.q" leaves out 1 term from outside the selection.',
+      '"a_name.r" leaves out 2 terms from outside the selection.',
+      'Inspection module "total" leaves out 2 variables from outside the selection.',
+      'Inspection module "outside" has no variables in the selection, so it is left out.',
+      '"a_name.u" uses its own value, since what supplies it is outside the selection.',
+      '"a_name.w" has no value and nothing in the selection supplies it, so it is set to 0.',
+    ])
+  })
+})
+
+describe('scopeFlowObject', () => {
+  const handle = (uid, variant = 'active') => ({ uid, variant, type: 'source', position: 'right' })
+
+  it('keeps the selected nodes and their edges, turning handles whose edges were cut into ghosts', () => {
+    const flow = {
+      nodes: [
+        { id: 'a', data: { handles: [handle('h1'), handle('h2'), handle('g', 'ghost')] } },
+        { id: 'b', data: { handles: [handle('h3')] } },
+        { id: 'c', data: { handles: [handle('h4')] } },
+      ],
+      edges: [
+        { id: 'ab', source: 'a', sourceHandle: 'h1', target: 'b', targetHandle: 'h3' },
+        { id: 'ac', source: 'a', sourceHandle: 'h2', target: 'c', targetHandle: 'h4' },
+      ],
+    }
+    // getHandleId builds a handle's id from its parts; the edges above name the ids it gives.
+    const ids = Object.fromEntries(flow.nodes.flatMap((node) => node.data.handles.map((h) => [h.uid, getHandleId(h)])))
+    flow.edges.forEach((edge) => Object.assign(edge, { sourceHandle: ids[edge.sourceHandle], targetHandle: ids[edge.targetHandle] }))
+
+    const scoped = scopeFlowObject(flow, ['a', 'b'])
+
+    expect(scoped.nodes.map((node) => node.id)).toEqual(['a', 'b'])
+    expect(scoped.edges.map((edge) => edge.id)).toEqual(['ab'])
+    expect(scoped.nodes[0].data.handles.map((h) => [h.uid, h.variant])).toEqual([
+      ['h1', 'active'],
+      ['h2', 'ghost'],
+      ['g', 'ghost'],
+    ])
+    expect(flow.nodes[0].data.handles[1].variant).toBe('active')
+  })
+
+  it('returns the flow as it is for every node', () => {
+    const flow = { nodes: [], edges: [] }
+    expect(scopeFlowObject(flow, null)).toBe(flow)
   })
 })

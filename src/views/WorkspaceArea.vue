@@ -237,7 +237,9 @@
             v-tooltip.bottom="{
               value:
                 !somethingAvailable || currentSendDisabled
-                  ? 'The Send option is disabled because CellML library is not ready yet.'
+                  ? currentSendMode.isSelection && libcellml.status === 'ready'
+                    ? 'Select instances to send them on their own.'
+                    : 'The Send option is disabled because CellML library is not ready yet.'
                   : `Send to ${currentSendMode.label}`,
               showDelay: 300,
             }"
@@ -576,6 +578,7 @@ import { useScreenshot } from '../services/useScreenshot'
 import { useMacroGenerator } from '../services/generate/generateWorkflow'
 import { migrateWorkspace, separateNodeParameters } from '../services/workspaceMigrator'
 import { buildWorkspaceFile } from '../services/workspaceFile'
+import { scopeFlowObject } from '../services/simulation/scopedModel'
 import { relayoutNodes } from '../services/layouts/physics'
 import { extractSimData as extractSimDataFromSedml } from '../services/import/sedml'
 import { extractSimData as extractSimDataFromSimulationJson } from '../services/import/simulation'
@@ -991,6 +994,7 @@ const {
   onExportConfirm,
   hasModelChanged,
   snapshotFlowState,
+  selectedNodeIds: computed(() => getSelectedNodes.value.map((node) => node.id)),
 })
 
 const cellMlExportTooltip = computed(() => {
@@ -1001,6 +1005,7 @@ const cellMlExportTooltip = computed(() => {
   if (!somethingAvailable.value) {
     return prefix + 'there is nothing to export. Please add some modules to the workspace first.'
   }
+  if (currentExportMode.value?.isSelection) return 'Select instances to export them on their own.'
   return 'This should not be shown when CellML export is enabled.'
 })
 
@@ -2464,12 +2469,14 @@ function recomputeMissingCouplings() {
 }
 
 /**
- * Creates a snapshot of the current flow state, including nodes and edges, and returns it as a JSON string.
- * This is used to determine if the workspace has been modified that would change the Math or Port configurations.
- * Leading us to set the CUFLynx modified state to true, which will let CUFLynx know that existing analysis is now invalid.
+ * Snapshots the flow (nodes, edges, math and global parameters) as JSON, for OMEX archives and for
+ * detecting changes since one was imported.
+ *
+ * @param {string[]|null} [nodeIds] - Only these nodes and the edges between them, or every node.
+ * @returns {string} The snapshot JSON.
  */
-function snapshotFlowState() {
-  const flowState = toObject()
+function snapshotFlowState(nodeIds = null) {
+  const flowState = scopeFlowObject(toObject(), nodeIds)
   const mathLibrary = new Map()
 
   const nodeData = flowState.nodes.map((node) => {
