@@ -55,29 +55,6 @@
         {{ scopeSummary }}<template v-if="store.status === 'stopped'">, stopped at {{ stoppedAt }}</template>.
       </p>
 
-      <label class="panel-label" for="simulation-instance">Instance</label>
-      <Select
-        v-model="shownNodeId"
-        input-id="simulation-instance"
-        :options="instanceOptions"
-        option-label="data.name"
-        option-value="id"
-        size="small"
-        class="panel-select"
-      />
-
-      <div v-if="shownNode" class="panel-picker">
-        <InstancePlotVariables v-model="plotEntries" :rows="shownNode.data.variables" :initial-entries="initialEntries" />
-      </div>
-
-      <SimulationSliders
-        v-if="shownNode"
-        :key="shownNode.id"
-        :node="shownNode"
-        :keep-current="keepCurrent"
-        @change="!isSimulatorMissing && run(store.scopeNodeIds)"
-      />
-
       <SimulationPlot
         v-for="chart in charts"
         :key="chart.key"
@@ -86,7 +63,33 @@
         :x="xAxis"
         :series="chart.series"
       />
-      <p v-if="store.results && shownNode && !charts.length" class="panel-hint">Tick variables above to plot them.</p>
+      <p v-if="store.results && !charts.length" class="panel-hint">Tick variables below to plot them.</p>
+
+      <section class="panel-edit" aria-labelledby="simulation-edit-title">
+        <h5 id="simulation-edit-title" class="panel-subtitle">What gets plotted and tried out</h5>
+        <label class="panel-label" for="simulation-instance">Instance</label>
+        <Select
+          v-model="editedNodeId"
+          input-id="simulation-instance"
+          :options="scopeNodes"
+          option-label="data.name"
+          option-value="id"
+          size="small"
+          class="panel-select"
+        />
+
+        <div v-if="editedNode" class="panel-picker">
+          <InstancePlotVariables v-model="plotEntries" :rows="editedNode.data.variables" :initial-entries="initialEntries" />
+        </div>
+
+        <SimulationSliders
+          v-if="editedNode"
+          :key="editedNode.id"
+          :node="editedNode"
+          :keep-current="keepCurrent"
+          @change="rerunForSliders"
+        />
+      </section>
     </template>
     <p v-else-if="store.status === 'idle'" class="panel-hint">
       Select instances on the canvas and simulate them on their own, or simulate the whole model.
@@ -112,7 +115,7 @@ import SimulationPlot from './SimulationPlot.vue'
 import SimulationSliders from './SimulationSliders.vue'
 import { useSimulation } from '../../composables/useSimulation'
 import { libopencor } from '../../services/simulation/libopencorLoader'
-import { getNodePlotEntries, setNodePlotVariables } from '../../services/simulation/plotSelections'
+import { getNodePlotEntries, normaliseGroups, setNodePlotVariables } from '../../services/simulation/plotSelections'
 import { assignSeriesSlots, chunkSeries } from '../../services/simulation/seriesSlots'
 import { readNodeSeries } from '../../services/simulation/variableMapping'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
@@ -144,95 +147,122 @@ const stoppedAt = computed(() => {
   return voi?.values.length ? `${voi.values.at(-1).toPrecision(4)} ${voi.unit}` : 'the start'
 })
 
-// Inspection modules belong to no instance, so they are shown as an entry of their own.
-const INSPECTION_MODULES = '__inspection_modules__'
-const hasInspectionOutputs = computed(() => store.inspectionOutputs.length > 0)
-const instanceOptions = computed(() => [
-  ...scopeNodes.value,
-  ...(hasInspectionOutputs.value ? [{ id: INSPECTION_MODULES, data: { name: 'Inspection modules' } }] : []),
-])
-
-// What is shown: the instance selected on the canvas when it was simulated; else, after a whole-model run,
-// the inspection modules; else the first simulated instance.
-const shownNodeId = ref(null)
-const shownNode = computed(() => scopeNodes.value.find((node) => node.id === shownNodeId.value) ?? null)
-const isInspectionShown = computed(() => shownNodeId.value === INSPECTION_MODULES && hasInspectionOutputs.value)
+// The instance whose plotted variables and sliders are edited: the one selected on the canvas, if it
+// was simulated, else the first simulated.
+const editedNodeId = ref(null)
+const editedNode = computed(() => scopeNodes.value.find((node) => node.id === editedNodeId.value) ?? null)
 watch(
-  [
-    () => getSelectedNodes.value.map((node) => node.id).join(','),
-    () => scopeNodes.value.map((node) => node.id).join(','),
-    () => store.results,
-  ],
-  ([, , results], [, , previousResults] = []) => {
+  [() => getSelectedNodes.value.map((node) => node.id).join(','), () => scopeNodes.value.map((node) => node.id).join(',')],
+  () => {
     const selected = getSelectedNodes.value
-    const isShowable = (id) => instanceOptions.value.some((option) => option.id === id)
-    const prefersModules = !store.scopeNodeIds && !selected.length && hasInspectionOutputs.value
-    if (selected.length === 1 && isShowable(selected[0].id)) shownNodeId.value = selected[0].id
-    else if (prefersModules && results !== previousResults) shownNodeId.value = INSPECTION_MODULES
-    else if (!isShowable(shownNodeId.value)) shownNodeId.value = prefersModules ? INSPECTION_MODULES : (scopeNodes.value[0]?.id ?? null)
+    const isSimulated = (id) => scopeNodes.value.some((node) => node.id === id)
+    if (selected.length === 1 && isSimulated(selected[0].id)) editedNodeId.value = selected[0].id
+    else if (!isSimulated(editedNodeId.value)) editedNodeId.value = scopeNodes.value[0]?.id ?? null
   },
   { immediate: true }
 )
 
-// The shown instance's plotted variables, shared with the instance editor and Simulation Settings.
+// While a slider moves, rerun as often as the simulator keeps up, always with the latest values.
+let sliderRun = null
+let isSliderRerunWaiting = false
+function rerunForSliders() {
+  if (isSimulatorMissing.value) return
+  if (sliderRun) {
+    isSliderRerunWaiting = true
+    return
+  }
+  sliderRun = run(store.scopeNodeIds).finally(() => {
+    sliderRun = null
+    if (isSliderRerunWaiting) {
+      isSliderRerunWaiting = false
+      rerunForSliders()
+    }
+  })
+}
+
+// The edited instance's plotted variables, shared with the instance editor and Simulation Settings.
 const plotEntries = computed({
-  get: () => (shownNode.value ? getNodePlotEntries(simulationSettingsStore.plotConfig, shownNode.value.id) : []),
+  get: () => (editedNode.value ? getNodePlotEntries(simulationSettingsStore.plotConfig, editedNode.value.id) : []),
   set: (entries) => {
-    if (!shownNode.value) return
-    const plotConfig = setNodePlotVariables(simulationSettingsStore.plotConfig, shownNode.value, entries)
+    if (!editedNode.value) return
+    const plotConfig = setNodePlotVariables(simulationSettingsStore.plotConfig, editedNode.value, entries)
     if (plotConfig !== simulationSettingsStore.plotConfig) simulationSettingsStore.setPlotConfig(plotConfig)
   },
 })
 const initialEntries = ref([])
-watch(shownNodeId, () => (initialEntries.value = plotEntries.value), { immediate: true })
+watch(editedNodeId, () => (initialEntries.value = plotEntries.value), { immediate: true })
 
 const xAxis = computed(() => {
   const voi = store.results?.voi
   return { label: voi?.name.split('/').pop() ?? '', unit: voi?.unit ?? '', values: voi?.values ?? new Float64Array() }
 })
 
+// Inspection modules belong to no instance or plot group, so their outputs make a plot of their own.
+const INSPECTION_PLOT = '__inspection_modules__'
+
 /**
- * Gets the series to plot: the shown instance's plotted variables, or every inspection module's output.
+ * Gets every series to plot: the plotted variables of all the simulated instances, then the inspection
+ * modules' outputs, each with the plot it belongs to.
  *
- * @returns {Array<{label: string, unit: string, values: Float64Array}>}
+ * @returns {Array<{key: string, plot: string, label: string, unit: string, values: Float64Array}>}
  */
-function collectShownSeries() {
-  if (isInspectionShown.value) {
-    return store.inspectionOutputs.map((output) => ({
-      id: output.id,
-      label: output.name,
-      unit: output.units,
-      values: store.results.variables.get(output.reportedName).values,
-    }))
-  }
-  return plotEntries.value.flatMap(({ name }) => {
-    const series = readNodeSeries(store.results, store.mapping, shownNode.value.id, name)
-    return series ? [{ id: name, label: name, unit: series.unit || 'dimensionless', values: series.values }] : []
+function collectSeries() {
+  const nodesById = new Map(scopeNodes.value.map((node) => [node.id, node]))
+  const variables = (simulationSettingsStore.plotConfig?.selections ?? []).flatMap((selection) => {
+    const node = nodesById.get(selection.nodeId)
+    const series = node && readNodeSeries(store.results, store.mapping, node.id, selection.variableName)
+    if (!series) return []
+    return [{ key: `${node.id}::${selection.variableName}`, plot: selection.groupId ?? '', node, name: selection.variableName, unit: series.unit || 'dimensionless', values: series.values }]
   })
+  // Name each variable's instance once there's more than one to tell apart.
+  const isFromSeveral = new Set(variables.map((series) => series.node.id)).size > 1
+  const labelled = variables.map(({ node, name, ...series }) => ({ ...series, label: isFromSeveral ? `${node.data.name}.${name}` : name }))
+  const outputs = store.inspectionOutputs.map((output) => ({
+    key: `inspection::${output.id}`,
+    plot: INSPECTION_PLOT,
+    label: output.name,
+    unit: output.units,
+    values: store.results.variables.get(output.reportedName).values,
+  }))
+  return [...labelled, ...outputs]
 }
 
-// One chart per unit, since one axis can't carry two; a series keeps its colour while it stays plotted.
+/**
+ * Names a chart: its series when few, else its plot.
+ *
+ * @param {Array<{label: string}>} series
+ * @param {string} plotName
+ * @returns {string}
+ */
+const titleFor = (series, plotName) =>
+  series.length <= 3 ? series.map((item) => item.label).join(', ') : `${plotName} (${series.length} variables)`
+
+// One chart per plot and unit, since one axis can't carry two; variables from different instances share a
+// chart when they share both. A series keeps its colour while it stays plotted.
 const charts = computed(() => {
   const previousSlots = store.getSeriesSlots()
-  if (!store.results || !(shownNode.value || isInspectionShown.value)) return []
-  const byUnit = new Map()
-  for (const { id, label, unit, values } of collectShownSeries()) {
-    if (!byUnit.has(unit)) byUnit.set(unit, [])
-    byUnit.get(unit).push({ key: `${shownNodeId.value}::${unit}::${id}`, label, values })
+  if (!store.results) return []
+  const plotNames = new Map(normaliseGroups(simulationSettingsStore.plotConfig?.groups).map((group) => [group.id, group.name]))
+  plotNames.set(INSPECTION_PLOT, 'Inspection modules')
+
+  const byPlotAndUnit = new Map()
+  for (const series of collectSeries()) {
+    const id = `${series.plot}#${series.unit}`
+    if (!byPlotAndUnit.has(id)) byPlotAndUnit.set(id, { plot: series.plot, unit: series.unit, series: [] })
+    byPlotAndUnit.get(id).series.push(series)
   }
 
   const nextSlots = new Map()
   const result = []
-  for (const [unit, unitSeries] of byUnit) {
-    const groups = chunkSeries(unitSeries)
-    groups.forEach((group, index) => {
-      const slots = assignSeriesSlots(previousSlots, group.map((series) => series.key))
+  for (const [id, { plot, unit, series }] of byPlotAndUnit) {
+    chunkSeries(series).forEach((group, index) => {
+      const slots = assignSeriesSlots(previousSlots, group.map((item) => item.key))
       slots.forEach((slot, key) => nextSlots.set(key, slot))
       result.push({
-        key: `${unit}#${index}`,
-        title: group.map((series) => series.label).join(', '),
+        key: `${id}#${index}`,
+        title: titleFor(group, plotNames.get(plot) ?? 'Ungrouped'),
         unit,
-        series: group.map((series) => ({ ...series, slot: slots.get(series.key) })),
+        series: group.map((item) => ({ key: item.key, label: item.label, values: item.values, slot: slots.get(item.key) })),
       })
     })
   }
@@ -298,6 +328,22 @@ const charts = computed(() => {
 
 .panel-select {
   width: 100%;
+}
+
+.panel-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--p-content-border-color);
+}
+
+.panel-subtitle {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--p-text-color);
 }
 
 .panel-picker {

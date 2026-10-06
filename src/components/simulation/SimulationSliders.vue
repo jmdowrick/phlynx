@@ -4,10 +4,12 @@
 
     <div v-for="slider in sliders" :key="slider.key" class="slider-row">
       <div class="slider-head">
-        <span class="slider-name">{{ slider.parameterName }}</span>
-        <span class="slider-value" :class="{ 'slider-value--changed': slider.isChanged }">
-          {{ formatValue(slider.value) }} {{ slider.units }}
-        </span>
+        <div class="slider-label">
+          <span class="slider-name">{{ slider.parameterName }}</span>
+          <span class="slider-value" :class="{ 'slider-value--changed': slider.isChanged }">
+            {{ formatValue(slider.value) }} {{ slider.units }}
+          </span>
+        </div>
         <Button
           icon="pi pi-undo"
           text
@@ -86,7 +88,7 @@
 <script setup>
 /**
  * Sliders for an instance's parameters. A slider's value is tried out in runs without changing the model
- * until it is applied; moving one asks for a run after a short pause.
+ * until it is applied; moving one asks for runs as it moves.
  */
 import { computed, onBeforeUnmount } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
@@ -110,7 +112,6 @@ import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../../stores/simulationSettingsStore'
 import { FLOW_IDS } from '../../utils/constants'
 
-const RERUN_DELAY_MS = 300
 // The slider moves over whole positions across the range, since its fractional steps are unreliable.
 const POSITIONS = 1000
 
@@ -158,20 +159,20 @@ const addableRows = computed(() => {
   return (props.node.data.variables ?? []).filter((row) => isSlidableRow(row) && !defined.has(row.name))
 })
 
-let rerunTimer = null
+let rerunFrame = null
 onBeforeUnmount(() => {
   // A run still waited for is asked for now, so a slider moved just before leaving still counts.
-  if (rerunTimer) emit('change')
-  clearTimeout(rerunTimer)
+  if (rerunFrame) emit('change')
+  cancelAnimationFrame(rerunFrame)
 })
 
-/** Asks for a run once the sliders have been still for a moment. */
+/** Asks for a run once per frame while sliders move; the panel runs as often as the simulator keeps up. */
 function scheduleRerun() {
-  clearTimeout(rerunTimer)
-  rerunTimer = setTimeout(() => {
-    rerunTimer = null
+  if (rerunFrame) return
+  rerunFrame = requestAnimationFrame(() => {
+    rerunFrame = null
     emit('change')
-  }, RERUN_DELAY_MS)
+  })
 }
 
 /**
@@ -320,14 +321,26 @@ function applyToModel(slider) {
   font-size: 0.8125rem;
 }
 
+/* The name and its value stack, so a narrow panel squeezes neither into the buttons */
+.slider-label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.slider-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .slider-name {
   font-weight: 600;
   color: var(--p-text-color);
 }
 
 .slider-value {
-  margin-left: auto;
-  margin-right: 4px;
   font-variant-numeric: tabular-nums;
   color: var(--p-text-muted-color);
 }
