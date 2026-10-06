@@ -45,6 +45,9 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
    *
    * @param {string[]|null} nodeIds
    */
+  // Whether play runs the canvas selection or the whole model; the session's choice, never saved.
+  const scopeMode = ref('model')
+
   function startRun(nodeIds) {
     const isSameScope = JSON.stringify(nodeIds) === JSON.stringify(scopeNodeIds.value)
     status.value = 'running'
@@ -103,6 +106,7 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     seriesSlots = markRaw(new Map())
     sliderValues.value = new Map()
     inspectionOutputs.value = []
+    scopeMode.value = 'model'
   }
 
   return {
@@ -119,6 +123,7 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     setSeriesSlots,
     sliderValues,
     setSliderValue,
+    scopeMode,
     startRun,
     finishRun,
     failRun,

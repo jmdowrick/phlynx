@@ -1,21 +1,17 @@
 <template>
-  <section class="simulation-panel">
-    <h4 class="panel-title">Simulation</h4>
-
-    <Message v-if="isSimulatorMissing" severity="warn" size="small">{{ libopencor.reason }}</Message>
-
-    <div class="panel-actions">
-      <Button
-        label="Simulate selection"
-        icon="pi pi-play"
-        size="small"
-        :disabled="!canRun || !selectedNodeIds.length"
-        @click="run(selectedNodeIds)"
-      />
-      <Button label="Whole model" size="small" outlined :disabled="!canRun || !nodes.length" @click="run(null)" />
-      <Button v-if="isRunning" label="Stop" icon="pi pi-stop" size="small" severity="danger" text @click="stop" />
-    </div>
-    <p v-if="libopencor.status === 'loading'" class="panel-hint">Loading the simulator…</p>
+  <section class="simulation-panel" @keydown.f9.prevent="canPlay && play()">
+    <SimulationToolbar
+      v-model:scope-mode="store.scopeMode"
+      :is-running="isRunning"
+      :is-loading="libopencor.status === 'loading'"
+      :blocked-reason="blockedReason"
+      :selected-count="selectedNodeIds.length"
+      :is-outdated="isOutdated"
+      :can-expand="charts.length > 0"
+      @play="play"
+      @stop="stop"
+      @expand="isResultsDialogOpen = true"
+    />
     <ProgressBar
       v-if="isRunning"
       :mode="store.progress > 0 ? 'determinate' : 'indeterminate'"
@@ -24,46 +20,9 @@
       class="panel-progress"
       aria-label="Simulation progress"
     />
-
-    <Message v-if="store.status === 'blocked'" severity="error" size="small">
-      The selection can’t be simulated yet:
-      <ul class="panel-list">
-        <li v-for="line in store.report.errors" :key="line">{{ line }}</li>
-      </ul>
-    </Message>
-    <Message v-if="store.status === 'error'" severity="error" size="small">
-      {{ store.error?.message }}
-      <ul v-if="store.error?.issues?.length" class="panel-list">
-        <li v-for="issue in store.error.issues" :key="issue.description">{{ issue.description }}</li>
-      </ul>
-    </Message>
-    <details v-if="store.report.warnings.length && store.status !== 'blocked'" class="panel-warnings">
-      <summary>
-        {{ store.report.warnings.length }} {{ store.report.warnings.length === 1 ? 'warning' : 'warnings' }} about this run
-      </summary>
-      <ul class="panel-list">
-        <li v-for="line in store.report.warnings" :key="line">{{ line }}</li>
-      </ul>
-    </details>
-    <Message v-if="isStale" severity="secondary" size="small" class="panel-stale">
-      The model or settings have changed since this run.
-      <Button label="Run again" size="small" link :disabled="!canRun" @click="run(store.scopeNodeIds)" />
-    </Message>
+    <SimulationStatusLine :status="statusLine" />
 
     <template v-if="hasScope">
-      <div v-if="store.results" class="panel-summary">
-        <p class="panel-hint">{{ resultsSummary }}</p>
-        <Button
-          v-if="charts.length"
-          icon="pi pi-window-maximize"
-          label="Expand"
-          size="small"
-          text
-          aria-label="Open the results in a larger view, with a table and downloads"
-          @click="isResultsDialogOpen = true"
-        />
-      </div>
-
       <SimulationPlot
         v-for="chart in charts"
         :key="chart.key"
@@ -93,9 +52,6 @@
         @change="rerunForSliders"
       />
     </template>
-    <p v-else-if="store.status === 'idle'" class="panel-hint">
-      Select instances on the canvas and simulate them on their own, or simulate the whole model.
-    </p>
   </section>
 </template>
 
@@ -107,14 +63,14 @@
 import { computed, ref, watch } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
-import Button from 'primevue/button'
-import Message from 'primevue/message'
 import ProgressBar from 'primevue/progressbar'
 import Select from 'primevue/select'
 
 import SimulationEditSection from './SimulationEditSection.vue'
 import SimulationPlot from './SimulationPlot.vue'
 import SimulationResultsDialog from './SimulationResultsDialog.vue'
+import SimulationStatusLine from './SimulationStatusLine.vue'
+import SimulationToolbar from './SimulationToolbar.vue'
 import { useSimulation } from '../../composables/useSimulation'
 import { useSimulationCharts } from '../../composables/useSimulationCharts'
 import { libopencor } from '../../services/simulation/libopencorLoader'
@@ -153,6 +109,60 @@ const resultsSummary = computed(() => {
   return `${scopeSummary.value}.`
 })
 const isResultsDialogOpen = ref(false)
+
+// The canvas selection, sorted, as play runs it in Selection mode.
+const sortedSelectedIds = computed(() => [...selectedNodeIds.value].sort())
+// Why play can't run, if it can't.
+const blockedReason = computed(() => {
+  if (isSimulatorMissing.value) return libopencor.reason ?? 'The simulator isn’t available.'
+  if (!nodes.value.length) return 'Add instances to simulate'
+  if (store.scopeMode === 'selection' && !selectedNodeIds.value.length) return 'Select instances on the canvas'
+  return null
+})
+const canPlay = computed(() => !isRunning.value && !blockedReason.value && libopencor.status !== 'loading')
+// In Selection mode, the results show a selection other than the one on the canvas now.
+const isSelectionChanged = computed(
+  () =>
+    store.scopeMode === 'selection' &&
+    !!store.results &&
+    sortedSelectedIds.value.length > 0 &&
+    JSON.stringify(sortedSelectedIds.value) !== JSON.stringify(store.scopeNodeIds ? [...store.scopeNodeIds].sort() : null)
+)
+const isOutdated = computed(() => !!store.results && (isStale.value || isSelectionChanged.value))
+
+/** Simulates the whole model or the canvas selection, as the switch says. */
+function play() {
+  run(store.scopeMode === 'model' ? null : sortedSelectedIds.value)
+}
+
+// What the status line says: the most pressing thing first, with the full lists a click away.
+const statusLine = computed(() => {
+  const warnings = store.report.warnings.length ? [{ title: 'Warnings', lines: store.report.warnings }] : []
+  if (isSimulatorMissing.value) return { severity: 'error', icon: 'pi-exclamation-circle', text: libopencor.reason ?? 'The simulator isn’t available.', details: [] }
+  if (store.status === 'blocked') {
+    const count = store.report.errors.length
+    return { severity: 'error', icon: 'pi-exclamation-circle', text: `Can’t simulate yet: ${count} ${count === 1 ? 'problem' : 'problems'}`, details: [{ title: 'Problems', lines: store.report.errors }] }
+  }
+  if (store.status === 'error') {
+    const issues = (store.error?.issues ?? []).map((issue) => issue.description)
+    return {
+      severity: 'error',
+      icon: 'pi-exclamation-circle',
+      text: store.results ? `${store.error?.message} ${resultsSummary.value}` : store.error?.message ?? 'The simulation failed.',
+      details: [...(issues.length ? [{ title: 'Solver messages', lines: issues }] : []), ...warnings],
+    }
+  }
+  if (isRunning.value) return { severity: 'info', icon: null, text: store.progress > 0 ? `Running… ${Math.round(store.progress * 100)}%` : 'Running…', details: warnings }
+  if (libopencor.status === 'loading') return { severity: 'info', icon: 'pi-spin pi-spinner', text: 'Loading the simulator…', details: [] }
+  if (isStale.value && store.results) return { severity: 'warn', icon: 'pi-refresh', text: 'The model or settings changed · press play to update', details: warnings }
+  if (isSelectionChanged.value) return { severity: 'warn', icon: 'pi-refresh', text: 'The selection changed · press play to update', details: warnings }
+  if (store.results) {
+    const count = store.report.warnings.length
+    const text = count ? `${resultsSummary.value} ${count} ${count === 1 ? 'warning' : 'warnings'}.` : resultsSummary.value
+    return { severity: count ? 'warn' : 'info', icon: count ? 'pi-exclamation-triangle' : null, text, details: warnings }
+  }
+  return { severity: 'info', icon: null, text: 'Press play to simulate the whole model or the selected instances.', details: [] }
+})
 
 // The instance whose plotted variables and sliders are edited: the one selected on the canvas, if it
 // was simulated, else the first simulated.
@@ -201,19 +211,6 @@ const { xAxis, charts } = useSimulationCharts(scopeNodes)
   padding: 0 4px 16px 0;
 }
 
-.panel-title {
-  margin: 0;
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--p-text-color);
-}
-
-.panel-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
 .panel-hint {
   margin: 0;
   font-size: 0.8125rem;
@@ -221,29 +218,7 @@ const { xAxis, charts } = useSimulationCharts(scopeNodes)
 }
 
 .panel-progress {
-  height: 6px;
-}
-
-.panel-list {
-  margin: 4px 0 0;
-  padding-left: 18px;
-}
-
-.panel-warnings {
-  font-size: 0.8125rem;
-  color: var(--p-text-muted-color);
-}
-
-.panel-warnings summary {
-  cursor: pointer;
-  color: var(--p-text-color);
-}
-
-.panel-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  height: 3px;
 }
 
 .panel-edit {
