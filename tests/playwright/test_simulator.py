@@ -1,12 +1,13 @@
 import math
+import os
 import unittest
 
 from playwright.sync_api import sync_playwright
 
 try:
-    from .config import BASE_URL, HEADLESS_MODE
+    from .config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
 except ImportError:
-    from config import BASE_URL, HEADLESS_MODE
+    from config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
 
 
 # Automated browsers skip the isolation service worker unless they opt in (see index.html).
@@ -43,6 +44,37 @@ SOLVE_DECAY = """async () => {
   const settings = { initialPoint: 0, startingPoint: 0, endingPoint: 4, pointInterval: 0.1 }
   const result = await engine.startSimulation({ module, cellml, settings }).promise
   return { points: result.voi.values.length, tEnd: result.voi.values.at(-1), xEnd: result.variables.get('decay/x').values.at(-1) }
+}"""
+
+
+# Runs the loaded workspace through the scoped build, the engine and the variable mapping, through the app's
+# source modules (dev server only).
+MAP_WORKSPACE_RESULTS = """async () => {
+  const vueFlowUrl = performance.getEntriesByType('resource').map((entry) => entry.name).find((name) => name.includes('@vue-flow_core.js'))
+  const { useVueFlow } = await import(vueFlowUrl)
+  const { nodes, edges } = useVueFlow('main-flow-editor')
+  const { resolveScope, buildScopedModel } = await import('/src/services/simulation/scopedModel.js')
+  const { buildVariableMapping, mappingKey } = await import('/src/services/simulation/variableMapping.js')
+  const { startSimulation } = await import('/src/services/simulation/engine.js')
+  const { whenLibOpenCORReady } = await import('/src/services/simulation/libopencorLoader.js')
+  const { whenLibCellMLReady } = await import('/src/utils/cellml.js')
+  const { useLibraryStore } = await import('/src/stores/libraryStore.js')
+  const scope = resolveScope(null, nodes.value, edges.value, [])
+  const cellml = await buildScopedModel(scope, useLibraryStore()).text()
+  const settings = { initialPoint: 0, startingPoint: 0, endingPoint: 1, pointInterval: 0.1 }
+  const results = await startSimulation({ module: await whenLibOpenCORReady(), cellml, settings }).promise
+  const mapping = buildVariableMapping({ libcellml: await whenLibCellMLReady(), cellml, nodes: scope.nodes, results })
+  const soma = scope.nodes.find((node) => node.data.name === 'soma_SN')
+  return {
+    rows: scope.nodes.reduce((total, node) => total + node.data.variables.length, 0),
+    mapped: mapping.size,
+    underAnotherName: [...mapping].filter(([key, name]) => {
+      const [nodeId, variableName] = key.split('::')
+      return name !== scope.nodes.find((node) => node.id === nodeId).data.name + '/' + variableName
+    }).length,
+    somaCurrentOut: mapping.get(mappingKey(soma.id, 'I_out')),
+    somaTime: mapping.get(mappingKey(soma.id, 't')),
+  }
 }"""
 
 
@@ -88,6 +120,32 @@ class TestSimulator(unittest.TestCase):
             self.assertEqual(result["points"], 41)
             self.assertAlmostEqual(result["tEnd"], 4)
             self.assertAlmostEqual(result["xEnd"], math.exp(-2), places=5)
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
+    def test_results_map_back_to_every_instance_variable(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+
+            context = browser.new_context()
+            context.add_init_script(OPT_IN_TO_ISOLATION)
+            page = context.new_page()
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+
+            # ---------- START -----------
+            page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
+            if not page.evaluate(IS_DEV_SERVER):
+                self.skipTest("The app's source modules aren't served here; run against the dev server.")
+            page.get_by_text("SN_varicositycell_modules.cellmlvar_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            result = page.evaluate(MAP_WORKSPACE_RESULTS)
+            self.assertEqual(result["mapped"], result["rows"])
+            self.assertGreater(result["underAnotherName"], 0)
+            self.assertEqual(result["somaCurrentOut"], "axon_SN/I")
+            self.assertEqual(result["somaTime"], "environment/time")
             # ----------- END ------------
 
             context.close()
