@@ -324,12 +324,21 @@ function convertStore(oldStore, globalConstantNames) {
  *   A port's multiportType and multiplyFactor may be lists, one entry per variable, when its
  *   variables differ (see utils/multiport.js); a whole-port value still means every variable, so
  *   1.0.0 ports need no migration.
+ * - 1.2.0: simulation.simulationSettings' solver, timeStep, tolerance and maxSteps are applied, where
+ *   before they were placeholders. `solver` is a key of SOLVERS (services/simulation/sedParameters.js).
+ *   For CVODE, `tolerance` is its relative and absolute tolerance, `maxSteps` its maximum number of
+ *   steps between output points, and `timeStep` its maximum step (0 for none); for a fixed-step solver,
+ *   `timeStep` is its step. Older files get the settings every run used: CVODE, 1e-7, 500 and 0.
  */
 const LEGACY_VERSION = 'legacy'
+
+// The solver settings every simulation and export used before 1.2.0, whatever the file held.
+const SOLVER_SETTINGS_BEFORE_1_2_0 = Object.freeze({ solver: 'CVODE', timeStep: 0, tolerance: 1e-7, maxSteps: 500 })
 
 const MIGRATIONS = [
   { from: LEGACY_VERSION, to: '1.0.0', migrate: migrateLegacyTo1_0_0 },
   { from: '1.0.0', to: '1.1.0', migrate: migrate1_0_0To1_1_0 },
+  { from: '1.1.0', to: '1.2.0', migrate: migrate1_1_0To1_2_0 },
 ]
 
 /**
@@ -475,6 +484,24 @@ export function migrateWorkspace(doc) {
     throw new Error(`Unsupported workspace version '${version}'. It may have been saved by a newer version of PhLynx.`)
   }
   return MIGRATIONS.slice(start).reduce((migrated, step) => ({ ...step.migrate(migrated), version: step.to }), current)
+}
+
+/**
+ * 1.1.0 -> 1.2.0: gives the simulation settings the solver settings that were used, since the solver,
+ * time step, tolerance and maximum steps the file held were never applied before 1.2.0.
+ *
+ * @param {Object} doc - A 1.1.0 workspace.
+ * @returns {Object}
+ */
+function migrate1_1_0To1_2_0(doc) {
+  if (!doc.simulation) return doc
+  return {
+    ...doc,
+    simulation: {
+      ...doc.simulation,
+      simulationSettings: { ...doc.simulation.simulationSettings, ...SOLVER_SETTINGS_BEFORE_1_2_0 },
+    },
+  }
 }
 
 /**

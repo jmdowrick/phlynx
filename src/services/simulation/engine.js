@@ -2,7 +2,7 @@
  * Runs a CellML model through libOpenCOR. The only module that touches libOpenCOR's API; the rest of the
  * app gets plain results.
  */
-import { CVODE_PARAMETERS, buildUniformTimeCourse } from './sedParameters'
+import { buildAlgorithm, buildUniformTimeCourse, findSolverSettingsProblem, resolveSolverSettings } from './sedParameters'
 
 // Above this, a run's results risk exhausting WebAssembly's 4 GB of memory.
 export const MAX_RESULT_BYTES = 1.5 * 1024 ** 3
@@ -76,25 +76,33 @@ function throwOnErrors(logger, message) {
  * Words a failed run, explaining the solver errors users can fix.
  *
  * @param {Object} instance - A SedInstance with errors.
+ * @param {Object} settings - Simulation settings.
  * @returns {string}
  */
-function describeRunFailure(instance) {
-  const maximumSteps = CVODE_PARAMETERS.find(({ name }) => name === 'maximumNumberOfSteps').value
+function describeRunFailure(instance, settings) {
   const tookTooManySteps = readIssues(instance).some(({ description }) => description?.includes('mxstep'))
   return tookTooManySteps
-    ? `The simulation failed: the solver needed more than ${maximumSteps} steps between two output points. Try a smaller point interval.`
+    ? `The simulation failed: the solver needed more than ${resolveSolverSettings(settings).maxSteps} steps between two output points. Try a smaller point interval, or allow more steps in the solver settings.`
     : 'The simulation failed.'
 }
 
 /**
- * Applies the shared CVODE settings to a simulation's solver.
+ * Sets up a simulation's ODE solver from the settings, as the SED-ML export writes it: CVODE's parameters,
+ * or a fixed-step solver in its place with its step.
  *
  * @param {Object} loc - The libOpenCOR module.
- * @param {Object} solver - The simulation's ODE solver.
+ * @param {Object} simulation - A SedUniformTimeCourse.
+ * @param {Object} settings - Simulation settings.
+ * @param {Function} keep - Keeps a handle to free once the run ends.
  */
-function applyCvodeParameters(loc, solver) {
-  if (solver?.constructor?.name !== 'SolverCvode') return
-  for (const { name, value } of CVODE_PARAMETERS) {
+function applySolver(loc, simulation, settings, keep) {
+  const { solver: definition, parameters } = buildAlgorithm(settings)
+  let solver = keep(simulation.odeSolver)
+  if (solver?.constructor?.name !== definition.className) {
+    solver = keep(new loc[definition.className]())
+    simulation.odeSolver = solver
+  }
+  for (const { name, value } of parameters) {
     const enumeration = CVODE_ENUMS[name]
     if (enumeration) solver[name] = loc.SolverCvode[enumeration.type][enumeration.values[value]]
     else if (value === 'true' || value === 'false') solver[name] = value === 'true'
@@ -140,12 +148,13 @@ function readResults(task, stoppedTimeCourse, pointCount) {
 }
 
 /**
- * Throws unless the settings describe a time course to run: numbers throughout, an end after the start, a
- * positive point interval, and an initial time no later than the start.
+ * Throws unless the settings describe a time course to run (numbers throughout, an end after the start, a
+ * positive point interval, and an initial time no later than the start) and a solver to run it with.
  *
  * @param {Object} settings - Simulation settings.
  */
-export function checkSettings({ initialPoint, startingPoint, endingPoint, pointInterval }) {
+export function checkSettings(settings) {
+  const { initialPoint, startingPoint, endingPoint, pointInterval } = settings
   const isNumber = (value) => typeof value === 'number' && Number.isFinite(value)
   if (![initialPoint, startingPoint, endingPoint, pointInterval].every(isNumber)) {
     throw new SimulationError('Every time in the simulation settings needs a value.')
@@ -156,6 +165,9 @@ export function checkSettings({ initialPoint, startingPoint, endingPoint, pointI
     throw new SimulationError('The point interval is longer than the time between the start and the end.')
   }
   if (initialPoint > startingPoint) throw new SimulationError('The initial time can’t be after the start.')
+
+  const solverProblem = findSolverSettingsProblem(settings)
+  if (solverProblem) throw new SimulationError(solverProblem)
 }
 
 /**
@@ -205,7 +217,7 @@ export function startSimulation({ module: loc, cellml, settings, onProgress = ()
       const timeCourse = buildUniformTimeCourse(settings)
       const simulation = keep(document.simulation(0))
       Object.assign(simulation, timeCourse)
-      applyCvodeParameters(loc, keep(simulation.odeSolver))
+      applySolver(loc, simulation, settings, keep)
 
       instance = document.instantiate()
       throwOnErrors(instance, 'The model could not be simulated.')
@@ -230,7 +242,7 @@ export function startSimulation({ module: loc, cellml, settings, onProgress = ()
       if (instance.hasErrors) {
         // The points computed before the failure help to see what went wrong.
         const partial = readResults(task, timeCourse)
-        throw new SimulationError(describeRunFailure(instance), readIssues(instance), partial.voi.values.length > 1 ? partial : null)
+        throw new SimulationError(describeRunFailure(instance, settings), readIssues(instance), partial.voi.values.length > 1 ? partial : null)
       }
       onProgress(1)
 
