@@ -25,30 +25,35 @@ import './assets/sanitisewarning.css'
 
 import router from './router'
 import App from './App.vue'
+import { waitForIsolationReload } from './utils/isolation'
 
-const app = createApp(App)
-const pinia = createPinia()
+// The first visit reloads once to install the isolation service worker; starting the app before that
+// would load anything it was opened with twice.
+waitForIsolationReload().then(() => {
+  const app = createApp(App)
+  const pinia = createPinia()
 
-app.use(pinia)
-app.use(router)
-app.use(PrimeVue, {
-  ripple: true,
-  theme: {
-    preset: Aura,
-    options: {
-      darkModeSelector: '.p-dark',
-      cssLayer: {
-        name: 'primevue',
-        /* Add this strict order for Tailwind v4 compatibility */
-        order: 'theme, base, primevue, utilities',
+  app.use(pinia)
+  app.use(router)
+  app.use(PrimeVue, {
+    ripple: true,
+    theme: {
+      preset: Aura,
+      options: {
+        darkModeSelector: '.p-dark',
+        cssLayer: {
+          name: 'primevue',
+          /* Add this strict order for Tailwind v4 compatibility */
+          order: 'theme, base, primevue, utilities',
+        },
       },
     },
-  },
+  })
+  app.use(ConfirmationService)
+  app.use(ToastService)
+  app.directive('tooltip', Tooltip)
+  app.directive('ripple', Ripple)
+  app.use(libcellmlPlugin)
+  app.component('GlossaryLink', GlossaryLink)
+  app.mount('#app')
 })
-app.use(ConfirmationService)
-app.use(ToastService)
-app.directive('tooltip', Tooltip)
-app.directive('ripple', Ripple)
-app.use(libcellmlPlugin)
-app.component('GlossaryLink', GlossaryLink)
-app.mount('#app')
