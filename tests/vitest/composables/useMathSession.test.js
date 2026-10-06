@@ -91,7 +91,7 @@ function fakeEditor(session) {
 }
 
 describe('useMathSession', () => {
-  let session, editorRef, history, ports, plotVariables
+  let session, editorRef, history, ports
 
   beforeAll(async () => {
     await ensureLibCellmlReady() // isDirty compares models with libcellml
@@ -103,8 +103,7 @@ describe('useMathSession', () => {
     history = useFlowHistoryStore()
     editorRef = ref(null)
     ports = ref([{ label: 'p', variables: ['x', 'k'] }])
-    plotVariables = ref([{ name: 'x', groupId: 'plot-2' }])
-    session = useMathSession({ history, editorRef, ports, plotVariables })
+    session = useMathSession({ history, editorRef, ports })
     editorRef.value = fakeEditor(session)
     await session.load({ mathRef: MATH_REF, rows: [], managed: true })
   })
@@ -331,33 +330,6 @@ describe('useMathSession', () => {
 
       await history.undo()
       expect(ports.value[0]).toMatchObject({ variables: ['x', 'k'], multiportType: ['sum', 'True'] })
-    })
-
-    it('renames it in the plotted variables, keeping its group, until undone', async () => {
-      await editorRef.value.report('edit', 'ode(y, t) = -k * y;\n', true)
-      expect(plotVariables.value).toEqual([{ name: 'y', groupId: 'plot-2' }])
-
-      await history.undo()
-      expect(plotVariables.value).toEqual([{ name: 'x', groupId: 'plot-2' }])
-    })
-
-    it('keeps a variable plotted after a rename when the rename is undone', async () => {
-      await editorRef.value.report('edit', 'ode(y, t) = -k * y;\n', true)
-      plotVariables.value = [...plotVariables.value, { name: 'k' }]
-
-      await history.undo()
-      expect(plotVariables.value).toEqual([{ name: 'x', groupId: 'plot-2' }, { name: 'k' }])
-    })
-
-    it('keeps a tick on the new name when a partial rename is finished, and undo restores both', async () => {
-      await editorRef.value.report('edit', 'ode(x, t) = -k * y;\n', true)
-      plotVariables.value = [...plotVariables.value, { name: 'y', groupId: 'g2' }]
-
-      await session.renameEverywhere()
-      expect(plotVariables.value).toEqual([{ name: 'y', groupId: 'plot-2' }])
-
-      await history.undo()
-      expect(plotVariables.value).toEqual([{ name: 'x', groupId: 'plot-2' }, { name: 'y', groupId: 'g2' }])
     })
 
     it('keeps both names when the offer is dismissed', async () => {

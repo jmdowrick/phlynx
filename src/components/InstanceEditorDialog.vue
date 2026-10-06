@@ -168,7 +168,9 @@
               {{ chip.count }}
             </span>
           </span>
-          <span class="collapsed-rail-label">{{ rightTabLabel }}</span>
+          <span class="collapsed-rail-label">
+            {{ activeTab === 'parameters' ? `Parameters (${parameterRows.length})` : `Ports (${editablePorts.length})` }}
+          </span>
         </button>
 
         <Tabs v-else v-model:value="activeTab" class="right-pane-tabs">
@@ -180,10 +182,6 @@
             <Tab value="ports">
               <i class="pi pi-link tab-icon"></i>
               Ports ({{ editablePorts.length }})
-            </Tab>
-            <Tab value="plot">
-              <i class="pi pi-chart-line tab-icon"></i>
-              Plot ({{ plottedCount }})
             </Tab>
           </TabList>
 
@@ -355,15 +353,6 @@
                 </div>
               </div>
             </TabPanel>
-
-            <!-- TAB 3: PLOTTED VARIABLES -->
-            <TabPanel value="plot" class="tab-panel-flex">
-              <InstancePlotVariables
-                v-model="editablePlotVariables"
-                :rows="parameterRows"
-                :initial-entries="initialPlotVariables"
-              />
-            </TabPanel>
           </TabPanels>
         </Tabs>
       </div>
@@ -459,14 +448,12 @@ import Tabs from 'primevue/tabs'
 import CellMLTextEditor from './CellMLTextEditor.vue'
 import MathWorkbenchEditor from './MathWorkbenchEditor.vue'
 import ParameterTable from './ParameterTable.vue'
-import InstancePlotVariables from './InstancePlotVariables.vue'
 import SanitisedInput from './SanitisedInput.vue'
 import MultiportKey from './MultiportKey.vue'
 import PortVariableChips from './PortVariableChips.vue'
 import ComponentSaveAsDialog from './dialogs/ComponentSaveAsDialog.vue'
 
 import { useLibraryStore } from '../stores/libraryStore'
-import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useIssueFilter } from '../composables/useIssueFilter'
 import { createHistory } from '../stores/historyStore'
 import { useGtm } from '../composables/useGtm'
@@ -475,7 +462,6 @@ import { useMathSession } from '../composables/useMathSession'
 import { useAppSettings } from '../composables/useAppSettings'
 
 import { isInitialisable } from '../services/math/variableKinds'
-import { getNodePlotEntries, isPlottableRow } from '../services/simulation/plotSelections'
 
 import { isEmpty, syncInitialiserUnits } from '../utils/variables'
 import { getUnknownUnitsNotice, isValueMissing } from '../utils/parameterRows'
@@ -497,13 +483,12 @@ const props = defineProps({
   variables: { type: Array, default: () => [] },
   initialPorts: { type: Array, default: () => [] },
   existingNames: { type: Array, default: () => [] },
-  defaultTab: { type: String, default: 'parameters' },  // 'parameters', 'ports' or 'plot'
+  defaultTab: { type: String, default: 'parameters' },  // 'parameters' or 'ports'
 })
 
 const emit = defineEmits(['update:modelValue', 'confirm'])
 
 const store = useLibraryStore()
-const simulationSettingsStore = useSimulationSettingsStore()
 const history = reactive(createHistory())
 
 const { trackEvent } = useGtm()
@@ -547,9 +532,6 @@ const DIALOG_PT = {
 // Port & Instance State
 const editableName = ref('')
 const editablePorts = ref([])
-// Variables chosen for plotting, as [{ name, groupId? }]; written to the plot config on save.
-const editablePlotVariables = ref([])
-const initialPlotVariables = ref([])
 const instanceNameRef = ref(null)
 // Why the last save rejected the instance name; cleared once the name changes.
 const nameError = ref('')
@@ -582,7 +564,7 @@ const mathEditorRef = ref(null)
 const parameterTableRef = ref(null)
 
 // The math, its analysis and the parameter rows.
-const session = useMathSession({ history, editorRef: mathEditorRef, ports: editablePorts, plotVariables: editablePlotVariables })
+const session = useMathSession({ history, editorRef: mathEditorRef, ports: editablePorts })
 const {
   isManaged,
   currentModel,
@@ -878,23 +860,11 @@ const issueFilter = useIssueFilter({
   availableKeys: computed(() => issueChips.value.map((chip) => chip.key)),
 })
 
-/** How many of the instance's computed variables are ticked; ticks on removed variables aren't saved. */
-const plottedCount = computed(() => {
-  const plotted = new Set(editablePlotVariables.value.map((entry) => entry.name))
-  return parameterRows.value.filter((row) => isPlottableRow(row) && plotted.has(row.name)).length
-})
-
-/** The active right-hand tab's name and count, shown on the collapsed rail. */
-const rightTabLabel = computed(() => {
-  if (activeTab.value === 'ports') return `Ports (${editablePorts.value.length})`
-  if (activeTab.value === 'plot') return `Plot (${plottedCount.value})`
-  return `Parameters (${parameterRows.value.length})`
-})
-
 // Screen readers get the same information the badges show.
 const railAriaLabel = computed(() => {
   const summary = activeTab.value === 'parameters' ? issueChips.value.map((chip) => chip.label).join(', ') : ''
-  return summary ? `Expand panel. ${rightTabLabel.value}. ${summary}` : `Expand panel. ${rightTabLabel.value}`
+  const label = activeTab.value === 'parameters' ? `Parameters (${parameterRows.value.length})` : `Ports (${editablePorts.value.length})`
+  return summary ? `Expand panel. ${label}. ${summary}` : `Expand panel. ${label}`
 })
 
 // ── Computed ─────────────────────────────────────────────────────────────────
@@ -951,8 +921,6 @@ watch(
         : [],
     }))
     indexPortConnections()
-    initialPlotVariables.value = getNodePlotEntries(simulationSettingsStore.plotConfig, props.id)
-    editablePlotVariables.value = [...initialPlotVariables.value]
 
     // Saved stateRole/initialiser keep pairings the math alone can't reveal, such as shared initialisers.
     const savedRows = props.variables.map((row) => ({
@@ -1102,9 +1070,7 @@ async function handleCancel() {
   parameterTableRef.value?.flushPendingRenames()
   await session.flushPendingChanges()
 
-  const byName = (entries) => JSON.stringify([...entries].sort((a, b) => a.name.localeCompare(b.name)))
-  const isPlotChanged = byName(editablePlotVariables.value) !== byName(initialPlotVariables.value)
-  if (session.hasUnsavedInvalidEdit() || session.isDirty() || session.isLayoutDirty() || isPlotChanged) {
+  if (session.hasUnsavedInvalidEdit() || session.isDirty() || session.isLayoutDirty()) {
     const confirmed = await confirm({
       header: 'Unsaved Changes',
       message: 'Are you sure you want to discard changes?',
@@ -1330,7 +1296,6 @@ async function handleSave() {
         })),
       variables: parameterRows.value,
       ports: finalPorts,
-      plotVariables: editablePlotVariables.value,
       updateAll,
       siblings: updateAll ? siblings.value : [],
     })

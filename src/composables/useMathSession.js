@@ -3,7 +3,7 @@
  * analysis linking them. Math editors report changes, and this is the one place they become rows
  * and undo history.
  */
-import { computed, ref, shallowRef, toRaw, watch } from 'vue'
+import { computed, ref, shallowRef, watch } from 'vue'
 import { serializeLayout } from 'cellml-text-editor'
 
 import { useLibraryStore } from '../stores/libraryStore'
@@ -53,10 +53,9 @@ function isSameLayout(layout, otherLayout) {
  * @param {Object} options.history - The undo history edits are recorded in.
  * @param {import('vue').Ref} options.editorRef - The mounted math editor.
  * @param {import('vue').Ref<Array>} options.ports - Editable ports; variables removed from the math are removed from them, and renamed ones renamed.
- * @param {import('vue').Ref<Array<{name: string}>>} [options.plotVariables] - Variables chosen for plotting; renamed ones are renamed.
  * @returns {Object} Session state, queries and actions.
  */
-export function useMathSession({ history, editorRef, ports, plotVariables = null }) {
+export function useMathSession({ history, editorRef, ports }) {
   const store = useLibraryStore()
 
   const isManaged = ref(true) // Simple Mode: the table owns the declarations
@@ -413,37 +412,6 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
           },
           redo: async () => {
             setPortVariables(port, port.variables.filter((name) => validNames.has(name)))
-          },
-        })
-      }
-
-      if (plotVariables?.value.some(({ name }) => renamedTo.has(name))) {
-        // Renamed entries by their copies, so an undo restores them and keeps entries added since.
-        let originals = new Map()
-        let merged = []
-
-        await history.executeAndAddCommand({
-          type: 'rename-variable-in-plot',
-          undo: async () => {
-            const restored = plotVariables.value.map((entry) => originals.get(toRaw(entry)) ?? entry)
-            plotVariables.value = [...restored, ...merged]
-          },
-          redo: async () => {
-            originals = new Map()
-            merged = []
-            const next = []
-            for (const entry of plotVariables.value.map(toRaw)) {
-              const name = renamedTo.get(entry.name) ?? entry.name
-              // Two entries renamed alike: the first wins, and an undo brings the other back.
-              if (next.some((other) => other.name === name)) {
-                merged.push(entry)
-                continue
-              }
-              const copy = name === entry.name ? entry : { ...entry, name }
-              if (copy !== entry) originals.set(copy, entry)
-              next.push(copy)
-            }
-            plotVariables.value = next
           },
         })
       }

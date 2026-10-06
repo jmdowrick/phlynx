@@ -23,7 +23,6 @@ import { useOmexStore } from '../stores/omexStore'
 
 import { createCellMLDataFragment, generateOmexArchive, createOmexDataFragment } from '../services/compress'
 import { generateExportZip } from '../services/export/ca'
-import { resolvePlotConfig } from '../services/simulation/plotSelections'
 import { generateFlattenedModel, extractVoiAndParametersFromModel } from '../utils/cellml'
 import { readFileAsText } from '../utils/misc'
 import { getFileHandle } from '../utils/save'
@@ -101,7 +100,7 @@ export function useImportExportSend({
       snapshot,
       {
         simulationSettings: simulationSettings.value,
-        plotConfig: resolvePlotConfig(plotConfig.value, nodes.value),
+        plotConfig: plotConfig.value,
         parameterScanConfig: parameterScanConfig.value,
       },
       { extractedData, modified: hasModelChanged.value, cellmlFileName }
