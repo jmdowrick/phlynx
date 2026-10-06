@@ -140,13 +140,87 @@ class TestSimulationTab(unittest.TestCase):
             expect(page.get_by_text("Simulated 2 instances on their own")).to_be_visible(timeout=120000)
 
             for instance in ("soma_SN", "axon_SN"):
-                page.locator("#simulation-instance").click()
+                page.get_by_role("combobox", name="Instance").click()
                 page.get_by_role("option", name=instance, exact=True).click()
                 page.get_by_role("checkbox", name="Plot V", exact=True).check()
 
             # Same plot and unit, so both lines share a chart, named by instance.
             expect(page.locator(".simulation-plot")).to_have_count(1)
             expect(page.locator(".simulation-plot .plot-title")).to_have_text("soma_SN.V, axon_SN.V")
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
+    def test_results_dialog_syncs_cursors_shows_a_table_and_downloads(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+
+            context = browser.new_context(viewport={"width": 1600, "height": 1000}, accept_downloads=True)
+            context.add_init_script(OPT_IN_TO_ISOLATION)
+            page = context.new_page()
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+
+            # ---------- START -----------
+            soma = page.get_by_text("SN_somacell_modules.cellmlsoma_SN")
+            soma.wait_for(timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
+            page.evaluate(SHORTEN_SIMULATION)
+            soma.click()
+            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
+            page.get_by_role("button", name="Simulate selection").click()
+            expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
+            page.get_by_role("checkbox", name="Plot V", exact=True).check()
+
+            page.get_by_role("button", name="Open the results in a larger view, with a table and downloads").click()
+            dialog = page.get_by_role("dialog", name="Simulation results")
+            charts = dialog.locator(".simulation-plot")
+            expect(charts).to_have_count(1)
+            # Variables can be plotted from beside the charts too.
+            dialog.get_by_role("checkbox", name="Plot m", exact=True).check()
+            expect(charts).to_have_count(2)
+
+            # So can sliders be added and moved, rerunning the simulation.
+            dialog.get_by_role("combobox", name="Add a slider").click()
+            page.get_by_role("option", name="g_Na", exact=True).click()
+            page.evaluate(f"window.__shownResults = {RESULTS_STORE}.results")
+            dialog.locator(".p-slider-handle").first.focus()
+            for _ in range(10):
+                page.keyboard.press("ArrowRight")
+            page.wait_for_function(
+                f"{RESULTS_STORE}.results !== window.__shownResults && {RESULTS_STORE}.status === 'done'", timeout=60000
+            )
+
+            # Hovering one chart shows the cursor at the same time on the other.
+            box = charts.first.locator(".u-over").bounding_box()
+            page.mouse.move(box["x"] + box["width"] * 0.6, box["y"] + box["height"] / 2)
+            times = charts.locator(".u-legend .u-series:first-child .u-value")
+            expect(times.nth(0)).not_to_have_text("–")
+            expect(times.nth(1)).to_have_text(times.nth(0).inner_text())
+
+            with page.expect_download() as download:
+                dialog.get_by_role("button", name="Download the results as CSV").click()
+            with open(download.value.path()) as f:
+                lines = f.read().splitlines()
+            self.assertEqual(lines[0], "time (second),V (milliV),m (dimensionless)")
+            self.assertEqual(len(lines), 1 + 101)
+            self.assertEqual(lines[1].split(",")[0], "0")
+
+            with page.expect_download() as download:
+                dialog.get_by_role("button", name="Download the charts as a PNG image").click()
+            with open(download.value.path(), "rb") as f:
+                self.assertEqual(f.read(8), b"\x89PNG\r\n\x1a\n")
+
+            dialog.get_by_text("Table", exact=True).click()
+            table = dialog.locator(".results-table").get_by_role("table")
+            expect(table.get_by_role("columnheader")).to_have_text(["time (second)", "V (milliV)", "m (dimensionless)"])
+            expect(table.locator("tbody tr").first.locator("td").first).to_have_text("0")
+
+            dialog.get_by_role("button", name="Maximise the results").click()
+            expect(dialog.get_by_role("button", name="Restore the results to their size")).to_be_visible()
             # ----------- END ------------
 
             context.close()
