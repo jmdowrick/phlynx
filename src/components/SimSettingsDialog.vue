@@ -474,49 +474,82 @@
             </div>
           </section>
 
-          <section class="block mt-3" style="opacity: 0">
+          <section class="block mt-3">
             <div class="block-header">
-              <h4>Solver Configuration</h4>
-              <span class="subtle">Select numerical solver and step limits.</span>
+              <h4>Solver</h4>
+              <span class="subtle">How the model is solved, in PhLynx and in exports to web OpenCOR.</span>
             </div>
             <div class="settings-grid">
               <div class="field">
-                <label>Solver Algorithm</label>
+                <label id="sim-solver-label">Solver</label>
                 <Select
-                  v-model="localSimulationSettings.solver"
+                  :model-value="localSimulationSettings.solver"
+                  aria-labelledby="sim-solver-label"
                   :options="solverOptions"
                   optionLabel="label"
                   optionValue="value"
+                  data-testid="sim-solver"
                   fluid
-                  disabled
+                  @update:model-value="changeSolver"
                 />
               </div>
-              <div class="field">
-                <label>Time Step</label>
-                <InputNumber
-                  v-model="localSimulationSettings.timeStep"
-                  :min="0"
-                  :minFractionDigits="0"
-                  :maxFractionDigits="12"
-                  fluid
-                  disabled
-                />
-              </div>
-              <div class="field">
-                <label>Tolerance</label>
-                <InputNumber
-                  v-model="localSimulationSettings.tolerance"
-                  :min="0"
-                  :minFractionDigits="0"
-                  :maxFractionDigits="12"
-                  fluid
-                  disabled
-                />
-              </div>
-              <div class="field">
-                <label>Max Steps</label>
-                <InputNumber v-model="localSimulationSettings.maxSteps" :min="1" :useGrouping="false" fluid disabled />
-              </div>
+              <template v-if="isFixedStepSolver">
+                <div class="field">
+                  <label for="sim-time-step">Time Step</label>
+                  <InputNumber
+                    v-model="localSimulationSettings.timeStep"
+                    input-id="sim-time-step"
+                    :pt:pcInputText:root="{ 'data-testid': 'sim-time-step' }"
+                    suffix=" s"
+                    :min="0"
+                    :minFractionDigits="0"
+                    :maxFractionDigits="12"
+                    fluid
+                  />
+                </div>
+              </template>
+              <template v-else>
+                <div class="field">
+                  <label for="sim-tolerance">Tolerance</label>
+                  <InputNumber
+                    v-model="localSimulationSettings.tolerance"
+                    input-id="sim-tolerance"
+                    :pt:pcInputText:root="{ 'data-testid': 'sim-tolerance' }"
+                    :min="0"
+                    :minFractionDigits="0"
+                    :maxFractionDigits="12"
+                    fluid
+                  />
+                  <small class="subtle">Relative and absolute.</small>
+                </div>
+                <div class="field">
+                  <label for="sim-max-steps">Maximum Steps</label>
+                  <InputNumber
+                    v-model="localSimulationSettings.maxSteps"
+                    input-id="sim-max-steps"
+                    :pt:pcInputText:root="{ 'data-testid': 'sim-max-steps' }"
+                    :min="1"
+                    :max="MAX_SOLVER_STEPS"
+                    :useGrouping="false"
+                    fluid
+                  />
+                  <small class="subtle">Between two output points.</small>
+                </div>
+                <div class="field">
+                  <label for="sim-maximum-step">Maximum Step</label>
+                  <InputNumber
+                    v-model="localSimulationSettings.timeStep"
+                    input-id="sim-maximum-step"
+                    :pt:pcInputText:root="{ 'data-testid': 'sim-maximum-step' }"
+                    suffix=" s"
+                    :min="0"
+                    :minFractionDigits="0"
+                    :maxFractionDigits="12"
+                    fluid
+                  />
+                  <small class="subtle">0 for no limit.</small>
+                </div>
+              </template>
             </div>
           </section>
         </TabPanel>
@@ -525,8 +558,12 @@
 
     <template #footer>
       <div class="dialog-footer">
+        <!-- In the footer, so it shows whichever tab is open. -->
+        <Message v-if="solverProblem" severity="error" size="small" class="solver-problem" data-testid="sim-solver-problem">
+          {{ solverProblem }} Change it under Simulation Parameters to save.
+        </Message>
         <Button label="Cancel" severity="secondary" text @click="requestClose" />
-        <Button label="Save" severity="primary" @click="handleConfirm" />
+        <Button label="Save" severity="primary" :disabled="!!solverProblem" @click="handleConfirm" />
       </div>
     </template>
   </Dialog>
@@ -545,6 +582,7 @@ import DataTable from 'primevue/datatable'
 import Dialog from 'primevue/dialog'
 import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
+import Message from 'primevue/message'
 import ProgressSpinner from 'primevue/progressspinner'
 import Select from 'primevue/select'
 import TabPanel from 'primevue/tabpanel'
@@ -556,6 +594,7 @@ import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { notify } from '../utils/notify'
 import { buildPlotConfig, buildPlotVariableRows, normaliseGroups } from '../services/simulation/plotSelections'
 import { buildParameterScanRows } from '../services/simulation/parameterSliders'
+import { MAX_SOLVER_STEPS, SOLVERS, findSolverSettingsProblem } from '../services/simulation/sedParameters'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -571,11 +610,7 @@ const libraryStore = useLibraryStore()
 const simulationSettingsStore = useSimulationSettingsStore()
 const { simulationSettings, plotConfig, parameterScanConfig } = storeToRefs(simulationSettingsStore)
 
-const solverOptions = [
-  { label: 'CVODE', value: 'CVODE' },
-  { label: 'Euler', value: 'Euler' },
-  { label: 'Runge Kutta 4', value: 'RungeKutta4' },
-]
+const solverOptions = Object.entries(SOLVERS).map(([value, { label }]) => ({ label, value }))
 
 const localSimulationSettings = ref({})
 const variableRows = ref([])
@@ -1025,6 +1060,25 @@ function moveSelectedToUngrouped() {
       message: `Removed ${updatedCount} variable${updatedCount === 1 ? '' : 's'} from the plot.`,
     })
   }
+}
+
+// Settings the simulator would refuse can't be saved, so they never reach a run or an export.
+const solverProblem = computed(() => findSolverSettingsProblem(localSimulationSettings.value))
+
+const isFixedStepSolver = computed(() => !!SOLVERS[localSimulationSettings.value.solver]?.isFixedStep)
+
+/**
+ * Changes the solver. The time step means a fixed-step solver's step but CVODE's maximum step, so moving
+ * between the two starts it afresh: a tenth of the point interval, or no limit.
+ *
+ * @param {string} solver
+ */
+function changeSolver(solver) {
+  const settings = localSimulationSettings.value
+  if (!!SOLVERS[solver]?.isFixedStep !== isFixedStepSolver.value) {
+    settings.timeStep = SOLVERS[solver]?.isFixedStep && settings.pointInterval > 0 ? settings.pointInterval / 10 : 0
+  }
+  settings.solver = solver
 }
 
 const handleConfirm = () => {
@@ -1484,6 +1538,11 @@ const requestClose = async () => {
 .dialog-footer {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 8px;
+}
+
+.solver-problem {
+  margin-right: auto;
 }
 </style>

@@ -71,6 +71,11 @@ function createFakeLibOpenCOR({ fileErrors = [], instanceErrors = [], voiName = 
         return instance
       }
     },
+    SolverForwardEuler: class SolverForwardEuler {
+      delete() {
+        freed.push('new solver')
+      }
+    },
     SolverCvode: Object.assign(SolverCvode, {
       IntegrationMethod: { BDF: 'bdf' },
       IterationType: { NEWTON: 'newton' },
@@ -250,20 +255,45 @@ describe('startSimulation', () => {
   })
 
   it('suggests a smaller point interval when the solver takes too many steps', async () => {
-    const fake = createFakeLibOpenCOR()
-    fake.instance.waitForRun = () => {
-      Object.assign(fake.instance, {
-        hasErrors: true,
-        issueCount: 1,
-        issue: () => ({ typeAsString: 'Error', description: 'Task | CVODE: at t = 6.7, mxstep steps taken before reaching tout.', delete: () => {} }),
-      })
-      return 3
+    const failingFake = () => {
+      const fake = createFakeLibOpenCOR()
+      fake.instance.waitForRun = () => {
+        Object.assign(fake.instance, {
+          hasErrors: true,
+          issueCount: 1,
+          issue: () => ({ typeAsString: 'Error', description: 'Task | CVODE: at t = 6.7, mxstep steps taken before reaching tout.', delete: () => {} }),
+        })
+        return 3
+      }
+      return fake
     }
 
-    const error = await failureOf(startSimulation({ module: fake.loc, cellml: '<model/>', settings: SETTINGS }).promise)
+    const error = await failureOf(startSimulation({ module: failingFake().loc, cellml: '<model/>', settings: SETTINGS }).promise)
 
-    expect(error.message).toMatch(/more than 500 steps between two output points\. Try a smaller point interval\./)
+    expect(error.message).toMatch(/more than 500 steps between two output points\. Try a smaller point interval, or allow more steps/)
     expect(error.issues[0].description).toMatch(/mxstep/)
+
+    const custom = await failureOf(startSimulation({ module: failingFake().loc, cellml: '<model/>', settings: { ...SETTINGS, maxSteps: 2000 } }).promise)
+    expect(custom.message).toMatch(/more than 2000 steps/)
+  })
+
+  it('applies the CVODE settings it is given', async () => {
+    const fake = createFakeLibOpenCOR()
+
+    await startSimulation({ module: fake.loc, cellml: '<model/>', settings: { ...SETTINGS, tolerance: 1e-9, maxSteps: 5000, timeStep: 0.01 } }).promise
+
+    expect(fake.solver).toMatchObject({ relativeTolerance: 1e-9, absoluteTolerance: 1e-9, maximumNumberOfSteps: 5000, maximumStep: 0.01 })
+  })
+
+  it('puts a fixed-step solver in CVODE’s place, with its step, and frees it', async () => {
+    const fake = createFakeLibOpenCOR()
+
+    await startSimulation({ module: fake.loc, cellml: '<model/>', settings: { ...SETTINGS, solver: 'Euler', timeStep: 0.001 } }).promise
+
+    expect(fake.simulation.odeSolver.constructor.name).toBe('SolverForwardEuler')
+    expect(fake.simulation.odeSolver.step).toBe(0.001)
+    expect(fake.simulation.odeSolver.relativeTolerance).toBeUndefined()
+    expect(fake.freed).toEqual(expect.arrayContaining(['solver', 'new solver']))
   })
 
   it('stops a run, keeping the points it computed', async () => {
@@ -288,8 +318,22 @@ describe('checkSettings', () => {
     ['a negative interval', { pointInterval: -0.5 }, /above 0/],
     ['an interval longer than the time course', { pointInterval: 5 }, /longer than/],
     ['an initial time after the start', { initialPoint: 1 }, /can’t be after the start/],
+    ['an unknown solver', { solver: 'Leapfrog' }, /doesn’t know: Leapfrog/],
+    ['a fixed-step solver without a step', { solver: 'RungeKutta4', timeStep: 0 }, /Fourth-order Runge–Kutta needs a time step above 0/],
+    ['a zero tolerance', { tolerance: 0 }, /tolerance above 0/],
+    ['a fractional number of steps', { maxSteps: 2.5 }, /from 1 to 2147483647/],
+    ['more steps than libOpenCOR can hold', { maxSteps: 2 ** 31 }, /from 1 to 2147483647/],
+    ['a negative maximum step', { timeStep: -1 }, /maximum step of 0 or more/],
+    ['a cleared tolerance', { tolerance: null }, /tolerance above 0/],
+    ['a cleared step', { solver: 'Euler', timeStep: null }, /Forward Euler needs a time step above 0/],
   ])('rejects %s', (_, change, message) => {
     expect(() => checkSettings({ ...SETTINGS, ...change })).toThrow(message)
+  })
+
+  it('takes the default solver settings for any the settings lack', () => {
+    expect(() => checkSettings(SETTINGS)).not.toThrow()
+    expect(() => checkSettings({ ...SETTINGS, maxSteps: 2 ** 31 - 1 })).not.toThrow()
+    expect(() => checkSettings({ ...SETTINGS, solver: 'Heun', timeStep: 0.1, tolerance: 0 })).not.toThrow()
   })
 
   it('accepts a time course that starts before zero', () => {

@@ -1,3 +1,4 @@
+import json
 import math
 import os
 import unittest
@@ -87,8 +88,8 @@ MAP_WORKSPACE_RESULTS = """async () => {
   }
 }"""
 
-# Runs the loaded workspace twice: in the app, and as web OpenCOR would, from the OMEX the export writes,
-# with libOpenCOR reading the archive's own SED-ML. Dev server only.
+# Runs the loaded workspace twice with the settings in place of __SETTINGS__: in the app, and as web OpenCOR would,
+# from the OMEX the export writes, with libOpenCOR reading the archive's own SED-ML. Dev server only.
 COMPARE_WITH_EXPORT = """async () => {
   const vueFlowUrl = performance.getEntriesByType('resource').map((entry) => entry.name).find((name) => name.includes('@vue-flow_core.js'))
   const { useVueFlow } = await import(vueFlowUrl)
@@ -97,7 +98,7 @@ COMPARE_WITH_EXPORT = """async () => {
   const { generateOmexArchive } = await import('/src/services/compress.js')
   const { whenLibOpenCORReady } = await import('/src/services/simulation/libopencorLoader.js')
   const { useLibraryStore } = await import('/src/stores/libraryStore.js')
-  const settings = { initialPoint: 0, startingPoint: 0, endingPoint: 1, pointInterval: 0.01 }
+  const settings = __SETTINGS__
   const scope = resolveScope(null, nodes.value, edges.value, [])
   const blob = buildScopedModel(scope, useLibraryStore())
   const inApp = await (await whenLibOpenCORReady()).startSimulation({ cellml: await blob.text(), settings }).promise
@@ -120,7 +121,8 @@ COMPARE_WITH_EXPORT = """async () => {
     for (let j = 0; j < exported.length; j++) largestDifference = Math.max(largestDifference, Math.abs(exported[j] - own[j]))
     compared++
   }
-  return { points: [task.voi.length, inApp.voi.values.length], states: compared, largestDifference }
+  const finalValues = Array.from({ length: task.stateCount }, (_, i) => task.state(i).at(-1))
+  return { points: [task.voi.length, inApp.voi.values.length], states: compared, largestDifference, finalValues }
 }"""
 
 
@@ -214,10 +216,24 @@ class TestSimulator(unittest.TestCase):
                 self.skipTest("The app's source modules aren't served here; run against the dev server.")
             page.get_by_text("SN_varicositycell_modules.cellmlvar_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function(f"{SIMULATOR_STATUS} === 'ready'", timeout=APP_MOUNT_TIMEOUT)
-            result = evaluate_within_a_minute(page, COMPARE_WITH_EXPORT)
-            self.assertEqual(result["points"][0], result["points"][1])
-            self.assertGreater(result["states"], 0)
-            self.assertEqual(result["largestDifference"], 0)
+            time_course = {"initialPoint": 0, "startingPoint": 0, "endingPoint": 1, "pointInterval": 0.01}
+            final_values = []
+            for solver in (
+                {},
+                {"solver": "CVODE", "tolerance": 1e-9, "maxSteps": 5000, "timeStep": 0.001},
+                # This neuron model is stiff: explicit solvers need a step this small to stay finite.
+                {"solver": "RungeKutta4", "timeStep": 1e-6, "endingPoint": 0.1},
+            ):
+                with self.subTest(**solver):
+                    settings = json.dumps({**time_course, **solver})
+                    result = evaluate_within_a_minute(page, COMPARE_WITH_EXPORT.replace("__SETTINGS__", settings))
+                    self.assertEqual(result["points"][0], result["points"][1])
+                    self.assertGreater(result["states"], 0)
+                    self.assertEqual(result["largestDifference"], 0)
+                    final_values.append(result["finalValues"])
+            # Each solver setting reached both runs: they don't all give the same results.
+            self.assertNotEqual(final_values[1], final_values[0])
+            self.assertTrue(all(math.isfinite(value) for value in final_values[2]))
             # ----------- END ------------
 
             context.close()

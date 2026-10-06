@@ -1,4 +1,4 @@
-import { CVODE_KISAO_ID, CVODE_PARAMETERS, buildUniformTimeCourse } from '../simulation/sedParameters'
+import { buildAlgorithm, buildUniformTimeCourse } from '../simulation/sedParameters'
 
 /**
  * Writes the SED-ML document for a model and its simulation settings.
@@ -9,7 +9,8 @@ import { CVODE_KISAO_ID, CVODE_PARAMETERS, buildUniformTimeCourse } from '../sim
  */
 export function generateSedmlData(simData, cellmlFileName = 'model.cellml') {
   const { initialTime, outputStartTime, outputEndTime, numberOfSteps } = buildUniformTimeCourse(simData)
-  const parameters = CVODE_PARAMETERS.map(
+  const { solver, parameters: algorithmParameters } = buildAlgorithm(simData)
+  const parameters = algorithmParameters.map(
     ({ kisaoId, value }) => `          <algorithmParameter kisaoID="${kisaoId}" value="${value}"/>`
   ).join('\n')
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -20,7 +21,7 @@ export function generateSedmlData(simData, cellmlFileName = 'model.cellml') {
   </listOfModels>
   <listOfSimulations>
     <uniformTimeCourse id="simulation1" initialTime="${initialTime}" outputStartTime="${outputStartTime}" outputEndTime="${outputEndTime}" numberOfSteps="${numberOfSteps}">
-      <algorithm kisaoID="${CVODE_KISAO_ID}">
+      <algorithm kisaoID="${solver.kisaoId}">
         <listOfAlgorithmParameters>
 ${parameters}
         </listOfAlgorithmParameters>
