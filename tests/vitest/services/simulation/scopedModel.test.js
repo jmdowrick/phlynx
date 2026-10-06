@@ -186,6 +186,13 @@ describe('checkScope', () => {
     }
   })
 
+  it('warns about variables in celsius, which lose their offset', () => {
+    const node = createNode('a', { vType: 'variable', extraRows: [{ name: 'T', type: 'constant', value: '37', units: 'celsius' }] })
+    const report = checkScope(resolveScope(null, [node], []), library())
+    expect(report.usesCelsius).toEqual([{ nodeId: 'a', nodeName: 'a_name', variableName: 'T' }])
+    expect(summariseScopeReport(report).warnings).toEqual([expect.stringMatching(/"a_name\.T" is in celsius/)])
+  })
+
   it('stops an empty selection', () => {
     const report = checkScope(resolveScope([], [createNode('a', { vType: 'variable' })], []), library())
     expect(report.errors).toEqual(['Select at least one instance to simulate.'])

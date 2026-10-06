@@ -46,7 +46,8 @@ function createClient(worker, onReady) {
       run.resolve({ ...data.results, variables: new Map(data.results.variables) })
     } else if (data.type === 'error') {
       pending.delete(data.id)
-      run.reject(new SimulationError(data.message, data.issues))
+      const partial = data.partialResults && { ...data.partialResults, variables: new Map(data.partialResults.variables) }
+      run.reject(new SimulationError(data.message, data.issues, partial))
     }
   }
   worker.onerror = (event) => {

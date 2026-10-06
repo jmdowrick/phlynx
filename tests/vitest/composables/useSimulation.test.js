@@ -240,6 +240,16 @@ describe('useSimulation', () => {
     await rerun
     expect(store.status).toBe('error')
     expect(store.results).toBeNull()
+
+    // A run that failed part-way keeps what it computed, mapped like finished results.
+    const partial = { ...RESULTS, voi: { ...RESULTS.voi, values: new Float64Array([0]) } }
+    const failing = run(['a'])
+    await settle()
+    engine.runs[2].finish(Promise.reject(Object.assign(new Error('The simulation failed.'), { issues: [], partialResults: partial })))
+    await failing
+    expect(store.status).toBe('error')
+    expect(store.results).toBe(partial)
+    expect(store.mapping.get('a::x')).toBe('a/x')
   })
 
   it('tells when the scope or the settings change after a run', async () => {

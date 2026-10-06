@@ -99,6 +99,18 @@ describe('loadLibOpenCOR', () => {
       const error = await run.promise.catch((reason) => reason)
       expect(error).toBeInstanceOf(SimulationError)
       expect(error.issues).toEqual([{ type: 'Error', description: 'mxstep' }])
+      expect(error.partialResults).toBeNull()
+    })
+
+    it('passes on the results a failed run computed before failing', async () => {
+      const { worker, client } = await loadClient()
+      const run = client.startSimulation({ cellml: '<model/>', settings: {} })
+      const { id } = worker.sent.at(-1)
+      const values = new Float64Array([0, 1])
+      worker.reply({ type: 'error', id, message: 'failed', issues: [], partialResults: { voi: { name: 't', values }, variables: [['c/x', { values }]] } })
+
+      const error = await run.promise.catch((reason) => reason)
+      expect(error.partialResults.variables.get('c/x').values).toBe(values)
     })
 
     it('fails every run when the worker stops working', async () => {
