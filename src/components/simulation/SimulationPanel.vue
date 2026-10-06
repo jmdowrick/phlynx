@@ -2,7 +2,9 @@
   <section ref="panelEl" class="simulation-panel" @keydown.f9.prevent="canPlay && play()">
     <header class="panel-head">
       <SimulationToolbar
-        v-model:scope-mode="store.scopeMode"
+        v-model:scope-mode="scopeMode"
+        :part-name="instanceId ? 'this instance' : 'the selection'"
+        :part-label="instanceId ? 'This instance' : null"
         :is-running="isRunning"
         :is-loading="libopencor.status === 'loading'"
         :blocked-reason="blockedReason"
@@ -112,6 +114,11 @@ import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../../stores/simulationSettingsStore'
 import { FLOW_IDS } from '../../utils/constants'
 
+const props = defineProps({
+  // In the instance editor: play runs this instance on its own, or the whole model.
+  instanceId: { type: String, default: null },
+})
+
 const { nodes, getSelectedNodes } = useVueFlow(FLOW_IDS.MAIN)
 const store = useSimulationResultsStore()
 const simulationSettingsStore = useSimulationSettingsStore()
@@ -137,10 +144,15 @@ const stoppedAt = computed(() => {
   return voi?.values.length ? `${voi.values.at(-1).toPrecision(4)} ${voi.unit}` : 'the start'
 })
 
+// A solve that starts before the plots do, to let the model settle, says so.
+const settleNote = computed(() => {
+  const { initialPoint, startingPoint } = simulationSettingsStore.simulationSettings
+  return initialPoint < startingPoint ? ` from ${initialPoint} s, plotted from ${startingPoint} s` : ''
+})
 const resultsSummary = computed(() => {
-  if (store.status === 'stopped') return `${scopeSummary.value}, stopped at ${stoppedAt.value}.`
-  if (store.status === 'error') return `${scopeSummary.value}, up to ${stoppedAt.value} before the solver failed.`
-  return `${scopeSummary.value}.`
+  if (store.status === 'stopped') return `${scopeSummary.value}${settleNote.value}, stopped at ${stoppedAt.value}.`
+  if (store.status === 'error') return `${scopeSummary.value}${settleNote.value}, up to ${stoppedAt.value} before the solver failed.`
+  return `${scopeSummary.value}${settleNote.value}.`
 })
 const isResultsDialogOpen = ref(false)
 
@@ -201,29 +213,48 @@ const figuresHint = computed(() => {
   return 'Add variables to a plot to see them here.'
 })
 
+// Whether play runs the part (the selection, or the edited instance) or the whole model. The sidebar's
+// choice lasts for the session; the instance editor's starts on the instance each time.
+const editorScopeMode = ref('selection')
+const scopeMode = computed({
+  get: () => (props.instanceId ? editorScopeMode.value : store.scopeMode),
+  set: (mode) => {
+    if (props.instanceId) editorScopeMode.value = mode
+    else store.scopeMode = mode
+  },
+})
+
 // The canvas selection, sorted, as play runs it in Selection mode.
 const sortedSelectedIds = computed(() => [...selectedNodeIds.value].sort())
 // Why play can't run, if it can't.
 const blockedReason = computed(() => {
   if (isSimulatorMissing.value) return libopencor.reason ?? 'The simulator isn’t available.'
   if (!nodes.value.length) return 'Add instances to simulate'
-  if (store.scopeMode === 'selection' && !selectedNodeIds.value.length) return 'Select instances on the canvas'
+  if (!props.instanceId && scopeMode.value === 'selection' && !selectedNodeIds.value.length) return 'Select instances on the canvas'
   return null
 })
 const canPlay = computed(() => !isRunning.value && !blockedReason.value && libopencor.status !== 'loading')
 // In Selection mode, the results show a selection other than the one on the canvas now.
 const isSelectionChanged = computed(
   () =>
-    store.scopeMode === 'selection' &&
+    !props.instanceId &&
+    scopeMode.value === 'selection' &&
     !!store.results &&
     sortedSelectedIds.value.length > 0 &&
     JSON.stringify(sortedSelectedIds.value) !== JSON.stringify(store.scopeNodeIds ? [...store.scopeNodeIds].sort() : null)
 )
-const isOutdated = computed(() => !!store.results && (isStale.value || isSelectionChanged.value))
+// In the instance editor, results of another run than this instance on its own, or the whole model.
+const isOtherRun = computed(() => {
+  if (!props.instanceId || !store.results) return false
+  const expected = scopeMode.value === 'model' ? null : [props.instanceId]
+  return JSON.stringify(store.scopeNodeIds) !== JSON.stringify(expected)
+})
+const isOutdated = computed(() => !!store.results && (isStale.value || isSelectionChanged.value || isOtherRun.value))
 
 /** Simulates the whole model or the canvas selection, as the switch says. */
 function play() {
-  run(store.scopeMode === 'model' ? null : sortedSelectedIds.value)
+  if (scopeMode.value === 'model') run(null)
+  else run(props.instanceId ? [props.instanceId] : sortedSelectedIds.value)
 }
 
 // What the status line says: the most pressing thing first, with the full lists a click away.
@@ -248,6 +279,7 @@ const statusLine = computed(() => {
   if (libopencor.status === 'loading') return { severity: 'info', icon: 'pi-spin pi-spinner', text: 'Loading the simulator…', details: [] }
   if (isStale.value && store.results) return { severity: 'warn', icon: 'pi-refresh', text: 'The model or settings changed · press play to update', details: warnings }
   if (isSelectionChanged.value) return { severity: 'warn', icon: 'pi-refresh', text: 'The selection changed · press play to update', details: warnings }
+  if (isOtherRun.value) return { severity: 'warn', icon: 'pi-refresh', text: 'These results are from another run · press play to update', details: warnings }
   if (store.results) {
     const count = store.report.warnings.length
     const text = count ? `${resultsSummary.value} ${count} ${count === 1 ? 'warning' : 'warnings'}.` : resultsSummary.value
@@ -256,25 +288,45 @@ const statusLine = computed(() => {
   return { severity: 'info', icon: null, text: 'Press play to simulate the whole model or the selected instances.', details: [] }
 })
 
-// While a slider moves, rerun as often as the simulator keeps up, always with the latest values.
+// While a slider moves, rerun as often as the simulator keeps up, always with the latest values: one run
+// at a time, and only the newest value waits. A run taking far longer than usual, as some values make a
+// model hard to solve, gives way to the newest value rather than holding the slider up.
+const SLOW_RUN_MIN_MS = 150
+const SLOW_RUN_FACTOR = 3
 let sliderRun = null
+let sliderRunStartedAt = 0
 let isSliderRerunWaiting = false
+const recentRunMs = []
+
+/** Reruns the scope with the slider values, or queues the newest values behind the run going. */
 function rerunForSliders() {
   // Before any run there is no scope to rerun: the next play uses the slider values.
   if (isSimulatorMissing.value || !store.results) return
-  if (sliderRun) {
-    isSliderRerunWaiting = true
+  if (!sliderRun) {
+    startSliderRun()
     return
   }
-  sliderRun = run(store.scopeNodeIds).finally(() => {
-    sliderRun = null
-    if (isSliderRerunWaiting) {
-      isSliderRerunWaiting = false
-      rerunForSliders()
-    }
-  })
+  isSliderRerunWaiting = true
+  const typical = [...recentRunMs].sort((a, b) => a - b)[Math.floor(recentRunMs.length / 2)] ?? SLOW_RUN_MIN_MS
+  // run() stops the run going and ignores its results.
+  if (performance.now() - sliderRunStartedAt > Math.max(SLOW_RUN_MIN_MS, typical * SLOW_RUN_FACTOR)) startSliderRun()
 }
 
+/** Starts a rerun, then the newest waiting values once it is done. */
+function startSliderRun() {
+  isSliderRerunWaiting = false
+  const startedAt = performance.now()
+  sliderRunStartedAt = startedAt
+  const thisRun = run(store.scopeNodeIds).finally(() => {
+    // Superseded by a newer run, which carries on.
+    if (sliderRun !== thisRun) return
+    recentRunMs.push(performance.now() - startedAt)
+    if (recentRunMs.length > 5) recentRunMs.shift()
+    sliderRun = null
+    if (isSliderRerunWaiting) startSliderRun()
+  })
+  sliderRun = thisRun
+}
 
 const { xAxis, charts } = useSimulationCharts(scopeNodes)
 </script>

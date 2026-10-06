@@ -27,7 +27,7 @@
     </Button>
 
     <label class="toolbar-scope" v-tooltip.bottom="scopeLabel">
-      <ToggleSwitch v-model="isWholeModel" :aria-label="`Simulate the whole model, not the selection`" />
+      <ToggleSwitch v-model="isWholeModel" :aria-label="`Simulate the whole model, not ${partName}`" />
       <span class="toolbar-scope-label">{{ scopeLabel }}</span>
     </label>
 
@@ -77,6 +77,10 @@ const props = defineProps({
   // Why play can't run, if it can't.
   blockedReason: { type: String, default: null },
   selectedCount: { type: Number, default: 0 },
+  // What play runs when it isn't the whole model: the canvas selection, or the instance being edited.
+  partName: { type: String, default: 'the selection' },
+  // How the switch labels it; by default the selection with its count.
+  partLabel: { type: String, default: null },
   // The shown results are out of date, so play would update them.
   isOutdated: { type: Boolean, default: false },
   canExpand: { type: Boolean, default: false },
@@ -89,9 +93,12 @@ const isWholeModel = computed({
   get: () => scopeMode.value === 'model',
   set: (value) => (scopeMode.value = value ? 'model' : 'selection'),
 })
-const scopeLabel = computed(() => (isWholeModel.value ? 'Whole model' : `Selection (${props.selectedCount})`))
+const scopeLabel = computed(() => (isWholeModel.value ? 'Whole model' : props.partLabel ?? `Selection (${props.selectedCount})`))
 const canPlay = computed(() => !props.blockedReason && !props.isLoading)
-const playLabel = computed(() => (isWholeModel.value ? 'Simulate the whole model' : `Simulate the selection (${props.selectedCount})`))
+const playLabel = computed(() => {
+  if (isWholeModel.value) return 'Simulate the whole model'
+  return props.partLabel ? `Simulate ${props.partName}` : `Simulate ${props.partName} (${props.selectedCount})`
+})
 const playHint = computed(() => props.blockedReason ?? (props.isLoading ? 'Loading the simulator…' : `${playLabel.value} (F9)`))
 </script>
 

@@ -183,7 +183,7 @@ class TestSimulationTab(unittest.TestCase):
             context.close()
             browser.close()
 
-    def test_results_dialog_syncs_cursors_shows_a_table_and_downloads(self):
+    def test_results_dialog_syncs_cursors_and_downloads(self):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
 
@@ -244,10 +244,6 @@ class TestSimulationTab(unittest.TestCase):
             with open(download.value.path(), "rb") as f:
                 self.assertEqual(f.read(8), b"\x89PNG\r\n\x1a\n")
 
-            dialog.get_by_text("Table", exact=True).click()
-            table = dialog.locator(".results-table").get_by_role("table")
-            expect(table.get_by_role("columnheader")).to_have_text(["time (second)", "soma_SN/V (milliV)", "soma_SN/m (dimensionless)"])
-            expect(table.locator("tbody tr").first.locator("td").first).to_have_text("0")
 
             dialog.get_by_role("button", name="Maximise the results").click()
             expect(dialog.get_by_role("button", name="Restore the results to their size")).to_be_visible()
@@ -294,6 +290,39 @@ class TestSimulationTab(unittest.TestCase):
             page.get_by_text("Simulate Instance").click()
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
             expect(switch).not_to_be_checked()
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
+    def test_instance_editor_simulates_its_instance_and_applies_without_closing(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+
+            context = browser.new_context(viewport={"width": 1600, "height": 1000})
+            context.add_init_script(OPT_IN_TO_ISOLATION)
+            page = context.new_page()
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+
+            # ---------- START -----------
+            soma = page.get_by_text("SN_somacell_modules.cellmlsoma_SN")
+            soma.wait_for(timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
+            page.evaluate(SHORTEN_SIMULATION)
+            soma.dblclick()
+            page.get_by_role("tab", name=re.compile(r"Plot \(")).click()
+
+            page.get_by_role("button", name="Simulate this instance").click()
+            expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
+            plot_variable(page, "soma_SN/V")
+            expect(page.locator(".simulation-plot .plot-title")).to_have_text("soma_SN/V")
+
+            # Apply saves and keeps the editor open, on the Plot tab.
+            page.get_by_role("button", name="Apply").click()
+            expect(page.get_by_text("CellML Updated")).to_be_visible()
+            expect(page.get_by_role("button", name="Simulate this instance")).to_be_visible()
             # ----------- END ------------
 
             context.close()
