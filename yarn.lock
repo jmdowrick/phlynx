@@ -5783,6 +5783,7 @@ __metadata:
     tailwindcss: "npm:^4.3.3"
     tailwindcss-primeui: "npm:^0.6.1"
     unplugin-vue-markdown: "npm:^29.2.0"
+    uplot: "npm:1.6.32"
     vite: "npm:^7.1.7"
     vite-plugin-electron: "npm:^0.29.0"
     vitest: "npm:^4.0.18"
@@ -7148,6 +7149,13 @@ __metadata:
     picomatch: "npm:^4.0.3"
     webpack-virtual-modules: "npm:^0.6.2"
   checksum: 10c0/273c1eab0eca4470c7317428689295c31dbe8ab0b306504de9f03cd20c156debb4131bef24b27ac615862958c5dd950a3951d26c0723ea774652ab3624149cff
+  languageName: node
+  linkType: hard
+
+"uplot@npm:1.6.32":
+  version: 1.6.32
+  resolution: "uplot@npm:1.6.32"
+  checksum: 10c0/4d9cdd5f53371656cfc178ea4ae0d8c9bdbe4c98c99df847926d7e5f5a5bcb8043561219da2979fee7616aabe3619d80fee093befdfe39aae65e6621284c39b1
   languageName: node
   linkType: hard
 

@@ -235,6 +235,23 @@ describe('startSimulation', () => {
     expect(error.message).toBe('The simulation failed.')
   })
 
+  it('suggests a smaller point interval when the solver takes too many steps', async () => {
+    const fake = createFakeLibOpenCOR()
+    fake.instance.waitForRun = () => {
+      Object.assign(fake.instance, {
+        hasErrors: true,
+        issueCount: 1,
+        issue: () => ({ typeAsString: 'Error', description: 'Task | CVODE: at t = 6.7, mxstep steps taken before reaching tout.', delete: () => {} }),
+      })
+      return 3
+    }
+
+    const error = await failureOf(startSimulation({ module: fake.loc, cellml: '<model/>', settings: SETTINGS }).promise)
+
+    expect(error.message).toMatch(/more than 500 steps between two output points\. Try a smaller point interval\./)
+    expect(error.issues[0].description).toMatch(/mxstep/)
+  })
+
   it('stops a run, keeping the points it computed', async () => {
     const fake = createFakeLibOpenCOR({ pollsToFinish: 3 })
     fake.task.voi = new Float64Array([0, 0.5, 1, 0, 0])
