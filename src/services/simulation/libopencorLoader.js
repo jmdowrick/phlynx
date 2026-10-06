@@ -47,7 +47,7 @@ function createClient(worker, onReady) {
     } else if (data.type === 'error') {
       pending.delete(data.id)
       const partial = data.partialResults && { ...data.partialResults, variables: new Map(data.partialResults.variables) }
-      run.reject(new SimulationError(data.message, data.issues, partial))
+      run.reject(new SimulationError(data.message, data.issues, partial, data.code ?? null))
     }
   }
   worker.onerror = (event) => {
@@ -59,15 +59,17 @@ function createClient(worker, onReady) {
 
   return markRaw({
     /**
-     * Starts simulating a CellML model in the worker; see engine.js's startSimulation.
+     * Starts a simulation in the worker; see engine.js's createSimulationSession. With `cellml`, the worker
+     * reads that model and keeps it under `key`; without, it reruns the model it keeps under `key`, and
+     * rejects with code 'no-session' if it no longer has it.
      *
-     * @param {Object} options - `{ cellml, settings, onProgress }`.
+     * @param {Object} options - `{ cellml, key, settings, changes, onProgress }`.
      * @returns {{promise: Promise<Object>, stop: Function}}
      */
-    startSimulation({ cellml, settings, onProgress = () => {} }) {
+    startSimulation({ cellml = null, key = null, settings, changes = [], onProgress = () => {} }) {
       const id = nextId++
       const promise = new Promise((resolve, reject) => pending.set(id, { resolve, reject, onProgress }))
-      worker.postMessage({ type: 'run', id, cellml, settings: { ...settings } })
+      worker.postMessage({ type: 'run', id, cellml, key, settings: { ...settings }, changes })
       return { promise, stop: () => worker.postMessage({ type: 'stop', id }) }
     },
   })

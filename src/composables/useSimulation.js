@@ -2,6 +2,7 @@ import { computed } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
 import { libopencor, whenLibOpenCORReady } from '../services/simulation/libopencorLoader'
+import { buildParameterChanges } from '../services/simulation/parameterChanges'
 import { buildParameterOverrides } from '../services/simulation/parameterSliders'
 import {
   applyParameterOverrides,
@@ -22,6 +23,10 @@ import { FLOW_IDS } from '../utils/constants'
 // One run at a time, shared by every caller; a newer run makes an older one's results irrelevant.
 let currentRun = null
 let runToken = 0
+// The model the simulator's worker keeps, from the last run that flattened one: what it was flattened
+// from, and how its results map to the nodes. A rerun of it needs only parameter changes.
+let session = null
+let sessionCount = 0
 
 /**
  * Abandons the current run: stops its simulation and ignores anything it reports later. For a workspace
@@ -31,6 +36,11 @@ export function cancelSimulation() {
   runToken++
   currentRun?.stop()
   currentRun = null
+}
+
+/** Forgets the model the worker keeps, so the next run flattens afresh. For a workspace cleared or replaced. */
+export function forgetSimulationSession() {
+  session = null
 }
 
 /**
@@ -70,8 +80,10 @@ export function useSimulation() {
   const currentOverrides = () => buildParameterOverrides(simulationSettingsStore.parameterScanConfig?.selections, store.sliderValues)
 
   /**
-   * Simulates some nodes, or the whole model: checks the scope, flattens it with the sliders' values, runs it
-   * and maps its results back to the nodes. A pre-flight with errors stops it before it runs.
+   * Simulates some nodes, or the whole model, and maps its results back to the nodes. When nothing but
+   * slider values has changed since the model the simulator keeps was flattened, it reruns that model with
+   * the new values; otherwise it checks the scope, flattens it with the sliders' values and runs it. A
+   * pre-flight with errors stops it before it runs.
    *
    * @param {string[]|null} [nodeIds] - The nodes to simulate, or null for every node.
    * @returns {Promise<void>}
@@ -82,23 +94,30 @@ export function useSimulation() {
     store.startRun(nodeIds)
 
     const scope = resolveCurrentScope(nodeIds)
+    const structure = buildScopeSignature(scope, libraryStore)
+    const overrides = currentOverrides()
+    const settings = { ...simulationSettingsStore.simulationSettings }
+    const signature = signRun(scope, overrides)
+
+    // Reusing the kept model, if its scope and everything it was flattened from are unchanged.
+    const kept = session?.scopeKey === JSON.stringify(nodeIds) && session.structure === structure ? session : null
+    const changes =
+      kept &&
+      buildParameterChanges({
+        nodes: scope.nodes,
+        overrides,
+        flattenedWith: kept.flattenedWith,
+        mapping: kept.mapping,
+        variables: kept.variables,
+        getGlobalConstant: libraryStore.getGlobalConstant,
+      })
+
+    let built = null
+    // Checked every run, since cut connections and inspection modules outside the scope change its warnings.
     store.report = summariseScopeReport(checkScope(scope, libraryStore))
     if (store.report.errors.length) {
       store.failRun('blocked')
       return
-    }
-
-    let cellml = null
-    /**
-     * Maps a failed run's partial results back to the nodes, as for a finished run.
-     *
-     * @param {Object} partialResults
-     * @returns {Promise<{results: Object, mapping: Map}|null>}
-     */
-    const mapPartialResults = async (partialResults) => {
-      if (!cellml) return null
-      const libcellml = await whenLibCellMLReady()
-      return { results: partialResults, mapping: buildVariableMapping({ libcellml, cellml, nodes: scope.nodes, results: partialResults }) }
     }
 
     try {
@@ -109,34 +128,85 @@ export function useSimulation() {
         return
       }
 
-      const overrides = currentOverrides()
-      const withOverrides = applyParameterOverrides(scope, libraryStore, overrides)
-      // libOpenCOR checks the model and reports its issues, so the flatten's own check is skipped.
-      cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore, { check: false }).text()
-      if (token !== runToken) return
-      const signature = signRun(scope, overrides)
-      const settings = { ...simulationSettingsStore.simulationSettings }
-      currentRun = simulator.startSimulation({
-        cellml,
-        settings,
-        onProgress: (progress) => token === runToken && (store.progress = progress),
-      })
-      const results = await currentRun.promise
+      const onProgress = (progress) => token === runToken && (store.progress = progress)
+      let results
+      let mapped = null
+      if (changes) {
+        currentRun = simulator.startSimulation({ key: kept.key, settings, changes, onProgress })
+        try {
+          results = await currentRun.promise
+        } catch (error) {
+          // The worker lost the model (it restarted, say), or the run failed: map what there is as before.
+          if (error.code === 'no-session') session = null
+          throw error
+        }
+        mapped = kept
+      } else {
+        const withOverrides = applyParameterOverrides(scope, libraryStore, overrides)
+        // libOpenCOR checks the model and reports its issues, so the flatten's own check is skipped.
+        const cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore, { check: false }).text()
+        if (token !== runToken) return
+        built = {
+          key: ++sessionCount,
+          scopeKey: JSON.stringify(nodeIds),
+          structure,
+          cellml,
+          flattenedWith: { rows: new Set(overrides.rows.keys()), globals: new Set(overrides.globals.keys()) },
+        }
+        session = null
+        currentRun = simulator.startSimulation({ cellml, key: built.key, settings, onProgress })
+        results = await currentRun.promise
+      }
       if (token !== runToken) return
 
-      const libcellml = await whenLibCellMLReady()
-      if (token !== runToken) return
-      const mapping = buildVariableMapping({ libcellml, cellml, nodes: scope.nodes, results })
-      const inspectionOutputs = mapInspectionModules(scope.inspectionModules, scope.nodes, results)
-      store.finishRun({ results, mapping, signature, inspectionOutputs })
+      if (!mapped) {
+        mapped = await mapResults(built, scope, results)
+        if (token !== runToken) return
+        session = mapped
+      }
+      store.finishRun({ results, mapping: mapped.mapping, signature, inspectionOutputs: mapped.inspectionOutputs })
     } catch (error) {
       if (token === runToken) {
-        const partial = error.partialResults && (await mapPartialResults(error.partialResults))
+        const source = changes ? kept : built
+        const partial = error.partialResults && source && (await mapPartialResults(source, scope, error.partialResults))
         if (token === runToken) store.failRun('error', { message: error.message, issues: error.issues ?? [] }, partial)
       }
     } finally {
       if (token === runToken) currentRun = null
     }
+  }
+
+  /**
+   * Maps a newly flattened model's results back to the nodes, making it the kept model.
+   *
+   * @param {Object} built - The model's details (see run).
+   * @param {ReturnType<typeof resolveScope>} scope
+   * @param {Object} results
+   * @returns {Promise<Object>} The kept model, with its mapping, inspection outputs and variables.
+   */
+  async function mapResults(built, scope, results) {
+    const libcellml = await whenLibCellMLReady()
+    return {
+      ...built,
+      mapping: buildVariableMapping({ libcellml, cellml: built.cellml, nodes: scope.nodes, results }),
+      inspectionOutputs: mapInspectionModules(scope.inspectionModules, scope.nodes, results),
+      // Only names and kinds are kept, not values: they don't change while the model doesn't.
+      variables: new Map([...results.variables].map(([name, { kind }]) => [name, { kind }])),
+    }
+  }
+
+  /**
+   * Maps a failed run's partial results back to the nodes, as for a finished run.
+   *
+   * @param {Object} source - The model run (see run).
+   * @param {ReturnType<typeof resolveScope>} scope
+   * @param {Object} partialResults
+   * @returns {Promise<{results: Object, mapping: Map}>}
+   */
+  async function mapPartialResults(source, scope, partialResults) {
+    if (source.mapping) return { results: partialResults, mapping: source.mapping }
+    const libcellml = await whenLibCellMLReady()
+    return { results: partialResults, mapping: buildVariableMapping({ libcellml, cellml: source.cellml, nodes: scope.nodes, results: partialResults }) }
   }
 
   /** Stops the running simulation, keeping the points it computed; before it starts, abandons it. */

@@ -36,12 +36,13 @@ vi.mock('../../../src/services/simulation/scopedModel', async (importOriginal) =
   },
 }))
 vi.mock('../../../src/services/simulation/variableMapping', () => ({
-  buildVariableMapping: () => new Map([['a::x', 'a/x']]),
+  mappingKey: (nodeId, name) => `${nodeId}::${name}`,
+  buildVariableMapping: () => new Map([['a::x', 'a/x'], ['a::k', 'instance_parameters/k']]),
   mapInspectionModules: () => [],
 }))
 vi.mock('../../../src/utils/cellml', () => ({ whenLibCellMLReady: async () => ({}) }))
 
-const { cancelSimulation, useSimulation } = await import('../../../src/composables/useSimulation.js')
+const { cancelSimulation, forgetSimulationSession, useSimulation } = await import('../../../src/composables/useSimulation.js')
 const { useSimulationResultsStore } = await import('../../../src/stores/simulationResultsStore.js')
 const { useSimulationSettingsStore } = await import('../../../src/stores/simulationSettingsStore.js')
 const { useLibraryStore } = await import('../../../src/stores/libraryStore.js')
@@ -76,6 +77,7 @@ describe('useSimulation', () => {
     engine.runs = []
     built.scopes = []
     Object.assign(loader, { module: simulator, reason: null, ready: null })
+    forgetSimulationSession()
   })
 
   it('runs the selection with the current settings and keeps its mapped results', async () => {
@@ -250,6 +252,75 @@ describe('useSimulation', () => {
     expect(store.status).toBe('error')
     expect(store.results).toBe(partial)
     expect(store.mapping.get('a::x')).toBe('a/x')
+  })
+
+  describe('reruns of the model the simulator keeps', () => {
+    const K = { name: 'k', type: 'constant', value: '2' }
+    const KEPT = { ...RESULTS, variables: new Map([['instance_parameters/k', { kind: 'constant', values: new Float64Array([2, 2]) }]]) }
+
+    /**
+     * Runs scope ['a'] once, flattening it.
+     *
+     * @returns {Promise<Function>} useSimulation's run.
+     */
+    async function runOnce() {
+      nodes.value = [createNode('a', [{ name: 'x', type: 'variable' }, K])]
+      useSimulationSettingsStore().setParameterScanConfig({
+        selections: [{ key: 'a::k', nodeId: 'a', nodeName: 'a', parameterName: 'k', type: 'constant', min: 1, max: 3 }],
+      })
+      const { run } = useSimulation()
+      const first = run(['a'])
+      await settle()
+      engine.runs[0].finish(KEPT)
+      await first
+      return run
+    }
+
+    it('reruns with a slider’s value as a change, without flattening again', async () => {
+      const run = await runOnce()
+      expect(engine.runs[0].options.cellml).toBe('<model/>')
+
+      store.setSliderValue('a::k', 2.5)
+      const rerun = run(['a'])
+      await settle()
+      expect(built.scopes).toHaveLength(1)
+      expect(engine.runs[1].options.cellml).toBeUndefined()
+      expect(engine.runs[1].options.key).toBe(engine.runs[0].options.key)
+      expect(engine.runs[1].options.changes).toEqual([{ component: 'instance_parameters', variable: 'k', value: 2.5 }])
+      engine.runs[1].finish(KEPT)
+      await rerun
+      expect(store.status).toBe('done')
+      expect(store.mapping.get('a::x')).toBe('a/x')
+    })
+
+    it('puts back the model’s value for a slider flattened in but since reset', async () => {
+      useSimulationResultsStore().setSliderValue('a::k', 2.5)
+      const run = await runOnce()
+      expect(built.scopes[0].nodes[0].data.variables.find((row) => row.name === 'k').value).toBe('2.5')
+
+      store.setSliderValue('a::k', null)
+      run(['a'])
+      await settle()
+      expect(engine.runs[1].options.changes).toEqual([{ component: 'instance_parameters', variable: 'k', value: 2 }])
+    })
+
+    it('flattens again once the model changes, or when the worker lost it', async () => {
+      const run = await runOnce()
+      nodes.value = [createNode('a', [{ name: 'x', type: 'variable' }, { ...K, value: '3' }])]
+      const edited = run(['a'])
+      await settle()
+      expect(engine.runs[1].options.cellml).toBe('<model/>')
+      engine.runs[1].finish(KEPT)
+      await edited
+
+      const lost = run(['a'])
+      await settle()
+      engine.runs[2].finish(Promise.reject(Object.assign(new Error('The model needs reading again.'), { issues: [], code: 'no-session' })))
+      await lost
+      run(['a'])
+      await settle()
+      expect(engine.runs[3].options.cellml).toBe('<model/>')
+    })
   })
 
   it('tells when the scope or the settings change after a run', async () => {

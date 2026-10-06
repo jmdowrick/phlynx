@@ -76,7 +76,7 @@ describe('loadLibOpenCOR', () => {
 
       const run = client.startSimulation({ cellml: '<model/>', settings: { endingPoint: 1 }, onProgress })
       const { id } = worker.sent.at(-1)
-      expect(worker.sent.at(-1)).toEqual({ type: 'run', id, cellml: '<model/>', settings: { endingPoint: 1 } })
+      expect(worker.sent.at(-1)).toEqual({ type: 'run', id, cellml: '<model/>', key: null, settings: { endingPoint: 1 }, changes: [] })
       worker.reply({ type: 'progress', id, value: 0.5 })
       const values = new Float64Array([1, 2])
       worker.reply({ type: 'done', id, results: { voi: { name: 't', values }, variables: [['c/x', { kind: 'state', values }]], isStopped: false } })
@@ -85,6 +85,18 @@ describe('loadLibOpenCOR', () => {
       expect(onProgress).toHaveBeenCalledWith(0.5)
       expect(results.variables).toBeInstanceOf(Map)
       expect(results.variables.get('c/x').kind).toBe('state')
+    })
+
+    it('reruns the model the worker keeps by its key, with parameter changes', async () => {
+      const { worker, client } = await loadClient()
+      const changes = [{ component: 'instance_parameters', variable: 'k', value: 2 }]
+
+      const run = client.startSimulation({ key: 3, settings: {}, changes })
+      const { id } = worker.sent.at(-1)
+      expect(worker.sent.at(-1)).toEqual({ type: 'run', id, cellml: null, key: 3, settings: {}, changes })
+      worker.reply({ type: 'error', id, message: 'The model needs reading again.', issues: [], code: 'no-session' })
+
+      expect((await run.promise.catch((reason) => reason)).code).toBe('no-session')
     })
 
     it('rejects a failed run with a SimulationError, and stops a run by its id', async () => {
