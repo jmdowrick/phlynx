@@ -22,22 +22,40 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
   let seriesSlots = markRaw(new Map())
   const getSeriesSlots = () => seriesSlots
   const setSeriesSlots = (slots) => (seriesSlots = markRaw(slots))
+  /** Slider values by parameter key, tried out in runs without changing the model. Kept across runs. */
+  const sliderValues = ref(new Map())
 
   /**
-   * Records a run starting.
+   * Sets a slider's value, or clears it with null.
+   *
+   * @param {string} key
+   * @param {number|null} value
+   */
+  function setSliderValue(key, value) {
+    const next = new Map(sliderValues.value)
+    if (value === null) next.delete(key)
+    else next.set(key, value)
+    sliderValues.value = next
+  }
+
+  /**
+   * Records a run starting. A rerun of the same scope keeps showing the previous results until it finishes.
    *
    * @param {string[]|null} nodeIds
    */
   function startRun(nodeIds) {
+    const isSameScope = JSON.stringify(nodeIds) === JSON.stringify(scopeNodeIds.value)
     status.value = 'running'
     progress.value = 0
     scopeNodeIds.value = nodeIds
     report.value = { errors: [], warnings: [] }
     error.value = null
-    results.value = null
-    mapping.value = null
     signature.value = null
-    seriesSlots = markRaw(new Map())
+    if (!isSameScope) {
+      results.value = null
+      mapping.value = null
+      seriesSlots = markRaw(new Map())
+    }
   }
 
   /**
@@ -62,6 +80,8 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
   function failRun(nextStatus, nextError = null) {
     status.value = nextStatus
     error.value = nextError
+    results.value = null
+    mapping.value = null
   }
 
   function resetState() {
@@ -74,6 +94,7 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     mapping.value = null
     signature.value = null
     seriesSlots = markRaw(new Map())
+    sliderValues.value = new Map()
   }
 
   return {
@@ -87,6 +108,8 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     signature,
     getSeriesSlots,
     setSeriesSlots,
+    sliderValues,
+    setSliderValue,
     startRun,
     finishRun,
     failRun,

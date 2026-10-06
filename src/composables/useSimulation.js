@@ -3,7 +3,15 @@ import { useVueFlow } from '@vue-flow/core'
 
 import { startSimulation } from '../services/simulation/engine'
 import { libopencor, whenLibOpenCORReady } from '../services/simulation/libopencorLoader'
-import { buildScopedModel, buildScopeSignature, checkScope, resolveScope, summariseScopeReport } from '../services/simulation/scopedModel'
+import { buildParameterOverrides } from '../services/simulation/parameterSliders'
+import {
+  applyParameterOverrides,
+  buildScopedModel,
+  buildScopeSignature,
+  checkScope,
+  resolveScope,
+  summariseScopeReport,
+} from '../services/simulation/scopedModel'
 import { buildVariableMapping } from '../services/simulation/variableMapping'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
@@ -29,7 +37,7 @@ export function cancelSimulation() {
 /**
  * Runs scoped simulations of the workspace and keeps their results in simulationResultsStore.
  *
- * @returns {{run: Function, stop: Function, isStale: import('vue').ComputedRef<boolean>}}
+ * @returns {{run: Function, stop: Function, keepCurrent: Function, isStale: import('vue').ComputedRef<boolean>}}
  */
 export function useSimulation() {
   const { nodes, edges } = useVueFlow(FLOW_IDS.MAIN)
@@ -52,11 +60,19 @@ export function useSimulation() {
    * @param {ReturnType<typeof resolveScope>} scope
    * @returns {string}
    */
-  const signRun = (scope) => `${buildScopeSignature(scope, libraryStore)}:${JSON.stringify(simulationSettingsStore.simulationSettings)}`
+  const signRun = (scope, overrides) =>
+    [
+      buildScopeSignature(scope, libraryStore),
+      JSON.stringify(simulationSettingsStore.simulationSettings),
+      JSON.stringify([[...overrides.rows], [...overrides.globals]]),
+    ].join(':')
+
+  /** The slider values runs try out, for the sliders still defined. */
+  const currentOverrides = () => buildParameterOverrides(simulationSettingsStore.parameterScanConfig?.selections, store.sliderValues)
 
   /**
-   * Simulates some nodes, or the whole model: checks the scope, flattens it, runs it and maps its results
-   * back to the nodes. A pre-flight with errors stops it before it runs.
+   * Simulates some nodes, or the whole model: checks the scope, flattens it with the sliders' values, runs it
+   * and maps its results back to the nodes. A pre-flight with errors stops it before it runs.
    *
    * @param {string[]|null} [nodeIds] - The nodes to simulate, or null for every node.
    * @returns {Promise<void>}
@@ -81,9 +97,11 @@ export function useSimulation() {
         return
       }
 
-      const cellml = await buildScopedModel(scope, libraryStore).text()
+      const overrides = currentOverrides()
+      const withOverrides = applyParameterOverrides(scope, libraryStore, overrides)
+      const cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore).text()
       if (token !== runToken) return
-      const signature = signRun(scope)
+      const signature = signRun(scope, overrides)
       const settings = { ...simulationSettingsStore.simulationSettings }
       currentRun = startSimulation({
         module,
@@ -116,11 +134,23 @@ export function useSimulation() {
     store.failRun('idle')
   }
 
+  /**
+   * Makes a change that keeps the shown results true, such as applying a slider's value to the model, and
+   * keeps them current if they were.
+   *
+   * @param {Function} change
+   */
+  function keepCurrent(change) {
+    const wasCurrent = !!store.results && !isStale.value
+    change()
+    if (wasCurrent) store.signature = signRun(resolveCurrentScope(store.scopeNodeIds), currentOverrides())
+  }
+
   /** Whether the scope or the settings have changed since the shown results were computed. */
   const isStale = computed(() => {
     if (!store.signature || !store.results) return false
-    return signRun(resolveCurrentScope(store.scopeNodeIds)) !== store.signature
+    return signRun(resolveCurrentScope(store.scopeNodeIds), currentOverrides()) !== store.signature
   })
 
-  return { run, stop, isStale }
+  return { run, stop, keepCurrent, isStale }
 }

@@ -26,9 +26,13 @@ vi.mock('../../../src/services/simulation/engine', () => ({
   },
 }))
 
+const built = vi.hoisted(() => ({ scopes: [] }))
 vi.mock('../../../src/services/simulation/scopedModel', async (importOriginal) => ({
   ...(await importOriginal()),
-  buildScopedModel: () => new Blob(['<model/>']),
+  buildScopedModel: (scope) => {
+    built.scopes.push(scope)
+    return new Blob(['<model/>'])
+  },
 }))
 vi.mock('../../../src/services/simulation/variableMapping', () => ({
   buildVariableMapping: () => new Map([['a::x', 'a/x']]),
@@ -68,6 +72,7 @@ describe('useSimulation', () => {
     nodes.value = [createNode('a'), createNode('b')]
     edges.value = []
     engine.runs = []
+    built.scopes = []
     Object.assign(loader, { module: { name: 'libopencor' }, reason: null, ready: null })
   })
 
@@ -179,6 +184,59 @@ describe('useSimulation', () => {
 
     expect(engine.runs[0].stop).toHaveBeenCalled()
     expect(store.status).toBe('idle')
+    expect(store.results).toBeNull()
+  })
+
+  it('builds each run with the sliders’ values, and tells when a slider has moved since', async () => {
+    nodes.value = [createNode('a', [{ name: 'x', type: 'variable' }, { name: 'k', type: 'constant', value: '1' }])]
+    useSimulationSettingsStore().setParameterScanConfig({
+      selections: [{ key: 'a::k', nodeId: 'a', nodeName: 'a', parameterName: 'k', type: 'constant', min: 0, default: 1, max: 2 }],
+    })
+    store.setSliderValue('a::k', 1.5)
+    const { run, isStale, keepCurrent } = useSimulation()
+
+    const done = run(['a'])
+    await settle()
+    engine.runs[0].finish(RESULTS)
+    await done
+
+    expect(built.scopes[0].nodes[0].data.variables.find((row) => row.name === 'k').value).toBe('1.5')
+    expect(nodes.value[0].data.variables.find((row) => row.name === 'k').value).toBe('1')
+    expect(isStale.value).toBe(false)
+
+    store.setSliderValue('a::k', 1.8)
+    expect(isStale.value).toBe(true)
+    store.setSliderValue('a::k', 1.5)
+    expect(isStale.value).toBe(false)
+
+    // Applying the value to the model and dropping the slider value leaves the results true.
+    keepCurrent(() => {
+      nodes.value = [createNode('a', [{ name: 'x', type: 'variable' }, { name: 'k', type: 'constant', value: '1.5' }])]
+      store.setSliderValue('a::k', null)
+    })
+    expect(isStale.value).toBe(false)
+
+    // Results already stale stay stale through such a change.
+    useSimulationSettingsStore().setSimulationSettings({ endingPoint: 5 })
+    keepCurrent(() => store.setSliderValue('a::k', null))
+    expect(isStale.value).toBe(true)
+  })
+
+  it('keeps showing a scope’s results while it reruns, and clears them when a run fails', async () => {
+    const { run } = useSimulation()
+    const first = run(['a'])
+    await settle()
+    engine.runs[0].finish(RESULTS)
+    await first
+
+    const rerun = run(['a'])
+    await settle()
+    expect(store.status).toBe('running')
+    expect(store.results).toBe(RESULTS)
+
+    engine.runs[1].finish(Promise.reject(Object.assign(new Error('The simulation failed.'), { issues: [] })))
+    await rerun
+    expect(store.status).toBe('error')
     expect(store.results).toBeNull()
   })
 

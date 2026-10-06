@@ -13,7 +13,7 @@ import { resolvePortCouplings } from '../../../src/utils/edges.js'
 import { generateFlattenedModel } from '../../../src/utils/cellml.js'
 import { interpretUnitExpression } from '../../../src/utils/unitExpression.js'
 import { resolveBoundaryValues } from '../../../src/services/export/boundaryValues.js'
-import { buildScopedModel, checkScope, resolveScope } from '../../../src/services/simulation/scopedModel.js'
+import { applyParameterOverrides, buildScopedModel, checkScope, resolveScope } from '../../../src/services/simulation/scopedModel.js'
 import { buildVariableMapping, mappingKey, readNodeSeries } from '../../../src/services/simulation/variableMapping.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
@@ -554,5 +554,51 @@ describe('mapping a scoped run’s results back to instances', () => {
     expect(mapping.has(mappingKey('leaf_1', 'v'))).toBe(false)
     expect(readNodeSeries(results, mapping, 'leaf_1', 'v')).toBeNull()
     expect(readNodeSeries(results, mapping, 'missing', 'v')).toBeNull()
+  })
+})
+
+describe('trying out parameter values', () => {
+  let store
+
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  }, 120000)
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    store = useLibraryStore()
+    store.addUnitsFile({ componentFile: 'units.cellml', model: UNITS })
+    store.addMath(MATH_REF, XML)
+    store.assignGlobalConstant('g', '0.1', 'per_second')
+  })
+
+  /** A decay node with its rows from the math, as a new instance has. */
+  function buildNode() {
+    const rows = reconcileRows(analyzeMathXml(store.availableMath.get(MATH_REF)), [{ name: 'g', type: 'global_constant' }], {
+      defaults: store.getMathDefaults(MATH_REF),
+    })
+    return { id: 'n1', type: 'instanceNode', data: { name: 'decay_1', mathRef: MATH_REF, variables: rows, ports: [] } }
+  }
+
+  it('flattens with overridden constants, initial values and global constants, changing neither', async () => {
+    const node = buildNode()
+    const scope = resolveScope(null, [node], [])
+    const overrides = { rows: new Map([['n1::k', 0.9], ['n1::x_init', 4]]), globals: new Map([['g', 0.3]]) }
+
+    const applied = applyParameterOverrides(scope, store, overrides)
+    const text = await buildScopedModel(applied.scope, applied.libraryStore).text()
+
+    expect(text).toMatch(/<variable name="k"[^>]*initial_value="0\.9"/)
+    expect(text).toMatch(/<variable name="x_init"[^>]*initial_value="4"/)
+    expect(text).toMatch(/<variable name="g"[^>]*initial_value="0\.3"/)
+    expect(node.data.variables.find((row) => row.name === 'k').value).toBe('0.5')
+    expect(store.getGlobalConstant('g').value).toBe('0.1')
+  })
+
+  it('leaves the scope and library as they are without overrides', () => {
+    const scope = resolveScope(null, [buildNode()], [])
+    const applied = applyParameterOverrides(scope, store)
+    expect(applied.scope.nodes[0]).toBe(scope.nodes[0])
+    expect(applied.libraryStore).toBe(store)
   })
 })

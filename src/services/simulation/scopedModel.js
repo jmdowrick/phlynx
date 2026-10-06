@@ -240,6 +240,37 @@ function zeroUnsuppliedBoundaries(nodes, edges) {
 }
 
 /**
+ * Applies temporary parameter values to a scope, for one run: row values by `nodeId::name` and global
+ * constants by name. The nodes and the library are copied or wrapped, never changed.
+ *
+ * @param {ReturnType<typeof resolveScope>} scope
+ * @param {Object} libraryStore - Provides availableMath, availableUnits and getGlobalConstant(name).
+ * @param {{rows?: Map<string, number>, globals?: Map<string, number>}} [overrides]
+ * @returns {{scope: ReturnType<typeof resolveScope>, libraryStore: Object}}
+ */
+export function applyParameterOverrides(scope, libraryStore, { rows = new Map(), globals = new Map() } = {}) {
+  const nodes = scope.nodes.map((node) => {
+    const variables = (node.data.variables ?? []).map((row) => {
+      const key = `${node.id}::${row.name}`
+      return rows.has(key) ? { ...row, value: String(rows.get(key)) } : row
+    })
+    return variables.some((row, i) => row !== node.data.variables[i]) ? { ...node, data: { ...node.data, variables } } : node
+  })
+  const library = globals.size
+    ? {
+        availableMath: libraryStore.availableMath,
+        availableUnits: libraryStore.availableUnits,
+        getMathAnalysis: libraryStore.getMathAnalysis,
+        getGlobalConstant: (name) => {
+          const constant = libraryStore.getGlobalConstant(name)
+          return globals.has(name) ? { ...constant, value: String(globals.get(name)) } : constant
+        },
+      }
+    : libraryStore
+  return { scope: { ...scope, nodes }, libraryStore: library }
+}
+
+/**
  * Flattens a scope into a standalone CellML model. A boundary condition nothing supplies and without a
  * value of its own is set to 0; checkScope lists them in `zeroedBoundaries`.
  *

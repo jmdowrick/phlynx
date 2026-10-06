@@ -551,6 +551,7 @@ import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { notify } from '../utils/notify'
 import { buildPlotConfig, buildPlotVariableRows, normaliseGroups } from '../services/simulation/plotSelections'
+import { buildParameterScanRows } from '../services/simulation/parameterSliders'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -798,61 +799,6 @@ function cloneSettings(input) {
   return { ...input }
 }
 
-function pickDefaultValue(variable) {
-  // A global constant's value is shared, so a node's own copy may be out of date.
-  const value = variable.type === 'global_constant' ? libraryStore.getGlobalConstant(variable.name)?.value : variable.value
-  const candidate = variable.defaultValue ?? variable.initialValue ?? value
-  const numeric = Number(candidate)
-  return Number.isFinite(numeric) ? numeric : null
-}
-
-function computeScanBounds(defaultValue) {
-  if (defaultValue === null || defaultValue === undefined || Number.isNaN(defaultValue)) {
-    return { min: null, max: null }
-  }
-  const spread = Math.abs(defaultValue) * 0.1
-  return { min: defaultValue - spread, max: defaultValue + spread }
-}
-
-function buildConstantRows(nodes, selectedByKey) {
-  const rows = []
-
-  for (const node of nodes || []) {
-    if (!node?.data?.name) continue
-    for (const variable of node.data.variables || []) {
-      if (!variable?.name) continue
-
-      const type = variable.type || 'variable'
-      if (type !== 'constant' && type !== 'global_constant') continue
-
-      const key = `${node.id}::${variable.name}`
-      const existing = selectedByKey.get(key)
-      const defaultValue = pickDefaultValue(variable)
-      const bounds = computeScanBounds(defaultValue)
-
-      rows.push({
-        key,
-        nodeId: node.id,
-        nodeName: node.data.name,
-        parameterName: variable.name,
-        units: variable.units || '',
-        type,
-        selected: existing?.selected ?? false,
-        default: existing?.default ?? defaultValue,
-        min: existing?.min ?? bounds.min,
-        max: existing?.max ?? bounds.max,
-        step: existing?.step ?? null,
-      })
-    }
-  }
-
-  return rows.sort((a, b) => {
-    const nodeDiff = a.nodeName.localeCompare(b.nodeName)
-    if (nodeDiff !== 0) return nodeDiff
-    return a.parameterName.localeCompare(b.parameterName)
-  })
-}
-
 function createDraftPayload() {
   const plottedSelections = variableRows.value
     .filter((row) => row.plot)
@@ -923,7 +869,7 @@ async function initialiseDialog() {
 
   loadingText.value = 'Scanning nodes and variables...'
   variableRows.value = buildPlotVariableRows(props.nodes, selectedByKey)
-  constantRows.value = buildConstantRows(props.nodes, scanSelectedByKey)
+  constantRows.value = buildParameterScanRows(props.nodes, scanSelectedByKey, libraryStore.getGlobalConstant)
 
   resetVariableFilters()
   resetConstantFilters()

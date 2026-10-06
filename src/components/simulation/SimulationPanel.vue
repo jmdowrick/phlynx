@@ -50,8 +50,8 @@
       <Button label="Run again" size="small" link :disabled="!canRun" @click="run(store.scopeNodeIds)" />
     </Message>
 
-    <template v-if="store.results">
-      <p class="panel-hint">
+    <template v-if="hasScope">
+      <p v-if="store.results" class="panel-hint">
         {{ scopeSummary }}<template v-if="store.status === 'stopped'">, stopped at {{ stoppedAt }}</template>.
       </p>
 
@@ -70,6 +70,14 @@
         <InstancePlotVariables v-model="plotEntries" :rows="shownNode.data.variables" :initial-entries="initialEntries" />
       </div>
 
+      <SimulationSliders
+        v-if="shownNode"
+        :key="shownNode.id"
+        :node="shownNode"
+        :keep-current="keepCurrent"
+        @change="!isSimulatorMissing && run(store.scopeNodeIds)"
+      />
+
       <SimulationPlot
         v-for="chart in charts"
         :key="chart.key"
@@ -78,7 +86,7 @@
         :x="xAxis"
         :series="chart.series"
       />
-      <p v-if="shownNode && !charts.length" class="panel-hint">Tick variables above to plot them.</p>
+      <p v-if="store.results && shownNode && !charts.length" class="panel-hint">Tick variables above to plot them.</p>
     </template>
     <p v-else-if="store.status === 'idle'" class="panel-hint">
       Select instances on the canvas and simulate them on their own, or simulate the whole model.
@@ -101,6 +109,7 @@ import Select from 'primevue/select'
 
 import InstancePlotVariables from '../InstancePlotVariables.vue'
 import SimulationPlot from './SimulationPlot.vue'
+import SimulationSliders from './SimulationSliders.vue'
 import { useSimulation } from '../../composables/useSimulation'
 import { libopencor } from '../../services/simulation/libopencorLoader'
 import { getNodePlotEntries, setNodePlotVariables } from '../../services/simulation/plotSelections'
@@ -113,9 +122,11 @@ import { FLOW_IDS } from '../../utils/constants'
 const { nodes, getSelectedNodes } = useVueFlow(FLOW_IDS.MAIN)
 const store = useSimulationResultsStore()
 const simulationSettingsStore = useSimulationSettingsStore()
-const { run, stop, isStale } = useSimulation()
+const { run, stop, keepCurrent, isStale } = useSimulation()
 
 const isRunning = computed(() => store.status === 'running')
+// A run has been asked for, so its scope's instances, plotted variables and sliders can be shown.
+const hasScope = computed(() => store.status !== 'idle')
 const isSimulatorMissing = computed(() => ['unavailable', 'error'].includes(libopencor.status))
 const canRun = computed(() => !isRunning.value && !isSimulatorMissing.value)
 const selectedNodeIds = computed(() => getSelectedNodes.value.map((node) => node.id))
