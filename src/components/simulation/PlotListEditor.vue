@@ -22,6 +22,12 @@
         <button v-else type="button" class="plot-name" :aria-pressed="plot.id === targetPlotId" @click="targetPlotId = plot.id">
           {{ plot.name }}
           <span class="plot-count">{{ plot.selections.length }}</span>
+          <i
+            v-if="plot.units.size > 1"
+            class="pi pi-exclamation-triangle plot-mixed"
+            v-tooltip.top="'This plot mixes units, so it shows as one chart per unit. Move variables to give each unit its own plot.'"
+            aria-label="Mixed units"
+          ></i>
         </button>
         <Button
           icon="pi pi-plus"
@@ -48,8 +54,7 @@
         <li v-for="selection in plot.selections" :key="selection.key" class="plot-variable" :class="{ 'plot-variable--elsewhere': !selection.inScope }">
           <span class="plot-swatch" :style="{ background: selection.colour ?? 'transparent' }" aria-hidden="true"></span>
           <span class="plot-variable-text" :title="selection.title">
-            <span class="plot-variable-name">{{ selection.variableName }}</span>
-            <span class="plot-variable-component">{{ selection.componentLabel }}</span>
+            <span class="plot-variable-component">{{ selection.componentLabel }}/</span><span class="plot-variable-name">{{ selection.variableName }}</span>
           </span>
           <span class="plot-variable-units">{{ selection.units }}</span>
           <Select
@@ -58,6 +63,7 @@
             :options="plots"
             option-label="name"
             option-value="id"
+            :option-disabled="(option) => !acceptsUnits(plotConfig, option.id, selection.units, selection.key)"
             size="small"
             class="plot-move"
             :aria-label="`Move ${selection.variableName} to another plot`"
@@ -95,8 +101,7 @@
       <ul class="plot-variables">
         <li v-for="selection in unassigned" :key="selection.key" class="plot-variable">
           <span class="plot-variable-text">
-            <span class="plot-variable-name">{{ selection.variableName }}</span>
-            <span class="plot-variable-component">{{ selection.componentLabel }}</span>
+            <span class="plot-variable-component">{{ selection.componentLabel }}/</span><span class="plot-variable-name">{{ selection.variableName }}</span>
           </span>
           <Button
             icon="pi pi-times"
@@ -131,8 +136,10 @@ import Select from 'primevue/select'
 import { useColorScheme } from '../../composables/useColorScheme'
 import { useConfirmDialog } from '../../composables/useConfirmDialog'
 import {
+  acceptsUnits,
   addPlot,
   assignSelection,
+  getPlotUnits,
   movePlot,
   removePlot,
   removePlotSelection,
@@ -184,6 +191,7 @@ function describeSelection(selection) {
 const plots = computed(() =>
   resolveGroups(props.plotConfig).map((group) => ({
     ...group,
+    units: getPlotUnits(props.plotConfig, group.id),
     selections: (props.plotConfig?.selections ?? []).filter((selection) => selection.groupId === group.id).map(describeSelection),
   }))
 )
@@ -356,6 +364,11 @@ function openMenu(event, plot) {
   color: var(--p-text-muted-color);
 }
 
+.plot-mixed {
+  color: var(--p-orange-500);
+  font-size: 0.75rem;
+}
+
 .plot-rename {
   flex: 1;
   min-width: 0;
@@ -401,7 +414,6 @@ function openMenu(event, plot) {
 }
 
 .plot-variable-component {
-  margin-left: 6px;
   color: var(--p-text-muted-color);
 }
 

@@ -32,6 +32,7 @@
           aria-label="Plot to add to"
         />
       </div>
+      <p v-if="plotNote" class="controls-note" role="status">{{ plotNote }}</p>
       <PlotListEditor
         v-model:target-plot-id="targetPlotId"
         :plot-config="settingsStore.plotConfig"
@@ -71,7 +72,7 @@ import PlotListEditor from './PlotListEditor.vue'
 import SliderList from './SliderList.vue'
 import VariablePathPicker from './VariablePathPicker.vue'
 import { createSliderDefinition, putSlider, sliderValueKey } from '../../services/simulation/parameterSliders'
-import { addPlotSelection, resolveGroups } from '../../services/simulation/plotSelections'
+import { addPlot, addPlotSelection, choosePlotForUnits, resolveGroups } from '../../services/simulation/plotSelections'
 import { buildVariableIndex } from '../../services/simulation/variableIndex'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
@@ -158,15 +159,44 @@ function resolveEntry(entry) {
   return node && row ? { node, row } : null
 }
 
+// Says where a picked variable went when that wasn't the target plot.
+const plotNote = ref('')
+let plotNoteTimer = null
+
 /**
- * Plots a picked variable on the target plot, moving it there if it is on another.
+ * Shows a note for a few seconds.
+ *
+ * @param {string} text
+ */
+function showPlotNote(text) {
+  plotNote.value = text
+  clearTimeout(plotNoteTimer)
+  plotNoteTimer = setTimeout(() => (plotNote.value = ''), 6000)
+}
+
+/**
+ * Plots a picked variable on the target plot, moving it there if it is on another. A plot holds one unit,
+ * so a variable in other units goes to a plot in its units, or a new one.
  *
  * @param {Object} entry
  */
 function plotEntry(entry) {
   const found = resolveEntry(entry)
   if (!found) return
-  settingsStore.setPlotConfig(addPlotSelection(settingsStore.plotConfig, found.node, found.row, targetPlotId.value))
+  let config = settingsStore.plotConfig
+  const units = found.row.units || ''
+  const key = `${found.node.id}::${found.row.name}`
+  let plotId = choosePlotForUnits(config, units, targetPlotId.value, key)
+  if (!plotId) {
+    const added = addPlot(config)
+    config = added.plotConfig
+    plotId = added.id
+  }
+  settingsStore.setPlotConfig(addPlotSelection(config, found.node, found.row, plotId))
+  if (plotId !== targetPlotId.value) {
+    const name = resolveGroups(settingsStore.plotConfig).find((plot) => plot.id === plotId)?.name
+    showPlotNote(`${entry.name} (${units || 'no units'}) went on ${name}: a plot shows one unit.`)
+  }
 }
 
 /**
@@ -212,6 +242,12 @@ function focusPicker() {
 .controls-search > :first-child {
   flex: 1;
   min-width: 0;
+}
+
+.controls-note {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--p-text-muted-color);
 }
 
 .controls-target {

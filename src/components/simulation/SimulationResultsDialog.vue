@@ -57,6 +57,7 @@
             :key="chart.key"
             :ref="(plot) => setPlot(chart.key, plot)"
             :title="chart.title"
+            :title-parts="chart.titleParts"
             :unit="chart.unit"
             :x="xAxis"
             :series="chart.series"

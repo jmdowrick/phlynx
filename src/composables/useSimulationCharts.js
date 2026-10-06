@@ -42,12 +42,18 @@ export function useSimulationCharts(scopeNodes) {
       if (!series) return []
       return [{ key: `${node.id}::${selection.variableName}`, plot: selection.groupId ?? '', node, name: selection.variableName, unit: series.unit || 'dimensionless', values: series.values }]
     })
-    // Name each variable's instance once there's more than one to tell apart.
-    const isFromSeveral = new Set(variables.map((series) => series.node.id)).size > 1
-    const labelled = variables.map(({ node, name, ...series }) => ({ ...series, label: isFromSeveral ? `${node.data.name}.${name}` : name }))
+    // Named as the variable search names them: instance/variable.
+    const labelled = variables.map(({ node, name, ...series }) => ({
+      ...series,
+      component: node.data.name,
+      name,
+      label: `${node.data.name}/${name}`,
+    }))
     const outputs = store.inspectionOutputs.map((output) => ({
       key: `inspection::${output.id}`,
       plot: INSPECTION_PLOT,
+      component: null,
+      name: output.name,
       label: output.name,
       unit: output.units,
       values: store.results.variables.get(output.reportedName).values,
@@ -56,14 +62,16 @@ export function useSimulationCharts(scopeNodes) {
   }
 
   /**
-   * Names a chart: its series when few, else its plot.
+   * Names a chart: its series when few, as instance/variable paths, else its plot.
    *
-   * @param {Array<{label: string}>} series
+   * @param {Array<{label: string, component: string|null, name: string}>} series
    * @param {string} plotName
-   * @returns {string}
+   * @returns {{title: string, titleParts: Array<{component: string|null, name: string}>|null}}
    */
   const titleFor = (series, plotName) =>
-    series.length <= 3 ? series.map((item) => item.label).join(', ') : `${plotName} (${series.length} variables)`
+    series.length <= 3
+      ? { title: series.map((item) => item.label).join(', '), titleParts: series.map(({ component, name }) => ({ component, name })) }
+      : { title: `${plotName} (${series.length} variables)`, titleParts: null }
 
   // One chart per plot and unit, since one axis can't carry two; variables from different instances share a
   // chart when they share both. A series keeps its colour while it stays plotted.
@@ -88,7 +96,7 @@ export function useSimulationCharts(scopeNodes) {
         slots.forEach((slot, key) => nextSlots.set(key, slot))
         result.push({
           key: `${id}#${index}`,
-          title: titleFor(group, plotNames.get(plot) ?? 'Ungrouped'),
+          ...titleFor(group, plotNames.get(plot) ?? 'Ungrouped'),
           unit,
           series: group.map((item) => ({ key: item.key, label: item.label, values: item.values, slot: slots.get(item.key) })),
         })

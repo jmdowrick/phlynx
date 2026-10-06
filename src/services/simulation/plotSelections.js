@@ -379,3 +379,45 @@ export function assignSelection(plotConfig, key, groupId) {
   const selections = (plotConfig?.selections || []).map((selection) => (selection.key === key ? { ...selection, groupId } : selection))
   return withSelections(plotConfig, groups, selections)
 }
+
+/**
+ * Gets the units a plot's variables are in. A plot has one y-axis, as in web OpenCOR, so it holds one
+ * unit; plots from older workspaces may hold several.
+ *
+ * @param {Object} plotConfig
+ * @param {string} groupId
+ * @returns {Set<string>}
+ */
+export function getPlotUnits(plotConfig, groupId) {
+  return new Set((plotConfig?.selections || []).filter((selection) => selection.groupId === groupId).map((selection) => selection.units || ''))
+}
+
+/**
+ * Checks whether a variable in some units can go on a plot: one that is empty or holds only those units.
+ *
+ * @param {Object} plotConfig
+ * @param {string} groupId
+ * @param {string} units
+ * @param {string} [ignoredKey] - A selection to leave out, such as the one being moved.
+ * @returns {boolean}
+ */
+export function acceptsUnits(plotConfig, groupId, units, ignoredKey = null) {
+  const others = (plotConfig?.selections || []).filter((selection) => selection.groupId === groupId && selection.key !== ignoredKey)
+  return others.every((selection) => (selection.units || '') === (units || ''))
+}
+
+/**
+ * Picks the plot for a variable in some units: the preferred plot when it accepts them, else the first
+ * plot that does, else none.
+ *
+ * @param {Object} plotConfig
+ * @param {string} units
+ * @param {string|null} preferredId
+ * @param {string} [ignoredKey]
+ * @returns {string|null}
+ */
+export function choosePlotForUnits(plotConfig, units, preferredId, ignoredKey = null) {
+  const groups = resolveGroups(plotConfig)
+  if (groups.some((group) => group.id === preferredId) && acceptsUnits(plotConfig, preferredId, units, ignoredKey)) return preferredId
+  return groups.find((group) => acceptsUnits(plotConfig, group.id, units, ignoredKey))?.id ?? null
+}
