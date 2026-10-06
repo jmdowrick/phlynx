@@ -1,35 +1,5 @@
 <template>
   <section class="slider-list" aria-label="Parameter sliders">
-    <!-- The search shows when asked for, or while there are no sliders yet, and tucks away after a pick. -->
-    <div v-if="withPicker && isAdding" ref="pickerEl" class="slider-picker">
-      <VariablePathPicker
-        :index="index"
-      :filter="(entry) => entry.slidable && !sliderKeys.has(entry.key)"
-      :describe="describeSlidable"
-        placeholder="Add a slider…"
-        aria-label="Add a slider"
-        @pick="addSlider"
-      />
-      <Button
-        v-if="sliders.length || elsewhere.length"
-        icon="pi pi-times"
-        text
-        rounded
-        size="small"
-        severity="secondary"
-        aria-label="Close the slider search"
-        @click="isAdding = false"
-      />
-    </div>
-    <Button
-      v-else-if="withPicker"
-      label="Add slider"
-      icon="pi pi-plus"
-      text
-      size="small"
-      class="slider-add-button"
-      @click="startAdding"
-    />
     <div v-for="slider in sliders" :key="slider.valueKey" class="slider-row">
       <div class="slider-head">
         <span class="slider-label" :title="`${slider.componentLabel}/${slider.parameterName}`">
@@ -90,6 +60,37 @@
       <span>{{ definition.nodeName }}/{{ definition.parameterName }} is no longer a parameter.</span>
       <Button label="Remove" text size="small" @click="removeDefinitions([definition])" />
     </div>
+
+    <!-- Last, as Add plot is. The search shows when asked for, or while there are no sliders yet, and tucks away after a pick. -->
+    <div v-if="withPicker && isAdding" ref="pickerEl" class="slider-picker">
+      <VariablePathPicker
+        :index="index"
+      :filter="(entry) => entry.slidable && !sliderKeys.has(entry.key)"
+      :describe="describeSlidable"
+        placeholder="Add a slider…"
+        aria-label="Add a slider"
+        @pick="addSlider"
+      />
+      <Button
+        v-if="sliders.length || elsewhere.length"
+        icon="pi pi-times"
+        text
+        rounded
+        size="small"
+        severity="secondary"
+        aria-label="Close the slider search"
+        @click="isAdding = false"
+      />
+    </div>
+    <Button
+      v-else-if="withPicker"
+      label="Add slider"
+      icon="pi pi-plus"
+      text
+      size="small"
+      class="slider-add-button"
+      @click="startAdding"
+    />
 
     <Menu ref="menu" :model="menuItems" popup />
     <Popover ref="rangePopover">
