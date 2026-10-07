@@ -161,6 +161,7 @@
             size="small"
             variant="text"
             severity="info"
+            aria-label="Settings"
             v-tooltip.bottom="{ value: 'Settings', showDelay: 300 }"
             @click="onOpenSettingsDialog"
           />
@@ -481,6 +482,7 @@
     @generate="onMacroBuilderGenerate"
   />
 
+  <SimulationFloatingViewer :nodes="nodes" />
   <SimSettingsDialog v-model="simSettingsDialog.visible" :section="simSettingsDialog.section" :nodes="nodes" />
 
   <SettingsDialog v-model="settingsDialogVisible" />
@@ -564,6 +566,7 @@ import ModuleReplacementDialog from '../components/ModuleReplacementDialog.vue'
 import SaveDialog from '../components/SaveDialog.vue'
 import MacroBuilderDialog from '../components/MacroBuilderDialog.vue'
 import SimSettingsDialog from '../components/SimSettingsDialog.vue'
+import SimulationFloatingViewer from '../components/simulation/SimulationFloatingViewer.vue'
 import EdgeConnectionDialog from '../components/EdgeConnectionDialog.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
 import HelperLines from '../components/HelperLines.vue'
@@ -585,6 +588,7 @@ import { migrateWorkspace, separateNodeParameters } from '../services/workspaceM
 import { buildWorkspaceFile } from '../services/workspaceFile'
 import { useSimulation } from '../composables/useSimulation'
 import { useSimSettingsDialog } from '../composables/useSimSettingsDialog'
+import { useFloatingViewer } from '../composables/useFloatingViewer'
 import { scopeFlowObject } from '../services/simulation/scopedModel'
 import { relayoutNodes } from '../services/layouts/physics'
 import { extractSimData as extractSimDataFromSedml } from '../services/import/sedml'
@@ -2298,6 +2302,8 @@ function handleCreateInspectionModule(payload) {
 
 const contextMenuRef = ref(null)
 const contextSidebarRef = ref(null)
+// The floating viewer's way back to the Simulation tab.
+useFloatingViewer().setTabOpener(() => contextSidebarRef.value?.showTab('sim'))
 const { run: runSimulation } = useSimulation()
 const simulationResultsStore = useSimulationResultsStore()
 
@@ -3177,6 +3183,8 @@ watch(
   justify-content: space-between;
   align-items: center;
   height: var(--view-header-height);
+  /* Its height whatever the sidebar holds, rather than squeezed by a tall Simulation tab. */
+  flex-shrink: 0;
   box-sizing: border-box;
   padding: 0 var(--view-header-padding-x);
   border-bottom: 1px solid var(--p-content-border-color);

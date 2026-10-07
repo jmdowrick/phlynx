@@ -70,12 +70,14 @@
             @update:model-value="(id) => emitConfig(assignSelection(plotConfig, selection.key, id))"
           />
           <Button
-            icon="pi pi-times"
+            icon="pi pi-trash"
             text
             rounded
             size="small"
             severity="secondary"
+            class="remove-button"
             :aria-label="`Stop plotting ${selection.variableName}`"
+            v-tooltip.left="'Remove from the plot'"
             @click="emitConfig(removePlotSelection(plotConfig, selection.key))"
           />
         </li>
@@ -104,12 +106,14 @@
             <span class="plot-variable-component">{{ selection.componentLabel }}/</span><span class="plot-variable-name">{{ selection.variableName }}</span>
           </span>
           <Button
-            icon="pi pi-times"
+            icon="pi pi-trash"
             text
             rounded
             size="small"
             severity="secondary"
+            class="remove-button"
             :aria-label="`Stop plotting ${selection.variableName}`"
+            v-tooltip.left="'Remove from the plot'"
             @click="emitConfig(removePlotSelection(plotConfig, selection.key))"
           />
         </li>
@@ -148,6 +152,7 @@ import {
   resolveGroups,
 } from '../../services/simulation/plotSelections'
 import { SERIES_COLOURS } from '../../services/simulation/seriesSlots'
+import { INSPECTION_COMPONENT, isInspectionNodeId } from '../../services/simulation/variableIndex'
 
 const targetPlotId = defineModel('targetPlotId', { type: String, default: null })
 const props = defineProps({
@@ -178,14 +183,15 @@ const nodesById = computed(() => new Map(props.nodes.map((node) => [node.id, nod
  */
 function describeSelection(selection) {
   const node = nodesById.value.get(selection.nodeId)
-  const inScope = !props.scopeNodeIds || props.scopeNodeIds.includes(selection.nodeId)
+  const isInspection = isInspectionNodeId(selection.nodeId)
+  const inScope = isInspection || !props.scopeNodeIds || props.scopeNodeIds.includes(selection.nodeId)
   const slot = props.seriesSlots.get(selection.key)
   return {
     ...selection,
-    componentLabel: node?.data?.name ?? 'missing instance',
+    componentLabel: isInspection ? INSPECTION_COMPONENT : node?.data?.name ?? 'missing instance',
     inScope,
     colour: slot === undefined || !inScope ? null : SERIES_COLOURS[isDarkMode.value ? 'dark' : 'light'][slot],
-    title: inScope ? `${node?.data?.name}/${selection.variableName}` : `${node?.data?.name}/${selection.variableName}: not in the last run`,
+    title: `${isInspection ? INSPECTION_COMPONENT : node?.data?.name}/${selection.variableName}${inScope ? '' : ': not in the last run'}`,
   }
 }
 
@@ -441,6 +447,11 @@ function openMenu(event, plot) {
 .plot-move {
   flex-shrink: 0;
   width: 6.5rem;
+}
+
+/* Removing reads as removing, not as closing: a bin, red as the pointer reaches it. */
+.remove-button:hover {
+  color: var(--p-red-500);
 }
 
 .plot-empty {

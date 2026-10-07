@@ -40,6 +40,14 @@
             {{ selectedOption(setting).hint }}
           </small>
         </div>
+        <div v-else-if="setting.type === 'boolean'" class="setting-control setting-control--switch">
+          <ToggleSwitch
+            v-model="draft[setting.key]"
+            :input-id="`setting-${setting.key}`"
+            :aria-labelledby="`setting-${setting.key}-label`"
+            :aria-describedby="`setting-${setting.key}-desc`"
+          />
+        </div>
       </div>
     </section>
 
@@ -55,7 +63,7 @@
 
 <script setup>
 import { reactive, watch } from 'vue'
-import { Dialog, Button, Select } from 'primevue'
+import { Dialog, Button, Select, ToggleSwitch } from 'primevue'
 
 import { useAppSettings } from '../composables/useAppSettings'
 import { SETTING_SECTIONS } from '../utils/appSettings'
@@ -123,6 +131,10 @@ function saveChanges() {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+.setting-control--switch {
+  align-items: flex-end;
+  justify-content: center;
 }
 .setting-option {
   display: flex;

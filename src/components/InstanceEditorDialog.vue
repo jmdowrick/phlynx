@@ -362,7 +362,8 @@
                 Runs use the saved instance.
                 <Button label="Save to include your edits" link size="small" class="plot-tab-save" @click="handleSave({ keepOpen: true })" />
               </Message>
-              <SimulationPanel v-if="activeTab === 'plot' && !loading" :instance-id="id" class="plot-tab-workbench" />
+              <!-- Kept mounted through an Apply's reload, so its choices, such as the whole model, last. -->
+              <SimulationPanel v-if="activeTab === 'plot'" :instance-id="id" class="plot-tab-workbench" />
             </TabPanel>
           </TabPanels>
         </Tabs>
@@ -554,7 +555,7 @@ const DIALOG_PT = {
 // Port & Instance State
 const editableName = ref('')
 const editablePorts = ref([])
-// Every saved variable's name as the math session renames it, so a save can rename its plotted variables.
+// The plotted variables' names as the math session renames them, so a save can rename the plots.
 const trackedNames = ref([])
 const instanceNameRef = ref(null)
 // Why the last save rejected the instance name; cleared once the name changes.
@@ -887,8 +888,26 @@ const issueFilter = useIssueFilter({
 /** How many of the instance's variables are plotted. */
 const plottedCount = computed(() => getNodePlotEntries(simulationSettingsStore.plotConfig, props.id).length)
 
+/**
+ * Signs what a run reads from the instance besides its math: its name, rows and ports.
+ *
+ * @returns {string}
+ */
+const signEditorState = () =>
+  JSON.stringify({
+    name: editableName.value,
+    rows: parameterRows.value.map(({ name, value, type, units, initialiser }) => ({ name, value, type, units, initialiser })),
+    ports: editablePorts.value,
+  })
+// The signature as loaded, so edits to values, the name or the ports count as unsaved.
+const savedEditorState = ref('')
+
 // Edits a run wouldn't see, since runs use the saved instance.
-const hasUnsavedEdits = computed(() => !loading.value && (session.isDirty() || session.isLayoutDirty() || session.hasUnsavedInvalidEdit()))
+const hasUnsavedEdits = computed(
+  () =>
+    !loading.value &&
+    (session.isDirty() || session.isLayoutDirty() || session.hasUnsavedInvalidEdit() || signEditorState() !== savedEditorState.value)
+)
 
 /** The active right-hand tab's name and count, shown on the collapsed rail. */
 const rightTabLabel = computed(() => {
@@ -978,12 +997,9 @@ async function loadEditor({ keepTab = false } = {}) {
       : [],
   }))
   indexPortConnections()
-  // The saved rows, and whatever the instance plots, so a rename reaches every plot of it.
-  const savedNames = new Set([
-    ...(props.variables ?? []).map((row) => row.name),
-    ...getNodePlotEntries(simulationSettingsStore.plotConfig, props.id).map((entry) => entry.name),
-  ])
-  trackedNames.value = [...savedNames].map((name) => ({ name, savedName: name }))
+  // What the instance plots, so a rename in the math reaches its plots. Only these: tracking every name could
+  // see a rename onto a removed variable's name merged away (see useMathSession).
+  trackedNames.value = getNodePlotEntries(simulationSettingsStore.plotConfig, props.id).map(({ name }) => ({ name, savedName: name }))
 
   // Saved stateRole/initialiser keep pairings the math alone can't reveal, such as shared initialisers.
   const savedRows = props.variables.map((row) => ({
@@ -1007,6 +1023,7 @@ async function loadEditor({ keepTab = false } = {}) {
   }
   if (requestId !== openRequestId) return
 
+  savedEditorState.value = signEditorState()
   loading.value = false
   await nextTick()
   // rAF runs before the next paint; the timeout lands after it, so the table is on screen first.

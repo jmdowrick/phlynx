@@ -33,9 +33,7 @@
       <p v-else class="slider-hint">Set a range to slide it.</p>
     </div>
 
-    <p v-if="!sliders.length && !elsewhere.length && !missing.length" class="slider-hint">
-      No sliders yet. Search above for a parameter to try out.
-    </p>
+    <p v-if="!withPicker && !sliders.length && !elsewhere.length && !missing.length" class="slider-hint">No sliders yet.</p>
 
     <details v-if="elsewhere.length" class="slider-elsewhere">
       <summary>Not in this run ({{ elsewhere.length }})</summary>
@@ -43,11 +41,12 @@
         <li v-for="definition in elsewhere" :key="definition.key">
           <span>{{ definition.componentLabel }}/{{ definition.parameterName }}</span>
           <Button
-            icon="pi pi-times"
+            icon="pi pi-trash"
             text
             rounded
             size="small"
             severity="secondary"
+            class="remove-button"
             :aria-label="`Remove the ${definition.parameterName} slider`"
             @click="removeDefinitions([definition])"
           />
@@ -61,6 +60,36 @@
       <Button label="Remove" text size="small" @click="removeDefinitions([definition])" />
     </div>
 
+    <!-- Last, as Add plot is. The search shows when asked for, and tucks away after a pick. -->
+    <div v-if="withPicker && isAdding" ref="pickerEl" class="slider-picker">
+      <VariablePathPicker
+        :index="index"
+      :filter="(entry) => entry.slidable && !sliderKeys.has(entry.key)"
+      :describe="describeSlidable"
+        placeholder="Add a slider…"
+        aria-label="Add a slider"
+        @pick="addSlider"
+      />
+      <Button
+        icon="pi pi-times"
+        text
+        rounded
+        size="small"
+        severity="secondary"
+        aria-label="Close the slider search"
+        @click="isAdding = false"
+      />
+    </div>
+    <Button
+      v-else-if="withPicker"
+      label="Add slider"
+      icon="pi pi-plus"
+      text
+      size="small"
+      class="slider-add-button"
+      @click="startAdding"
+    />
+
     <Menu ref="menu" :model="menuItems" popup />
     <Popover ref="rangePopover">
       <div v-if="rangeSlider" class="slider-range">
@@ -70,6 +99,7 @@
           :model-value="rangeSlider.min"
           :max-fraction-digits="6"
           size="small"
+          fluid
           @update:model-value="(min) => updateRange(rangeSlider, { min })"
         />
         <label :for="`${rangeId}-max`">Maximum</label>
@@ -78,6 +108,7 @@
           :model-value="rangeSlider.max"
           :max-fraction-digits="6"
           size="small"
+          fluid
           @update:model-value="(max) => updateRange(rangeSlider, { max })"
         />
       </div>
@@ -91,7 +122,7 @@
  * model until it is applied; moving one asks for runs as it moves. Sliders of instances the last run left
  * out are listed apart.
  */
-import { computed, onBeforeUnmount, ref, useId } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, useId } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
 import Button from 'primevue/button'
@@ -101,8 +132,16 @@ import Popover from 'primevue/popover'
 import Slider from 'primevue/slider'
 
 import { useNodeDataHistory } from '../../composables/useNodeDataHistory'
-import { isSlidableRow, pickDefaultValue, putSlider, removeSlider, sliderValueKey } from '../../services/simulation/parameterSliders'
-import { GLOBAL_COMPONENT } from '../../services/simulation/variableIndex'
+import VariablePathPicker from './VariablePathPicker.vue'
+import {
+  createSliderDefinition,
+  isSlidableRow,
+  pickDefaultValue,
+  putSlider,
+  removeSlider,
+  sliderValueKey,
+} from '../../services/simulation/parameterSliders'
+import { GLOBAL_COMPONENT, buildVariableIndex } from '../../services/simulation/variableIndex'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../../stores/simulationSettingsStore'
@@ -117,6 +156,8 @@ const props = defineProps({
   scopeNodeIds: { type: Array, default: null },
   // Makes a change that keeps the shown results true (see useSimulation).
   keepCurrent: { type: Function, default: (change) => change() },
+  // With a search to add sliders for constants and global constants across the model.
+  withPicker: { type: Boolean, default: false },
 })
 const emit = defineEmits(['change'])
 
@@ -202,6 +243,52 @@ const elsewhere = computed(() => {
     .map(({ definition, componentLabel }) => ({ ...definition, componentLabel }))
 })
 const missing = computed(() => resolved.value.filter(({ row }) => !row).map(({ definition }) => definition))
+
+// What can be given a slider: constants and global constants, which libOpenCOR can change between runs.
+// A computed constant comes from the constants in its equation, which are what to slide.
+const pickerEl = ref(null)
+// The search opens from the Add slider button, never on its own.
+const isAdding = ref(false)
+
+/** Shows the slider search and puts the cursor in it. */
+async function startAdding() {
+  isAdding.value = true
+  await nextTick()
+  pickerEl.value?.querySelector('input')?.focus()
+}
+
+const index = computed(() => (props.withPicker ? buildVariableIndex(props.nodes, { scopeNodeIds: props.scopeNodeIds, mapping: resultsStore.mapping }) : []))
+const sliderKeys = computed(() => new Set(definitions.value.map((definition) => sliderValueKey(definition))))
+
+/**
+ * Notes whether a constant was in the last run, and what the model makes the same as it.
+ *
+ * @param {Object} entry
+ * @returns {string|null}
+ */
+function describeSlidable(entry) {
+  const notes = []
+  if (!entry.inScope) notes.push('Not in the last run')
+  if (entry.equivalents.length) notes.push(`≡ ${entry.equivalents.join(', ')}`)
+  return notes.length ? notes.join(' · ') : null
+}
+
+/**
+ * Adds a slider for a picked constant, starting at the model's value unless it joins a global constant's
+ * shared slider.
+ *
+ * @param {Object} entry
+ */
+function addSlider(entry) {
+  const node = nodesById.value.get(entry.nodeId)
+  const row = node?.data?.variables?.find((candidate) => candidate.name === entry.rowName)
+  if (!node || !row) return
+  const definition = createSliderDefinition(node, row, libraryStore.getGlobalConstant)
+  const valueKey = sliderValueKey(definition)
+  if (!definitions.value.some((other) => sliderValueKey(other) === valueKey)) resultsStore.setSliderValue(valueKey, null)
+  settingsStore.setParameterScanConfig(putSlider(settingsStore.parameterScanConfig, definition))
+  isAdding.value = false
+}
 
 let rerunFrame = null
 onBeforeUnmount(() => {
@@ -333,7 +420,8 @@ const menu = ref(null)
 const menuSlider = ref(null)
 const rangePopover = ref(null)
 const rangeSlider = ref(null)
-let menuEvent = null
+// The menu button last opened, which the range editor opens beside.
+let menuAnchor = null
 
 const menuItems = computed(() => {
   const slider = menuSlider.value
@@ -343,7 +431,7 @@ const menuItems = computed(() => {
     { label: 'Apply this value to the model', icon: 'pi pi-check', disabled: !slider.isChanged, command: () => applyToModel(slider) },
     { label: 'Edit range…', icon: 'pi pi-arrows-h', command: () => openRange(slider) },
     { separator: true },
-    { label: 'Remove slider', icon: 'pi pi-times', command: () => removeDefinitions(slider.definitions) },
+    { label: 'Remove slider', icon: 'pi pi-trash', command: () => removeDefinitions(slider.definitions) },
   ]
 })
 
@@ -355,7 +443,7 @@ const menuItems = computed(() => {
  */
 function openMenu(event, slider) {
   menuSlider.value = slider
-  menuEvent = event
+  menuAnchor = event.currentTarget
   menu.value.toggle(event)
 }
 
@@ -366,7 +454,8 @@ function openMenu(event, slider) {
  */
 function openRange(slider) {
   rangeSlider.value = { ...slider }
-  rangePopover.value.show(menuEvent, menuEvent?.currentTarget ?? menuEvent?.target)
+  // Once the menu's click is over, which would otherwise count as a click outside the editor and close it.
+  setTimeout(() => rangePopover.value?.show({ currentTarget: menuAnchor }, menuAnchor), 0)
 }
 </script>
 
@@ -375,6 +464,21 @@ function openRange(slider) {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.slider-picker {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.slider-picker > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.slider-add-button {
+  align-self: flex-start;
 }
 
 .slider-row {
@@ -420,7 +524,8 @@ function openRange(slider) {
 }
 
 .slider-control {
-  margin: 0 8px 4px;
+  /* Room for the handle at either end, which would otherwise be cropped by the sidebar's edge. */
+  margin: 0 16px 4px;
 }
 
 .slider-hint {
@@ -451,6 +556,11 @@ function openRange(slider) {
   gap: 6px;
 }
 
+/* Removing reads as removing, not as closing: a bin, red as the pointer reaches it. */
+.remove-button:hover {
+  color: var(--p-red-500);
+}
+
 .slider-missing {
   display: flex;
   align-items: center;
@@ -461,9 +571,14 @@ function openRange(slider) {
 
 .slider-range {
   display: grid;
-  grid-template-columns: auto 9rem;
+  grid-template-columns: auto 8rem;
   align-items: center;
   gap: 6px 10px;
   font-size: 0.8125rem;
+}
+
+.slider-range :deep(.p-inputnumber-input) {
+  width: 100%;
+  min-width: 0;
 }
 </style>

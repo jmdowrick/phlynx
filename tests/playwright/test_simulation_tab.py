@@ -18,6 +18,7 @@ SHORTEN_SIMULATION = (
     ".get('simulationSettings').setSimulationSettings({ endingPoint: 1, pointInterval: 0.01 })"
 )
 APP_MOUNT_TIMEOUT = 60000
+SIMULATOR_READY = "document.querySelector('#app').__vue_app__._context.provides.$libopencor.status === 'ready'"
 RESULTS_STORE = "document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('simulationResults')"
 FINAL_SOMA_V = (
     f"(() => {{ const store = {RESULTS_STORE}; const name = store.mapping.get('dndnode_0::V');"
@@ -54,7 +55,14 @@ def add_slider(page, path, within=None):
     """Adds a slider for a parameter by its instance/variable path, from the Sliders view."""
     scope = within or page
     scope.get_by_role("button", name=re.compile(r"^Sliders \(")).click()
+    open_slider_search(scope)
     pick_path(page, "Add a slider", path, within)
+
+
+def open_slider_search(scope):
+    """Shows the slider search, which tucks away once there are sliders."""
+    if not scope.get_by_role("combobox", name="Add a slider").is_visible():
+        scope.get_by_role("button", name="Add slider", exact=True).click()
 
 
 class TestSimulationTab(unittest.TestCase):
@@ -88,7 +96,6 @@ class TestSimulationTab(unittest.TestCase):
             plot_variable(page, "soma_SN/V")
             expect(page.locator(".simulation-plot canvas")).to_have_count(1)
             expect(page.locator(".simulation-plot .plot-title")).to_have_text("soma_SN/V")
-            expect(page.locator(".simulation-plot .u-legend")).to_contain_text("V")
             expect(page.locator(".instance-node--simulated")).to_have_count(1)
 
             # A variable in another unit gets its own chart, which the tab scrolls to.
@@ -142,6 +149,16 @@ class TestSimulationTab(unittest.TestCase):
             expect(page.locator(".slider-value--changed")).to_have_count(0)
             expect(page.locator(".slider-value")).to_have_text("2.438 microS")
             expect(page.get_by_text("The model or settings have changed since this run.")).to_have_count(0)
+            # Its range opens from its menu, and changes as typed.
+            page.get_by_role("button", name="More for g_Na").click()
+            page.get_by_role("menuitem", name="Edit range…").click()
+            page.get_by_label("Maximum").fill("3")
+            page.get_by_label("Maximum").press("Tab")
+            page.wait_for_function(
+                "document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('simulationSettings')"
+                ".parameterScanConfig.selections[0].max === 3"
+            )
+            page.keyboard.press("Escape")
             # ----------- END ------------
 
             context.close()
@@ -227,8 +244,8 @@ class TestSimulationTab(unittest.TestCase):
             # Hovering one chart shows the cursor at the same time on the other.
             box = charts.first.locator(".u-over").bounding_box()
             page.mouse.move(box["x"] + box["width"] * 0.6, box["y"] + box["height"] / 2)
-            times = charts.locator(".u-legend .u-series:first-child .u-value")
-            expect(times.nth(0)).not_to_have_text("–")
+            times = charts.locator(".plot-readout-time")
+            expect(times).to_have_count(2)
             expect(times.nth(1)).to_have_text(times.nth(0).inner_text())
 
             with page.expect_download() as download:
@@ -328,7 +345,113 @@ class TestSimulationTab(unittest.TestCase):
             context.close()
             browser.close()
 
-    def test_whole_model_run_shows_inspection_modules(self):
+    def test_floating_viewer_stays_over_the_canvas_with_the_sidebar_closed(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+
+            context = browser.new_context(viewport={"width": 1600, "height": 1000})
+            context.add_init_script(OPT_IN_TO_ISOLATION)
+            page = context.new_page()
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+
+            # ---------- START -----------
+            page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
+            page.evaluate(SHORTEN_SIMULATION)
+            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
+            simulate_whole_model(page)
+            expect(page.get_by_text("Simulated the whole model")).to_be_visible(timeout=120000)
+            plot_variable(page, "soma_SN/V")
+
+            add_slider(page, "soma_SN/g_Na")
+
+            page.get_by_role("button", name="Float the results over the canvas").click()
+            viewer = page.locator(".simulation-floating-viewer")
+            expect(viewer.locator(".simulation-plot .plot-title")).to_have_text("soma_SN/V")
+
+            # Closing the sidebar leaves the viewer up, and its sliders still rerun the model.
+            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            expect(viewer).to_be_visible()
+            # Showing the sliders makes the window taller rather than squeezing the plot.
+            height_before = viewer.bounding_box()["height"]
+            viewer.get_by_role("button", name="Show the sliders").click()
+            expect(viewer.locator(".slider-row")).to_have_count(1)
+            self.assertGreater(viewer.bounding_box()["height"], height_before + 40)
+            page.evaluate(f"window.__shownResults = {RESULTS_STORE}.results")
+            viewer.locator(".p-slider-handle").first.focus()
+            for _ in range(10):
+                page.keyboard.press("ArrowRight")
+            page.wait_for_function(
+                f"{RESULTS_STORE}.results !== window.__shownResults && {RESULTS_STORE}.status === 'done'", timeout=60000
+            )
+
+            # Back to the tab closes the window and opens the sidebar on the Simulation tab.
+            viewer.get_by_role("button", name="Back to the Simulation tab").click()
+            expect(viewer).to_have_count(0)
+            expect(page.get_by_role("button", name="Simulate the whole model")).to_be_visible()
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
+    def test_selection_mode_runs_once_the_selection_is_chosen(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+
+            context = browser.new_context(viewport={"width": 1600, "height": 1000})
+            context.add_init_script(OPT_IN_TO_ISOLATION)
+            page = context.new_page()
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+
+            # ---------- START -----------
+            soma = page.get_by_text("SN_somacell_modules.cellmlsoma_SN")
+            axon = page.get_by_text("SN_axoncell_modules.cellmlaxon_SN")
+            soma.wait_for(timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function(f"{SIMULATOR_READY}", timeout=APP_MOUNT_TIMEOUT)
+            page.evaluate(SHORTEN_SIMULATION)
+            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
+
+            # Flipping to the whole model runs it straight away.
+            switch = page.get_by_role("switch", name="Simulate the whole model, not the selection")
+            switch.uncheck()
+            switch.check()
+            expect(page.get_by_text("Simulated the whole model")).to_be_visible(timeout=120000)
+
+            # In Selection mode, picking an instance runs it once chosen.
+            switch.uncheck()
+            soma.click()
+            expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
+
+            # A Cmd/Ctrl-click adds to the selection, which runs it.
+            axon.click(modifiers=["ControlOrMeta"])
+            expect(page.get_by_text("Simulated 2 instances on their own")).to_be_visible(timeout=120000)
+
+            # A selection box dragged with Shift runs only once the pointer comes up.
+            var = page.get_by_text("SN_varicositycell_modules.cellmlvar_SN").locator("xpath=ancestor::*[contains(@class,'vue-flow__node')][1]")
+            box = var.bounding_box()
+            page.evaluate(f"window.__shownResults = {RESULTS_STORE}.results")
+            page.keyboard.down("Shift")
+            page.mouse.move(box["x"] - 20, box["y"] - 20)
+            page.mouse.down()
+            page.mouse.move(box["x"] + box["width"] + 20, box["y"] + box["height"] + 20, steps=8)
+            page.wait_for_timeout(600)
+            self.assertTrue(page.evaluate(f"{RESULTS_STORE}.results === window.__shownResults && {RESULTS_STORE}.status !== 'running'"))
+            page.mouse.up()
+            page.keyboard.up("Shift")
+            expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
+    def test_inspection_modules_plot_only_when_the_settings_say(self):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
 
@@ -353,6 +476,19 @@ class TestSimulationTab(unittest.TestCase):
             simulate_whole_model(page)
 
             expect(page.get_by_text("Simulated the whole model")).to_be_visible(timeout=120000)
+            # Not plotted by default.
+            expect(page.locator(".simulation-plot")).to_have_count(0)
+
+            # They can be put on a plot from the search, like any variable.
+            plot_variable(page, "inspection_modules/Soma voltage")
+            expect(page.locator(".simulation-plot .plot-title")).to_have_text("inspection_modules/Soma voltage")
+            page.get_by_role("button", name="Stop plotting Soma voltage").click()
+            expect(page.locator(".simulation-plot")).to_have_count(0)
+
+            # Turned on in Settings, they plot as a plot of their own.
+            page.get_by_role("button", name="Settings", exact=True).click()
+            page.get_by_role("switch", name="Plot inspection modules").check()
+            page.get_by_role("button", name="Save Changes").click()
             expect(page.locator(".simulation-plot .plot-title")).to_have_text("Soma voltage")
             # ----------- END ------------
 

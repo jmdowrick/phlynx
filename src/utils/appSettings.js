@@ -1,6 +1,6 @@
 /**
  * The settings, by section, in the order the dialog shows them. Each `select` setting offers `options`, each with
- * an optional `hint` shown beneath its label.
+ * an optional `hint` shown beneath its label; a `boolean` setting is on or off.
  */
 export const SETTING_SECTIONS = [
   {
@@ -17,6 +17,18 @@ export const SETTING_SECTIONS = [
           { value: 'base', label: 'SI base units', hint: 'mV = 10⁻³ kg·m²·s⁻³·A⁻¹' },
         ],
         default: 'builtIn',
+      },
+    ],
+  },
+  {
+    title: 'Simulation',
+    settings: [
+      {
+        key: 'plotInspectionModules',
+        type: 'boolean',
+        label: 'Plot inspection modules',
+        description: 'After a run, show the outputs of the inspection modules it covered as a plot of their own.',
+        default: false,
       },
     ],
   },
@@ -42,6 +54,8 @@ export function isValidAppSetting(key, value) {
   switch (setting?.type) {
     case 'select':
       return setting.options.some((option) => option.value === value)
+    case 'boolean':
+      return typeof value === 'boolean'
     default:
       return false
   }

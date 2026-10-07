@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildVariableIndex, searchVariableIndex } from '../../../../src/services/simulation/variableIndex.js'
+import { buildVariableIndex, findInspectionModule, resolvePlotTarget, searchVariableIndex } from '../../../../src/services/simulation/variableIndex.js'
 
 const NODES = [
   {
@@ -77,5 +77,25 @@ describe('searchVariableIndex', () => {
       'global_parameters/R',
     ])
     expect(searchVariableIndex(index, '', { limit: 2 })).toHaveLength(2)
+  })
+})
+
+describe('inspection modules', () => {
+  const MODULES = [{ id: 'inspection-1', name: 'Total current', units: 'nA', variables: [] }]
+
+  it('lists each one as inspection_modules/<name>, to plot but not slide', () => {
+    const index = buildVariableIndex(NODES, { inspectionModules: MODULES, inspectionOutputs: [] })
+    const entry = index.find((candidate) => candidate.kind === 'inspection')
+    expect(entry).toMatchObject({ path: 'inspection_modules/Total current', plottable: true, slidable: false, inScope: false, units: 'nA' })
+    expect(searchVariableIndex(index, 'total').map((candidate) => candidate.path)).toEqual(['inspection_modules/Total current'])
+  })
+
+  it('plots one as a stand-in node, found again by its id', () => {
+    const entry = buildVariableIndex([], { inspectionModules: MODULES })[0]
+    const { node, row } = resolvePlotTarget(entry, [], MODULES)
+    expect(node.id).toBe('inspection:inspection-1')
+    expect(row).toMatchObject({ name: 'Total current', units: 'nA' })
+    expect(findInspectionModule(node.id, MODULES)).toBe(MODULES[0])
+    expect(findInspectionModule('dndnode_0', MODULES)).toBeNull()
   })
 })

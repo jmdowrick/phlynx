@@ -44,17 +44,14 @@
       />
     </template>
 
-    <template v-else>
-      <VariablePathPicker
-        :index="index"
-        :filter="(entry) => entry.slidable && !sliderKeys.has(entry.key)"
-        :describe="describeSlidable"
-        placeholder="Add a slider…"
-        aria-label="Add a slider"
-        @pick="addSlider"
-      />
-      <SliderList :nodes="nodes" :scope-node-ids="scopeNodeIds" :keep-current="keepCurrent" @change="emit('change')" />
-    </template>
+    <SliderList
+      v-else
+      with-picker
+      :nodes="nodes"
+      :scope-node-ids="scopeNodeIds"
+      :keep-current="keepCurrent"
+      @change="emit('change')"
+    />
   </section>
 </template>
 
@@ -71,10 +68,10 @@ import SelectButton from 'primevue/selectbutton'
 import PlotListEditor from './PlotListEditor.vue'
 import SliderList from './SliderList.vue'
 import VariablePathPicker from './VariablePathPicker.vue'
-import { createSliderDefinition, putSlider, sliderValueKey } from '../../services/simulation/parameterSliders'
+import { sliderValueKey } from '../../services/simulation/parameterSliders'
 import { plotVariable, resolveGroups } from '../../services/simulation/plotSelections'
-import { buildVariableIndex } from '../../services/simulation/variableIndex'
-import { useLibraryStore } from '../../stores/libraryStore'
+import { buildVariableIndex, resolvePlotTarget } from '../../services/simulation/variableIndex'
+import { useInspectionModuleStore } from '../../stores/inspectionModuleStore'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../../stores/simulationSettingsStore'
 
@@ -89,8 +86,8 @@ const props = defineProps({
 // A slider moved, so the scope wants running again.
 const emit = defineEmits(['change'])
 
-const libraryStore = useLibraryStore()
 const resultsStore = useSimulationResultsStore()
+const inspectionStore = useInspectionModuleStore()
 const settingsStore = useSimulationSettingsStore()
 
 // Given by the panel, so they last when its layout changes; local otherwise.
@@ -98,7 +95,14 @@ const view = defineModel('view', { type: String, default: 'plots' })
 const targetPlotId = defineModel('targetPlotId', { type: String, default: null })
 const plotPicker = ref(null)
 
-const index = computed(() => buildVariableIndex(props.nodes, { scopeNodeIds: props.scopeNodeIds, mapping: resultsStore.mapping }))
+const index = computed(() =>
+  buildVariableIndex(props.nodes, {
+    scopeNodeIds: props.scopeNodeIds,
+    mapping: resultsStore.mapping,
+    inspectionModules: inspectionStore.modules,
+    inspectionOutputs: resultsStore.results ? resultsStore.inspectionOutputs : null,
+  })
+)
 const plotOptions = computed(() => resolveGroups(settingsStore.plotConfig))
 const plottedCount = computed(() => settingsStore.plotConfig?.selections?.length ?? 0)
 const sliderDefinitions = computed(() => settingsStore.parameterScanConfig?.selections ?? [])
@@ -117,7 +121,6 @@ watch(
   { immediate: true }
 )
 
-const nodesById = computed(() => new Map(props.nodes.map((node) => [node.id, node])))
 const plotNames = computed(() => new Map(plotOptions.value.map((plot) => [plot.id, plot.name])))
 const plottedGroups = computed(() => new Map((settingsStore.plotConfig?.selections ?? []).map((selection) => [selection.key, selection.groupId])))
 
@@ -136,28 +139,13 @@ function describePlottable(entry) {
 }
 
 /**
- * Notes a parameter's value and what it is the same as.
- *
- * @param {Object} entry
- * @returns {string|null}
- */
-function describeSlidable(entry) {
-  const notes = []
-  if (!entry.inScope) notes.push('Not in the last run')
-  if (entry.equivalents.length) notes.push(`≡ ${entry.equivalents.join(', ')}`)
-  return notes.length ? notes.join(' · ') : null
-}
-
-/**
  * Finds the node and row an index entry names.
  *
  * @param {Object} entry
  * @returns {{node: Object, row: Object}|null}
  */
 function resolveEntry(entry) {
-  const node = nodesById.value.get(entry.nodeId)
-  const row = node?.data?.variables?.find((candidate) => candidate.name === entry.rowName)
-  return node && row ? { node, row } : null
+  return resolvePlotTarget(entry, props.nodes, inspectionStore.modules)
 }
 
 // Says where a picked variable went when that wasn't the target plot.
@@ -190,21 +178,6 @@ function plotEntry(entry) {
     const name = resolveGroups(plotConfig).find((plot) => plot.id === plotId)?.name
     showPlotNote(`${entry.name} (${found.row.units || 'no units'}) went on ${name}: a plot shows one unit.`)
   }
-}
-
-/**
- * Adds a slider for a picked parameter, starting at the model's value unless it joins a global
- * constant's shared slider.
- *
- * @param {Object} entry
- */
-function addSlider(entry) {
-  const found = resolveEntry(entry)
-  if (!found) return
-  const definition = createSliderDefinition(found.node, found.row, libraryStore.getGlobalConstant)
-  const valueKey = sliderValueKey(definition)
-  if (!sliderDefinitions.value.some((other) => sliderValueKey(other) === valueKey)) resultsStore.setSliderValue(valueKey, null)
-  settingsStore.setParameterScanConfig(putSlider(settingsStore.parameterScanConfig, definition))
 }
 
 /** Puts the cursor in the search box, for a plot's add button. */

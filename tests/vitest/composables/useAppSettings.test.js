@@ -18,7 +18,7 @@ describe('useAppSettings', () => {
   afterEach(() => vi.restoreAllMocks())
 
   it('starts from the defaults', async () => {
-    expect((await load()).settings).toEqual({ unitDisplay: 'builtIn' })
+    expect((await load()).settings).toEqual({ unitDisplay: 'builtIn', plotInspectionModules: false })
   })
 
   it('reads the stored settings', async () => {
@@ -28,12 +28,12 @@ describe('useAppSettings', () => {
 
   it('falls back to the default for an invalid value, and drops unknown settings', async () => {
     store(JSON.stringify({ unitDisplay: 'simplified', retired: true }))
-    expect((await load()).settings).toEqual({ unitDisplay: 'builtIn' })
+    expect((await load()).settings).toEqual({ unitDisplay: 'builtIn', plotInspectionModules: false })
   })
 
   it.each(['null', '"base"', '[]', '{not json'])('falls back to the defaults for %s', async (value) => {
     store(value)
-    expect((await load()).settings).toEqual({ unitDisplay: 'builtIn' })
+    expect((await load()).settings).toEqual({ unitDisplay: 'builtIn', plotInspectionModules: false })
   })
 
   it('falls back to the defaults when storage cannot be read', async () => {
@@ -47,7 +47,7 @@ describe('useAppSettings', () => {
     const { settings, saveAppSettings } = await load()
     saveAppSettings({ unitDisplay: 'base' })
     expect(settings.unitDisplay).toBe('base')
-    expect(stored()).toEqual({ unitDisplay: 'base' })
+    expect(stored()).toEqual({ unitDisplay: 'base', plotInspectionModules: false })
 
     const { useAppSettings } = await import('../../../src/composables/useAppSettings')
     expect(useAppSettings().settings.unitDisplay).toBe('base')
@@ -57,8 +57,8 @@ describe('useAppSettings', () => {
     const { settings, saveAppSettings } = await load()
     saveAppSettings({ unitDisplay: 'base' })
     saveAppSettings({ unitDisplay: 'simplified', retired: true })
-    expect(settings).toEqual({ unitDisplay: 'base' })
-    expect(stored()).toEqual({ unitDisplay: 'base' })
+    expect(settings).toEqual({ unitDisplay: 'base', plotInspectionModules: false })
+    expect(stored()).toEqual({ unitDisplay: 'base', plotInspectionModules: false })
   })
 
   it('still applies settings when storage cannot be written', async () => {

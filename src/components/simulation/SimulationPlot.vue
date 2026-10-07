@@ -1,15 +1,37 @@
 <template>
   <figure class="simulation-plot">
-    <figcaption class="plot-title">
-      <template v-if="titleParts">
-        <template v-for="(part, index) in titleParts" :key="index"
-          ><span v-if="index" class="plot-title-separator">, </span
-          ><span v-if="part.component" class="plot-title-component">{{ part.component }}/</span><span>{{ part.name }}</span></template
-        >
-      </template>
-      <template v-else>{{ title }}</template>
+    <figcaption class="plot-head">
+      <span class="plot-title">
+        <template v-if="titleParts">
+          <template v-for="(part, index) in titleParts" :key="index"
+            ><span v-if="index" class="plot-title-separator">, </span
+            ><span v-if="series.length > 1 && series[index]" class="plot-key-swatch plot-title-swatch" :style="{ background: colourOf(series[index]) }" aria-hidden="true"></span
+            ><span v-if="part.component" class="plot-title-component">{{ part.component }}/</span><span>{{ part.name }}</span></template
+          >
+        </template>
+        <template v-else>{{ title }}</template>
+      </span>
+      <!-- The values' unit, here rather than as a rotated axis title, which takes a column of the chart. -->
+      <span class="plot-unit">{{ unit }}</span>
     </figcaption>
-    <div ref="chartEl" class="plot-chart"></div>
+    <!-- A key only when the title names the plot rather than its lines, which it colours itself. -->
+    <ul v-if="series.length > 1 && !titleParts" class="plot-key">
+      <li v-for="item in series" :key="item.key">
+        <span class="plot-key-swatch" :style="{ background: colourOf(item) }" aria-hidden="true"></span>{{ item.label }}
+      </li>
+    </ul>
+    <div class="plot-area">
+      <div ref="chartEl" class="plot-chart"></div>
+      <!-- The values under the cursor, beside it, as plotly's hover does, in place of a legend line. -->
+      <div v-if="readout" class="plot-readout" :style="{ left: `${readout.left}px`, top: `${readout.top}px` }" aria-hidden="true">
+        <div class="plot-readout-time">{{ readout.time }}</div>
+        <div v-for="row in readout.rows" :key="row.key" class="plot-readout-row">
+          <span class="plot-key-swatch" :style="{ background: row.colour }"></span>
+          <span v-if="series.length > 1" class="plot-readout-label">{{ row.label }}</span>
+          <span class="plot-readout-value">{{ row.value }}</span>
+        </div>
+      </div>
+    </div>
   </figure>
 </template>
 
@@ -22,6 +44,7 @@ import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 
 import { useColorScheme } from '../../composables/useColorScheme'
+import { getChartZoom, setChartZoom } from '../../services/simulation/chartZoom'
 import { SERIES_COLOURS } from '../../services/simulation/seriesSlots'
 
 const CHROME = {
@@ -38,6 +61,8 @@ const props = defineProps({
   height: { type: Number, default: 220 },
   // Charts with the same key show their cursors at the same time.
   syncKey: { type: String, default: null },
+  // Names the chart, so it keeps its zoom when rebuilt.
+  zoomKey: { type: String, default: null },
 })
 
 /**
@@ -57,26 +82,103 @@ function formatTicks(_, splits) {
 }
 
 /**
- * Formats a legend value to 5 significant figures.
- *
- * @param {Object} _ - The chart.
- * @param {number|null} value
- * @returns {string}
- */
-/**
- * Sizes the value axis to fit its longest tick label, with room for its title.
+ * Sizes the value axis to fit its longest tick label; its unit is in the chart's heading.
  *
  * @param {Object} _ - The chart.
  * @param {string[]|null} values - The tick labels, once known.
  * @returns {number} Pixels.
  */
-const sizeValueAxis = (_, values) => Math.max(50, Math.ceil(Math.max(0, ...(values ?? []).map((value) => value.length)) * 6.5) + 28)
+const sizeValueAxis = (_, values) => Math.max(32, Math.ceil(Math.max(0, ...(values ?? []).map((value) => value.length)) * 6.5) + 12)
 
-const formatLegendValue = (_, value) => (value == null ? '–' : String(Number(value.toPrecision(5))))
+/**
+ * Formats a value for the readout, to 5 significant figures.
+ *
+ * @param {number|null|undefined} value
+ * @returns {string}
+ */
+const formatValue = (value) => (Number.isFinite(value) ? String(Number(value.toPrecision(5))) : '–')
+
+// The readout's width, about, to keep it inside the chart.
+const READOUT_WIDTH_PX = 150
+
+// Short forms of time units, for the last tick and the readout.
+const SHORT_UNITS = { second: 's', millisecond: 'ms', microsecond: 'µs', minute: 'min', hour: 'h', day: 'd' }
+
+/**
+ * Shortens a unit's name when it has a usual short form.
+ *
+ * @param {string} unit
+ * @returns {string}
+ */
+const shortUnit = (unit) => SHORT_UNITS[unit] ?? unit
 
 const chartEl = ref(null)
 const { isDarkMode } = useColorScheme()
+const readout = ref(null)
+
+/**
+ * Gets a series' line colour.
+ *
+ * @param {{slot: number}} item
+ * @returns {string}
+ */
+const colourOf = (item) => SERIES_COLOURS[isDarkMode.value ? 'dark' : 'light'][item.slot]
+
+/**
+ * Shows the values under the cursor beside it, flipping to its left near the chart's right edge, or hides
+ * them as the cursor leaves.
+ *
+ * @param {Object} chart - The uPlot chart.
+ */
+function updateReadout(chart) {
+  const { idx, left } = chart.cursor
+  if (idx == null || left == null || left < 0) {
+    readout.value = null
+    return
+  }
+  const over = chart.over
+  const x = over.offsetLeft + left
+  const fitsRight = x + 12 + READOUT_WIDTH_PX <= chart.root.clientWidth
+  readout.value = {
+    left: fitsRight ? x + 12 : Math.max(0, x - 12 - READOUT_WIDTH_PX),
+    top: over.offsetTop + 6,
+    time: `${formatValue(chart.data[0][idx])}${props.x.unit ? ` ${shortUnit(props.x.unit)}` : ''}`,
+    rows: props.series.map((item) => ({ key: item.key, label: item.label, colour: colourOf(item), value: formatValue(item.values[idx]) })),
+  }
+}
 let plot = null
+// The time range zoomed into, kept across new values and redraws; null when showing the whole run.
+let zoom = getChartZoom(props.zoomKey)
+let isUpdatingData = false
+
+/**
+ * Sets the zoom again after new values, unless they no longer reach it, as after a change of time course.
+ */
+function restoreZoom() {
+  const times = plot?.data?.[0]
+  if (!zoom || !times?.length) return
+  if (zoom.max <= times[0] || zoom.min >= times[times.length - 1]) {
+    zoom = null
+    setChartZoom(props.zoomKey, null)
+    return
+  }
+  plot.setScale('x', zoom)
+}
+
+/**
+ * Notes a zoom the viewer made (dragging across the chart) or undid (double-clicking it).
+ *
+ * @param {Object} chart - The uPlot chart.
+ * @param {string} key - The scale that changed.
+ */
+function recordZoom(chart, key) {
+  if (key !== 'x' || isUpdatingData) return
+  const { min, max } = chart.scales.x
+  const times = chart.data[0]
+  if (min == null || max == null || !times?.length) return
+  zoom = min > times[0] || max < times[times.length - 1] ? { min, max } : null
+  setChartZoom(props.zoomKey, zoom)
+}
 let resizeObserver = null
 
 const ariaLabel = computed(() => {
@@ -93,28 +195,33 @@ const ariaLabel = computed(() => {
 function buildOptions(width) {
   const theme = isDarkMode.value ? 'dark' : 'light'
   const chrome = CHROME[theme]
-  const axis = (label) => ({
-    label,
-    values: formatTicks,
+  const axis = (values = formatTicks) => ({
+    values,
     stroke: chrome.text,
     grid: { stroke: chrome.grid, width: 1 },
     ticks: { stroke: chrome.axis, width: 1 },
     font: '11px system-ui, -apple-system, "Segoe UI", sans-serif',
-    labelFont: '11px system-ui, -apple-system, "Segoe UI", sans-serif',
   })
+  // The time's unit on its last tick, in place of an axis title under the ticks.
+  const timeTicks = (chart, splits) => {
+    const labels = formatTicks(chart, splits)
+    if (props.x.unit && labels.length) labels[labels.length - 1] += ` ${shortUnit(props.x.unit)}`
+    return labels
+  }
   return {
     width,
     height: props.height,
     scales: { x: { time: false } },
     // Synced charts plot different series, so hiding one mustn't hide its namesake by position elsewhere.
     cursor: { y: false, points: { size: 8 }, ...(props.syncKey && { sync: { key: props.syncKey, setSeries: false } }) },
-    legend: { live: true },
-    axes: [axis(props.x.unit ? `${props.x.label} (${props.x.unit})` : props.x.label), { ...axis(props.unit), size: sizeValueAxis }],
+    hooks: { setScale: [recordZoom], setCursor: [updateReadout] },
+    legend: { show: false },
+    padding: [8, 12, 0, 0],
+    axes: [{ ...axis(timeTicks), size: 28 }, { ...axis(), size: sizeValueAxis }],
     series: [
-      { label: props.x.label, value: formatLegendValue },
+      { label: props.x.label },
       ...props.series.map((series) => ({
         label: series.label,
-        value: formatLegendValue,
         stroke: SERIES_COLOURS[theme][series.slot],
         width: 2,
         points: { show: false },
@@ -129,7 +236,10 @@ const buildData = () => [props.x.values, ...props.series.map((series) => series.
 function draw() {
   plot?.destroy()
   if (!chartEl.value) return
+  isUpdatingData = true
   plot = new uPlot(buildOptions(chartEl.value.clientWidth || 300), buildData(), chartEl.value)
+  restoreZoom()
+  isUpdatingData = false
   labelCanvas()
 }
 
@@ -173,13 +283,20 @@ defineExpose({
   snapshot() {
     if (!plot) return null
     const colours = SERIES_COLOURS[isDarkMode.value ? 'dark' : 'light']
-    return { title: props.title, canvas: plot.ctx.canvas, legend: props.series.map((series) => ({ label: series.label, colour: colours[series.slot] })) }
+    // The unit is in the heading, not on the canvas, so the image's title carries it.
+    const title = props.unit ? `${props.title} (${props.unit})` : props.title
+    return { title, canvas: plot.ctx.canvas, legend: props.series.map((series) => ({ label: series.label, colour: colours[series.slot] })) }
   },
 })
+// New values, as a slider moving gives, keep a zoomed chart on its time range, with the values refitted to it.
 watch(
   () => [props.x.values, ...props.series.map((series) => series.values)],
   () => {
-    plot?.setData(buildData())
+    if (!plot) return
+    isUpdatingData = true
+    plot.setData(buildData())
+    restoreZoom()
+    isUpdatingData = false
     labelCanvas()
   }
 )
@@ -190,7 +307,25 @@ watch(
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
+}
+
+.plot-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.plot-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--dlg-fs-small, 0.8125rem);
+  font-weight: 600;
+  color: var(--p-text-color);
 }
 
 .plot-title-component,
@@ -199,10 +334,44 @@ watch(
   color: var(--p-text-muted-color);
 }
 
-.plot-title {
-  font-size: var(--dlg-fs-small, 0.8125rem);
-  font-weight: 600;
-  color: var(--p-text-color);
+.plot-unit {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--p-text-muted-color);
+}
+
+.plot-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.75rem;
+  color: var(--p-text-muted-color);
+}
+
+.plot-key li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.plot-title-swatch {
+  display: inline-block;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.plot-key-swatch {
+  flex-shrink: 0;
+  width: 10px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.plot-area {
+  position: relative;
 }
 
 .plot-chart {
@@ -210,14 +379,41 @@ watch(
   min-width: 0;
 }
 
-.plot-chart :deep(.u-legend) {
-  font-size: 11px;
-  color: var(--p-text-muted-color);
-  text-align: left;
+.plot-readout {
+  position: absolute;
+  z-index: 1;
+  min-width: 6rem;
+  max-width: 150px;
+  padding: 4px 8px;
+  border: 1px solid var(--p-content-border-color);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--p-content-background) 92%, transparent);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--p-text-color) 12%, transparent);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
 }
 
-.plot-chart :deep(.u-legend .u-value) {
+.plot-readout-time {
+  color: var(--p-text-muted-color);
+}
+
+.plot-readout-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   color: var(--p-text-color);
-  font-variant-numeric: tabular-nums;
+}
+
+.plot-readout-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--p-text-muted-color);
+}
+
+.plot-readout-value {
+  margin-left: auto;
+  font-weight: 600;
 }
 </style>

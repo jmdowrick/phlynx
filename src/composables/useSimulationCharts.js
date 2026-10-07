@@ -5,13 +5,15 @@
 import { computed, unref } from 'vue'
 
 import { resolveGroups } from '../services/simulation/plotSelections'
+import { INSPECTION_COMPONENT, isInspectionNodeId } from '../services/simulation/variableIndex'
 import { assignSeriesSlots, chunkSeries } from '../services/simulation/seriesSlots'
 import { readNodeSeries } from '../services/simulation/variableMapping'
+import { useAppSettings } from './useAppSettings'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 
 // Inspection modules belong to no instance or plot group, so their outputs make a plot of their own.
-const INSPECTION_PLOT = '__inspection_modules__'
+export const INSPECTION_PLOT = '__inspection_modules__'
 
 /**
  * Builds the charts of the shown results.
@@ -22,10 +24,21 @@ const INSPECTION_PLOT = '__inspection_modules__'
 export function useSimulationCharts(scopeNodes) {
   const store = useSimulationResultsStore()
   const simulationSettingsStore = useSimulationSettingsStore()
+  const { settings } = useAppSettings()
 
+  // Plots that start after the solve does, to let the model settle, count time from their start: t = 0.
   const xAxis = computed(() => {
     const voi = store.results?.voi
-    return { label: voi?.name.split('/').pop() ?? '', unit: voi?.unit ?? '', values: voi?.values ?? new Float64Array() }
+    const values = voi?.values ?? new Float64Array()
+    const { initialPoint, startingPoint } = simulationSettingsStore.simulationSettings
+    const isSettled = initialPoint < startingPoint && values.length > 0 && Math.abs(values[0] - startingPoint) < 1e-9 * Math.max(1, Math.abs(startingPoint))
+    return {
+      label: voi?.name.split('/').pop() ?? '',
+      unit: voi?.unit ?? '',
+      values: isSettled ? values.map((time) => time - startingPoint) : values,
+      // Where t = 0 is in the run's own time, when it isn't the same.
+      offset: isSettled ? startingPoint : 0,
+    }
   })
 
   /**
@@ -36,7 +49,16 @@ export function useSimulationCharts(scopeNodes) {
    */
   function collectSeries() {
     const nodesById = new Map(unref(scopeNodes).map((node) => [node.id, node]))
+    const outputsById = new Map(store.inspectionOutputs.map((output) => [output.id, output]))
     const variables = (simulationSettingsStore.plotConfig?.selections ?? []).flatMap((selection) => {
+      // An inspection module's output put on a plot, as a variable of no instance.
+      if (isInspectionNodeId(selection.nodeId)) {
+        const output = outputsById.get(selection.nodeId.slice('inspection:'.length))
+        const series = output && store.results.variables.get(output.reportedName)
+        if (!series) return []
+        const node = { id: selection.nodeId, data: { name: INSPECTION_COMPONENT } }
+        return [{ key: selection.key, plot: selection.groupId ?? '', node, name: output.name, unit: output.units, values: series.values }]
+      }
       const node = nodesById.get(selection.nodeId)
       const series = node && readNodeSeries(store.results, store.mapping, node.id, selection.variableName)
       if (!series) return []
@@ -49,7 +71,8 @@ export function useSimulationCharts(scopeNodes) {
       name,
       label: `${node.data.name}/${name}`,
     }))
-    const outputs = store.inspectionOutputs.map((output) => ({
+    // Inspection modules plot only when the settings ask for them.
+    const outputs = (settings.plotInspectionModules ? store.inspectionOutputs : []).map((output) => ({
       key: `inspection::${output.id}`,
       plot: INSPECTION_PLOT,
       component: null,
@@ -98,13 +121,24 @@ export function useSimulationCharts(scopeNodes) {
 
     const nextSlots = new Map()
     const result = []
+    // A plot normally makes one chart; one that mixes units, or holds more series than colours, makes several.
+    const chartsPerPlot = new Map()
+    for (const [, { plot, series }] of byPlotAndUnit) chartsPerPlot.set(plot, (chartsPerPlot.get(plot) ?? 0) + chunkSeries(series).length)
+    const unitsPerPlot = new Map()
+    for (const [, { plot }] of byPlotAndUnit) unitsPerPlot.set(plot, (unitsPerPlot.get(plot) ?? 0) + 1)
     for (const [id, { plot, unit, series }] of byPlotAndUnit) {
-      chunkSeries(series).forEach((group, index) => {
+      const chunks = chunkSeries(series)
+      chunks.forEach((group, index) => {
+        const plotName = plotNames.get(plot) ?? 'Ungrouped'
+        const parts = [unitsPerPlot.get(plot) > 1 ? unit : null, chunks.length > 1 ? String(index + 1) : null].filter(Boolean)
         const slots = assignSeriesSlots(previousSlots, group.map((item) => item.key))
         slots.forEach((slot, key) => nextSlots.set(key, slot))
         result.push({
           key: `${id}#${index}`,
-          ...titleFor(group, plotNames.get(plot) ?? 'Ungrouped'),
+          plotId: plot,
+          ...titleFor(group, plotName),
+          // The plot's name, with what tells its charts apart when it makes several.
+          plotLabel: chartsPerPlot.get(plot) > 1 && parts.length ? `${plotName} (${parts.join(', ')})` : plotName,
           unit,
           series: group.map((item) => ({ key: item.key, label: item.label, values: item.values, slot: slots.get(item.key) })),
         })
