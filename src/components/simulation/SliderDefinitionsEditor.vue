@@ -38,12 +38,14 @@
           </td>
           <td>
             <Button
-              icon="pi pi-times"
+              icon="pi pi-trash"
               text
               rounded
               size="small"
               severity="secondary"
+              class="remove-button"
               :aria-label="`Remove the ${row.parameterName} slider`"
+              v-tooltip.left="'Remove the slider'"
               @click="removeRow(row)"
             />
           </td>
@@ -199,6 +201,11 @@ function removeRow(row) {
 
 .definition--missing .definition-path {
   color: var(--p-orange-600);
+}
+
+/* Removing reads as removing, not as closing: a bin, red as the pointer reaches it. */
+.remove-button:hover {
+  color: var(--p-red-500);
 }
 
 .definitions-empty {

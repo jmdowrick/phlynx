@@ -43,11 +43,12 @@
         <li v-for="definition in elsewhere" :key="definition.key">
           <span>{{ definition.componentLabel }}/{{ definition.parameterName }}</span>
           <Button
-            icon="pi pi-times"
+            icon="pi pi-trash"
             text
             rounded
             size="small"
             severity="secondary"
+            class="remove-button"
             :aria-label="`Remove the ${definition.parameterName} slider`"
             @click="removeDefinitions([definition])"
           />
@@ -429,7 +430,7 @@ const menuItems = computed(() => {
     { label: 'Apply this value to the model', icon: 'pi pi-check', disabled: !slider.isChanged, command: () => applyToModel(slider) },
     { label: 'Edit range…', icon: 'pi pi-arrows-h', command: () => openRange(slider) },
     { separator: true },
-    { label: 'Remove slider', icon: 'pi pi-times', command: () => removeDefinitions(slider.definitions) },
+    { label: 'Remove slider', icon: 'pi pi-trash', command: () => removeDefinitions(slider.definitions) },
   ]
 })
 
@@ -550,6 +551,11 @@ function openRange(slider) {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
+}
+
+/* Removing reads as removing, not as closing: a bin, red as the pointer reaches it. */
+.remove-button:hover {
+  color: var(--p-red-500);
 }
 
 .slider-missing {

@@ -105,17 +105,22 @@
     <Popover ref="plotEditor" @show="onEditorShow">
       <div class="viewer-plot-editor">
         <template v-if="plotId !== INSPECTION_PLOT">
-          <h3 class="viewer-editor-title">Variables on {{ shownPlotName }}</h3>
+          <div class="viewer-editor-head">
+            <h3 class="viewer-editor-title">Variables on {{ shownPlotName }}</h3>
+            <Button icon="pi pi-times" text rounded size="small" severity="secondary" aria-label="Close" @click="plotEditor.hide()" />
+          </div>
           <ul v-if="shownSelections.length" class="viewer-plot-variables">
             <li v-for="selection in shownSelections" :key="selection.key">
               <span><span class="viewer-muted">{{ nodeName(selection.nodeId) }}/</span><strong>{{ selection.variableName }}</strong></span>
               <Button
-                icon="pi pi-times"
+                icon="pi pi-trash"
                 text
                 rounded
                 size="small"
                 severity="secondary"
+                class="remove-button"
                 :aria-label="`Stop plotting ${selection.variableName}`"
+                v-tooltip.left="'Remove from the plot'"
                 @click="settingsStore.setPlotConfig(removePlotSelection(settingsStore.plotConfig, selection.key))"
               />
             </li>
@@ -482,6 +487,17 @@ function pinWhereShown() {
 
 .viewer-add-variable {
   align-self: flex-start;
+}
+
+.viewer-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Removing reads as removing, not as closing: a bin, red as the pointer reaches it. */
+.remove-button:hover {
+  color: var(--p-red-500);
 }
 
 .viewer-editor-title {
