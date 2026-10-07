@@ -23,9 +23,19 @@ export function useSimulationCharts(scopeNodes) {
   const store = useSimulationResultsStore()
   const simulationSettingsStore = useSimulationSettingsStore()
 
+  // Plots that start after the solve does, to let the model settle, count time from their start: t = 0.
   const xAxis = computed(() => {
     const voi = store.results?.voi
-    return { label: voi?.name.split('/').pop() ?? '', unit: voi?.unit ?? '', values: voi?.values ?? new Float64Array() }
+    const values = voi?.values ?? new Float64Array()
+    const { initialPoint, startingPoint } = simulationSettingsStore.simulationSettings
+    const isSettled = initialPoint < startingPoint && values.length > 0 && Math.abs(values[0] - startingPoint) < 1e-9 * Math.max(1, Math.abs(startingPoint))
+    return {
+      label: voi?.name.split('/').pop() ?? '',
+      unit: voi?.unit ?? '',
+      values: isSettled ? values.map((time) => time - startingPoint) : values,
+      // Where t = 0 is in the run's own time, when it isn't the same.
+      offset: isSettled ? startingPoint : 0,
+    }
   })
 
   /**

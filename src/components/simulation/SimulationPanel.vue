@@ -36,6 +36,7 @@
           <SimulationPlot
             v-for="chart in charts"
             :key="chart.key"
+            :zoom-key="`panel:${chart.key}`"
             :title="chart.title"
             :title-parts="chart.titleParts"
             :unit="chart.unit"
@@ -336,7 +337,8 @@ const { xAxis, charts } = useSimulationCharts(scopeNodes)
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 8px 4px 8px 0;
+  /* A little room on the left too, for slider handles and focus rings the sidebar would crop. */
+  padding: 8px 4px 8px 4px;
 }
 
 .panel-empty {

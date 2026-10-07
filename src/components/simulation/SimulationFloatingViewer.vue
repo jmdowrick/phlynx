@@ -165,6 +165,7 @@
             <SimulationPlot
               v-for="chart in shownCharts"
               :key="chart.key"
+              :zoom-key="`floating:${chart.key}`"
               :title="chart.title"
               :title-parts="chart.titleParts"
               :unit="chart.unit"

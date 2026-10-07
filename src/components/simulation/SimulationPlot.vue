@@ -22,6 +22,7 @@ import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 
 import { useColorScheme } from '../../composables/useColorScheme'
+import { getChartZoom, setChartZoom } from '../../services/simulation/chartZoom'
 import { SERIES_COLOURS } from '../../services/simulation/seriesSlots'
 
 const CHROME = {
@@ -38,6 +39,8 @@ const props = defineProps({
   height: { type: Number, default: 220 },
   // Charts with the same key show their cursors at the same time.
   syncKey: { type: String, default: null },
+  // Names the chart, so it keeps its zoom when rebuilt.
+  zoomKey: { type: String, default: null },
 })
 
 /**
@@ -78,8 +81,22 @@ const chartEl = ref(null)
 const { isDarkMode } = useColorScheme()
 let plot = null
 // The time range zoomed into, kept across new values and redraws; null when showing the whole run.
-let zoom = null
+let zoom = getChartZoom(props.zoomKey)
 let isUpdatingData = false
+
+/**
+ * Sets the zoom again after new values, unless they no longer reach it, as after a change of time course.
+ */
+function restoreZoom() {
+  const times = plot?.data?.[0]
+  if (!zoom || !times?.length) return
+  if (zoom.max <= times[0] || zoom.min >= times[times.length - 1]) {
+    zoom = null
+    setChartZoom(props.zoomKey, null)
+    return
+  }
+  plot.setScale('x', zoom)
+}
 
 /**
  * Notes a zoom the viewer made (dragging across the chart) or undid (double-clicking it).
@@ -93,6 +110,7 @@ function recordZoom(chart, key) {
   const times = chart.data[0]
   if (min == null || max == null || !times?.length) return
   zoom = min > times[0] || max < times[times.length - 1] ? { min, max } : null
+  setChartZoom(props.zoomKey, zoom)
 }
 let resizeObserver = null
 
@@ -149,7 +167,7 @@ function draw() {
   if (!chartEl.value) return
   isUpdatingData = true
   plot = new uPlot(buildOptions(chartEl.value.clientWidth || 300), buildData(), chartEl.value)
-  if (zoom) plot.setScale('x', zoom)
+  restoreZoom()
   isUpdatingData = false
   labelCanvas()
 }
@@ -204,7 +222,7 @@ watch(
     if (!plot) return
     isUpdatingData = true
     plot.setData(buildData())
-    if (zoom) plot.setScale('x', zoom)
+    restoreZoom()
     isUpdatingData = false
     labelCanvas()
   }

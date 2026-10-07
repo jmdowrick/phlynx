@@ -522,7 +522,8 @@ function openRange(slider) {
 }
 
 .slider-control {
-  margin: 0 8px 4px;
+  /* Room for the handle at either end, which would otherwise be cropped by the sidebar's edge. */
+  margin: 0 16px 4px;
 }
 
 .slider-hint {

@@ -44,6 +44,7 @@
           <SimulationPlot
             v-for="chart in charts"
             :key="chart.key"
+            :zoom-key="`dialog:${chart.key}`"
             :ref="(plot) => setPlot(chart.key, plot)"
             :title="chart.title"
             :title-parts="chart.titleParts"
