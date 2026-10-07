@@ -5,7 +5,12 @@
       <span class="cell-where">Sub-experiment {{ sub + 1 }} · {{ formatNumber(duration) }} s{{ units ? ` · ${units}` : '' }}</span>
     </header>
 
-    <SelectButton v-model="kind" :options="KINDS" option-label="label" option-value="value" size="small" :allow-empty="false" class="kind-picker" aria-label="How it varies" />
+    <SelectButton v-model="kind" :options="INPUT_KINDS" option-label="label" option-value="value" size="small" :allow-empty="false" class="kind-picker" aria-label="How it varies">
+      <template #option="{ option }">
+        <svg class="kind-glyph" viewBox="0 0 16 10" aria-hidden="true"><polyline :points="option.glyph" /></svg>
+        <span>{{ option.label }}</span>
+      </template>
+    </SelectButton>
 
     <div class="preview" :class="{ 'preview--problem': problem }">
       <svg v-if="preview" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
@@ -81,18 +86,11 @@ import Message from 'primevue/message'
 import Select from 'primevue/select'
 import SelectButton from 'primevue/selectbutton'
 
+import { INPUT_KINDS } from './protocolKinds'
 import { buildShapeFromForm } from '../../services/protocol/protocolModel'
 import { findValueRange, sampleInput, writePolylinePoints } from '../../services/protocol/protocolPreview'
 import { expandShape, normaliseShape } from '../../services/protocol/protocolShapes'
 
-const KINDS = [
-  { value: 'number', label: 'Number' },
-  { value: 'step', label: 'Step' },
-  { value: 'pulse', label: 'Pulse' },
-  { value: 'pacing', label: 'Pacing' },
-  { value: 'ramp', label: 'Ramp' },
-  { value: 'trace', label: 'Trace' },
-]
 const FORM_FIELDS = {
   step: [
     { key: 'baseline', label: 'Before' },
@@ -124,6 +122,8 @@ const props = defineProps({
   sub: { type: Number, required: true },
   // The cell, from readProtocolInfo.
   cell: { type: Object, required: true },
+  // The kind of input to start on, when not the cell's own, as chosen from its segment's menu.
+  initialKind: { type: String, default: null },
   // The sub-experiment's length.
   duration: { type: Number, required: true },
   // The traces the file has, by name.
@@ -138,7 +138,7 @@ const emit = defineEmits(['apply', 'align', 'cancel'])
 
 const startValue = props.cell.kind === 'constant' ? props.cell.value : 0
 const form = props.cell.form
-const kind = ref(props.cell.kind === 'constant' ? 'number' : props.cell.kind === 'trace' || !form ? 'trace' : form.type)
+const kind = ref(props.initialKind ?? (props.cell.kind === 'constant' ? 'number' : props.cell.kind === 'trace' || !form ? 'trace' : form.type))
 // Every kind's fields at once, so switching kinds keeps what was typed; the defaults are CUFLynx's.
 const fields = reactive({
   value: startValue,
@@ -239,6 +239,23 @@ function apply() {
 
 .kind-picker :deep(.p-togglebutton) {
   flex: 1;
+}
+
+.kind-picker :deep(.p-togglebutton-content) {
+  gap: 5px;
+}
+
+.kind-glyph {
+  flex-shrink: 0;
+  width: 16px;
+  height: 10px;
+}
+
+.kind-glyph polyline {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
 }
 
 .cell-header {

@@ -50,7 +50,6 @@
 
         <div class="timeline-scroll">
           <div class="timeline" :style="{ gridTemplateColumns: columns }">
-            <div class="timeline-corner">Sub-experiments</div>
             <div class="column-head warm-up-head" :class="{ 'warm-up-head--none': !(experiment.preTime > 0) }">
               <span class="column-title" v-tooltip.bottom="'Run first, unplotted, to let the model settle'">Warm-up</span>
               <InputNumber
@@ -95,6 +94,7 @@
             </div>
 
             <template v-for="lane in lanes" :key="lane.parameter">
+              <!-- The lane's name, above it across the whole timeline, so the lane keeps the width. -->
               <div class="lane-label" :title="lane.parameter">
                 <span class="lane-path"><span class="lane-component">{{ lane.component }}/</span>{{ lane.name }}</span>
                 <span class="lane-units">{{ lane.units }}</span>
@@ -110,27 +110,40 @@
                 />
               </div>
               <div class="lane-cell lane-cell--warm-up" aria-hidden="true">
-                <svg v-if="lane.warmUp" viewBox="0 0 100 40" preserveAspectRatio="none">
+                <svg v-if="lane.warmUp" class="lane-plot" viewBox="0 0 100 40" preserveAspectRatio="none">
                   <polyline :points="lane.warmUp" :stroke="colour" />
                 </svg>
               </div>
-              <button
+              <div
                 v-for="cell in lane.cells"
                 :key="cell.sub"
-                type="button"
                 class="lane-cell"
                 :class="{ 'lane-cell--early': cell.isEarly, 'lane-cell--open': isEditing(lane.parameter, cell.sub) }"
-                :aria-label="`Change how ${lane.parameter} varies in sub-experiment ${cell.sub + 1}`"
-                @click="(event) => openCell(event, lane.parameter, cell.cell, cell.sub)"
               >
-                <svg v-if="cell.points" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
+                <button
+                  type="button"
+                  class="lane-hit"
+                  :aria-label="`Change how ${lane.parameter} varies in sub-experiment ${cell.sub + 1}`"
+                  :title="cell.isEarly ? 'Starts with the warm-up, as circulatory autogen runs it' : `${cell.description}. Click to edit.`"
+                  @click="(event) => openCell(event.currentTarget.parentElement, lane.parameter, cell.cell, cell.sub)"
+                ></button>
+                <svg v-if="cell.points" class="lane-plot" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
                   <polyline :points="cell.points" :stroke="colour" />
                 </svg>
-                <span class="cell-caption" :title="cell.isEarly ? 'Starts with the warm-up, as circulatory autogen runs it' : cell.description">
+                <button
+                  type="button"
+                  class="kind-chip"
+                  aria-haspopup="menu"
+                  :aria-label="`How ${lane.parameter} varies in sub-experiment ${cell.sub + 1}: ${cell.kind.label}`"
+                  :title="cell.description"
+                  @click="(event) => openKindMenu(event, lane.parameter, cell)"
+                >
                   <i v-if="cell.isEarly" class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                  {{ cell.caption }}
-                </span>
-              </button>
+                  <svg class="kind-glyph" viewBox="0 0 16 10" aria-hidden="true"><polyline :points="cell.kind.glyph" /></svg>
+                  <span>{{ cell.caption }}</span>
+                  <i class="pi pi-chevron-down kind-caret" aria-hidden="true"></i>
+                </button>
+              </div>
               <div></div>
             </template>
           </div>
@@ -154,6 +167,16 @@
       </div>
     </div>
 
+    <Menu ref="kindMenu" :model="kindMenuItems" popup>
+      <template #item="{ item, props: itemProps }">
+        <a v-bind="itemProps.action" class="kind-item" :class="{ 'kind-item--current': item.isCurrent }">
+          <svg class="kind-glyph" viewBox="0 0 16 10" aria-hidden="true"><polyline :points="item.glyph" /></svg>
+          <span>{{ item.label }}</span>
+          <i v-if="item.isCurrent" class="pi pi-check kind-check" aria-hidden="true"></i>
+        </a>
+      </template>
+    </Menu>
+
     <Popover ref="cellPopover" @hide="editing = null">
       <ProtocolCellEditor
         v-if="editing"
@@ -161,6 +184,7 @@
         :parameter="editing.parameter"
         :sub="editing.sub"
         :cell="editing.cell"
+        :initial-kind="editing.kind"
         :duration="editing.duration"
         :traces="protocolInfo?.protocol_traces ?? {}"
         :units="editing.units"
@@ -191,6 +215,7 @@ import Message from 'primevue/message'
 import Popover from 'primevue/popover'
 
 import ProtocolCellEditor from './ProtocolCellEditor.vue'
+import { INPUT_KINDS, findInputKind } from './protocolKinds'
 import VariablePathPicker from './VariablePathPicker.vue'
 import { useConfirmDialog } from '../../composables/useConfirmDialog'
 import { readObsDataParts } from '../../services/protocol/obsDataDocument'
@@ -247,12 +272,12 @@ const experiment = computed(() => view.value.experiments[current.value])
 const colour = computed(() => colourOf(experiment.value, current.value))
 const setParameters = computed(() => new Set(view.value.controls.map(({ parameter }) => parameter)))
 
-// The label, the warm-up, then each sub-experiment as wide as it is long, then the column to add one.
+// The warm-up, then each sub-experiment as wide as it is long, then the column to add one; lanes are named above.
 const columns = computed(() => {
   // Shares of the space left, made to sum to 10: factors summing to less than 1 would leave some of it unused.
   const total = experiment.value.duration || 1
   const subs = experiment.value.subs.map(({ duration }) => `minmax(5.5rem, ${((10 * Math.max(duration, 0)) / total).toFixed(4)}fr)`)
-  return ['minmax(10rem, 13rem)', experiment.value.preTime > 0 ? '6.5rem' : '5rem', ...subs, '2.5rem'].join(' ')
+  return [experiment.value.preTime > 0 ? '6.5rem' : '5rem', ...subs, '2.5rem'].join(' ')
 })
 
 // Each parameter's lane: its input in the warm-up and in each sub-experiment, on one scale.
@@ -278,6 +303,7 @@ const lanes = computed(() =>
         cell,
         points: draw(samples[s], windows[s]),
         caption: captionOf(cell),
+        kind: findInputKind(cell),
         description: describeCell(cell),
         isEarly: isEarly(cell, s),
       })),
@@ -506,18 +532,44 @@ let editCount = 0
  */
 const isEditing = (parameter, sub) => editing.value?.parameter === parameter && editing.value?.sub === sub
 
+const kindMenu = ref(null)
+// The segment whose kind is being chosen: `{ anchor, parameter, cell, sub, kind }`.
+const choosing = ref(null)
+const kindMenuItems = computed(() =>
+  INPUT_KINDS.map((kind) => ({
+    ...kind,
+    isCurrent: choosing.value?.kind === kind.value,
+    command: () => {
+      const { anchor, parameter, cell, sub } = choosing.value
+      openCell(anchor, parameter, cell, sub, kind.value)
+    },
+  }))
+)
+
 /**
- * Opens the editor of how a parameter varies in a sub-experiment, below its segment.
+ * Opens the menu of kinds of input for a segment, below its chip.
  *
  * @param {MouseEvent} event
  * @param {string} parameter
+ * @param {Object} segment - From the lane: `{ cell, sub, kind }`.
+ */
+function openKindMenu(event, parameter, { cell, sub, kind }) {
+  choosing.value = { anchor: event.currentTarget.parentElement, parameter, cell, sub, kind: kind.value }
+  kindMenu.value.toggle(event)
+}
+
+/**
+ * Opens the editor of how a parameter varies in a sub-experiment, below its segment.
+ *
+ * @param {HTMLElement} anchor - The segment.
+ * @param {string} parameter
  * @param {Object} cell
  * @param {number} sub
+ * @param {string} [kind] - The kind of input to start the editor on, when not the cell's own.
  */
-function openCell(event, parameter, cell, sub) {
-  const anchor = event.currentTarget
+function openCell(anchor, parameter, cell, sub, kind = null) {
   const units = unitsByPath.value.get(parameter) ?? ''
-  editing.value = { key: ++editCount, parameter, cell, sub, duration: experiment.value.subs[sub].duration, units }
+  editing.value = { key: ++editCount, parameter, cell, sub, kind, duration: experiment.value.subs[sub].duration, units }
   // Once the click is over, or it closes the popover again.
   setTimeout(() => cellPopover.value?.show({ currentTarget: anchor }, anchor), 0)
 }
@@ -705,13 +757,6 @@ function alignCell() {
   font-size: 0.8125rem;
 }
 
-.timeline-corner {
-  align-self: end;
-  padding-bottom: 8px;
-  font-size: 0.75rem;
-  color: var(--p-text-muted-color);
-}
-
 .column-head {
   display: flex;
   flex-direction: column;
@@ -754,12 +799,12 @@ function alignCell() {
 }
 
 .lane-label {
+  grid-column: 1 / -1;
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  position: relative;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
-  padding-right: 28px;
+  margin-top: 6px;
 }
 
 .lane-path {
@@ -778,11 +823,8 @@ function alignCell() {
 }
 
 .lane-remove {
-  position: absolute;
-  top: 50%;
-  right: 0;
-  transform: translateY(-50%);
-  opacity: 0;
+  align-self: center;
+  opacity: 0.55;
 }
 
 .lane-label:hover .lane-remove,
@@ -808,11 +850,6 @@ function alignCell() {
   border-color: color-mix(in srgb, var(--p-primary-color) 60%, transparent);
 }
 
-.lane-cell:focus-visible {
-  outline: 2px solid var(--p-primary-color);
-  outline-offset: 1px;
-}
-
 .lane-cell--warm-up {
   cursor: default;
   background: repeating-linear-gradient(135deg, var(--hatch) 0 6px, transparent 6px 12px);
@@ -823,7 +860,8 @@ function alignCell() {
   border-style: dashed;
 }
 
-.lane-cell svg {
+.lane-plot {
+  pointer-events: none;
   position: absolute;
   top: 20px;
   right: 2px;
@@ -833,36 +871,98 @@ function alignCell() {
   height: calc(100% - 26px);
 }
 
-/* The warm-up has no caption, so its line has the whole height. */
-.lane-cell--warm-up svg {
-  top: 20px;
-}
 
-.lane-cell polyline {
+
+.lane-plot polyline {
   fill: none;
   stroke-width: 2;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
 }
 
-.cell-caption {
+.lane-hit {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.lane-hit:focus-visible {
+  outline: 2px solid var(--p-primary-color);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+.kind-chip {
   position: absolute;
   top: 3px;
-  left: 6px;
+  left: 4px;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 0 4px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--p-content-background) 85%, transparent);
+  max-width: calc(100% - 8px);
+  padding: 1px 5px;
+  border: 1px solid var(--p-content-border-color);
+  border-radius: 999px;
+  background: var(--p-content-background);
+  color: inherit;
+  font: inherit;
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
-  pointer-events: none;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
-.cell-caption .pi {
+.kind-chip:hover,
+.kind-chip:focus-visible {
+  border-color: var(--p-primary-color);
+}
+
+.kind-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kind-chip .pi-exclamation-triangle {
   font-size: 0.7rem;
   color: var(--p-orange-500);
+}
+
+.kind-caret {
+  font-size: 0.55rem;
+  color: var(--p-text-muted-color);
+}
+
+.kind-glyph {
+  flex-shrink: 0;
+  width: 16px;
+  height: 10px;
+}
+
+.kind-glyph polyline {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.kind-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kind-item--current {
+  font-weight: 600;
+}
+
+.kind-check {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--p-primary-color);
 }
 
 .add-parameter {

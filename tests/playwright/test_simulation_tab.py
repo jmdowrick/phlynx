@@ -410,7 +410,7 @@ class TestSimulationTab(unittest.TestCase):
             dialog.get_by_role("button", name="Change how soma_SN/g_M varies in sub-experiment 2").click()
             page.locator(".cell-editor").get_by_label("Value").fill("0.00778")
             page.locator(".cell-editor").get_by_label("Value").press("Enter")
-            expect(dialog.get_by_role("button", name="Change how soma_SN/g_M varies in sub-experiment 2")).to_contain_text("0.00778")
+            expect(dialog.get_by_role("button", name="How soma_SN/g_M varies in sub-experiment 2: Number")).to_contain_text("0.00778")
             dialog.get_by_role("button", name="Add an experiment, a copy of this one").click()
             expect(dialog.get_by_role("button", name="Experiment 2", exact=True)).to_have_attribute("aria-pressed", "true")
             dialog.get_by_role("button", name="Save").click()
@@ -455,14 +455,18 @@ class TestSimulationTab(unittest.TestCase):
             pick_path(page, "Add a parameter for the protocol to set", "soma_SN/I_in", within=dialog)
 
             # g_M doubles from 0.02 to 0.06 into the sub-experiment.
-            dialog.get_by_role("button", name="Change how soma_SN/g_M varies in sub-experiment 1").click()
+            # Its segment's chip says what it is, and picks another kind.
+            chip = dialog.get_by_role("button", name="How soma_SN/g_M varies in sub-experiment 1: Number")
+            chip.click()
+            page.get_by_role("menuitem", name="Pulse").click()
             cell = page.locator(".cell-editor")
-            cell.get_by_text("Pulse", exact=True).click()
+            expect(cell.locator(".p-togglebutton-checked")).to_have_text("Pulse")
+            expect(cell.get_by_label("From", exact=True)).to_be_visible()
             for label, value in (("Baseline", "0.00389"), ("Level", "0.00778"), ("From", "0.02"), ("To", "0.06")):
                 cell.get_by_label(label, exact=True).fill(value)
                 cell.get_by_label(label, exact=True).press("Tab")
             cell.get_by_role("button", name="Apply").click()
-            expect(dialog.get_by_role("button", name="Change how soma_SN/g_M varies in sub-experiment 1")).to_contain_text("Pulse")
+            expect(dialog.get_by_role("button", name="How soma_SN/g_M varies in sub-experiment 1: Pulse")).to_be_visible()
 
             # The input current follows a recorded trace.
             dialog.get_by_role("button", name="Change how soma_SN/I_in varies in sub-experiment 1").click()
@@ -470,7 +474,7 @@ class TestSimulationTab(unittest.TestCase):
             cell.locator("input[type=file]").set_input_files(os.path.join(RESOURCE_PATH, "protocols", "input_trace.csv"))
             expect(cell.get_by_text("3 points from 0 to 0.1")).to_be_visible()
             cell.get_by_role("button", name="Apply").click()
-            expect(dialog.get_by_role("button", name="Change how soma_SN/I_in varies in sub-experiment 1")).to_contain_text("Trace")
+            expect(dialog.get_by_role("button", name="How soma_SN/I_in varies in sub-experiment 1: Trace")).to_be_visible()
             dialog.get_by_role("button", name="Save").click()
 
             page.get_by_role("button", name="Run the protocol's experiments").click()
