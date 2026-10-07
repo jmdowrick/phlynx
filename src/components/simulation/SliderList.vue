@@ -99,6 +99,7 @@
           :model-value="rangeSlider.min"
           :max-fraction-digits="6"
           size="small"
+          fluid
           @update:model-value="(min) => updateRange(rangeSlider, { min })"
         />
         <label :for="`${rangeId}-max`">Maximum</label>
@@ -107,6 +108,7 @@
           :model-value="rangeSlider.max"
           :max-fraction-digits="6"
           size="small"
+          fluid
           @update:model-value="(max) => updateRange(rangeSlider, { max })"
         />
       </div>
@@ -418,7 +420,8 @@ const menu = ref(null)
 const menuSlider = ref(null)
 const rangePopover = ref(null)
 const rangeSlider = ref(null)
-let menuEvent = null
+// The menu button last opened, which the range editor opens beside.
+let menuAnchor = null
 
 const menuItems = computed(() => {
   const slider = menuSlider.value
@@ -440,7 +443,7 @@ const menuItems = computed(() => {
  */
 function openMenu(event, slider) {
   menuSlider.value = slider
-  menuEvent = event
+  menuAnchor = event.currentTarget
   menu.value.toggle(event)
 }
 
@@ -451,7 +454,8 @@ function openMenu(event, slider) {
  */
 function openRange(slider) {
   rangeSlider.value = { ...slider }
-  rangePopover.value.show(menuEvent, menuEvent?.currentTarget ?? menuEvent?.target)
+  // Once the menu's click is over, which would otherwise count as a click outside the editor and close it.
+  setTimeout(() => rangePopover.value?.show({ currentTarget: menuAnchor }, menuAnchor), 0)
 }
 </script>
 
@@ -567,9 +571,14 @@ function openRange(slider) {
 
 .slider-range {
   display: grid;
-  grid-template-columns: auto 9rem;
+  grid-template-columns: auto 8rem;
   align-items: center;
   gap: 6px 10px;
   font-size: 0.8125rem;
+}
+
+.slider-range :deep(.p-inputnumber-input) {
+  width: 100%;
+  min-width: 0;
 }
 </style>

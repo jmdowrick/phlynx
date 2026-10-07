@@ -149,6 +149,16 @@ class TestSimulationTab(unittest.TestCase):
             expect(page.locator(".slider-value--changed")).to_have_count(0)
             expect(page.locator(".slider-value")).to_have_text("2.438 microS")
             expect(page.get_by_text("The model or settings have changed since this run.")).to_have_count(0)
+            # Its range opens from its menu, and changes as typed.
+            page.get_by_role("button", name="More for g_Na").click()
+            page.get_by_role("menuitem", name="Edit range…").click()
+            page.get_by_label("Maximum").fill("3")
+            page.get_by_label("Maximum").press("Tab")
+            page.wait_for_function(
+                "document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('simulationSettings')"
+                ".parameterScanConfig.selections[0].max === 3"
+            )
+            page.keyboard.press("Escape")
             # ----------- END ------------
 
             context.close()
