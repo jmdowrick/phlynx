@@ -2,7 +2,8 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { findSegments, useSimulationCharts } from '../../../src/composables/useSimulationCharts.js'
+import { findSegments, mergeTimes, spreadValues, useSimulationCharts } from '../../../src/composables/useSimulationCharts.js'
+import { ALL_EXPERIMENTS, useProtocolStore } from '../../../src/stores/protocolStore.js'
 import { useSimulationResultsStore } from '../../../src/stores/simulationResultsStore.js'
 import { useSimulationSettingsStore } from '../../../src/stores/simulationSettingsStore.js'
 
@@ -58,6 +59,47 @@ describe('useSimulationCharts', () => {
     store.finishProtocolRun({ protocolResults: { experiments: [experiment()], issues: [], elapsedMs: 1, isStopped: false }, experiment: 0, mapping: new Map(), signature: 's' })
 
     expect([...useSimulationCharts([NODE]).xAxis.value.values]).toEqual([0, 1, 2, 3, 4])
+  })
+})
+
+describe('every experiment at once', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  it('puts each experiment on one time axis, named after it, its line unbroken across the others\' times', () => {
+    useSimulationSettingsStore().plotConfig = { groups: [], selections: [{ key: 'n1::V', nodeId: 'n1', variableName: 'V', groupId: '' }] }
+    const short = { ...experiment(), voi: { name: 'environment/time', unit: 'second', values: Float64Array.of(0, 0.5, 1) } }
+    short.variables = new Map([['soma/V', { kind: 'state', unit: 'volt', values: Float64Array.of(5, 6, 7) }]])
+    useSimulationResultsStore().finishProtocolRun({
+      protocolResults: { experiments: [experiment(), short], issues: [], elapsedMs: 1, isStopped: false },
+      experiment: 0,
+      mapping: new Map([['n1::V', 'soma/V']]),
+      signature: 's',
+    })
+    useProtocolStore().setActiveExperiment(ALL_EXPERIMENTS)
+    const { xAxis, charts } = useSimulationCharts([NODE])
+
+    expect(xAxis.value.values).toEqual([0, 0.5, 1, 2, 3, 4])
+    expect(xAxis.value.segments).toEqual([])
+    const [chart] = charts.value
+    // One variable: named once, its lines by experiment, each in its experiment's colour.
+    expect(chart.title).toBe('soma/V')
+    expect(chart.series.map(({ label, slot }) => [label, slot])).toEqual([
+      ['Experiment 1', 0],
+      ['Experiment 2', 1],
+    ])
+    expect(chart.series.map(({ values }) => values)).toEqual([
+      [0, null, 1, 2, 3, 4],
+      [5, 6, 7, null, null, null],
+    ])
+  })
+})
+
+describe('mergeTimes and spreadValues', () => {
+  it('merges times once each, close ones as one, and spreads values over them with gaps', () => {
+    const { times, positions } = mergeTimes([Float64Array.of(0, 0.1 + 0.2, 1), Float64Array.of(0, 0.3, 0.5)])
+    expect(times).toEqual([0, 0.30000000000000004, 0.5, 1])
+    expect([...positions[1]]).toEqual([0, 1, 2])
+    expect(spreadValues(Float64Array.of(9, 8, 7), positions[0], times.length)).toEqual([9, 8, null, 7])
   })
 })
 

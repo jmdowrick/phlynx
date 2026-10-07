@@ -261,6 +261,8 @@ function buildOptions(width) {
         stroke: SERIES_COLOURS[theme][series.slot],
         width: 2,
         points: { show: false },
+        // Every experiment shown at once has points only at its own times; its line carries on across the others'.
+        spanGaps: true,
         // A value that changes at a point holds from the point before, so a step shows where its sub-experiment starts.
         ...(series.isStepped && { paths: STEPPED_PATHS }),
       })),

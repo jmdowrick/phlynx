@@ -129,7 +129,7 @@ import ToggleSwitch from 'primevue/toggleswitch'
 import { useFloatingViewer } from '../../composables/useFloatingViewer'
 import { useProtocolDialog } from '../../composables/useProtocolDialog'
 import { useSimSettingsDialog } from '../../composables/useSimSettingsDialog'
-import { useProtocolStore } from '../../stores/protocolStore'
+import { ALL_EXPERIMENTS, useProtocolStore } from '../../stores/protocolStore'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
 
 const scopeMode = defineModel('scopeMode', { type: String, default: 'model' })
@@ -155,9 +155,11 @@ const { open: openProtocolDialog } = useProtocolDialog()
 const protocolStore = useProtocolStore()
 const resultsStore = useSimulationResultsStore()
 
-const experimentOptions = computed(() =>
-  (protocolStore.view?.experiments ?? []).map((experiment, index) => ({ label: experiment.label ?? `Experiment ${index + 1}`, value: index }))
-)
+const experimentOptions = computed(() => {
+  const experiments = (protocolStore.view?.experiments ?? []).map((experiment, index) => ({ label: experiment.label ?? `Experiment ${index + 1}`, value: index }))
+  // Every experiment at once, to compare them on the same charts.
+  return experiments.length > 1 ? [{ label: 'All experiments', value: ALL_EXPERIMENTS }, ...experiments] : experiments
+})
 
 /** Switches play between the protocol and the time course, running at once as switching the scope does. */
 function toggleProtocol() {

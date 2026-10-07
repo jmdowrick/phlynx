@@ -9,6 +9,9 @@ import { validateProtocolInfo } from '../services/protocol/protocolValidation'
 import { cyrb53 } from '../utils/misc'
 import { useOmexStore } from './omexStore'
 
+// The experiment to show for every experiment at once.
+export const ALL_EXPERIMENTS = -1
+
 /**
  * The workspace's experiment protocol, read from the obs_data.json its archive carries (CUFLynx and circulatory
  * autogen's format), and whether play runs it. Never saved itself: the obs_data file is saved with the archive's
@@ -18,7 +21,7 @@ export const useProtocolStore = defineStore('protocol', () => {
   const omexStore = useOmexStore()
   /** Whether play runs the protocol rather than the settings' time course; the session's choice. */
   const isProtocolMode = ref(false)
-  /** The experiment whose results are shown, by index. */
+  /** The experiment whose results are shown, by index, or ALL_EXPERIMENTS. */
   const activeExperiment = ref(0)
 
   /** The obs_data file found among the archive's files, or null. */
