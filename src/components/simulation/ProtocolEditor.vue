@@ -194,6 +194,7 @@ import ProtocolCellEditor from './ProtocolCellEditor.vue'
 import VariablePathPicker from './VariablePathPicker.vue'
 import { useConfirmDialog } from '../../composables/useConfirmDialog'
 import { readObsDataParts } from '../../services/protocol/obsDataDocument'
+import { findCircAutogenLimits } from '../../services/protocol/protocolCompatibility'
 import {
   addExperiment,
   addParameter,
@@ -209,8 +210,7 @@ import {
   setTiming,
   setValue,
 } from '../../services/protocol/protocolEditing'
-import { readProtocolInfo } from '../../services/protocol/protocolModel'
-import { changesDuringWarmUp } from '../../services/protocol/protocolPlan'
+import { changesDuringWarmUp, readProtocolInfo } from '../../services/protocol/protocolModel'
 import { findValueRange, sampleInput, writePolylinePoints } from '../../services/protocol/protocolPreview'
 import { validateProtocolInfo } from '../../services/protocol/protocolValidation'
 import { SERIES_COLOURS } from '../../services/simulation/seriesSlots'
@@ -233,7 +233,12 @@ const selected = ref(0)
 const index = computed(() => buildVariableIndex(props.nodes))
 const unitsByPath = computed(() => new Map(index.value.map((entry) => [entry.path, entry.units])))
 const protocolInfo = computed(() => (props.document ? readObsDataParts(props.document).protocolInfo : null))
-const validation = computed(() => (protocolInfo.value ? validateProtocolInfo(protocolInfo.value) : { errors: [], warnings: [] }))
+const validation = computed(() => {
+  if (!protocolInfo.value) return { errors: [], warnings: [] }
+  const checked = validateProtocolInfo(protocolInfo.value)
+  // What CUFLynx couldn't run, though PhLynx can.
+  return checked.protocolInfo ? { ...checked, warnings: [...checked.warnings, ...findCircAutogenLimits(readProtocolInfo(checked.protocolInfo))] } : checked
+})
 // Shown as written while it has errors CA would refuse, so it stays editable.
 const view = computed(() => readProtocolInfo(validation.value.protocolInfo ?? withDefaults(protocolInfo.value)))
 // The experiment shown, kept within the experiments while an edit adding or removing one comes back.

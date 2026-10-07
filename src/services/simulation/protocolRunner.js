@@ -1,9 +1,9 @@
 /**
- * Runs a protocol's planned segments (see services/protocol/protocolPlan.js) on a simulation session, one after
+ * Runs a protocol's planned segments (see services/protocol/libopencorEngine/protocolPlan.js) on a simulation session, one after
  * another, each later one starting from the states the one before ended with, and joins each experiment's results.
  */
 import { MAX_RESULT_BYTES, SimulationError } from './engine'
-import { buildExperimentTime, joinSegmentValues } from '../protocol/protocolPlan.js'
+import { buildExperimentTime, joinSegmentValues } from '../protocol/libopencorEngine/protocolPlan.js'
 
 /**
  * Splits a reported name into the component and variable libOpenCOR changes it by.

@@ -223,7 +223,7 @@ RUN_PROTOCOL = """async () => {
   const { whenLibOpenCORReady } = await import('/src/services/simulation/libopencorLoader.js')
   const { validateProtocolInfo } = await import('/src/services/protocol/protocolValidation.js')
   const { readProtocolInfo } = await import('/src/services/protocol/protocolModel.js')
-  const { compileProtocolPlan } = await import('/src/services/protocol/protocolPlan.js')
+  const { compileProtocolPlan } = await import('/src/services/protocol/libopencorEngine/protocolPlan.js')
   const simulator = await whenLibOpenCORReady()
   const key = 'protocol-run-' + Math.round(performance.now())
   const described = await simulator.describeModel({ cellml: __CELLML__, key })
@@ -246,7 +246,7 @@ RUN_SHORT_PULSE = """async () => {
   const { whenLibOpenCORReady } = await import('/src/services/simulation/libopencorLoader.js')
   const { validateProtocolInfo } = await import('/src/services/protocol/protocolValidation.js')
   const { readProtocolInfo } = await import('/src/services/protocol/protocolModel.js')
-  const { compileProtocolPlan } = await import('/src/services/protocol/protocolPlan.js')
+  const { compileProtocolPlan } = await import('/src/services/protocol/libopencorEngine/protocolPlan.js')
   const simulator = await whenLibOpenCORReady()
   const key = 'protocol-pulse-' + Math.round(performance.now())
   await simulator.describeModel({ cellml: __CELLML__, key })
@@ -267,8 +267,8 @@ RUN_RAMP = """async () => {
   const { whenLibCellMLReady } = await import('/src/utils/cellml.js')
   const { validateProtocolInfo } = await import('/src/services/protocol/protocolValidation.js')
   const { readProtocolInfo } = await import('/src/services/protocol/protocolModel.js')
-  const { compileProtocolPlan } = await import('/src/services/protocol/protocolPlan.js')
-  const { planDrivers, findShortestFeature } = await import('/src/services/protocol/protocolDrivers.js')
+  const { compileProtocolPlan } = await import('/src/services/protocol/libopencorEngine/protocolPlan.js')
+  const { planDrivers, findShortestFeature } = await import('/src/services/protocol/libopencorEngine/protocolDrivers.js')
   const { addProtocolDrivers } = await import('/src/services/simulation/protocolDriverModel.js')
   const { protocolInfo } = validateProtocolInfo({
     pre_times: [0], sim_times: [[2]], params_to_change: { 'decay/k': [['up']] },

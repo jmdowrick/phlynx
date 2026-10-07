@@ -4,7 +4,8 @@
  * its clock back at 0. The warm-up runs on its own, through CA's own count of points, so that the solver's limit on
  * steps between two points isn't spent on the whole of it.
  */
-import { PACING, findIntervals } from './protocolShapes.js'
+import { changesDuringWarmUp } from '../protocolModel.js'
+import { PACING, findIntervals } from '../protocolShapes.js'
 
 // A protocol split into more runs than this would be slow to run.
 export const MAX_SEGMENTS = 500
@@ -29,25 +30,6 @@ function readCellSchedule(cell, duration) {
     valueAt: (time) => (time >= length ? last : (spans.find(([from, to]) => time >= from && time < to)?.[2] ?? baseline)),
     edges: spans.flatMap(([from, to]) => [from, to]).filter((edge) => edge > 0 && edge < length),
   }
-}
-
-/**
- * Whether an input changes during a warm-up, so that CA, starting it with the warm-up, runs it earlier than written.
- *
- * @param {Object} cell - From readProtocolInfo.
- * @param {number} preTime
- * @param {number} duration - The sub-experiment's length, which a shape lasts unless it says otherwise.
- * @returns {boolean}
- */
-export function changesDuringWarmUp(cell, preTime, duration) {
-  if (cell.kind === 'constant') return false
-  if (cell.kind === 'shape' && cell.shape.type === PACING) {
-    return findIntervals(cell.shape.events, cell.shape.duration ?? duration, cell.name).some(([from]) => from < preTime)
-  }
-  const { t, values } = cell.trace ?? { t: [], values: [] }
-  const early = values.filter((_, i) => t[i] <= preTime)
-  const next = t.findIndex((time) => time > preTime)
-  return early.some((value) => value !== early[0]) || (early.length > 0 && next >= 0 && next === early.length && t[next - 1] < preTime && values[next] !== early[0])
 }
 
 /**

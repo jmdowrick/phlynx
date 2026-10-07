@@ -2,7 +2,8 @@ import { defineStore } from 'pinia'
 import { computed, markRaw, ref } from 'vue'
 
 import { OBS_DATA_FORMAT, buildObsDataLocation, findObsDataExtra, readObsDataParts, serialiseObsData } from '../services/protocol/obsDataDocument'
-import { planDrivers } from '../services/protocol/protocolDrivers'
+import { planDrivers } from '../services/protocol/libopencorEngine/protocolDrivers'
+import { findCircAutogenLimits } from '../services/protocol/protocolCompatibility'
 import { readProtocolInfo } from '../services/protocol/protocolModel'
 import { validateProtocolInfo } from '../services/protocol/protocolValidation'
 import { cyrb53 } from '../utils/misc'
@@ -30,8 +31,9 @@ export const useProtocolStore = defineStore('protocol', () => {
   const validation = computed(() => {
     if (source.value?.parseError) return { errors: [`${source.value.entry.location} isn't valid JSON: ${source.value.parseError.message}`], warnings: [] }
     if (!hasProtocol.value) return { errors: [], warnings: [] }
-    const { errors, warnings } = validateProtocolInfo(protocolInfo.value)
-    return { errors, warnings }
+    const { errors, warnings, protocolInfo: valid } = validateProtocolInfo(protocolInfo.value)
+    // What CUFLynx couldn't run, though PhLynx can.
+    return { errors, warnings: valid ? [...warnings, ...findCircAutogenLimits(readProtocolInfo(valid))] : warnings }
   })
   /** The protocol as experiments of sub-experiments (see readProtocolInfo), or null when it can't run. */
   const view = computed(() => {

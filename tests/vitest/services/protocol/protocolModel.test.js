@@ -69,7 +69,7 @@ describe('readShapeForm', () => {
 })
 
 describe('src/services/protocol', () => {
-  it('imports nothing from the rest of PhLynx, so it can move to a shared library', () => {
+  it('imports nothing from the rest of PhLynx, and its shared part nothing from its libOpenCOR part', () => {
     // Every module specifier: static imports and re-exports (over several lines too), bare imports and dynamic ones.
     const SPECIFIERS = /\b(?:import|export)\b[^'"`;]*?\bfrom\s*['"]([^'"]+)['"]|\bimport\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"`]([^'"`]+)['"`]/g
     const files = readdirSync(SOURCE, { recursive: true }).filter((name) => name.endsWith('.js'))
@@ -77,7 +77,10 @@ describe('src/services/protocol', () => {
       [...readFileSync(join(SOURCE, name), 'utf8').matchAll(SPECIFIERS)].map((match) => [name, match[1] ?? match[2] ?? match[3]])
     )
     expect(imports.length).toBeGreaterThan(0)
-    expect(imports.filter(([, from]) => !/^\.\/[\w/]+\.js$/.test(from))).toEqual([])
+    // The shared part, which CUFLynx can use with Myokit, imports only its own modules; the libOpenCOR part, those
+    // and the shared ones.
+    const isAllowed = ([name, from]) => (name.includes('/') ? /^\.\.?\/\w+\.js$/.test(from) : /^\.\/\w+\.js$/.test(from))
+    expect(imports.filter((entry) => !isAllowed(entry))).toEqual([])
     expect(files.some((name) => /\bimport\s*\(\s*[^'"`\s]/.test(readFileSync(join(SOURCE, name), 'utf8')))).toBe(false)
   })
 })

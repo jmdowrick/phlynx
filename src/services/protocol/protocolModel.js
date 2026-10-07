@@ -2,7 +2,7 @@
  * Reads a protocol_info as experiments of sub-experiments, and the value each controlled parameter takes in each:
  * the view the run planner and the editor work from.
  */
-import { RAMP, isMapping, normaliseShape } from './protocolShapes.js'
+import { PACING, RAMP, findIntervals, isMapping, normaliseShape } from './protocolShapes.js'
 
 /**
  * Reads what a single-event pacing shape or a ramp was written as, the way CUFLynx's editor offers them: a step runs
@@ -90,4 +90,23 @@ export function readProtocolInfo(protocolInfo) {
     cells: experiments.map((experiment, e) => experiment.subs.map((sub, s) => readCell(rows[e][s], sub.duration, protocolInfo))),
   }))
   return { experiments, controls }
+}
+
+/**
+ * Whether an input changes during a warm-up, so that CA, starting it with the warm-up, runs it earlier than written.
+ *
+ * @param {Object} cell - From readProtocolInfo.
+ * @param {number} preTime
+ * @param {number} duration - The sub-experiment's length, which a shape lasts unless it says otherwise.
+ * @returns {boolean}
+ */
+export function changesDuringWarmUp(cell, preTime, duration) {
+  if (cell.kind === 'constant') return false
+  if (cell.kind === 'shape' && cell.shape.type === PACING) {
+    return findIntervals(cell.shape.events, cell.shape.duration ?? duration, cell.name).some(([from]) => from < preTime)
+  }
+  const { t, values } = cell.trace ?? { t: [], values: [] }
+  const early = values.filter((_, i) => t[i] <= preTime)
+  const next = t.findIndex((time) => time > preTime)
+  return early.some((value) => value !== early[0]) || (early.length > 0 && next >= 0 && next === early.length && t[next - 1] < preTime && values[next] !== early[0])
 }

@@ -15,8 +15,9 @@ import {
 import { DRIVER_COMPONENT, addProtocolDrivers, nameDriverVariables } from '../services/simulation/protocolDriverModel'
 import { findParameterRows, resolveProtocolTargets } from '../services/simulation/protocolTargets'
 import { buildVariableMapping, mapInspectionModules } from '../services/simulation/variableMapping'
-import { findShortestFeature } from '../services/protocol/protocolDrivers'
-import { compileProtocolPlan } from '../services/protocol/protocolPlan'
+import { findShortestFeature } from '../services/protocol/libopencorEngine/protocolDrivers'
+import { findCircAutogenLimits } from '../services/protocol/protocolCompatibility'
+import { compileProtocolPlan } from '../services/protocol/libopencorEngine/protocolPlan'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useProtocolStore } from '../stores/protocolStore'
@@ -296,7 +297,9 @@ export function useSimulation() {
     const shortest = findShortestFeature(drivers)
     if ((settings.solver ?? 'CVODE') === 'CVODE' && Number.isFinite(shortest)) settings = { ...settings, timeStep: settings.timeStep > 0 ? Math.min(settings.timeStep, shortest) : shortest }
     const errors = [...targetErrors, ...plan.errors]
-    store.report = { errors, warnings: [...store.report.warnings, ...plan.warnings] }
+    // Now that each parameter's kind is known: a state CUFLynx couldn't drive.
+    const limits = findCircAutogenLimits(view, { kinds }).filter((message) => !store.report.warnings.includes(message))
+    store.report = { errors, warnings: [...store.report.warnings, ...plan.warnings, ...limits] }
     if (errors.length) {
       store.failRun('blocked')
       return

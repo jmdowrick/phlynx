@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { readProtocolInfo, buildShapeFromForm, readShapeForm } from '../../../../src/services/protocol/protocolModel.js'
-import { compileProtocolPlan } from '../../../../src/services/protocol/protocolPlan.js'
+import { compileProtocolPlan } from '../../../../src/services/protocol/libopencorEngine/protocolPlan.js'
 import { normaliseShape } from '../../../../src/services/protocol/protocolShapes.js'
 import {
   addExperiment,

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { MAX_RESULT_BYTES, SimulationError } from '../../../../src/services/simulation/engine.js'
 import { mergeChanges, runProtocol } from '../../../../src/services/simulation/protocolRunner.js'
-import { buildLinearSpace, compileProtocolPlan } from '../../../../src/services/protocol/protocolPlan.js'
+import { buildLinearSpace, compileProtocolPlan } from '../../../../src/services/protocol/libopencorEngine/protocolPlan.js'
 import { readProtocolInfo } from '../../../../src/services/protocol/protocolModel.js'
 import { validateProtocolInfo } from '../../../../src/services/protocol/protocolValidation.js'
 

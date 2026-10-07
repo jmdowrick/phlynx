@@ -1,8 +1,8 @@
 /**
- * Adds a protocol's drivers (see services/protocol/protocolDrivers.js) to a flattened CellML model: each computes
+ * Adds a protocol's drivers (see services/protocol/libopencorEngine/protocolDrivers.js) to a flattened CellML model: each computes
  * the parameter it drives, which loses its own value.
  */
-import { writeDriverMathML } from '../protocol/protocolDrivers'
+import { writeDriverMathML } from '../protocol/libopencorEngine/protocolDrivers'
 
 export const DRIVER_COMPONENT = 'protocol_drivers'
 

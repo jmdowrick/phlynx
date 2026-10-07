@@ -3,17 +3,17 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { parseObsData } from '../../../../src/services/protocol/obsDataDocument.js'
-import { readProtocolInfo } from '../../../../src/services/protocol/protocolModel.js'
+import { parseObsData } from '../../../../../src/services/protocol/obsDataDocument.js'
+import { readProtocolInfo } from '../../../../../src/services/protocol/protocolModel.js'
 import {
   buildExperimentTime,
   buildLinearSpace,
   compileProtocolPlan,
   joinSegmentValues,
-} from '../../../../src/services/protocol/protocolPlan.js'
-import { validateProtocolInfo } from '../../../../src/services/protocol/protocolValidation.js'
+} from '../../../../../src/services/protocol/libopencorEngine/protocolPlan.js'
+import { validateProtocolInfo } from '../../../../../src/services/protocol/protocolValidation.js'
 
-const RESOURCES = join(__dirname, '../../../resources/protocols')
+const RESOURCES = join(__dirname, '../../../../resources/protocols')
 
 /**
  * Reads a protocol_info as PhLynx runs it.
