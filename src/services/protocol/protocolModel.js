@@ -1,0 +1,74 @@
+/**
+ * Reads a protocol_info as experiments of sub-experiments, and the value each controlled parameter takes in each:
+ * the view the run planner and the editor work from.
+ */
+import { RAMP, isMapping, normaliseShape } from './protocolShapes.js'
+
+/**
+ * Reads what a single-event pacing shape or a ramp was written as, the way CUFLynx's editor offers them: a step runs
+ * to the end of its sub-experiment, a pulse stops before it, and pacing repeats.
+ *
+ * @param {Object} shape - A normalised shape (see normaliseShape).
+ * @param {number} duration - The sub-experiment's length.
+ * @returns {Object|null} `{type, ...}`, or null for a shape of several events, which has no simpler form.
+ */
+export function readShapeForm(shape, duration) {
+  if (shape.type === RAMP) return { type: 'ramp', from: shape.from, to: shape.to }
+  if (shape.events.length !== 1) return null
+  const [{ level, start, length, period, multiplier }] = shape.events
+  const { baseline } = shape
+  if (period > 0) return { type: 'pacing', baseline, level, start, length, period, multiplier }
+  if (start + length >= duration) return { type: 'step', baseline, level, start }
+  return { type: 'pulse', baseline, level, start, end: start + length }
+}
+
+/**
+ * Reads one params_to_change value.
+ *
+ * @param {*} leaf - A number, or the name of a trace or shape.
+ * @param {number} duration - Its sub-experiment's length.
+ * @param {Object} protocolInfo
+ * @returns {Object} `{kind: 'constant', value}`, `{kind: 'shape', name, shape, form}` or `{kind: 'trace', name, trace}`.
+ */
+function readCell(leaf, duration, protocolInfo) {
+  if (typeof leaf !== 'string') return { kind: 'constant', value: leaf }
+  const ownValue = (mapping) => (isMapping(mapping) && Object.hasOwn(mapping, leaf) ? mapping[leaf] : undefined)
+  const rawShape = ownValue(protocolInfo.protocol_shapes)
+  if (rawShape !== undefined) {
+    const shape = normaliseShape(rawShape, leaf)
+    return { kind: 'shape', name: leaf, shape, form: readShapeForm(shape, duration) }
+  }
+  return { kind: 'trace', name: leaf, trace: ownValue(protocolInfo.protocol_traces) ?? null }
+}
+
+/**
+ * Reads a protocol_info that has passed validateProtocolInfo.
+ *
+ * @param {Object} protocolInfo - As validateProtocolInfo returns it.
+ * @returns {{experiments: Array<{label: string|null, colour: string|null, id: *, preTime: number, duration: number,
+ *   subs: Array<{start: number, duration: number}>}>, controls: Array<{parameter: string, cells: Object[][]}>}}
+ *   Sub-experiment starts are from the end of the warm-up; `label` and `colour` are null where the file gives none.
+ */
+export function readProtocolInfo(protocolInfo) {
+  const experiments = protocolInfo.sim_times.map((durations, experiment) => {
+    let start = 0
+    const subs = durations.map((duration) => {
+      const sub = { start, duration }
+      start += duration
+      return sub
+    })
+    return {
+      label: protocolInfo.experiment_labels?.[experiment] ?? null,
+      colour: protocolInfo.experiment_colors?.[experiment] ?? null,
+      id: protocolInfo.experiment_ids?.[experiment] ?? null,
+      preTime: protocolInfo.pre_times[experiment],
+      duration: start,
+      subs,
+    }
+  })
+  const controls = Object.entries(isMapping(protocolInfo.params_to_change) ? protocolInfo.params_to_change : {}).map(([parameter, rows]) => ({
+    parameter,
+    cells: experiments.map((experiment, e) => experiment.subs.map((sub, s) => readCell(rows[e][s], sub.duration, protocolInfo))),
+  }))
+  return { experiments, controls }
+}
