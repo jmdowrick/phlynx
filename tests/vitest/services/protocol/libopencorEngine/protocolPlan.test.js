@@ -191,10 +191,10 @@ describe('steps, pulses and pacing', () => {
       pre_times: [0],
       sim_times: [[1000]],
       params_to_change: { 'a/k': [['fast']] },
-      protocol_shapes: { fast: { events: [{ level: 1, length: 0.5, period: 1 }] } },
+      protocol_shapes: { fast: { events: [{ level: 1, length: 0.25, period: 0.5 }] } },
     })
-    expect(compileProtocolPlan({ view: train, pointInterval: 0.5 }).errors).toEqual([
-      'The protocol needs 2000 runs, one for each time a value changes; PhLynx runs at most 500.',
+    expect(compileProtocolPlan({ view: train, pointInterval: 0.25 }).errors).toEqual([
+      'The protocol needs 4000 runs, one for each time a value changes; PhLynx runs at most 2000.',
     ])
   })
 })

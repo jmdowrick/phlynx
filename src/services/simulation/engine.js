@@ -7,8 +7,9 @@ import { buildAlgorithm, buildUniformTimeCourse, findSolverSettingsProblem, reso
 // Above this, a run's results risk exhausting WebAssembly's 4 GB of memory.
 export const MAX_RESULT_BYTES = 1.5 * 1024 ** 3
 
-// libOpenCOR runs in a worker, so polling often costs the page nothing and returns results sooner.
-const POLL_INTERVAL_MS = 10
+// libOpenCOR runs in a worker, so polling often costs the page nothing and returns results sooner. The first polls
+// come quickly, as a short run, such as one of a protocol's many segments, is over long before the longest wait.
+const POLL_INTERVALS_MS = [0, 1, 2, 4, 10]
 const RUNNING = 1
 
 // libOpenCOR's enum member for each SED-ML value of the CVODE settings that are enums.
@@ -314,9 +315,9 @@ export function createSimulationSession({ module: loc, cellml }) {
 
         if (isStopped) return { ...readResults(task, timeCourse, 0), issues: [], elapsedMs: 0, isStopped }
         if (!instance.startRun()) throw new SimulationError('The simulation could not start.', readIssues(instance))
-        while (instance.status.value === RUNNING) {
+        for (let poll = 0; instance.status.value === RUNNING; poll++) {
           onProgress(instance.progress)
-          await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+          await new Promise((resolve) => setTimeout(resolve, POLL_INTERVALS_MS[Math.min(poll, POLL_INTERVALS_MS.length - 1)]))
         }
         const elapsedMs = instance.waitForRun()
         if (instance.hasErrors) {

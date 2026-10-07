@@ -8,7 +8,7 @@ import { changesDuringWarmUp } from '../protocolModel.js'
 import { PACING, findIntervals } from '../protocolShapes.js'
 
 // A protocol split into more runs than this would be slow to run.
-export const MAX_SEGMENTS = 500
+export const MAX_SEGMENTS = 2000
 
 /**
  * Reads a cell as a value at each time of its sub-experiment's clock, and the times it changes at. A pacing shape's
