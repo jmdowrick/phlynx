@@ -14,7 +14,6 @@ import {
 } from '../services/simulation/scopedModel'
 import { addProtocolDrivers } from '../services/simulation/protocolDriverModel'
 import { prepareProtocolRun } from '../services/simulation/protocolRun'
-import { findParameterRows } from '../services/simulation/protocolTargets'
 import { buildVariableMapping, mapInspectionModules } from '../services/simulation/variableMapping'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
@@ -65,18 +64,6 @@ export function forgetSimulationSession() {
 }
 
 /**
- * Leaves some rows' slider values out of the overrides, as for parameters a protocol drives.
- *
- * @param {{rows: Map<string, number>, globals: Map<string, number>}} overrides
- * @param {Set<string>} keys - The rows' `nodeId::name` keys.
- * @returns {{rows: Map<string, number>, globals: Map<string, number>}}
- */
-function withoutRows(overrides, keys) {
-  if (!keys.size) return overrides
-  return { ...overrides, rows: new Map([...overrides.rows].filter(([key]) => !keys.has(key))) }
-}
-
-/**
  * Runs scoped simulations of the workspace and keeps their results in simulationResultsStore.
  *
  * @returns {{run: Function, stop: Function, keepCurrent: Function, isStale: import('vue').ComputedRef<boolean>}}
@@ -111,15 +98,24 @@ export function useSimulation() {
       protocolStore.signature,
     ].join(':')
 
-  /** The slider values runs try out, for the sliders still defined. */
-  const currentOverrides = () => buildParameterOverrides(simulationSettingsStore.parameterScanConfig?.selections, store.sliderValues)
+  /**
+   * Selects the slider values a run tries out, for the sliders still defined: none while the sliders are off, as a
+   * protocol runs the model as it is.
+   *
+   * @param {boolean} [areSlidersOff] - Whether the sliders are off, for a run that has already read the mode.
+   * @returns {{rows: Map<string, number>, globals: Map<string, number>}}
+   */
+  const selectRunOverrides = (areSlidersOff = protocolStore.areSlidersOff) =>
+    areSlidersOff
+      ? { rows: new Map(), globals: new Map() }
+      : buildParameterOverrides(simulationSettingsStore.parameterScanConfig?.selections, store.sliderValues)
 
   /**
    * Simulates some nodes, or the whole model, and maps its results back to the nodes. When nothing but
    * slider values has changed since the model the simulator keeps was flattened, it reruns that model with
    * the new values; otherwise it checks the scope, flattens it with the sliders' values and runs it. With the
-   * protocol on, it runs the protocol's experiments instead (see runProtocolOn). A pre-flight with errors stops it
-   * before it runs.
+   * protocol on, it runs the protocol's experiments on the model as it is instead, without the sliders' values (see
+   * runProtocolOn). A pre-flight with errors stops it before it runs.
    *
    * @param {string[]|null} [nodeIds] - The nodes to simulate, or null for every node.
    * @returns {Promise<void>}
@@ -130,10 +126,12 @@ export function useSimulation() {
     store.startRun(nodeIds)
 
     const scope = resolveCurrentScope(nodeIds)
+    // Read once, so a mode switched while the simulator loads can't mix the time course's inputs into a protocol run.
+    const isProtocolRun = protocolStore.isActive
     // A protocol's ramps and traces are written into the model, so they are part of what it was flattened from.
-    const drivers = protocolStore.isActive ? protocolStore.drivers : []
+    const drivers = isProtocolRun ? protocolStore.drivers : []
     const structure = [buildScopeSignature(scope, libraryStore), ...(drivers.length ? [protocolStore.driverSignature] : [])].join(':')
-    const overrides = withoutRows(currentOverrides(), findParameterRows(drivers.map(({ parameter }) => parameter), scope.nodes))
+    const overrides = selectRunOverrides(isProtocolRun)
     const settings = { ...simulationSettingsStore.simulationSettings }
     const signature = signRun(scope, overrides)
 
@@ -153,7 +151,7 @@ export function useSimulation() {
     let built = null
     // Checked every run, since cut connections and inspection modules outside the scope change its warnings.
     store.report = summariseScopeReport(checkScope(scope, libraryStore))
-    if (protocolStore.isActive) {
+    if (isProtocolRun) {
       const { errors, warnings } = protocolStore.validation
       store.report = { errors: [...store.report.errors, ...errors], warnings: [...store.report.warnings, ...warnings] }
     }
@@ -171,7 +169,7 @@ export function useSimulation() {
       }
 
       const onProgress = (progress) => token === runToken && (store.progress = progress)
-      if (protocolStore.isActive) {
+      if (isProtocolRun) {
         await runProtocolOn({ simulator, token, nodeIds, scope, structure, overrides, settings, signature, kept: changes ? kept : null, changes, onProgress })
         return
       }
@@ -225,9 +223,9 @@ export function useSimulation() {
   }
 
   /**
-   * Runs the protocol's experiments on the scope. The kept model is rerun with the sliders' changes when it can be;
-   * otherwise the scope is flattened with them, and the simulator reads it and lists its variables, so the
-   * protocol's parameters can be found in it before anything runs.
+   * Runs the protocol's experiments on the scope. The kept model is rerun when it can be, its changes putting back
+   * the model's values of any slider values it was flattened with; otherwise the scope is flattened, and the
+   * simulator reads it and lists its variables, so the protocol's parameters can be found in it before anything runs.
    *
    * @param {Object} options - What run worked out: `{ simulator, token, nodeIds, scope, structure, overrides,
    *   settings, signature, kept, changes, onProgress }`, `kept` and `changes` null when the model needs flattening.
@@ -356,13 +354,13 @@ export function useSimulation() {
   function keepCurrent(change) {
     const wasCurrent = !!store.results && !isStale.value
     change()
-    if (wasCurrent) store.signature = signRun(resolveCurrentScope(store.scopeNodeIds), currentOverrides())
+    if (wasCurrent) store.signature = signRun(resolveCurrentScope(store.scopeNodeIds), selectRunOverrides())
   }
 
   /** Whether the scope or the settings have changed since the shown results were computed. */
   const isStale = computed(() => {
     if (!store.signature || !store.results) return false
-    return signRun(resolveCurrentScope(store.scopeNodeIds), currentOverrides()) !== store.signature
+    return signRun(resolveCurrentScope(store.scopeNodeIds), selectRunOverrides()) !== store.signature
   })
 
   return { run, stop, keepCurrent, isStale }

@@ -325,6 +325,17 @@ class TestSimulationTab(unittest.TestCase):
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             protocol_button = page.get_by_role("button", name="Run the protocol's experiments")
             expect(protocol_button).to_have_count(0)
+            # A slider tried out before the protocol turns on.
+            add_slider(page, "soma_SN/g_Na")
+            slider = page.get_by_role("slider", name="g_Na value")
+            slider.focus()
+            for _ in range(10):
+                page.keyboard.press("ArrowRight")
+            slider_value = page.locator(".slider-value")
+            expect(page.locator(".slider-value--changed")).to_have_count(1)
+            tried_value = slider_value.inner_text()
+            slider_note = page.get_by_text("Sliders are off while the protocol runs. Switch to the time course to use them.")
+            expect(slider_note).to_have_count(0)
 
             # A protocol appears with the obs_data file, and turning it on runs it.
             page.evaluate(ADD_PROTOCOL)
@@ -333,6 +344,18 @@ class TestSimulationTab(unittest.TestCase):
             page.wait_for_function(f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)", timeout=120000)
             self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
             self.assertEqual(page.evaluate(SHOWN_G_M), {"experiments": 2, "values": [0.00389]})
+            # The protocol runs the model as it is: the sliders are off, and keys don't move them or run anything.
+            expect(slider_note).to_be_visible()
+            expect(slider).to_have_attribute("aria-disabled", "true")
+            expect(slider).to_have_attribute("tabindex", "-1")
+            page.evaluate(f"window.__shownResults = {RESULTS_STORE}.results")
+            slider.focus()
+            page.keyboard.press("ArrowRight")
+            # Its value waits for the time course, not shown as changed, as the protocol ran without it.
+            expect(slider_value).to_have_text(tried_value)
+            expect(page.locator(".slider-value--changed")).to_have_count(0)
+            self.assertTrue(page.evaluate(f"{RESULTS_STORE}.results === window.__shownResults && {RESULTS_STORE}.status === 'done'"))
+            page.get_by_role("button", name=re.compile(r"^Plots \(")).click()
             self.assertEqual(page.evaluate(f"{RESULTS_STORE}.results.voi.values.length"), 21)
             expect(page.get_by_text("Ran 2 protocol experiments on the whole model")).to_be_visible()
             # The values it set are plotted only when asked for, after the results (none are plotted here).
@@ -353,6 +376,27 @@ class TestSimulationTab(unittest.TestCase):
             dialog.get_by_role("combobox", name="Experiment to show").click()
             page.get_by_role("option", name="SHR", exact=True).click()
             self.assertEqual(page.evaluate(SHOWN_G_M), {"experiments": 2, "values": [0.00389]})
+            # It switches between the time course and the protocol too, running each at once.
+            run_mode = dialog.get_by_role("group", name="What play runs")
+            run_mode.get_by_role("button", name="Time course").click()
+            expect(protocol_button).to_have_attribute("aria-pressed", "false")
+            page.wait_for_function(f"{RESULTS_STORE}.status === 'done' && !{RESULTS_STORE}.protocolResults", timeout=120000)
+            expect(dialog.get_by_role("combobox", name="Experiment to show")).to_have_count(0)
+            run_mode.get_by_role("button", name="Protocol").click()
+            expect(protocol_button).to_have_attribute("aria-pressed", "true")
+            page.wait_for_function(f"{RESULTS_STORE}.status === 'done' && !!{RESULTS_STORE}.protocolResults", timeout=120000)
+            expect(dialog.get_by_role("combobox", name="Experiment to show")).to_be_visible()
+            dialog.get_by_role("button", name="Close", exact=True).click()
+            expect(dialog).to_have_count(0)
+
+            # Back to the time course, the slider is on again with the value it was left at.
+            protocol_button.click()
+            expect(protocol_button).to_have_attribute("aria-pressed", "false")
+            page.get_by_role("button", name=re.compile(r"^Sliders \(")).click()
+            expect(slider_note).to_have_count(0)
+            expect(slider).to_have_attribute("tabindex", "0")
+            expect(slider_value).to_have_text(tried_value)
+            expect(page.locator(".slider-value--changed")).to_have_count(1)
             # ----------- END ------------
 
             context.close()

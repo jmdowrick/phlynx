@@ -14,8 +14,8 @@ import { buildExperimentTime, joinSegmentValues } from '../protocol/libopencorEn
 const splitName = (name) => ({ component: name.slice(0, name.indexOf('/')), variable: name.slice(name.indexOf('/') + 1) })
 
 /**
- * Combines lists of changes into one change per variable, later lists winning: sliders, then the protocol's values,
- * then the states carried over.
+ * Combines lists of changes into one change per variable, later lists winning: the base changes, then the protocol's
+ * values, then the states carried over.
  *
  * @param {Array<Array<{component: string, variable: string, value: number}>>} lists
  * @returns {Array<{component: string, variable: string, value: number}>}
@@ -106,8 +106,8 @@ function finishExperiment({ voi, variables, subs, filledCount }) {
  * @param {{experiments: Array}} options.plan - From compileProtocolPlan.
  * @param {Object} options.settings - Simulation settings, for the solver.
  * @param {Map<string, string>} options.targets - Each protocol parameter's reported name.
- * @param {Array<{component: string, variable: string, value: number}>} [options.baseChanges] - Slider values,
- *   applied to every segment; the protocol's own values win over them.
+ * @param {Array<{component: string, variable: string, value: number}>} [options.baseChanges] - Changes applied to
+ *   every segment, such as putting back the model's values; the protocol's own values win over them.
  * @param {Function} [options.onProgress] - Called with the progress, from 0 to 1, by model time.
  * @returns {{promise: Promise<Object>, stop: Function}} `promise` resolves with `{experiments: [{voi, variables,
  *   subs}], issues, elapsedMs, isStopped}`, or rejects with a SimulationError whose partial results are

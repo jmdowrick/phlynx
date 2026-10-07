@@ -156,7 +156,7 @@
       </div>
     </Popover>
 
-    <ProtocolResultsControls class="viewer-protocol" />
+    <ProtocolResultsControls :with-inputs="false" class="viewer-protocol" />
     <!-- Rebuilt as the sliders show or hide, since a Splitter takes its panels as it mounts. -->
     <Splitter :key="showSliders ? 'with-sliders' : 'plot'" layout="vertical" class="viewer-body">
       <SplitterPanel :size="showSliders ? 60 : 100" :min-size="25" class="viewer-pane">
@@ -309,7 +309,8 @@ function resizeBy(element, change) {
   return height - rect.height
 }
 const scopeNodes = computed(() => (store.scopeNodeIds ? props.nodes.filter((node) => store.scopeNodeIds.includes(node.id)) : props.nodes))
-const { xAxis, charts } = useSimulationCharts(scopeNodes)
+// The values a protocol set are one of its plots to pick, rather than shown on a toggle.
+const { xAxis, charts } = useSimulationCharts(scopeNodes, { hasInputs: true })
 
 // Every plot, empty ones too, so one can be picked and filled here; inspection outputs make one of their own.
 const plotOptions = computed(() => {

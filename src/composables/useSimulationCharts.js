@@ -69,9 +69,11 @@ export function spreadValues(values, positions, length) {
  * Builds the charts of the shown results.
  *
  * @param {import('vue').Ref<Array<Object>>|Array<Object>} scopeNodes - The simulated instances.
+ * @param {{hasInputs?: boolean}} [options] - `hasInputs` charts the values a protocol set whether or not they're
+ *   asked for, for a view that shows one chart at a time.
  * @returns {{xAxis: import('vue').ComputedRef<Object>, charts: import('vue').ComputedRef<Array<Object>>}}
  */
-export function useSimulationCharts(scopeNodes) {
+export function useSimulationCharts(scopeNodes, { hasInputs = false } = {}) {
   const store = useSimulationResultsStore()
   const protocolStore = useProtocolStore()
   const simulationSettingsStore = useSimulationSettingsStore()
@@ -154,7 +156,7 @@ export function useSimulationCharts(scopeNodes) {
       values: results.variables.get(output.reportedName).values,
     }))
     // The values the protocol set, as the model ran with them.
-    const inputs = store.protocolResults && protocolStore.isShowingInputs
+    const inputs = store.protocolResults && (hasInputs || protocolStore.isShowingInputs)
       ? [...store.protocolInputs].flatMap(([parameter, { name, isStepped }]) => {
           const series = results.variables.get(name)
           if (!series) return []

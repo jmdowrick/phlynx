@@ -72,6 +72,7 @@
       :scope-node-ids="store.scopeNodeIds"
       :keep-current="keepCurrent"
       @change="rerunForSliders"
+      @play="canPlay && play()"
     />
   </section>
 </template>

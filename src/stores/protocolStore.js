@@ -52,6 +52,11 @@ export const useProtocolStore = defineStore('protocol', () => {
   const driverSignature = computed(() => (drivers.value.length ? String(cyrb53(JSON.stringify(drivers.value))) : ''))
   /** Whether play runs the protocol. */
   const isActive = computed(() => isProtocolMode.value && (hasProtocol.value || !!source.value?.parseError))
+  /**
+   * Whether the sliders are off: a protocol runs the model as it is, so their values wait, untouched, for the time
+   * course. What every slider and run goes by.
+   */
+  const areSlidersOff = computed(() => isActive.value)
   /** The protocol's inputs to a run, to tell when its results have gone stale. */
   const signature = computed(() => (isActive.value ? String(cyrb53(JSON.stringify(protocolInfo.value))) : ''))
 
@@ -93,6 +98,7 @@ export const useProtocolStore = defineStore('protocol', () => {
     drivers,
     driverSignature,
     isActive,
+    areSlidersOff,
     signature,
     setActiveExperiment,
     saveDocument,

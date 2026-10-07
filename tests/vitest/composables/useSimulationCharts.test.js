@@ -48,6 +48,8 @@ describe('useSimulationCharts', () => {
     ])
     // The results only, at first.
     expect(charts.value.map(({ plotLabel }) => plotLabel)).toEqual(['Ungrouped'])
+    // A view showing one chart at a time has them as a plot to pick.
+    expect(useSimulationCharts([NODE], { hasInputs: true }).charts.value.map(({ plotLabel }) => plotLabel)).toEqual(['Ungrouped', 'Protocol inputs'])
 
     useProtocolStore().isShowingInputs = true
     expect(charts.value.map(({ series }) => series.map(({ isStepped }) => isStepped))).toEqual([[false], [true]])

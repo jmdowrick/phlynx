@@ -15,6 +15,7 @@
       v-if="withInputs && hasInputs"
       icon="pi pi-sliders-h"
       label="Inputs"
+      class="inputs-button"
       text
       size="small"
       :severity="protocolStore.isShowingInputs ? 'primary' : 'secondary'"
@@ -80,6 +81,10 @@ function showExperiment(index) {
   align-items: center;
   gap: 4px;
   min-width: 0;
+}
+
+.inputs-button {
+  flex-shrink: 0;
 }
 
 .experiment-select {

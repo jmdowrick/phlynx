@@ -504,6 +504,50 @@ describe('useSimulation', () => {
       await done
     })
 
+    it("runs the model as it is, without the sliders' values, and keeps them for the time course", async () => {
+      useSimulationSettingsStore().setParameterScanConfig({
+        selections: [{ key: 'a::k', nodeId: 'a', nodeName: 'a', parameterName: 'k', type: 'constant', min: 0, max: 4 }],
+      })
+      store.setSliderValue('a::k', 1.5)
+      useProtocol(PROTOCOL)
+      const { run, isStale } = useSimulation()
+
+      const done = run(null)
+      await settle()
+      expect(built.scopes[0].nodes[0].data.variables.find((row) => row.name === 'k').value).toBe('1')
+      expect(engine.protocolRuns[0].options.baseChanges).toEqual([])
+      engine.protocolRuns[0].finish(PROTOCOL_RESULTS)
+      await done
+
+      // A slider moving doesn't touch the protocol's results.
+      store.setSliderValue('a::k', 1.8)
+      expect(isStale.value).toBe(false)
+
+      useProtocolStore().isProtocolMode = false
+      expect(store.sliderValues.get('a::k')).toBe(1.8)
+      run(null)
+      await settle()
+      expect(engine.runs[0].options.changes).toEqual([{ component: 'instance_parameters', variable: 'k', value: 1.8 }])
+    })
+
+    it("puts back the model's values a time course flattened sliders' values over", async () => {
+      useSimulationSettingsStore().setParameterScanConfig({
+        selections: [{ key: 'a::k', nodeId: 'a', nodeName: 'a', parameterName: 'k', type: 'constant', min: 0, max: 4 }],
+      })
+      store.setSliderValue('a::k', 2.5)
+      const { run } = useSimulation()
+      const first = run(null)
+      await settle()
+      engine.runs[0].finish({ ...RESULTS, variables: new Map([['instance_parameters/k', { kind: 'constant', values: new Float64Array([2.5, 2.5]) }]]) })
+      await first
+
+      useProtocol(PROTOCOL)
+      run(null)
+      await settle()
+      expect(engine.described).toEqual([])
+      expect(engine.protocolRuns[0].options.baseChanges).toEqual([{ component: 'instance_parameters', variable: 'k', value: 1 }])
+    })
+
     it('tells the results are out of date once the protocol is turned off', async () => {
       useProtocol(PROTOCOL)
       const { run, isStale } = useSimulation()

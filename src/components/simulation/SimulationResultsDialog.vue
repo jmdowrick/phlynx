@@ -18,6 +18,18 @@
   >
     <div class="results-toolbar">
       <p class="results-summary">{{ summary }}</p>
+      <!-- As the toolbar's protocol button does, switching runs at once. -->
+      <SelectButton
+        v-if="protocolStore.hasProtocol || protocolStore.source?.parseError"
+        :model-value="protocolStore.isProtocolMode"
+        :options="RUN_MODES"
+        option-label="label"
+        option-value="value"
+        :allow-empty="false"
+        size="small"
+        aria-label="What play runs"
+        @update:model-value="switchRunMode"
+      />
       <ProtocolResultsControls />
       <ToggleButton
         v-model="isEditing"
@@ -82,12 +94,14 @@ import { computed, ref } from 'vue'
 
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
+import SelectButton from 'primevue/selectbutton'
 import ToggleButton from 'primevue/togglebutton'
 
 import ProtocolResultsControls from './ProtocolResultsControls.vue'
 import SimulationControls from './SimulationControls.vue'
 import SimulationPlot from './SimulationPlot.vue'
 import { buildResultsCsv, collectResultColumns, composeChartsImage } from '../../services/simulation/resultsExport'
+import { useProtocolStore } from '../../stores/protocolStore'
 import { legacyDownload } from '../../utils/save'
 
 const FILE_NAME = 'simulation-results'
@@ -104,7 +118,23 @@ const props = defineProps({
   keepCurrent: { type: Function, required: true },
 })
 // A slider moved, so the scope wants running again.
-const emit = defineEmits(['change'])
+const emit = defineEmits(['change', 'play'])
+
+const protocolStore = useProtocolStore()
+const RUN_MODES = [
+  { label: 'Time course', value: false },
+  { label: 'Protocol', value: true },
+]
+
+/**
+ * Switches play between the time course and the protocol, and runs it.
+ *
+ * @param {boolean} isProtocolMode
+ */
+function switchRunMode(isProtocolMode) {
+  protocolStore.isProtocolMode = isProtocolMode
+  emit('play')
+}
 
 const isEditing = ref(true)
 const isMaximized = ref(false)
