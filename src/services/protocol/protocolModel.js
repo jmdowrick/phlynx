@@ -23,6 +23,22 @@ export function readShapeForm(shape, duration) {
 }
 
 /**
+ * Writes a form as the protocol_shapes entry CA reads, the inverse of readShapeForm.
+ *
+ * @param {Object} form - `{type: 'step', baseline, level, start}`, `{type: 'pulse', baseline, level, start, end}`,
+ *   `{type: 'pacing', baseline, level, start, length, period, multiplier}` or `{type: 'ramp', from, to}`.
+ * @param {number} duration - The sub-experiment's length, which a step lasts to.
+ * @returns {Object}
+ */
+export function buildShapeFromForm(form, duration) {
+  if (form.type === 'ramp') return { type: 'ramp', from: form.from, to: form.to }
+  const event = { level: form.level, start: form.start }
+  if (form.type === 'step') return { baseline: form.baseline, events: [{ ...event, length: duration - form.start }] }
+  if (form.type === 'pulse') return { baseline: form.baseline, events: [{ ...event, length: form.end - form.start }] }
+  return { baseline: form.baseline, events: [{ ...event, length: form.length, period: form.period, multiplier: form.multiplier }] }
+}
+
+/**
  * Reads one params_to_change value.
  *
  * @param {*} leaf - A number, or the name of a trace or shape.

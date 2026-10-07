@@ -32,6 +32,25 @@ function readCellSchedule(cell, duration) {
 }
 
 /**
+ * Whether an input changes during a warm-up, so that CA, starting it with the warm-up, runs it earlier than written.
+ *
+ * @param {Object} cell - From readProtocolInfo.
+ * @param {number} preTime
+ * @param {number} duration - The sub-experiment's length, which a shape lasts unless it says otherwise.
+ * @returns {boolean}
+ */
+export function changesDuringWarmUp(cell, preTime, duration) {
+  if (cell.kind === 'constant') return false
+  if (cell.kind === 'shape' && cell.shape.type === PACING) {
+    return findIntervals(cell.shape.events, cell.shape.duration ?? duration, cell.name).some(([from]) => from < preTime)
+  }
+  const { t, values } = cell.trace ?? { t: [], values: [] }
+  const early = values.filter((_, i) => t[i] <= preTime)
+  const next = t.findIndex((time) => time > preTime)
+  return early.some((value) => value !== early[0]) || (early.length > 0 && next >= 0 && next === early.length && t[next - 1] < preTime && values[next] !== early[0])
+}
+
+/**
  * Whether a time lies on a grid of points, within rounding.
  *
  * @param {number} offset - From the grid's start.
@@ -91,6 +110,11 @@ export function compileProtocolPlan({ view, pointInterval, kinds = new Map(), dr
           continue
         }
         const driver = drivers.get(parameter)
+        if (s === 0 && preTime > 0 && changesDuringWarmUp(cell, preTime, sub.duration)) {
+          warnings.push(
+            `Experiment ${e + 1}: ${parameter}'s ${cell.name} starts with the warm-up, as circulatory autogen runs it, so it shows ${preTime} earlier than written.`
+          )
+        }
         if (driver) {
           schedules.push({ parameter: driver.selectorParameter, valueAt: () => driver.selectors[e][s], edges: [] })
           schedules.push({ parameter: driver.valueParameter, valueAt: () => (cell.kind === 'constant' ? cell.value : 0), edges: [] })
@@ -110,11 +134,6 @@ export function compileProtocolPlan({ view, pointInterval, kinds = new Map(), dr
         if (!schedule) {
           errors.push(`${where(s)}: ${parameter} changes continuously (a ramp or a trace), which PhLynx can't run yet.`)
           continue
-        }
-        if (s === 0 && preTime > 0 && schedule.edges.length) {
-          warnings.push(
-            `Experiment ${e + 1}: ${parameter}'s ${cell.name} starts with the warm-up, as circulatory autogen runs it, so it shows ${preTime} earlier than written.`
-          )
         }
         schedules.push({ parameter, ...schedule })
       }

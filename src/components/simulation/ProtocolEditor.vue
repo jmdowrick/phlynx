@@ -88,16 +88,28 @@
                 <span class="parameter-component">{{ splitPath(control.parameter).component }}/</span><span class="parameter-name">{{ splitPath(control.parameter).name }}</span>
               </th>
               <td v-for="(cell, s) in control.cells[current]" :key="s">
-                <InputNumber
-                  v-if="cell.kind === 'constant'"
-                  :model-value="cell.value"
-                  :max-fraction-digits="8"
-                  size="small"
-                  fluid
-                  :aria-label="`${control.parameter} in sub-experiment ${s + 1}`"
-                  @update:model-value="(value) => value != null && edit(setValue, { parameter: control.parameter, experiment: current, sub: s, value })"
-                />
-                <span v-else class="cell-input" :title="cell.name">{{ describeCell(cell) }}</span>
+                <div class="cell">
+                  <InputNumber
+                    v-if="cell.kind === 'constant'"
+                    :model-value="cell.value"
+                    :max-fraction-digits="8"
+                    size="small"
+                    fluid
+                    :aria-label="`${control.parameter} in sub-experiment ${s + 1}`"
+                    @update:model-value="(value) => value != null && edit(setValue, { parameter: control.parameter, experiment: current, sub: s, value })"
+                  />
+                  <span v-else class="cell-input" :class="{ 'cell-input--early': isEarly(cell, s) }" :title="cell.name">{{ describeCell(cell) }}</span>
+                  <Button
+                    icon="pi pi-sliders-h"
+                    text
+                    rounded
+                    size="small"
+                    severity="secondary"
+                    :aria-label="`Change how ${control.parameter} varies in sub-experiment ${s + 1}`"
+                    v-tooltip.bottom="'A number, a step, a pulse, pacing, a ramp or a trace'"
+                    @click="(event) => openCell(event, control.parameter, cell, s)"
+                  />
+                </div>
               </td>
               <td>
                 <Button
@@ -123,6 +135,21 @@
         @pick="addPicked"
       />
 
+      <Popover ref="cellPopover" @hide="editing = null">
+        <ProtocolCellEditor
+          v-if="editing"
+          :key="editing.key"
+          :cell="editing.cell"
+          :duration="editing.duration"
+          :trace-names="traceNames"
+          :pre-time="experiment.preTime"
+          :can-align="isEarly(editing.cell, editing.sub)"
+          @apply="applyCell"
+          @align="alignCell"
+          @cancel="cellPopover.hide()"
+        />
+      </Popover>
+
       <Message v-for="message in validation.errors" :key="message" severity="error" size="small">{{ message }}</Message>
       <Message v-for="message in validation.warnings" :key="message" severity="warn" size="small">{{ message }}</Message>
     </template>
@@ -132,8 +159,7 @@
 <script setup>
 /**
  * Edits a protocol as circulatory autogen and CUFLynx write it, in an obs_data document: experiments, each a series of
- * sub-experiments, and the value each parameter takes in each. Numbers are edited here; steps, pulses, ramps and
- * traces are shown as they are.
+ * sub-experiments, and how each parameter varies in each: a number, a step, a pulse, pacing, a ramp or a trace.
  */
 import { computed, ref } from 'vue'
 
@@ -142,6 +168,9 @@ import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 
+import Popover from 'primevue/popover'
+
+import ProtocolCellEditor from './ProtocolCellEditor.vue'
 import VariablePathPicker from './VariablePathPicker.vue'
 import { useConfirmDialog } from '../../composables/useConfirmDialog'
 import { readObsDataParts } from '../../services/protocol/obsDataDocument'
@@ -149,15 +178,18 @@ import {
   addExperiment,
   addParameter,
   addSubExperiment,
+  alignWithWarmUp,
   ensureProtocol,
   findObservationsAt,
   moveExperiment,
   removeExperiment,
   removeParameter,
   removeSubExperiment,
+  setInput,
   setTiming,
   setValue,
 } from '../../services/protocol/protocolEditing'
+import { changesDuringWarmUp } from '../../services/protocol/protocolPlan'
 import { readProtocolInfo } from '../../services/protocol/protocolModel'
 import { validateProtocolInfo } from '../../services/protocol/protocolValidation'
 import { buildVariableIndex } from '../../services/simulation/variableIndex'
@@ -181,6 +213,62 @@ const view = computed(() => readProtocolInfo(validation.value.protocolInfo ?? wi
 const current = computed(() => Math.min(selected.value, view.value.experiments.length - 1))
 const experiment = computed(() => view.value.experiments[current.value])
 const setParameters = computed(() => new Set(view.value.controls.map(({ parameter }) => parameter)))
+const traceNames = computed(() => Object.keys(protocolInfo.value?.protocol_traces ?? {}))
+const cellPopover = ref(null)
+// The cell being edited: `{ key, parameter, cell, sub, duration }`.
+const editing = ref(null)
+let editCount = 0
+
+/**
+ * Whether a cell's input starts with the warm-up, as CA runs a first sub-experiment's, so it runs earlier than written.
+ *
+ * @param {Object} cell
+ * @param {number} sub
+ * @returns {boolean}
+ */
+function isEarly(cell, sub) {
+  if (sub !== 0 || !(experiment.value.preTime > 0)) return false
+  try {
+    return changesDuringWarmUp(cell, experiment.value.preTime, experiment.value.subs[0].duration)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Opens the editor of how a parameter varies in a sub-experiment, beside its button.
+ *
+ * @param {MouseEvent} event
+ * @param {string} parameter
+ * @param {Object} cell
+ * @param {number} sub
+ */
+function openCell(event, parameter, cell, sub) {
+  const anchor = event.currentTarget
+  editing.value = { key: ++editCount, parameter, cell, sub, duration: experiment.value.subs[sub].duration }
+  // Once the click is over, or it closes the popover again.
+  setTimeout(() => cellPopover.value?.show({ currentTarget: anchor }, anchor), 0)
+}
+
+/**
+ * Applies the cell editor's change: a number, a shape, a trace, or a trace the file has.
+ *
+ * @param {{value?: number, shape?: Object, trace?: Object, traceName?: string}} change
+ */
+function applyCell({ value, shape, trace, traceName }) {
+  const { parameter, sub } = editing.value
+  const where = { parameter, experiment: current.value, sub }
+  if (shape || trace) edit(setInput, { ...where, shape, trace })
+  else edit(setValue, { ...where, value: traceName ?? value })
+  cellPopover.value.hide()
+}
+
+/** Starts the edited input with its sub-experiment rather than with the warm-up. */
+function alignCell() {
+  const { parameter, cell } = editing.value
+  edit(alignWithWarmUp, { parameter, experiment: current.value, ...(cell.kind === 'shape' ? { shape: cell.shape } : { trace: cell.trace }) })
+  cellPopover.value.hide()
+}
 
 
 /**
@@ -221,7 +309,8 @@ function splitPath(path) {
  */
 function describeCell(cell) {
   const form = cell.form
-  if (cell.kind === 'trace') return `Trace ${cell.name}`
+  // A trace this editor wrote is named after its cell, which says nothing; one the file names keeps its name.
+  if (cell.kind === 'trace') return /_e\d+s\d+$/.test(cell.name) && cell.trace ? `Trace of ${cell.trace.t.length} points` : `Trace ${cell.name}`
   if (!form) return `Pacing ${cell.name}`
   if (form.type === 'ramp') return `Ramp ${form.from} → ${form.to}`
   if (form.type === 'step') return `Step to ${form.level} at ${form.start}`
@@ -388,6 +477,16 @@ function addPicked(entry) {
 
 .parameter-component {
   color: var(--p-text-muted-color);
+}
+
+.cell {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.cell-input--early {
+  outline: 1px dashed var(--p-orange-500);
 }
 
 .cell-input {

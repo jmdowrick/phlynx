@@ -13,8 +13,8 @@ const state = reactive({ visible: false, section: null })
  */
 export function useSimSettingsDialog() {
   /**
-   * Opens the dialog, scrolled to a section when given one: 'time', 'parameters' (the solver), 'plots',
-   * 'sliders' or 'protocol'.
+   * Opens the dialog, scrolled to a section when given one: 'time', 'parameters' (the solver), 'plots' or
+   * 'sliders'.
    *
    * @param {string} [section]
    */

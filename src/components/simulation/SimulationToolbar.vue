@@ -53,18 +53,6 @@
         v-tooltip.bottom="protocolStore.isProtocolMode ? 'Running the protocol: switch back to the time course' : 'Run the protocol\'s experiments'"
         @click="toggleProtocol"
       />
-      <Button
-        v-if="protocolStore.isProtocolMode"
-        icon="pi pi-pencil"
-        text
-        rounded
-        size="small"
-        severity="secondary"
-        :disabled="isRunning"
-        aria-label="Edit the protocol"
-        v-tooltip.bottom="'Edit the protocol'"
-        @click="openSimSettings('protocol')"
-      />
       <Select
         v-if="protocolStore.isProtocolMode && experimentOptions.length > 1"
         :model-value="protocolStore.activeExperiment"
@@ -102,6 +90,17 @@
       @click="emit('expand')"
     />
     <Button
+      icon="pi pi-pen-to-square"
+      text
+      rounded
+      size="small"
+      severity="secondary"
+      :disabled="isRunning"
+      :aria-label="protocolStore.hasProtocol ? 'Edit the protocol' : 'Create a protocol'"
+      v-tooltip.bottom="protocolStore.hasProtocol ? 'Edit the protocol' : 'Create a protocol: experiments that set parameters'"
+      @click="openProtocolDialog"
+    />
+    <Button
       icon="pi pi-cog"
       text
       rounded
@@ -118,8 +117,8 @@
 <script setup>
 /**
  * The Simulation tab's controls: play or stop, whether play runs the selection or the whole model, whether it
- * runs the workspace's protocol and which experiment is shown, and buttons for the larger view and the simulation
- * settings.
+ * runs the workspace's protocol and which experiment is shown, and buttons for the larger view, the protocol and the
+ * simulation settings.
  */
 import { computed } from 'vue'
 
@@ -128,6 +127,7 @@ import Select from 'primevue/select'
 import ToggleSwitch from 'primevue/toggleswitch'
 
 import { useFloatingViewer } from '../../composables/useFloatingViewer'
+import { useProtocolDialog } from '../../composables/useProtocolDialog'
 import { useSimSettingsDialog } from '../../composables/useSimSettingsDialog'
 import { useProtocolStore } from '../../stores/protocolStore'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
@@ -151,6 +151,7 @@ const props = defineProps({
 const emit = defineEmits(['play', 'stop', 'expand'])
 
 const { open: openSimSettings } = useSimSettingsDialog()
+const { open: openProtocolDialog } = useProtocolDialog()
 const protocolStore = useProtocolStore()
 const resultsStore = useSimulationResultsStore()
 

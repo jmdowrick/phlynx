@@ -400,8 +400,8 @@ class TestSimulationTab(unittest.TestCase):
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
 
             # A protocol of two sub-experiments, the second doubling the M current's conductance, then a copy of it.
-            page.get_by_role("button", name="Simulation settings", exact=True).click()
-            dialog = page.get_by_role("dialog")
+            page.get_by_role("button", name="Create a protocol", exact=True).click()
+            dialog = page.get_by_role("dialog", name="Protocol")
             dialog.get_by_role("button", name="Create a protocol").click()
             pick_path(page, "Add a parameter for the protocol to set", "soma_SN/g_M", within=dialog)
             dialog.get_by_label("Sub-experiment 1 length").fill("0.1")
@@ -420,6 +420,69 @@ class TestSimulationTab(unittest.TestCase):
             self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
             expect(page.get_by_text("Ran 2 protocol experiments on the whole model")).to_be_visible()
             self.assertEqual(page.evaluate(SHOWN_G_M), {"experiments": 2, "values": [0.00389, 0.00778]})
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
+    def test_sets_a_pulse_and_a_trace_and_runs_them(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+
+            context = browser.new_context(viewport={"width": 1600, "height": 1000})
+            context.add_init_script(OPT_IN_TO_ISOLATION)
+            page = context.new_page()
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+
+            # ---------- START -----------
+            page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function(SIMULATOR_READY, timeout=APP_MOUNT_TIMEOUT)
+            page.evaluate(SHORTEN_SIMULATION)
+            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
+
+            page.get_by_role("button", name="Create a protocol", exact=True).click()
+            dialog = page.get_by_role("dialog", name="Protocol")
+            dialog.get_by_role("button", name="Create a protocol").click()
+            dialog.get_by_label("Sub-experiment 1 length").fill("0.1")
+            dialog.get_by_label("Sub-experiment 1 length").press("Tab")
+            pick_path(page, "Add a parameter for the protocol to set", "soma_SN/g_M", within=dialog)
+            pick_path(page, "Add a parameter for the protocol to set", "soma_SN/I_in", within=dialog)
+
+            # g_M doubles from 0.02 to 0.06 into the sub-experiment.
+            dialog.get_by_role("button", name="Change how soma_SN/g_M varies in sub-experiment 1").click()
+            cell = page.locator(".cell-editor")
+            cell.get_by_text("Pulse", exact=True).click()
+            for label, value in (("Baseline", "0.00389"), ("Level", "0.00778"), ("From", "0.02"), ("To", "0.06")):
+                cell.get_by_label(label, exact=True).fill(value)
+                cell.get_by_label(label, exact=True).press("Tab")
+            cell.get_by_role("button", name="Apply").click()
+            expect(dialog.get_by_text("Pulse of 0.00778, 0.02 to 0.06")).to_be_visible()
+
+            # The input current follows a recorded trace.
+            dialog.get_by_role("button", name="Change how soma_SN/I_in varies in sub-experiment 1").click()
+            cell.get_by_text("Trace", exact=True).click()
+            cell.locator("input[type=file]").set_input_files(os.path.join(RESOURCE_PATH, "protocols", "input_trace.csv"))
+            expect(cell.get_by_text("3 points from 0 to 0.1")).to_be_visible()
+            cell.get_by_role("button", name="Apply").click()
+            expect(dialog.get_by_text("Trace of 3 points")).to_be_visible()
+            dialog.get_by_role("button", name="Save").click()
+
+            page.get_by_role("button", name="Run the protocol's experiments").click()
+            page.wait_for_function(f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)", timeout=120000)
+            self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
+            inputs = page.evaluate(
+                f"(() => {{ const store = {RESULTS_STORE}; const read = (name) => [...store.results.variables.get(store.protocolInputs.get(name).name).values];"
+                " return { g: read('soma_SN/g_M'), i: read('soma_SN/I_in') } })()"
+            )
+            self.assertEqual(inputs["g"][1], 0.00389)
+            self.assertEqual(inputs["g"][4], 0.00778)
+            self.assertEqual(inputs["g"][7], 0.00389)
+            self.assertAlmostEqual(inputs["i"][5], 0.01, places=9)
+            self.assertAlmostEqual(inputs["i"][10], 0, places=9)
             # ----------- END ------------
 
             context.close()

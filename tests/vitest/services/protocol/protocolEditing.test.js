@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
+import { readProtocolInfo, buildShapeFromForm, readShapeForm } from '../../../../src/services/protocol/protocolModel.js'
+import { compileProtocolPlan } from '../../../../src/services/protocol/protocolPlan.js'
+import { normaliseShape } from '../../../../src/services/protocol/protocolShapes.js'
 import {
   addExperiment,
+  alignWithWarmUp,
   addParameter,
   addSubExperiment,
   ensureProtocol,
@@ -10,6 +14,7 @@ import {
   removeExperiment,
   removeParameter,
   removeSubExperiment,
+  setInput,
   setTiming,
   setValue,
 } from '../../../../src/services/protocol/protocolEditing.js'
@@ -110,5 +115,67 @@ describe('protocolEditing', () => {
     expect(findObservationsAt(DOCUMENT, 1)).toEqual(['second', 'shown'])
     expect(findObservationsAt(DOCUMENT, 0, 1)).toEqual(['first'])
     expect(findObservationsAt([{ data_item_name: 'bare' }], 0, 0)).toEqual(['bare'])
+  })
+
+  it("writes a cell's own shape or trace under its name, replacing the other", () => {
+    let edited = setInput(DOCUMENT, { parameter: 'a/k', experiment: 1, sub: 0, trace: { t: [0, 3], values: [0, 1] } })
+    expect(edited.protocol_info.params_to_change['a/k'][1]).toEqual(['a_k_e1s0'])
+    expect(edited.protocol_info.protocol_traces).toEqual({ a_k_e1s0: { t: [0, 3], values: [0, 1] } })
+    edited = setInput(edited, { parameter: 'a/k', experiment: 1, sub: 0, shape: { type: 'ramp', from: 1, to: 2 } })
+    expect(edited.protocol_info.protocol_traces).toEqual({})
+    expect(edited.protocol_info.protocol_shapes.a_k_e1s0).toEqual({ type: 'ramp', from: 1, to: 2 })
+    expectValid(edited)
+  })
+})
+
+describe('buildShapeFromForm', () => {
+  it.each([
+    [{ type: 'step', baseline: 1, level: 2, start: 3 }],
+    [{ type: 'pulse', baseline: 0, level: 2, start: 3, end: 5 }],
+    [{ type: 'pacing', baseline: 0, level: 1, start: 0.5, length: 0.1, period: 1, multiplier: 3 }],
+    [{ type: 'ramp', from: -1, to: 1 }],
+  ])('writes %o as the shape it reads back as', (form) => {
+    expect(readShapeForm(normaliseShape(buildShapeFromForm(form, 10), 's'), 10)).toEqual(form)
+  })
+})
+
+describe('alignWithWarmUp', () => {
+  /**
+   * Plans an experiment of one 4 s sub-experiment after a 2 s warm-up.
+   *
+   * @param {Object} document
+   * @returns {Object}
+   */
+  const planOf = (document) => {
+    const { protocolInfo } = validateProtocolInfo(document.protocol_info)
+    const view = readProtocolInfo(protocolInfo)
+    const drivers = new Map()
+    return compileProtocolPlan({ view, pointInterval: 0.5, drivers })
+  }
+  const withInput = (leaf, extra) => ({ protocol_info: { pre_times: [2], sim_times: [[4]], params_to_change: { 'a/k': [[leaf]] }, ...extra } })
+
+  it('starts a pulse with its sub-experiment, not with the warm-up, and stops the warning', () => {
+    const document = withInput('p', { protocol_shapes: { p: { events: [{ level: 5, start: 1, length: 2 }] } } })
+    expect(planOf(document).warnings).toHaveLength(1)
+    const shape = normaliseShape(document.protocol_info.protocol_shapes.p, 'p')
+    const aligned = alignWithWarmUp(document, { parameter: 'a/k', experiment: 0, shape })
+    expectValid(aligned)
+    const plan = planOf(aligned)
+    expect(plan.warnings).toEqual([])
+    // Logged from t = 2, the pulse is 1 to 3 into the sub-experiment, as written.
+    expect(plan.experiments[0].segments.filter(({ isLogged }) => isLogged).map(({ timeCourse, values }) => [timeCourse.outputStartTime, values[0].value])).toEqual([
+      [2, 0],
+      [3, 5],
+      [5, 0],
+    ])
+  })
+
+  it('holds a ramp or a trace at its first value through the warm-up', () => {
+    const ramp = alignWithWarmUp(withInput('r', { protocol_shapes: { r: { type: 'ramp', from: 1, to: 3 } } }), { parameter: 'a/k', experiment: 0, shape: { type: 'ramp', from: 1, to: 3 } })
+    expect(ramp.protocol_info.protocol_traces.a_k_e0s0).toEqual({ t: [0, 2, 6], values: [1, 1, 3] })
+    expectValid(ramp)
+    const trace = alignWithWarmUp(withInput('x', { protocol_traces: { x: { t: [0, 1], values: [4, 5] } } }), { parameter: 'a/k', experiment: 0, trace: { t: [0, 1], values: [4, 5] } })
+    expect(trace.protocol_info.protocol_traces.a_k_e0s0).toEqual({ t: [0, 2, 3], values: [4, 4, 5] })
+    expect(planOf(trace).warnings).toEqual([])
   })
 })

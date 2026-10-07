@@ -3,7 +3,7 @@
  * renumbers the observations that refer to experiments and sub-experiments by their place, so none points at the
  * wrong one after a change.
  */
-import { isMapping } from './protocolShapes.js'
+import { PACING, isMapping } from './protocolShapes.js'
 
 // The lists in protocol_info with one entry per experiment.
 const PER_EXPERIMENT = ['pre_times', 'sim_times', 'experiment_labels', 'experiment_colors', 'experiment_ids']
@@ -241,4 +241,57 @@ export function setValue(document, { parameter, experiment, sub, value }) {
   return editDocument(document, ({ protocol_info: info }) => {
     info.params_to_change[parameter][experiment][sub] = value
   })
+}
+
+/**
+ * Names the shape or trace a cell's own input is written as, as CUFLynx's editor names it.
+ *
+ * @param {string} parameter
+ * @param {number} experiment
+ * @param {number} sub
+ * @returns {string}
+ */
+export const nameCellInput = (parameter, experiment, sub) => `${parameter.replaceAll('/', '_')}_e${experiment}s${sub}`
+
+/**
+ * Sets a parameter's input in a sub-experiment to a shape or a trace of its own. A shape or trace already under its
+ * name, from an earlier edit, is replaced.
+ *
+ * @param {Object} document
+ * @param {{parameter: string, experiment: number, sub: number, shape?: Object, trace?: {t: number[], values:
+ *   number[]}}} change - The shape as protocol_shapes has it, or the trace as protocol_traces has it.
+ * @returns {Object}
+ */
+export function setInput(document, { parameter, experiment, sub, shape, trace }) {
+  return editDocument(document, ({ protocol_info: info }) => {
+    const name = nameCellInput(parameter, experiment, sub)
+    const [kept, other] = shape ? ['protocol_shapes', 'protocol_traces'] : ['protocol_traces', 'protocol_shapes']
+    if (isMapping(info[other])) delete info[other][name]
+    if (!isMapping(info[kept])) info[kept] = {}
+    info[kept][name] = shape ?? trace
+    info.params_to_change[parameter][experiment][sub] = name
+  })
+}
+
+/**
+ * Rewrites an input of an experiment's first sub-experiment so that it starts with the sub-experiment, not with the
+ * warm-up as CA runs it, holding its first value through the warm-up. The file stays one CA reads the same way.
+ *
+ * @param {Object} document
+ * @param {{parameter: string, experiment: number, shape?: Object, trace?: Object}} change - The input as it is now:
+ *   its shape, normalised (see normaliseShape), or its trace.
+ * @returns {Object}
+ */
+export function alignWithWarmUp(document, { parameter, experiment, shape, trace }) {
+  const info = ensureProtocol(document).protocol_info
+  const preTime = info.pre_times[experiment]
+  const duration = info.sim_times[experiment][0]
+  if (!(preTime > 0)) return document
+  const shift = (input) => ({ t: [0, ...input.t.map((time) => time + preTime)], values: [input.values[0], ...input.values] })
+  if (shape?.type === PACING) {
+    const events = shape.events.map((event) => ({ ...event, start: event.start + preTime }))
+    return setInput(document, { parameter, experiment, sub: 0, shape: { baseline: shape.baseline, duration: (shape.duration ?? duration) + preTime, events } })
+  }
+  const points = shape ? { t: [0, shape.duration ?? duration], values: [shape.from, shape.to] } : trace
+  return setInput(document, { parameter, experiment, sub: 0, trace: shift(points) })
 }
