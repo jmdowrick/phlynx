@@ -18,6 +18,7 @@ SHORTEN_SIMULATION = (
     ".get('simulationSettings').setSimulationSettings({ endingPoint: 1, pointInterval: 0.01 })"
 )
 APP_MOUNT_TIMEOUT = 60000
+SIMULATOR_READY = "document.querySelector('#app').__vue_app__._context.provides.$libopencor.status === 'ready'"
 RESULTS_STORE = "document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('simulationResults')"
 FINAL_SOMA_V = (
     f"(() => {{ const store = {RESULTS_STORE}; const name = store.mapping.get('dndnode_0::V');"
@@ -397,6 +398,60 @@ class TestSimulationTab(unittest.TestCase):
             context.close()
             browser.close()
 
+    def test_selection_mode_runs_once_the_selection_is_chosen(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+
+            context = browser.new_context(viewport={"width": 1600, "height": 1000})
+            context.add_init_script(OPT_IN_TO_ISOLATION)
+            page = context.new_page()
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+
+            # ---------- START -----------
+            soma = page.get_by_text("SN_somacell_modules.cellmlsoma_SN")
+            axon = page.get_by_text("SN_axoncell_modules.cellmlaxon_SN")
+            soma.wait_for(timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function(f"{SIMULATOR_READY}", timeout=APP_MOUNT_TIMEOUT)
+            page.evaluate(SHORTEN_SIMULATION)
+            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
+
+            # Flipping to the whole model runs it straight away.
+            switch = page.get_by_role("switch", name="Simulate the whole model, not the selection")
+            switch.uncheck()
+            switch.check()
+            expect(page.get_by_text("Simulated the whole model")).to_be_visible(timeout=120000)
+
+            # In Selection mode, picking an instance runs it once chosen.
+            switch.uncheck()
+            soma.click()
+            expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
+
+            # A Cmd/Ctrl-click adds to the selection, which runs it.
+            axon.click(modifiers=["ControlOrMeta"])
+            expect(page.get_by_text("Simulated 2 instances on their own")).to_be_visible(timeout=120000)
+
+            # A selection box dragged with Shift runs only once the pointer comes up.
+            var = page.get_by_text("SN_varicositycell_modules.cellmlvar_SN").locator("xpath=ancestor::*[contains(@class,'vue-flow__node')][1]")
+            box = var.bounding_box()
+            page.evaluate(f"window.__shownResults = {RESULTS_STORE}.results")
+            page.keyboard.down("Shift")
+            page.mouse.move(box["x"] - 20, box["y"] - 20)
+            page.mouse.down()
+            page.mouse.move(box["x"] + box["width"] + 20, box["y"] + box["height"] + 20, steps=8)
+            page.wait_for_timeout(600)
+            self.assertTrue(page.evaluate(f"{RESULTS_STORE}.results === window.__shownResults && {RESULTS_STORE}.status !== 'running'"))
+            page.mouse.up()
+            page.keyboard.up("Shift")
+            expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
     def test_inspection_modules_plot_only_when_the_settings_say(self):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
@@ -423,6 +478,12 @@ class TestSimulationTab(unittest.TestCase):
 
             expect(page.get_by_text("Simulated the whole model")).to_be_visible(timeout=120000)
             # Not plotted by default.
+            expect(page.locator(".simulation-plot")).to_have_count(0)
+
+            # They can be put on a plot from the search, like any variable.
+            plot_variable(page, "inspection_modules/Soma voltage")
+            expect(page.locator(".simulation-plot .plot-title")).to_have_text("inspection_modules/Soma voltage")
+            page.get_by_role("button", name="Stop plotting Soma voltage").click()
             expect(page.locator(".simulation-plot")).to_have_count(0)
 
             # Turned on in Settings, they plot as a plot of their own.

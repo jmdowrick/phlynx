@@ -70,7 +70,8 @@ import SliderList from './SliderList.vue'
 import VariablePathPicker from './VariablePathPicker.vue'
 import { sliderValueKey } from '../../services/simulation/parameterSliders'
 import { plotVariable, resolveGroups } from '../../services/simulation/plotSelections'
-import { buildVariableIndex } from '../../services/simulation/variableIndex'
+import { buildVariableIndex, resolvePlotTarget } from '../../services/simulation/variableIndex'
+import { useInspectionModuleStore } from '../../stores/inspectionModuleStore'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../../stores/simulationSettingsStore'
 
@@ -86,6 +87,7 @@ const props = defineProps({
 const emit = defineEmits(['change'])
 
 const resultsStore = useSimulationResultsStore()
+const inspectionStore = useInspectionModuleStore()
 const settingsStore = useSimulationSettingsStore()
 
 // Given by the panel, so they last when its layout changes; local otherwise.
@@ -93,7 +95,14 @@ const view = defineModel('view', { type: String, default: 'plots' })
 const targetPlotId = defineModel('targetPlotId', { type: String, default: null })
 const plotPicker = ref(null)
 
-const index = computed(() => buildVariableIndex(props.nodes, { scopeNodeIds: props.scopeNodeIds, mapping: resultsStore.mapping }))
+const index = computed(() =>
+  buildVariableIndex(props.nodes, {
+    scopeNodeIds: props.scopeNodeIds,
+    mapping: resultsStore.mapping,
+    inspectionModules: inspectionStore.modules,
+    inspectionOutputs: resultsStore.results ? resultsStore.inspectionOutputs : null,
+  })
+)
 const plotOptions = computed(() => resolveGroups(settingsStore.plotConfig))
 const plottedCount = computed(() => settingsStore.plotConfig?.selections?.length ?? 0)
 const sliderDefinitions = computed(() => settingsStore.parameterScanConfig?.selections ?? [])
@@ -112,7 +121,6 @@ watch(
   { immediate: true }
 )
 
-const nodesById = computed(() => new Map(props.nodes.map((node) => [node.id, node])))
 const plotNames = computed(() => new Map(plotOptions.value.map((plot) => [plot.id, plot.name])))
 const plottedGroups = computed(() => new Map((settingsStore.plotConfig?.selections ?? []).map((selection) => [selection.key, selection.groupId])))
 
@@ -137,9 +145,7 @@ function describePlottable(entry) {
  * @returns {{node: Object, row: Object}|null}
  */
 function resolveEntry(entry) {
-  const node = nodesById.value.get(entry.nodeId)
-  const row = node?.data?.variables?.find((candidate) => candidate.name === entry.rowName)
-  return node && row ? { node, row } : null
+  return resolvePlotTarget(entry, props.nodes, inspectionStore.modules)
 }
 
 // Says where a picked variable went when that wasn't the target plot.

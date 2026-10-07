@@ -329,6 +329,8 @@ function convertStore(oldStore, globalConstantNames) {
  *   For CVODE, `tolerance` is its relative and absolute tolerance, `maxSteps` its maximum number of
  *   steps between output points, and `timeStep` its maximum step (0 for none); for a fixed-step solver,
  *   `timeStep` is its step. Older files get the settings every run used: CVODE, 1e-7, 500 and 0.
+ *   A plotConfig selection's nodeId may be `inspection:<module id>`, an inspection module's output put on
+ *   a plot, with variableName the module's name; older files have none.
  */
 const LEGACY_VERSION = 'legacy'
 

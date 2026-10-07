@@ -152,6 +152,7 @@ import {
   resolveGroups,
 } from '../../services/simulation/plotSelections'
 import { SERIES_COLOURS } from '../../services/simulation/seriesSlots'
+import { INSPECTION_COMPONENT, isInspectionNodeId } from '../../services/simulation/variableIndex'
 
 const targetPlotId = defineModel('targetPlotId', { type: String, default: null })
 const props = defineProps({
@@ -182,14 +183,15 @@ const nodesById = computed(() => new Map(props.nodes.map((node) => [node.id, nod
  */
 function describeSelection(selection) {
   const node = nodesById.value.get(selection.nodeId)
-  const inScope = !props.scopeNodeIds || props.scopeNodeIds.includes(selection.nodeId)
+  const isInspection = isInspectionNodeId(selection.nodeId)
+  const inScope = isInspection || !props.scopeNodeIds || props.scopeNodeIds.includes(selection.nodeId)
   const slot = props.seriesSlots.get(selection.key)
   return {
     ...selection,
-    componentLabel: node?.data?.name ?? 'missing instance',
+    componentLabel: isInspection ? INSPECTION_COMPONENT : node?.data?.name ?? 'missing instance',
     inScope,
     colour: slot === undefined || !inScope ? null : SERIES_COLOURS[isDarkMode.value ? 'dark' : 'light'][slot],
-    title: inScope ? `${node?.data?.name}/${selection.variableName}` : `${node?.data?.name}/${selection.variableName}: not in the last run`,
+    title: `${isInspection ? INSPECTION_COMPONENT : node?.data?.name}/${selection.variableName}${inScope ? '' : ': not in the last run'}`,
   }
 }
 

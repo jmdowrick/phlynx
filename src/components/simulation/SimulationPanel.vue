@@ -94,6 +94,7 @@ import SimulationStatusLine from './SimulationStatusLine.vue'
 import SimulationToolbar from './SimulationToolbar.vue'
 import { useSimulation } from '../../composables/useSimulation'
 import { useSimulationCharts } from '../../composables/useSimulationCharts'
+import { useSelectionAutoRun } from '../../composables/useSelectionAutoRun'
 import { useSliderReruns } from '../../composables/useSliderReruns'
 import { libopencor } from '../../services/simulation/libopencorLoader'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
@@ -222,8 +223,13 @@ const editorScopeMode = ref('selection')
 const scopeMode = computed({
   get: () => (props.instanceId ? editorScopeMode.value : store.scopeMode),
   set: (mode) => {
+    if (mode === scopeMode.value) return
     if (props.instanceId) editorScopeMode.value = mode
     else store.scopeMode = mode
+    // Flipping the switch runs at once, as the user asked for that scope. Only the flip: picking instances
+    // on the canvas never runs, so highlighting a model doesn't flatten it over and over.
+    // A run going is stopped for the new scope's.
+    if (!blockedReason.value && libopencor.status !== 'loading') play()
   },
 })
 
@@ -290,6 +296,9 @@ const statusLine = computed(() => {
   }
   return { severity: 'info', icon: null, text: 'Press play to simulate the whole model or the selected instances.', details: [] }
 })
+
+// The sidebar runs the canvas selection once it is chosen (the instance editor runs its own instance).
+if (!props.instanceId) useSelectionAutoRun()
 
 // Slider moves rerun the scope through one shared, lossy queue (see useSliderReruns).
 const { rerunForSliders } = useSliderReruns()

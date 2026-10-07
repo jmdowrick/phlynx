@@ -224,10 +224,12 @@ import VariablePathPicker from './VariablePathPicker.vue'
 import { useFloatingViewer } from '../../composables/useFloatingViewer'
 import { useSimulation } from '../../composables/useSimulation'
 import { INSPECTION_PLOT, useSimulationCharts } from '../../composables/useSimulationCharts'
+import { useSelectionAutoRun } from '../../composables/useSelectionAutoRun'
 import { useSliderReruns } from '../../composables/useSliderReruns'
 import { libopencor } from '../../services/simulation/libopencorLoader'
 import { addPlot, plotVariable, removePlotSelection, resolveGroups } from '../../services/simulation/plotSelections'
-import { buildVariableIndex } from '../../services/simulation/variableIndex'
+import { INSPECTION_COMPONENT, buildVariableIndex, isInspectionNodeId, resolvePlotTarget } from '../../services/simulation/variableIndex'
+import { useInspectionModuleStore } from '../../stores/inspectionModuleStore'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../../stores/simulationSettingsStore'
 import { FLOW_IDS } from '../../utils/constants'
@@ -240,8 +242,11 @@ const { state, returnToTab } = useFloatingViewer()
 const { getSelectedNodes } = useVueFlow(FLOW_IDS.MAIN)
 const store = useSimulationResultsStore()
 const settingsStore = useSimulationSettingsStore()
+const inspectionStore = useInspectionModuleStore()
 const { run, stop, keepCurrent } = useSimulation()
 const { rerunForSliders } = useSliderReruns()
+// Runs the canvas selection once it is chosen, while the box is open.
+useSelectionAutoRun({ isActive: () => state.visible })
 
 const showSliders = ref(false)
 const isRunning = computed(() => store.status === 'running')
@@ -250,7 +255,12 @@ const isRunning = computed(() => store.status === 'running')
 const selectedIds = computed(() => getSelectedNodes.value.map((node) => node.id).sort())
 const isWholeModel = computed({
   get: () => store.scopeMode === 'model',
-  set: (value) => (store.scopeMode = value ? 'model' : 'selection'),
+  set: (value) => {
+    if (value === isWholeModel.value) return
+    store.scopeMode = value ? 'model' : 'selection'
+    // Flipping the switch runs at once; picking instances on the canvas never does (see SimulationPanel).
+    if (canPlay.value) play()
+  },
 })
 const blockedReason = computed(() => {
   if (['unavailable', 'error'].includes(libopencor.status)) return libopencor.reason ?? 'The simulator isn’t available.'
@@ -332,9 +342,17 @@ const emptyText = computed(() => {
 // Changing what the plot shows, from the + beside its name.
 const plotEditor = ref(null)
 const plotNote = ref('')
-const variableIndex = computed(() => buildVariableIndex(props.nodes, { scopeNodeIds: store.scopeNodeIds, mapping: store.mapping }))
+const variableIndex = computed(() =>
+  buildVariableIndex(props.nodes, {
+    scopeNodeIds: store.scopeNodeIds,
+    mapping: store.mapping,
+    inspectionModules: inspectionStore.modules,
+    inspectionOutputs: store.results ? store.inspectionOutputs : null,
+  })
+)
 const shownSelections = computed(() => (settingsStore.plotConfig?.selections ?? []).filter((selection) => selection.groupId === plotId.value))
-const nodeName = (nodeId) => props.nodes.find((node) => node.id === nodeId)?.data?.name ?? 'missing instance'
+const nodeName = (nodeId) =>
+  isInspectionNodeId(nodeId) ? INSPECTION_COMPONENT : props.nodes.find((node) => node.id === nodeId)?.data?.name ?? 'missing instance'
 
 // Whether the editor's search is open: as it opens on an empty plot, or when asked for.
 const isAddingVariable = ref(false)
@@ -363,9 +381,9 @@ async function focusVariableSearch() {
  * @param {Object} entry
  */
 function plotEntry(entry) {
-  const node = props.nodes.find((candidate) => candidate.id === entry.nodeId)
-  const row = node?.data?.variables?.find((candidate) => candidate.name === entry.rowName)
-  if (!node || !row) return
+  const target = resolvePlotTarget(entry, props.nodes, inspectionStore.modules)
+  if (!target) return
+  const { node, row } = target
   const result = plotVariable(settingsStore.plotConfig, node, row, plotId.value)
   settingsStore.setPlotConfig(result.plotConfig)
   plotNote.value = result.plotId === plotId.value ? '' : `${entry.name} (${row.units || 'no units'}) went on its own plot: a plot shows one unit.`

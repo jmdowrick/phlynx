@@ -5,6 +5,7 @@
 import { computed, unref } from 'vue'
 
 import { resolveGroups } from '../services/simulation/plotSelections'
+import { INSPECTION_COMPONENT, isInspectionNodeId } from '../services/simulation/variableIndex'
 import { assignSeriesSlots, chunkSeries } from '../services/simulation/seriesSlots'
 import { readNodeSeries } from '../services/simulation/variableMapping'
 import { useAppSettings } from './useAppSettings'
@@ -48,7 +49,16 @@ export function useSimulationCharts(scopeNodes) {
    */
   function collectSeries() {
     const nodesById = new Map(unref(scopeNodes).map((node) => [node.id, node]))
+    const outputsById = new Map(store.inspectionOutputs.map((output) => [output.id, output]))
     const variables = (simulationSettingsStore.plotConfig?.selections ?? []).flatMap((selection) => {
+      // An inspection module's output put on a plot, as a variable of no instance.
+      if (isInspectionNodeId(selection.nodeId)) {
+        const output = outputsById.get(selection.nodeId.slice('inspection:'.length))
+        const series = output && store.results.variables.get(output.reportedName)
+        if (!series) return []
+        const node = { id: selection.nodeId, data: { name: INSPECTION_COMPONENT } }
+        return [{ key: selection.key, plot: selection.groupId ?? '', node, name: output.name, unit: output.units, values: series.values }]
+      }
       const node = nodesById.get(selection.nodeId)
       const series = node && readNodeSeries(store.results, store.mapping, node.id, selection.variableName)
       if (!series) return []

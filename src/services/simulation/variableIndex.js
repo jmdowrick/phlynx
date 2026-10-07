@@ -8,6 +8,55 @@ import { mappingKey } from './variableMapping'
 
 // The component global constants are flattened into, which names them in a path.
 export const GLOBAL_COMPONENT = 'global_parameters'
+// The component inspection modules' outputs are flattened into, likewise.
+export const INSPECTION_COMPONENT = 'inspection_modules'
+// A plotted inspection output stands in for a node by this id prefix and the module's id.
+const INSPECTION_NODE_PREFIX = 'inspection:'
+
+/**
+ * Checks whether a plotted variable's node id stands for an inspection module.
+ *
+ * @param {string} nodeId
+ * @returns {boolean}
+ */
+export const isInspectionNodeId = (nodeId) => typeof nodeId === 'string' && nodeId.startsWith(INSPECTION_NODE_PREFIX)
+
+/**
+ * Gets the inspection module a plotted variable's node id stands for.
+ *
+ * @param {string} nodeId
+ * @param {Array<Object>} inspectionModules
+ * @returns {Object|null}
+ */
+export const findInspectionModule = (nodeId, inspectionModules) =>
+  isInspectionNodeId(nodeId) ? inspectionModules?.find((module) => module.id === nodeId.slice(INSPECTION_NODE_PREFIX.length)) ?? null : null
+
+/**
+ * Gets the node and row an inspection module's output is plotted as, standing in for an instance's.
+ *
+ * @param {Object} module - An inspection module.
+ * @returns {{node: Object, row: Object}}
+ */
+export function inspectionPlotTarget(module) {
+  const row = { name: module.name, units: module.units || '', type: 'variable' }
+  return { node: { id: `${INSPECTION_NODE_PREFIX}${module.id}`, data: { name: INSPECTION_COMPONENT, variables: [row] } }, row }
+}
+
+/**
+ * Gets the node and row an index entry plots: an instance's, or an inspection module's stand-in.
+ *
+ * @param {Object} entry - From buildVariableIndex.
+ * @param {Array<Object>} nodes
+ * @param {Array<Object>} [inspectionModules]
+ * @returns {{node: Object, row: Object}|null}
+ */
+export function resolvePlotTarget(entry, nodes, inspectionModules = []) {
+  const module = findInspectionModule(entry.nodeId, inspectionModules)
+  if (module) return inspectionPlotTarget(module)
+  const node = nodes.find((candidate) => candidate.id === entry.nodeId)
+  const row = node?.data?.variables?.find((candidate) => candidate.name === entry.rowName)
+  return node && row ? { node, row } : null
+}
 
 /**
  * Builds the index. A global constant is listed once, under GLOBAL_COMPONENT, however many instances use it.
@@ -17,11 +66,13 @@ export const GLOBAL_COMPONENT = 'global_parameters'
  * @param {Object} [options]
  * @param {string[]|null} [options.scopeNodeIds] - The nodes the last run simulated, or null for all of them.
  * @param {Map<string, string>|null} [options.mapping] - `nodeId::name` to the name libOpenCOR reports.
+ * @param {Array<Object>} [options.inspectionModules] - Listed as `inspection_modules/<name>`, to plot.
+ * @param {Array<Object>|null} [options.inspectionOutputs] - The last run's, to say which it covered.
  * @returns {Array<{key: string, path: string, component: string, name: string, nodeId: string, rowName: string,
  *   kind: string, units: string, plottable: boolean, slidable: boolean, inScope: boolean, reportedName: string|null,
  *   equivalents: string[]}>}
  */
-export function buildVariableIndex(nodes, { scopeNodeIds = null, mapping = null } = {}) {
+export function buildVariableIndex(nodes, { scopeNodeIds = null, mapping = null, inspectionModules = [], inspectionOutputs = null } = {}) {
   const inScope = (nodeId) => !scopeNodeIds || scopeNodeIds.includes(nodeId)
   const entries = []
   const globals = new Map()
@@ -73,7 +124,27 @@ export function buildVariableIndex(nodes, { scopeNodeIds = null, mapping = null 
     }
   }
 
-  const all = [...entries, ...globals.values()]
+  // Inspection modules' outputs can be plotted like any variable, though no instance holds them.
+  const inspections = (inspectionModules ?? []).map((module) => {
+    const { node, row } = inspectionPlotTarget(module)
+    return {
+      key: `${node.id}::${row.name}`,
+      path: `${INSPECTION_COMPONENT}/${module.name}`,
+      component: INSPECTION_COMPONENT,
+      name: module.name,
+      nodeId: node.id,
+      rowName: row.name,
+      kind: 'inspection',
+      units: row.units,
+      plottable: true,
+      slidable: false,
+      inScope: !inspectionOutputs || inspectionOutputs.some((output) => output.id === module.id),
+      reportedName: null,
+      equivalents: [],
+    }
+  })
+
+  const all = [...entries, ...globals.values(), ...inspections]
   // Variables the model makes one, as connections do, share the name libOpenCOR reports for them.
   const byReported = new Map()
   for (const entry of all) {

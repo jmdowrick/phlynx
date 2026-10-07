@@ -237,7 +237,8 @@ import VariablePathPicker from './simulation/VariablePathPicker.vue'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { plotVariable, resolveGroups } from '../services/simulation/plotSelections'
 import { MAX_SOLVER_STEPS, SOLVERS, findSolverSettingsProblem } from '../services/simulation/sedParameters'
-import { buildVariableIndex } from '../services/simulation/variableIndex'
+import { buildVariableIndex, resolvePlotTarget } from '../services/simulation/variableIndex'
+import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 
@@ -255,6 +256,7 @@ const emit = defineEmits(['update:modelValue'])
 const { confirm } = useConfirmDialog()
 const libraryStore = useLibraryStore()
 const simulationSettingsStore = useSimulationSettingsStore()
+const inspectionStore = useInspectionModuleStore()
 const { simulationSettings, plotConfig, parameterScanConfig } = storeToRefs(simulationSettingsStore)
 
 const solverOptions = Object.entries(SOLVERS).map(([value, { label }]) => ({ label, value }))
@@ -268,7 +270,7 @@ const sections = {}
 const initialDraftSignature = ref('')
 const bypassCloseGuard = ref(false)
 
-const variableIndex = computed(() => buildVariableIndex(props.nodes))
+const variableIndex = computed(() => buildVariableIndex(props.nodes, { inspectionModules: inspectionStore.modules }))
 const plotOptions = computed(() => resolveGroups(draftPlotConfig.value))
 const targetPlotId = ref(null)
 watch(plotOptions, (plots) => {
@@ -303,9 +305,9 @@ function focusPlotPicker() {
  * @param {Object} entry
  */
 function plotEntry(entry) {
-  const node = props.nodes.find((candidate) => candidate.id === entry.nodeId)
-  const row = node?.data?.variables?.find((candidate) => candidate.name === entry.rowName)
-  if (!node || !row) return
+  const target = resolvePlotTarget(entry, props.nodes, inspectionStore.modules)
+  if (!target) return
+  const { node, row } = target
   const result = plotVariable(draftPlotConfig.value, node, row, targetPlotId.value)
   draftPlotConfig.value = result.plotConfig
   plotNote.value =

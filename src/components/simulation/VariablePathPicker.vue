@@ -43,7 +43,7 @@ import AutoComplete from 'primevue/autocomplete'
 
 import { searchVariableIndex } from '../../services/simulation/variableIndex'
 
-const KIND_LABELS = { variable: 'variable', constant: 'parameter', global_constant: 'global', boundary_condition: 'boundary' }
+const KIND_LABELS = { variable: 'variable', constant: 'parameter', global_constant: 'global', boundary_condition: 'boundary', inspection: 'inspection' }
 
 const props = defineProps({
   // See buildVariableIndex.
