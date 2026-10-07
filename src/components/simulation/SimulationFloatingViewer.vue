@@ -45,13 +45,18 @@
           @mousedown.stop
           @click="(event) => plotEditor.toggle(event)"
         />
+        <!-- As the light/dark switch does, its handle shows the mode: the whole model, or the selection. -->
         <ToggleSwitch
           v-model="isWholeModel"
           class="viewer-scope"
           aria-label="Simulate the whole model, not the selection"
-          v-tooltip.top="isWholeModel ? 'Whole model' : `Selection (${selectedIds.length})`"
+          v-tooltip.top="isWholeModel ? 'Simulating the whole model' : `Simulating the selection (${selectedIds.length})`"
           @mousedown.stop
-        />
+        >
+          <template #handle="{ checked }">
+            <i :class="['pi', checked ? 'pi-sitemap' : 'pi-box']" class="scope-icon" aria-hidden="true"></i>
+          </template>
+        </ToggleSwitch>
         <Button
           v-if="isRunning"
           icon="pi pi-stop"
@@ -210,8 +215,8 @@ import Dialog from 'primevue/dialog'
 import Select from 'primevue/select'
 import Popover from 'primevue/popover'
 import Splitter from 'primevue/splitter'
-import SplitterPanel from 'primevue/splitterpanel'
 import ToggleSwitch from 'primevue/toggleswitch'
+import SplitterPanel from 'primevue/splitterpanel'
 
 import SimulationPlot from './SimulationPlot.vue'
 import SliderList from './SliderList.vue'
@@ -428,7 +433,11 @@ function pinWhereShown() {
 .viewer-chart-select {
   flex: 0 1 auto;
   min-width: 0;
-  max-width: calc(100% - 11rem);
+  max-width: calc(100% - 13rem);
+}
+
+.scope-icon {
+  font-size: 0.7rem;
 }
 
 .viewer-plot-edit {
@@ -445,7 +454,7 @@ function pinWhereShown() {
 
 .viewer-scope {
   flex-shrink: 0;
-  margin: 0 4px;
+  margin: 0 2px;
 }
 
 .viewer-body {

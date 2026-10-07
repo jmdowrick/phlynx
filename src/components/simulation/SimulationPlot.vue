@@ -77,6 +77,23 @@ const formatLegendValue = (_, value) => (value == null ? '–' : String(Number(v
 const chartEl = ref(null)
 const { isDarkMode } = useColorScheme()
 let plot = null
+// The time range zoomed into, kept across new values and redraws; null when showing the whole run.
+let zoom = null
+let isUpdatingData = false
+
+/**
+ * Notes a zoom the viewer made (dragging across the chart) or undid (double-clicking it).
+ *
+ * @param {Object} chart - The uPlot chart.
+ * @param {string} key - The scale that changed.
+ */
+function recordZoom(chart, key) {
+  if (key !== 'x' || isUpdatingData) return
+  const { min, max } = chart.scales.x
+  const times = chart.data[0]
+  if (min == null || max == null || !times?.length) return
+  zoom = min > times[0] || max < times[times.length - 1] ? { min, max } : null
+}
 let resizeObserver = null
 
 const ariaLabel = computed(() => {
@@ -108,6 +125,7 @@ function buildOptions(width) {
     scales: { x: { time: false } },
     // Synced charts plot different series, so hiding one mustn't hide its namesake by position elsewhere.
     cursor: { y: false, points: { size: 8 }, ...(props.syncKey && { sync: { key: props.syncKey, setSeries: false } }) },
+    hooks: { setScale: [recordZoom] },
     legend: { live: true },
     axes: [axis(props.x.unit ? `${props.x.label} (${props.x.unit})` : props.x.label), { ...axis(props.unit), size: sizeValueAxis }],
     series: [
@@ -129,7 +147,10 @@ const buildData = () => [props.x.values, ...props.series.map((series) => series.
 function draw() {
   plot?.destroy()
   if (!chartEl.value) return
+  isUpdatingData = true
   plot = new uPlot(buildOptions(chartEl.value.clientWidth || 300), buildData(), chartEl.value)
+  if (zoom) plot.setScale('x', zoom)
+  isUpdatingData = false
   labelCanvas()
 }
 
@@ -176,10 +197,15 @@ defineExpose({
     return { title: props.title, canvas: plot.ctx.canvas, legend: props.series.map((series) => ({ label: series.label, colour: colours[series.slot] })) }
   },
 })
+// New values, as a slider moving gives, keep a zoomed chart on its time range, with the values refitted to it.
 watch(
   () => [props.x.values, ...props.series.map((series) => series.values)],
   () => {
-    plot?.setData(buildData())
+    if (!plot) return
+    isUpdatingData = true
+    plot.setData(buildData())
+    if (zoom) plot.setScale('x', zoom)
+    isUpdatingData = false
     labelCanvas()
   }
 )

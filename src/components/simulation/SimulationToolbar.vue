@@ -30,7 +30,12 @@
     </span>
 
     <label class="toolbar-scope" v-tooltip.bottom="scopeLabel">
-      <ToggleSwitch v-model="isWholeModel" :aria-label="`Simulate the whole model, not ${partName}`" />
+      <!-- As the light/dark switch does, its handle shows the mode. -->
+      <ToggleSwitch v-model="isWholeModel" :aria-label="`Simulate the whole model, not ${partName}`">
+        <template #handle="{ checked }">
+          <i :class="['pi', checked ? 'pi-sitemap' : 'pi-box']" class="scope-icon" aria-hidden="true"></i>
+        </template>
+      </ToggleSwitch>
       <span class="toolbar-scope-label">{{ scopeLabel }}</span>
     </label>
 
@@ -152,6 +157,10 @@ const playHint = computed(() => props.blockedReason ?? (props.isLoading ? 'Loadi
   .toolbar-scope-label {
     display: none;
   }
+}
+
+.scope-icon {
+  font-size: 0.7rem;
 }
 
 .toolbar-spacer {
