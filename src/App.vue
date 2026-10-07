@@ -139,6 +139,8 @@ function cancelEdit() {
   padding-bottom: 0.5rem;
   padding-top: 0.5rem;
   position: relative;
+  /* Its height whatever the page below holds. */
+  flex-shrink: 0;
 }
 
 .global-nav nav a {

@@ -3182,6 +3182,8 @@ watch(
   justify-content: space-between;
   align-items: center;
   height: var(--view-header-height);
+  /* Its height whatever the sidebar holds, rather than squeezed by a tall Simulation tab. */
+  flex-shrink: 0;
   box-sizing: border-box;
   padding: 0 var(--view-header-padding-x);
   border-bottom: 1px solid var(--p-content-border-color);
