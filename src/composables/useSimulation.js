@@ -248,8 +248,8 @@ export function useSimulation() {
     })
     const plan = compileProtocolPlan({ view, pointInterval: settings.pointInterval, kinds })
     const errors = [...targetErrors, ...plan.errors]
+    store.report = { errors, warnings: [...store.report.warnings, ...plan.warnings] }
     if (errors.length) {
-      store.report = { ...store.report, errors }
       store.failRun('blocked')
       return
     }

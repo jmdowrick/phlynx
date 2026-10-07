@@ -90,6 +90,25 @@ describe('runProtocol', () => {
     expect(results).toMatchObject({ issues: [], elapsedMs: 3, isStopped: false })
   })
 
+  it('runs a pulse as parts of its sub-experiment, joined on its points', async () => {
+    const pulsed = plan({
+      pre_times: [0],
+      sim_times: [[4]],
+      params_to_change: { 'decay/k': [['pulse']] },
+      protocol_shapes: { pulse: { baseline: 0.5, events: [{ level: 2, start: 1, length: 1 }] } },
+    })
+    const { experiments } = await runProtocol({ session: createFakeSession(), plan: pulsed, settings: {}, targets: TARGETS }).promise
+
+    const [{ voi, variables }] = experiments
+    expect([...voi.values]).toEqual([0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4])
+    expect([...variables.get('c/k').values]).toEqual([0.5, 0.5, 0.5, 2, 2, 0.5, 0.5, 0.5, 0.5])
+    // x decays at 0.5 to t = 1, at 2 to t = 2, then at 0.5 again.
+    const x = variables.get('c/x').values
+    expect(x[2]).toBeCloseTo(Math.exp(-0.5), 12)
+    expect(x[4]).toBeCloseTo(Math.exp(-0.5 - 2), 12)
+    expect(x[8]).toBeCloseTo(Math.exp(-0.5 - 2 - 1), 12)
+  })
+
   it("lets the protocol's values win over the sliders', and starts each experiment afresh", async () => {
     const session = createFakeSession()
     const twoExperiments = plan({ pre_times: [0, 0], sim_times: [[1], [1]], params_to_change: { 'decay/k': [[1], [2]] } })

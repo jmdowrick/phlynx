@@ -224,6 +224,26 @@ RUN_PROTOCOL = """async () => {
   }
 }"""
 
+# A pulse of k = 100 lasting 0.01 s in 10 s of decay at k = 0: x must fall by exactly e^-1, however brief the pulse.
+RUN_SHORT_PULSE = """async () => {
+  const { whenLibOpenCORReady } = await import('/src/services/simulation/libopencorLoader.js')
+  const { validateProtocolInfo } = await import('/src/services/protocol/protocolValidation.js')
+  const { readProtocolInfo } = await import('/src/services/protocol/protocolModel.js')
+  const { compileProtocolPlan } = await import('/src/services/protocol/protocolPlan.js')
+  const simulator = await whenLibOpenCORReady()
+  const key = 'protocol-pulse-' + Math.round(performance.now())
+  await simulator.describeModel({ cellml: __CELLML__, key })
+  const { protocolInfo } = validateProtocolInfo({
+    pre_times: [0], sim_times: [[10]], params_to_change: { 'decay/k': [['kick']] },
+    protocol_shapes: { kick: { baseline: 0, events: [{ level: 100, start: 6.37, length: 0.01 }] } },
+  })
+  const plan = compileProtocolPlan({ view: readProtocolInfo(protocolInfo), pointInterval: 0.01 })
+  const settings = { solver: 'CVODE', tolerance: 1e-10, maxSteps: 5000, timeStep: 0 }
+  const results = await simulator.startProtocol({ key, settings, plan, targets: new Map([['decay/k', 'instance_parameters/k']]) }).promise
+  const x = results.experiments[0].variables.get('decay/x').values
+  return { segments: plan.experiments[0].segments.length, before: x[637], after: x[638], end: x.at(-1) }
+}"""
+
 
 class TestProtocolSegments(unittest.TestCase):
 
@@ -283,11 +303,27 @@ class TestProtocolSegments(unittest.TestCase):
             self.assertIn("instance_parameters/k:constant", r["described"])
             self.assertEqual(r["time"], [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4])
             self.assertEqual(r["k"], [0.5] * 5 + [1] * 4)
-            self.assertEqual(r["subs"], [{"startIndex": 0, "endIndex": 4}, {"startIndex": 4, "endIndex": 8}])
+            self.assertEqual([[sub["startIndex"], sub["endIndex"]] for sub in r["subs"]], [[0, 4], [4, 8]])
             # The warm-up decays x before the first point; the second sub-experiment decays it twice as fast.
             for t, x in zip(r["time"], r["x"]):
                 expected = math.exp(-0.5 * (1 + t)) if t <= 2 else math.exp(-1.5 - (t - 2))
                 self.assertAlmostEqual(x, expected, places=7)
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
+    def test_a_short_pulse_is_never_stepped_over(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+            context, page = self.open_page(browser)
+
+            # ---------- START -----------
+            r = evaluate_within_a_minute(page, RUN_SHORT_PULSE.replace("__CELLML__", json.dumps(DECAY_MODELS["connected"])))
+            self.assertEqual(r["segments"], 3)
+            self.assertAlmostEqual(r["before"], 1, places=9)
+            self.assertAlmostEqual(r["after"], math.exp(-1), places=7)
+            self.assertAlmostEqual(r["end"], math.exp(-1), places=7)
             # ----------- END ------------
 
             context.close()

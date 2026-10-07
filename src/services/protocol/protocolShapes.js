@@ -218,12 +218,13 @@ function findOccurrences({ start, period, multiplier }, duration) {
 /**
  * Lists `[start, end, level]` for every occurrence, sorted, refusing overlaps.
  *
- * @param {Object[]} events
- * @param {number} duration
+ * @param {Object[]} events - A normalised pacing shape's.
+ * @param {number} duration - The time the shape is expanded over.
  * @param {string} name
  * @returns {Array<[number, number, number]>}
+ * @throws {ProtocolShapeError}
  */
-function findIntervals(events, duration, name) {
+export function findIntervals(events, duration, name) {
   const spans = events.flatMap((event) =>
     findOccurrences(event, duration).map((start) => [start, Math.min(start + event.length, duration), event.level])
   )

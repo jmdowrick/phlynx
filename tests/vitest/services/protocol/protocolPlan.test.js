@@ -39,8 +39,8 @@ describe('compileProtocolPlan', () => {
         modelTime: 281,
         pointCount: 561,
         subs: [
-          { startIndex: 0, endIndex: 200 },
-          { startIndex: 200, endIndex: 560 },
+          { startIndex: 0, endIndex: 200, duration: 100, numberOfSteps: 200 },
+          { startIndex: 200, endIndex: 560, duration: 180, numberOfSteps: 360 },
         ],
         segments: [
           {
@@ -51,6 +51,7 @@ describe('compileProtocolPlan', () => {
             carriesStates: false,
             isLogged: false,
             dropsFirstPoint: false,
+            startIndex: null,
           },
           {
             sub: 0,
@@ -60,6 +61,7 @@ describe('compileProtocolPlan', () => {
             carriesStates: true,
             isLogged: true,
             dropsFirstPoint: false,
+            startIndex: 0,
           },
           {
             sub: 1,
@@ -69,6 +71,7 @@ describe('compileProtocolPlan', () => {
             carriesStates: true,
             isLogged: true,
             dropsFirstPoint: true,
+            startIndex: 200,
           },
         ],
       },
@@ -104,7 +107,7 @@ describe('compileProtocolPlan', () => {
     ])
   })
 
-  it('refuses sub-experiments shorter than the point interval, values that change over time and late state changes', () => {
+  it('refuses sub-experiments shorter than the point interval, values that change continuously and late state changes', () => {
     const view = read({
       pre_times: [0],
       sim_times: [[0.05, 1]],
@@ -114,12 +117,85 @@ describe('compileProtocolPlan', () => {
     expect(compileProtocolPlan({ view, pointInterval: 0.1, kinds: new Map([['a/x', 'state']]) })).toEqual({
       errors: [
         'Experiment 1, sub-experiment 1 (0.05) is shorter than the point interval (0.1).',
-        "Experiment 1, sub-experiment 2: a/x is a state, so it can only be set for the first sub-experiment.",
-        "Experiment 1, sub-experiment 2: a/u changes over time, which PhLynx can't run yet.",
+        'Experiment 1, sub-experiment 2: a/x is a state, so it can only be set for the first sub-experiment.',
+        "Experiment 1, sub-experiment 2: a/u changes continuously (a ramp or a trace), which PhLynx can't run yet.",
       ],
+      warnings: [],
       experiments: [],
     })
     expect(compileProtocolPlan({ view: NKE, pointInterval: 0 }).errors).toEqual(['The point interval needs to be above 0.'])
+  })
+})
+
+describe('steps, pulses and pacing', () => {
+  const pulse = (extra = {}) => ({ type: 'pacing', events: [{ level: 5, start: 1, length: 2 }], ...extra })
+
+  it('splits a sub-experiment where a value changes, each part starting from the last', () => {
+    const view = read({ pre_times: [0], sim_times: [[4]], params_to_change: { 'a/k': [['p']], 'a/c': [[7]] }, protocol_shapes: { p: pulse() } })
+    const { errors, warnings, experiments } = compileProtocolPlan({ view, pointInterval: 0.5 })
+    expect([errors, warnings]).toEqual([[], []])
+    const [experiment] = experiments
+    expect(experiment.pointCount).toBe(9)
+    expect(
+      experiment.segments.map(({ timeCourse, values, carriesStates, dropsFirstPoint, startIndex }) => [
+        [timeCourse.outputStartTime, timeCourse.outputEndTime, timeCourse.numberOfSteps],
+        values.map(({ value }) => value),
+        carriesStates,
+        dropsFirstPoint,
+        startIndex,
+      ])
+    ).toEqual([
+      [[0, 1, 2], [0, 7], false, false, 0],
+      [[1, 3, 4], [5, 7], true, true, 2],
+      [[3, 4, 2], [0, 7], true, true, 6],
+    ])
+  })
+
+  it('runs pacing as one part per beat and rest, and holds the last value past a shape of its own length', () => {
+    const view = read({
+      pre_times: [0],
+      sim_times: [[3]],
+      params_to_change: { 'a/k': [['beats']] },
+      protocol_shapes: { beats: { baseline: 1, duration: 2, events: [{ level: 4, start: 0, length: 0.5, period: 1 }] } },
+    })
+    const [experiment] = compileProtocolPlan({ view, pointInterval: 0.25 }).experiments
+    expect(experiment.segments.map(({ timeCourse, values }) => [timeCourse.outputStartTime, values[0].value])).toEqual([
+      [0, 4],
+      [0.5, 1],
+      [1, 4],
+      [1.5, 1],
+    ])
+    expect(experiment.segments.at(-1).timeCourse.outputEndTime).toBe(3)
+  })
+
+  it('starts a shape of the first sub-experiment with the warm-up, as CA does, and says so', () => {
+    const view = read({ pre_times: [2], sim_times: [[4]], params_to_change: { 'a/k': [['p']] }, protocol_shapes: { p: pulse() } })
+    const { warnings, experiments } = compileProtocolPlan({ view, pointInterval: 0.5 })
+    expect(warnings).toEqual(["Experiment 1: a/k's p starts with the warm-up, as circulatory autogen runs it, so it shows 2 earlier than written."])
+    expect(experiments[0].segments.map(({ isLogged, timeCourse, values }) => [isLogged, timeCourse.outputStartTime, timeCourse.outputEndTime, values[0].value])).toEqual([
+      [false, 0, 1, 0],
+      [false, 1, 2, 5],
+      [true, 2, 3, 5],
+      [true, 3, 6, 0],
+    ])
+  })
+
+  it('refuses an edge between output points, a shape on a state, and too many runs', () => {
+    const shapes = { p: pulse(), off: { events: [{ level: 1, start: 0.3, length: 1 }] } }
+    const view = read({ pre_times: [0], sim_times: [[4]], params_to_change: { 'a/k': [['off']], 'a/x': [['p']] }, protocol_shapes: shapes })
+    expect(compileProtocolPlan({ view, pointInterval: 0.5, kinds: new Map([['a/x', 'state']]) }).errors).toEqual([
+      'Experiment 1, sub-experiment 1: a/x is a state, so it can be set to a number but not to a step or pulse.',
+      'Experiment 1, sub-experiment 1: a value changes at 0.3 and 1.3, between output points; choose a point interval that divides them.',
+    ])
+    const train = read({
+      pre_times: [0],
+      sim_times: [[1000]],
+      params_to_change: { 'a/k': [['fast']] },
+      protocol_shapes: { fast: { events: [{ level: 1, length: 0.5, period: 1 }] } },
+    })
+    expect(compileProtocolPlan({ view: train, pointInterval: 0.5 }).errors).toEqual([
+      'The protocol needs 2000 runs, one for each time a value changes; PhLynx runs at most 500.',
+    ])
   })
 })
 
@@ -140,8 +216,8 @@ describe('joining segments', () => {
   it('keeps the point two segments share once, from the first of them', () => {
     const [experiment] = compileProtocolPlan({ view: read({ pre_times: [0], sim_times: [[2, 1]] }), pointInterval: 1 }).experiments
     const joined = new Float64Array(experiment.pointCount)
-    joinSegmentValues(joined, Float64Array.of(1, 2, 3), experiment.subs[0], false)
-    joinSegmentValues(joined, Float64Array.of(9, 4), experiment.subs[1], true)
+    joinSegmentValues(joined, Float64Array.of(1, 2, 3), experiment.segments[0].startIndex, false)
+    joinSegmentValues(joined, Float64Array.of(9, 4), experiment.segments[1].startIndex, true)
     expect([...joined]).toEqual([1, 2, 3, 4])
   })
 })
