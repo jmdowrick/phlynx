@@ -23,7 +23,7 @@
     </div>
 
     <div v-if="kind === 'number'" class="cell-fields">
-      <label>Value <InputNumber v-model="fields.value" :max-fraction-digits="8" size="small" fluid autofocus /></label>
+      <label>Value <InputNumber v-model="fields.value" :max-fraction-digits="8" :suffix="valueSuffix" size="small" fluid autofocus /></label>
     </div>
     <div v-else-if="kind === 'trace'" class="cell-fields cell-fields--trace">
       <Select
@@ -49,7 +49,7 @@
           v-model="fields[field.key]"
           :min="field.min"
           :max-fraction-digits="8"
-          :suffix="field.isTime ? ' s' : undefined"
+          :suffix="field.isTime ? ' s' : field.isValue ? valueSuffix : undefined"
           size="small"
           fluid
           :autofocus="position === 0"
@@ -91,29 +91,30 @@ import { buildShapeFromForm } from '../../services/protocol/protocolModel'
 import { findValueRange, sampleInput, writePolylinePoints } from '../../services/protocol/protocolPreview'
 import { expandShape, normaliseShape } from '../../services/protocol/protocolShapes'
 
+// Each kind's fields: values, in the parameter's units, and times, in seconds.
 const FORM_FIELDS = {
   step: [
-    { key: 'baseline', label: 'Before' },
-    { key: 'level', label: 'After' },
-    { key: 'start', label: 'At', min: 0, isTime: true },
+    { key: 'baseline', label: 'Value before', isValue: true },
+    { key: 'level', label: 'Value after', isValue: true },
+    { key: 'start', label: 'Step time', min: 0, isTime: true },
   ],
   pulse: [
-    { key: 'baseline', label: 'Baseline' },
-    { key: 'level', label: 'Level' },
-    { key: 'start', label: 'From', min: 0, isTime: true },
-    { key: 'end', label: 'To', min: 0, isTime: true },
+    { key: 'baseline', label: 'Baseline value', isValue: true },
+    { key: 'level', label: 'Pulse value', isValue: true },
+    { key: 'start', label: 'Pulse starts', min: 0, isTime: true },
+    { key: 'end', label: 'Pulse ends', min: 0, isTime: true },
   ],
   pacing: [
-    { key: 'baseline', label: 'Baseline' },
-    { key: 'level', label: 'Level' },
-    { key: 'start', label: 'First at', min: 0, isTime: true },
-    { key: 'length', label: 'Each lasting', min: 0, isTime: true },
-    { key: 'period', label: 'Every', min: 0, isTime: true },
-    { key: 'multiplier', label: 'Times (0: to the end)', min: 0 },
+    { key: 'baseline', label: 'Baseline value', isValue: true },
+    { key: 'level', label: 'Beat value', isValue: true },
+    { key: 'start', label: 'First beat', min: 0, isTime: true },
+    { key: 'length', label: 'Beat duration', min: 0, isTime: true },
+    { key: 'period', label: 'Beat period', min: 0, isTime: true },
+    { key: 'multiplier', label: 'Beats (0: until the end)', min: 0 },
   ],
   ramp: [
-    { key: 'from', label: 'From' },
-    { key: 'to', label: 'To' },
+    { key: 'from', label: 'Start value', isValue: true },
+    { key: 'to', label: 'End value', isValue: true },
   ],
 }
 
@@ -153,6 +154,8 @@ const fields = reactive({
   to: form?.to ?? (startValue * 2 || 1),
 })
 const traceNames = computed(() => Object.keys(props.traces))
+// Values are in the parameter's units, shown after them as times show seconds.
+const valueSuffix = computed(() => (props.units && props.units !== 'dimensionless' ? ` ${props.units}` : undefined))
 const traceName = ref(props.cell.kind === 'trace' ? props.cell.name : null)
 const importedTrace = ref(null)
 const csvProblem = ref('')
@@ -229,7 +232,7 @@ function apply() {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  width: 32rem;
+  width: 34rem;
   max-width: 90vw;
 }
 
@@ -241,8 +244,15 @@ function apply() {
   flex: 1;
 }
 
+.kind-picker :deep(.p-togglebutton) {
+  min-width: 0;
+  padding: 0.25rem 0.3rem;
+}
+
 .kind-picker :deep(.p-togglebutton-content) {
-  gap: 5px;
+  gap: 4px;
+  padding: 0.25rem 0.35rem;
+  white-space: nowrap;
 }
 
 .kind-glyph {

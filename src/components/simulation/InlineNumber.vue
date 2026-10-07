@@ -76,8 +76,11 @@ function cancel() {
 
 <style scoped>
 .inline-number {
+  /* As tall as the field it turns into, so the heading keeps its height while one is edited. */
+  box-sizing: border-box;
+  height: 1.75rem;
   min-width: 0;
-  padding: 1px 6px;
+  padding: 0 6px;
   border: 1px solid transparent;
   border-radius: 6px;
   background: none;
@@ -101,9 +104,14 @@ function cancel() {
 
 .inline-number-input {
   width: 6.5rem;
+  height: 1.75rem;
 }
 
 .inline-number-input :deep(input) {
+  box-sizing: border-box;
   width: 100%;
+  height: 1.75rem;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 </style>

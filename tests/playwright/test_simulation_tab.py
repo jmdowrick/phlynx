@@ -466,8 +466,8 @@ class TestSimulationTab(unittest.TestCase):
             page.get_by_role("menuitem", name="Pulse").click()
             cell = page.locator(".cell-editor")
             expect(cell.locator(".p-togglebutton-checked")).to_have_text("Pulse")
-            expect(cell.get_by_label("From", exact=True)).to_be_visible()
-            for label, value in (("Baseline", "0.00389"), ("Level", "0.00778"), ("From", "0.02"), ("To", "0.06")):
+            expect(cell.get_by_label("Pulse starts", exact=True)).to_be_visible()
+            for label, value in (("Baseline value", "0.00389"), ("Pulse value", "0.00778"), ("Pulse starts", "0.02"), ("Pulse ends", "0.06")):
                 cell.get_by_label(label, exact=True).fill(value)
                 cell.get_by_label(label, exact=True).press("Tab")
             cell.get_by_role("button", name="Apply").click()
