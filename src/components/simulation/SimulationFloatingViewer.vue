@@ -102,18 +102,10 @@
       </div>
     </template>
 
-    <Popover ref="plotEditor">
+    <Popover ref="plotEditor" @show="onEditorShow">
       <div class="viewer-plot-editor">
         <template v-if="plotId !== INSPECTION_PLOT">
           <h3 class="viewer-editor-title">Variables on {{ shownPlotName }}</h3>
-          <VariablePathPicker
-            :index="variableIndex"
-            :filter="(entry) => entry.plottable"
-            placeholder="Add a variable…"
-            :aria-label="`Add a variable to ${shownPlotName}`"
-            @pick="plotEntry"
-          />
-          <p v-if="plotNote" class="viewer-note" role="status">{{ plotNote }}</p>
           <ul v-if="shownSelections.length" class="viewer-plot-variables">
             <li v-for="selection in shownSelections" :key="selection.key">
               <span><span class="viewer-muted">{{ nodeName(selection.nodeId) }}/</span><strong>{{ selection.variableName }}</strong></span>
@@ -128,7 +120,29 @@
               />
             </li>
           </ul>
-          <p v-else class="viewer-muted">Nothing on {{ shownPlotName }} yet.</p>
+          <p v-else-if="!isAddingVariable" class="viewer-muted">Nothing on {{ shownPlotName }} yet.</p>
+          <p v-if="plotNote" class="viewer-note" role="status">{{ plotNote }}</p>
+          <!-- Last, as Add slider and Add plot are. The search shows when asked for, or while the plot is empty. -->
+          <div v-if="isAddingVariable" ref="variableSearchEl" class="viewer-variable-search">
+            <VariablePathPicker
+              :index="variableIndex"
+              :filter="(entry) => entry.plottable"
+              placeholder="Search for a variable…"
+              :aria-label="`Add a variable to ${shownPlotName}`"
+              @pick="plotEntry"
+            />
+            <Button
+              v-if="shownSelections.length"
+              icon="pi pi-times"
+              text
+              rounded
+              size="small"
+              severity="secondary"
+              aria-label="Close the variable search"
+              @click="isAddingVariable = false"
+            />
+          </div>
+          <Button v-else label="Add variable" icon="pi pi-plus" text size="small" class="viewer-add-variable" @click="startAddingVariable" />
         </template>
       </div>
     </Popover>
@@ -312,6 +326,28 @@ const variableIndex = computed(() => buildVariableIndex(props.nodes, { scopeNode
 const shownSelections = computed(() => (settingsStore.plotConfig?.selections ?? []).filter((selection) => selection.groupId === plotId.value))
 const nodeName = (nodeId) => props.nodes.find((node) => node.id === nodeId)?.data?.name ?? 'missing instance'
 
+// Whether the editor's search is open: as it opens on an empty plot, or when asked for.
+const isAddingVariable = ref(false)
+const variableSearchEl = ref(null)
+
+/** Opens the editor with its search open only while the plot is empty. */
+function onEditorShow() {
+  isAddingVariable.value = !shownSelections.value.length
+  if (isAddingVariable.value) focusVariableSearch()
+}
+
+/** Opens the editor's search and puts the cursor in it. */
+function startAddingVariable() {
+  isAddingVariable.value = true
+  focusVariableSearch()
+}
+
+/** Puts the cursor in the editor's search once it shows. */
+async function focusVariableSearch() {
+  await nextTick()
+  variableSearchEl.value?.querySelector('input')?.focus()
+}
+
 /**
  * Plots a picked variable on the shown plot, or on one in its units (see plotVariable), and shows that plot.
  *
@@ -325,6 +361,9 @@ function plotEntry(entry) {
   settingsStore.setPlotConfig(result.plotConfig)
   plotNote.value = result.plotId === plotId.value ? '' : `${entry.name} (${row.units || 'no units'}) went on its own plot: a plot shows one unit.`
   plotId.value = result.plotId
+  // After the click that picked it: removing the search mid-click would read as a click outside the
+  // editor, closing it.
+  setTimeout(() => (isAddingVariable.value = false), 0)
 }
 
 /** Starts an empty plot and shows it, to fill from the search. */
@@ -428,6 +467,21 @@ function pinWhereShown() {
   gap: 8px;
   width: 20rem;
   font-size: 0.8125rem;
+}
+
+.viewer-variable-search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.viewer-variable-search > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.viewer-add-variable {
+  align-self: flex-start;
 }
 
 .viewer-editor-title {
