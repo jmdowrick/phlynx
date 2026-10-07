@@ -43,7 +43,9 @@
           :key="`name-${current}`"
           :model-value="experiment.label ?? ''"
           :placeholder="`Experiment ${current + 1}`"
+          size="small"
           class="experiment-name"
+          v-tooltip.bottom="'Rename the experiment'"
           aria-label="Experiment name"
           @change="(event) => edit(setTiming, { experiment: current, label: event.target.value })"
         />
@@ -59,25 +61,13 @@
                 suffix=" s"
                 size="small"
                 fluid
+                class="column-length"
                 aria-label="Warm-up"
                 @update:model-value="(value) => value != null && edit(setTiming, { experiment: current, preTime: value })"
               />
             </div>
             <div v-for="(sub, s) in experiment.subs" :key="`head-${s}`" class="column-head">
-              <span class="column-title">
-                {{ s + 1 }}
-                <Button
-                  v-if="experiment.subs.length > 1"
-                  icon="pi pi-times"
-                  text
-                  rounded
-                  size="small"
-                  severity="secondary"
-                  class="column-remove"
-                  :aria-label="`Remove sub-experiment ${s + 1}`"
-                  @click="removeSub(s)"
-                />
-              </span>
+              <span class="column-title" :title="`Sub-experiment ${s + 1}`">{{ s + 1 }}</span>
               <InputNumber
                 :model-value="sub.duration"
                 :min="0"
@@ -85,8 +75,20 @@
                 suffix=" s"
                 size="small"
                 fluid
+                class="column-length"
                 :aria-label="`Sub-experiment ${s + 1} length`"
                 @update:model-value="(value) => value != null && edit(setTiming, { experiment: current, sub: s, duration: value })"
+              />
+              <Button
+                v-if="experiment.subs.length > 1"
+                icon="pi pi-times"
+                text
+                rounded
+                size="small"
+                severity="secondary"
+                class="column-remove"
+                :aria-label="`Remove sub-experiment ${s + 1}`"
+                @click="removeSub(s)"
               />
             </div>
             <div class="column-add">
@@ -98,16 +100,6 @@
               <div class="lane-label" :title="lane.parameter">
                 <span class="lane-path"><span class="lane-component">{{ lane.component }}/</span>{{ lane.name }}</span>
                 <span class="lane-units">{{ lane.units }}</span>
-                <Button
-                  icon="pi pi-trash"
-                  text
-                  rounded
-                  size="small"
-                  severity="secondary"
-                  class="lane-remove"
-                  :aria-label="`Stop setting ${lane.parameter}`"
-                  @click="edit(removeParameter, lane.parameter)"
-                />
               </div>
               <div class="lane-cell lane-cell--warm-up" aria-hidden="true">
                 <svg v-if="lane.warmUp" class="lane-plot" viewBox="0 0 100 40" preserveAspectRatio="none">
@@ -144,20 +136,42 @@
                   <i class="pi pi-chevron-down kind-caret" aria-hidden="true"></i>
                 </button>
               </div>
-              <div></div>
+              <div class="lane-end">
+                <Button
+                  icon="pi pi-trash"
+                  text
+                  rounded
+                  size="small"
+                  severity="secondary"
+                  :aria-label="`Stop setting ${lane.parameter}`"
+                  v-tooltip.left="'Stop setting it'"
+                  @click="edit(removeParameter, lane.parameter)"
+                />
+              </div>
             </template>
           </div>
         </div>
 
-        <div class="add-parameter">
+        <!-- As Add slider and Add plot are: the search shows when asked for, and tucks away after a pick. -->
+        <div v-if="isAddingParameter" ref="parameterPickerEl" class="add-parameter">
           <VariablePathPicker
             :index="index"
             :filter="(entry) => entry.slidable && !setParameters.has(entry.path)"
-            placeholder="Add a parameter to set…"
+            placeholder="Search for a parameter to set…"
             aria-label="Add a parameter for the protocol to set"
             @pick="addPicked"
           />
+          <Button
+            icon="pi pi-times"
+            text
+            rounded
+            size="small"
+            severity="secondary"
+            aria-label="Close the parameter search"
+            @click="isAddingParameter = false"
+          />
         </div>
+        <Button v-else label="Add parameter to set" icon="pi pi-plus" text size="small" class="add-parameter-button" @click="startAddingParameter" />
         <p v-if="!lanes.length" class="lanes-empty">Add a parameter for the experiments to set, such as a stimulus current or a conductance.</p>
 
         <div v-if="validation.errors.length || validation.warnings.length" class="messages">
@@ -205,7 +219,7 @@
  * beside a timeline of the one shown: a column for the warm-up and for each sub-experiment, as wide as it is long,
  * and a lane for each parameter drawing how it varies. A segment opens the editor of how it varies there.
  */
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 
 import Button from 'primevue/button'
 import InputNumber from 'primevue/inputnumber'
@@ -276,8 +290,8 @@ const setParameters = computed(() => new Set(view.value.controls.map(({ paramete
 const columns = computed(() => {
   // Shares of the space left, made to sum to 10: factors summing to less than 1 would leave some of it unused.
   const total = experiment.value.duration || 1
-  const subs = experiment.value.subs.map(({ duration }) => `minmax(5.5rem, ${((10 * Math.max(duration, 0)) / total).toFixed(4)}fr)`)
-  return [experiment.value.preTime > 0 ? '6.5rem' : '5rem', ...subs, '2.5rem'].join(' ')
+  const subs = experiment.value.subs.map(({ duration }) => `minmax(7.5rem, ${((10 * Math.max(duration, 0)) / total).toFixed(4)}fr)`)
+  return ['8.5rem', ...subs, '2.5rem'].join(' ')
 })
 
 // Each parameter's lane: its input in the warm-up and in each sub-experiment, on one scale.
@@ -506,12 +520,24 @@ async function removeSub(sub) {
   edit(removeSubExperiment, current.value, sub)
 }
 
+const parameterPickerEl = ref(null)
+// The parameter search opens from its button, never on its own.
+const isAddingParameter = ref(false)
+
+/** Shows the parameter search and puts the cursor in it. */
+async function startAddingParameter() {
+  isAddingParameter.value = true
+  await nextTick()
+  parameterPickerEl.value?.querySelector('input')?.focus()
+}
+
 /**
- * Has the protocol set a picked parameter, from its value in the model.
+ * Has the protocol set a picked parameter, from its value in the model, and tucks the search away.
  *
  * @param {Object} entry - From the variable index.
  */
 function addPicked(entry) {
+  isAddingParameter.value = false
   const row = props.nodes.find((node) => node.id === entry.nodeId)?.data?.variables?.find((candidate) => candidate.name === entry.rowName)
   const raw = row?.type === 'global_constant' ? props.getGlobalConstant(row.name)?.value : row?.value
   const value = Number.isFinite(Number(raw)) && String(raw ?? '').trim() !== '' ? Number(raw) : 0
@@ -740,9 +766,17 @@ function alignCell() {
 
 .experiment-name {
   align-self: flex-start;
-  min-width: 16rem;
-  font-size: 1.05rem;
+  min-width: 14rem;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  font-size: 0.95rem;
   font-weight: 600;
+}
+
+.experiment-name:hover,
+.experiment-name:focus {
+  border-color: var(--p-inputtext-border-color);
 }
 
 .timeline-scroll {
@@ -759,11 +793,17 @@ function alignCell() {
 
 .column-head {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 4px;
-  padding: 6px 6px 8px;
+  min-width: 0;
+  padding: 4px 4px 4px 8px;
   border-radius: 8px 8px 0 0;
   background: var(--p-content-hover-background);
+}
+
+.column-length {
+  flex: 1;
+  min-width: 0;
 }
 
 .warm-up-head {
@@ -775,10 +815,7 @@ function alignCell() {
 }
 
 .column-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 1.6rem;
+  flex-shrink: 0;
   font-weight: 600;
   color: var(--p-text-muted-color);
 }
@@ -804,7 +841,8 @@ function alignCell() {
   align-items: baseline;
   gap: 8px;
   min-width: 0;
-  margin-top: 6px;
+  /* Close to its own lane below, apart from the lane above. */
+  margin: 10px 0 -3px 2px;
 }
 
 .lane-path {
@@ -822,14 +860,10 @@ function alignCell() {
   color: var(--p-text-muted-color);
 }
 
-.lane-remove {
-  align-self: center;
-  opacity: 0.55;
-}
-
-.lane-label:hover .lane-remove,
-.lane-remove:focus-visible {
-  opacity: 1;
+.lane-end {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .lane-cell {
@@ -966,7 +1000,19 @@ function alignCell() {
 }
 
 .add-parameter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   max-width: 28rem;
+}
+
+.add-parameter > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.add-parameter-button {
+  align-self: flex-start;
 }
 
 .lanes-empty {

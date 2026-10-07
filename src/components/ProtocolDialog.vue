@@ -9,7 +9,6 @@
     :appendTo="'body'"
     @update:visible="(visible) => !visible && requestClose()"
   >
-    <p class="dialog-intro">Experiments to run, as CUFLynx and circulatory autogen describe them in obs_data.json.</p>
     <ProtocolEditor v-model:document="draft" :nodes="nodes" :get-global-constant="libraryStore.getGlobalConstant" />
 
     <template #footer>
@@ -80,11 +79,3 @@ async function requestClose() {
   emit('update:modelValue', false)
 }
 </script>
-
-<style scoped>
-.dialog-intro {
-  margin: 0 0 12px;
-  color: var(--p-text-muted-color);
-  font-size: 0.875rem;
-}
-</style>

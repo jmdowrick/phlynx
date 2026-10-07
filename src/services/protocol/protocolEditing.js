@@ -104,8 +104,67 @@ export function addExperiment(document, from) {
       else if (key === 'experiment_ids') info[key].push(null)
       else info[key].push(copy(info[key][from]))
     }
-    for (const rows of Object.values(info.params_to_change)) rows.push(copy(rows[from]))
+    for (const [parameter, rows] of Object.entries(info.params_to_change)) {
+      // The copy's shapes and traces are its own, so editing one experiment never changes the other.
+      rows.push(rows[from].map((leaf, sub) => (typeof leaf === 'string' ? copyInput(info, leaf, nameCellInput(parameter, count, sub)) : leaf)))
+    }
   })
+}
+
+/**
+ * Lists the shape and trace names that sub-experiments use, but for one.
+ *
+ * @param {Object} info - The protocol_info.
+ * @param {{parameter: string, experiment: number, sub: number}} [except]
+ * @returns {Set<string>}
+ */
+function findUsedNames(info, except = null) {
+  const used = new Set()
+  for (const [parameter, rows] of Object.entries(info.params_to_change)) {
+    rows.forEach((row, experiment) =>
+      row.forEach((leaf, sub) => {
+        const isExcepted = except && except.parameter === parameter && except.experiment === experiment && except.sub === sub
+        if (typeof leaf === 'string' && !isExcepted) used.add(leaf)
+      })
+    )
+  }
+  return used
+}
+
+/**
+ * Finds a name for an input no sub-experiment but the one given uses, nor any shape or trace already has.
+ *
+ * @param {Object} info - The protocol_info.
+ * @param {string} base - The name wanted.
+ * @param {{parameter: string, experiment: number, sub: number}} [owner] - The sub-experiment the name is for.
+ * @returns {string} `base`, or `base_2`, `base_3`… when it is taken.
+ */
+function findFreeName(info, base, owner = null) {
+  const used = findUsedNames(info, owner)
+  const isOwnersOnly = (name) => !used.has(name)
+  const exists = (name) => Object.hasOwn(info.protocol_shapes ?? {}, name) || Object.hasOwn(info.protocol_traces ?? {}, name)
+  // The owner may take over a name only it uses; any other name must be new.
+  if (isOwnersOnly(base) && (owner || !exists(base))) return base
+  for (let index = 2; ; index++) {
+    const name = `${base}_${index}`
+    if (isOwnersOnly(name) && !exists(name)) return name
+  }
+}
+
+/**
+ * Copies a shape or trace under a name of its own.
+ *
+ * @param {Object} info - The protocol_info, changed in place.
+ * @param {string} leaf - The input's name.
+ * @param {string} base - The name wanted for the copy.
+ * @returns {string} The copy's name, or the name given when it names nothing to copy.
+ */
+function copyInput(info, leaf, base) {
+  const key = ['protocol_shapes', 'protocol_traces'].find((candidate) => isMapping(info[candidate]) && Object.hasOwn(info[candidate], leaf))
+  if (!key) return leaf
+  const name = findFreeName(info, base)
+  info[key][name] = copy(info[key][leaf])
+  return name
 }
 
 /**
@@ -281,8 +340,8 @@ export function setValue(document, { parameter, experiment, sub, value }) {
 export const nameCellInput = (parameter, experiment, sub) => `${parameter.replaceAll('/', '_')}_e${experiment}s${sub}`
 
 /**
- * Sets a parameter's input in a sub-experiment to a shape or a trace of its own. A shape or trace already under its
- * name, from an earlier edit, is replaced.
+ * Sets a parameter's input in a sub-experiment to a shape or a trace of its own: under its cell's name, replacing
+ * what an earlier edit wrote there, unless another sub-experiment uses that name too.
  *
  * @param {Object} document
  * @param {{parameter: string, experiment: number, sub: number, shape?: Object, trace?: {t: number[], values:
@@ -291,7 +350,8 @@ export const nameCellInput = (parameter, experiment, sub) => `${parameter.replac
  */
 export function setInput(document, { parameter, experiment, sub, shape, trace }) {
   return editDocument(document, ({ protocol_info: info }) => {
-    const name = nameCellInput(parameter, experiment, sub)
+    // Never a name another sub-experiment uses, as one copied, moved or left by a removal may.
+    const name = findFreeName(info, nameCellInput(parameter, experiment, sub), { parameter, experiment, sub })
     const [kept, other] = shape ? ['protocol_shapes', 'protocol_traces'] : ['protocol_traces', 'protocol_shapes']
     if (isMapping(info[other])) delete info[other][name]
     if (!isMapping(info[kept])) info[kept] = {}

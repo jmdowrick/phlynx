@@ -56,7 +56,8 @@ describe('protocolEditing', () => {
     expect(edited.protocol_info).toMatchObject({
       pre_times: [1, 2, 1],
       sim_times: [[1, 2], [3], [1, 2]],
-      params_to_change: { 'a/k': [[1, 'p'], [3], [1, 'p']] },
+      // The copy's pulse is its own.
+      params_to_change: { 'a/k': [[1, 'p'], [3], [1, 'a_k_e2s1']] },
       experiment_labels: ['rest', 'exercise', 'rest (copy)'],
       experiment_colors: ['r', 'b', 'g'],
       comment: 'kept',
@@ -132,6 +133,28 @@ describe('protocolEditing', () => {
     expect(findObservationsAt(DOCUMENT, 1)).toEqual(['second', 'shown'])
     expect(findObservationsAt(DOCUMENT, 0, 1)).toEqual(['first'])
     expect(findObservationsAt([{ data_item_name: 'bare' }], 0, 0)).toEqual(['bare'])
+  })
+
+  it("keeps every experiment's inputs its own: editing one never changes another", () => {
+    const ramp = (to) => ({ type: 'ramp', from: 0, to })
+    const shapeOf = (document, experiment, sub) => {
+      const info = document.protocol_info
+      return info.protocol_shapes[info.params_to_change['a/k'][experiment][sub]]
+    }
+    // Duplicated, then the original edited.
+    let edited = setInput(addExperiment(DOCUMENT, 0), { parameter: 'a/k', experiment: 0, sub: 1, shape: ramp(9) })
+    expect(shapeOf(edited, 0, 1)).toEqual(ramp(9))
+    expect(shapeOf(edited, 2, 1)).toEqual(DOCUMENT.protocol_info.protocol_shapes.p)
+    // Duplicated, then the copy edited.
+    edited = setInput(addExperiment(DOCUMENT, 0), { parameter: 'a/k', experiment: 2, sub: 1, shape: ramp(4) })
+    expect(shapeOf(edited, 0, 1)).toEqual(DOCUMENT.protocol_info.protocol_shapes.p)
+    // A sub-experiment removed, leaving one under the name of the place it moved to.
+    const two = setInput(setInput(DOCUMENT, { parameter: 'a/k', experiment: 0, sub: 0, shape: ramp(1) }), { parameter: 'a/k', experiment: 0, sub: 1, shape: ramp(2) })
+    const shifted = removeSubExperiment(addSubExperiment(two, 0), 0, 0)
+    edited = setInput(shifted, { parameter: 'a/k', experiment: 0, sub: 1, shape: ramp(7) })
+    expect(shapeOf(edited, 0, 0)).toEqual(ramp(2))
+    expect(shapeOf(edited, 0, 1)).toEqual(ramp(7))
+    expectValid(edited)
   })
 
   it("writes a cell's own shape or trace under its name, replacing the other", () => {

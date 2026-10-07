@@ -403,6 +403,7 @@ class TestSimulationTab(unittest.TestCase):
             page.get_by_role("button", name="Create a protocol", exact=True).click()
             dialog = page.get_by_role("dialog", name="Protocol")
             dialog.get_by_role("button", name="Create a protocol").click()
+            dialog.get_by_role("button", name="Add parameter to set").click()
             pick_path(page, "Add a parameter for the protocol to set", "soma_SN/g_M", within=dialog)
             dialog.get_by_label("Sub-experiment 1 length").fill("0.1")
             dialog.get_by_label("Sub-experiment 1 length").press("Tab")
@@ -451,7 +452,9 @@ class TestSimulationTab(unittest.TestCase):
             dialog.get_by_role("button", name="Create a protocol").click()
             dialog.get_by_label("Sub-experiment 1 length").fill("0.1")
             dialog.get_by_label("Sub-experiment 1 length").press("Tab")
+            dialog.get_by_role("button", name="Add parameter to set").click()
             pick_path(page, "Add a parameter for the protocol to set", "soma_SN/g_M", within=dialog)
+            dialog.get_by_role("button", name="Add parameter to set").click()
             pick_path(page, "Add a parameter for the protocol to set", "soma_SN/I_in", within=dialog)
 
             # g_M doubles from 0.02 to 0.06 into the sub-experiment.
