@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, markRaw, ref } from 'vue'
 
-import { findObsDataExtra, readObsDataParts } from '../services/protocol/obsDataDocument'
+import { OBS_DATA_FORMAT, buildObsDataLocation, findObsDataExtra, readObsDataParts, serialiseObsData } from '../services/protocol/obsDataDocument'
 import { planDrivers } from '../services/protocol/protocolDrivers'
 import { readProtocolInfo } from '../services/protocol/protocolModel'
 import { validateProtocolInfo } from '../services/protocol/protocolValidation'
@@ -57,6 +57,17 @@ export const useProtocolStore = defineStore('protocol', () => {
     activeExperiment.value = index
   }
 
+  /**
+   * Saves an edited obs_data document into the archive's files: over the one read, or as a new file named after the
+   * model.
+   *
+   * @param {Object|Array} document
+   */
+  function saveDocument(document) {
+    const location = source.value?.entry.location ?? buildObsDataLocation((omexStore.archiveName || omexStore.cellmlFileName).replace(/\.[^.]*$/, ''))
+    omexStore.writeExtra({ location, format: source.value?.entry.format ?? OBS_DATA_FORMAT, payload: serialiseObsData(document) })
+  }
+
   function resetState() {
     isProtocolMode.value = false
     activeExperiment.value = 0
@@ -75,6 +86,7 @@ export const useProtocolStore = defineStore('protocol', () => {
     isActive,
     signature,
     setActiveExperiment,
+    saveDocument,
     resetState,
   }
 })

@@ -202,6 +202,13 @@
           :get-global-constant="libraryStore.getGlobalConstant"
         />
       </section>
+      <section :ref="(el) => (sections.protocol = el)" class="block">
+        <div class="block-header">
+          <h4>Protocol</h4>
+          <span class="subtle">Experiments to run, as CUFLynx and circulatory autogen describe them in obs_data.</span>
+        </div>
+        <ProtocolEditor v-model:document="draftProtocol" :nodes="nodes" :get-global-constant="libraryStore.getGlobalConstant" />
+      </section>
     </div>
 
     <template #footer>
@@ -219,7 +226,8 @@
 
 <script setup>
 /**
- * Simulation Settings: the plots and sliders the Simulation tab also edits, and the time course and solver.
+ * Simulation Settings: the plots and sliders the Simulation tab also edits, the time course and solver, and the
+ * workspace's experiment protocol.
  * Everything here is a draft until Save, which a close with unsaved changes asks about.
  */
 import { computed, nextTick, ref, watch } from 'vue'
@@ -232,6 +240,7 @@ import Message from 'primevue/message'
 import Select from 'primevue/select'
 
 import PlotListEditor from './simulation/PlotListEditor.vue'
+import ProtocolEditor from './simulation/ProtocolEditor.vue'
 import SliderDefinitionsEditor from './simulation/SliderDefinitionsEditor.vue'
 import VariablePathPicker from './simulation/VariablePathPicker.vue'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
@@ -240,11 +249,12 @@ import { MAX_SOLVER_STEPS, SOLVERS, findSolverSettingsProblem } from '../service
 import { buildVariableIndex, resolvePlotTarget } from '../services/simulation/variableIndex'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
+import { useProtocolStore } from '../stores/protocolStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 
 const props = defineProps({
   modelValue: Boolean,
-  // The section to scroll to as it opens: 'time', 'parameters' (the solver), 'plots' or 'sliders'.
+  // The section to scroll to as it opens: 'time', 'parameters' (the solver), 'plots', 'sliders' or 'protocol'.
   section: { type: String, default: null },
   nodes: {
     type: Array,
@@ -257,6 +267,7 @@ const { confirm } = useConfirmDialog()
 const libraryStore = useLibraryStore()
 const simulationSettingsStore = useSimulationSettingsStore()
 const inspectionStore = useInspectionModuleStore()
+const protocolStore = useProtocolStore()
 const { simulationSettings, plotConfig, parameterScanConfig } = storeToRefs(simulationSettingsStore)
 
 const solverOptions = Object.entries(SOLVERS).map(([value, { label }]) => ({ label, value }))
@@ -265,6 +276,9 @@ const solverOptions = Object.entries(SOLVERS).map(([value, { label }]) => ({ lab
 const localSimulationSettings = ref({})
 const draftPlotConfig = ref({})
 const draftScanConfig = ref({ selections: [] })
+// The obs_data document the protocol is in, or null for none.
+const draftProtocol = ref(null)
+const initialProtocolSignature = ref('')
 // The page's sections, to scroll to the one asked for.
 const sections = {}
 const initialDraftSignature = ref('')
@@ -326,6 +340,7 @@ function createDraftPayload() {
     simulationSettings: { ...localSimulationSettings.value },
     plotConfig: draftPlotConfig.value,
     parameterScanConfig: draftScanConfig.value,
+    protocol: draftProtocol.value,
   }
 }
 
@@ -336,6 +351,9 @@ function initialiseDialog() {
   localSimulationSettings.value = { ...simulationSettings.value }
   draftPlotConfig.value = JSON.parse(JSON.stringify(plotConfig.value ?? {}))
   draftScanConfig.value = JSON.parse(JSON.stringify(parameterScanConfig.value?.selections ? parameterScanConfig.value : { selections: [] }))
+  const document = protocolStore.source?.document
+  draftProtocol.value = document === undefined || document === null ? null : JSON.parse(JSON.stringify(document))
+  initialProtocolSignature.value = JSON.stringify(draftProtocol.value)
   plotNote.value = ''
   initialDraftSignature.value = JSON.stringify(createDraftPayload())
   bypassCloseGuard.value = false
@@ -378,7 +396,9 @@ function changeSolver(solver) {
 
 /** Saves the drafts and closes. */
 function handleConfirm() {
-  simulationSettingsStore.loadState(createDraftPayload())
+  const { protocol, ...settings } = createDraftPayload()
+  simulationSettingsStore.loadState(settings)
+  if (JSON.stringify(protocol) !== initialProtocolSignature.value) protocolStore.saveDocument(protocol)
   bypassCloseGuard.value = true
   emit('update:modelValue', false)
 }

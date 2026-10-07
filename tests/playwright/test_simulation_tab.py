@@ -380,6 +380,51 @@ class TestSimulationTab(unittest.TestCase):
             context.close()
             browser.close()
 
+    def test_writes_a_protocol_and_runs_it(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+
+            context = browser.new_context(viewport={"width": 1600, "height": 1000})
+            context.add_init_script(OPT_IN_TO_ISOLATION)
+            page = context.new_page()
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+
+            # ---------- START -----------
+            page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function(SIMULATOR_READY, timeout=APP_MOUNT_TIMEOUT)
+            page.evaluate(SHORTEN_SIMULATION)
+            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
+
+            # A protocol of two sub-experiments, the second doubling the M current's conductance, then a copy of it.
+            page.get_by_role("button", name="Simulation settings", exact=True).click()
+            dialog = page.get_by_role("dialog")
+            dialog.get_by_role("button", name="Create a protocol").click()
+            pick_path(page, "Add a parameter for the protocol to set", "soma_SN/g_M", within=dialog)
+            dialog.get_by_label("Sub-experiment 1 length").fill("0.1")
+            dialog.get_by_label("Sub-experiment 1 length").press("Tab")
+            dialog.get_by_role("button", name="Add a sub-experiment").click()
+            dialog.get_by_label("soma_SN/g_M in sub-experiment 2").fill("0.00778")
+            dialog.get_by_label("soma_SN/g_M in sub-experiment 2").press("Tab")
+            dialog.get_by_role("button", name="Add an experiment, a copy of this one").click()
+            expect(dialog.get_by_role("button", name="Experiment 2", exact=True)).to_have_attribute("aria-pressed", "true")
+            dialog.get_by_role("button", name="Save").click()
+            expect(dialog).to_be_hidden()
+
+            # Saved as the workspace's obs_data, the protocol now runs.
+            page.get_by_role("button", name="Run the protocol's experiments").click()
+            page.wait_for_function(f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)", timeout=120000)
+            self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
+            expect(page.get_by_text("Ran 2 protocol experiments on the whole model")).to_be_visible()
+            self.assertEqual(page.evaluate(SHOWN_G_M), {"experiments": 2, "values": [0.00389, 0.00778]})
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
     def test_toolbar_plays_with_f9_and_opens_the_solver_settings(self):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)

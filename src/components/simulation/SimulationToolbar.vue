@@ -53,6 +53,18 @@
         v-tooltip.bottom="protocolStore.isProtocolMode ? 'Running the protocol: switch back to the time course' : 'Run the protocol\'s experiments'"
         @click="toggleProtocol"
       />
+      <Button
+        v-if="protocolStore.isProtocolMode"
+        icon="pi pi-pencil"
+        text
+        rounded
+        size="small"
+        severity="secondary"
+        :disabled="isRunning"
+        aria-label="Edit the protocol"
+        v-tooltip.bottom="'Edit the protocol'"
+        @click="openSimSettings('protocol')"
+      />
       <Select
         v-if="protocolStore.isProtocolMode && experimentOptions.length > 1"
         :model-value="protocolStore.activeExperiment"

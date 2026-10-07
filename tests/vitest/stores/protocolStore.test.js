@@ -51,4 +51,17 @@ describe('protocolStore', () => {
     expect(store.hasProtocol).toBe(false)
     expect(store.validation.errors[0]).toMatch(/^broken_obs_data.json isn't valid JSON: /)
   })
+
+  it('saves an edited document over the file read, or as a new one named after the model', () => {
+    const store = useProtocolStore()
+    const omexStore = useOmexStore()
+    omexStore.cellmlFileName = 'heart.cellml'
+    store.saveDocument({ protocol_info: PROTOCOL })
+    expect(omexStore.preservedExtras.map(({ location, format }) => [location, format])).toEqual([['heart_obs_data.json', 'application/json']])
+    expect(store.view.controls[0].parameter).toBe('a/k')
+
+    store.saveDocument({ protocol_info: { ...PROTOCOL, params_to_change: { 'a/g': [[1]] } } })
+    expect(omexStore.preservedExtras).toHaveLength(1)
+    expect(store.view.controls[0].parameter).toBe('a/g')
+  })
 })
