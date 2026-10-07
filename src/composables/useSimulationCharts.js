@@ -1,6 +1,6 @@
 /**
- * The charts of a run's results, as every simulation view shows them: the plotted variables of the simulated
- * instances, then the inspection modules' outputs, one chart per plot and unit.
+ * The charts of a run's results, as every simulation view shows them: the values a protocol set, the plotted
+ * variables of the simulated instances, then the inspection modules' outputs, one chart per plot and unit.
  */
 import { computed, unref } from 'vue'
 
@@ -14,6 +14,22 @@ import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 
 // Inspection modules belong to no instance or plot group, so their outputs make a plot of their own.
 export const INSPECTION_PLOT = '__inspection_modules__'
+// So do the values a protocol sets, shown first.
+export const PROTOCOL_INPUTS_PLOT = '__protocol_inputs__'
+
+/**
+ * Finds where each sub-experiment of a protocol's experiment lies on its time axis.
+ *
+ * @param {Array<{startIndex: number, endIndex: number}>|undefined} subs - The experiment's, from its plan.
+ * @param {Float64Array} values - The times shown.
+ * @returns {Array<{from: number, to: number, number: number}>} None for a run of one; `number` counts from 1.
+ */
+export function findSegments(subs, values) {
+  if (!subs || subs.length < 2) return []
+  return subs
+    .filter(({ startIndex }) => startIndex < values.length)
+    .map(({ startIndex, endIndex }, index) => ({ from: values[startIndex], to: values[Math.min(endIndex, values.length - 1)], number: index + 1 }))
+}
 
 /**
  * Builds the charts of the shown results.
@@ -26,18 +42,24 @@ export function useSimulationCharts(scopeNodes) {
   const simulationSettingsStore = useSimulationSettingsStore()
   const { settings } = useAppSettings()
 
-  // Plots that start after the solve does, to let the model settle, count time from their start: t = 0.
+  // Plots that start after the solve does, to let the model settle, count time from their start: t = 0. A protocol's
+  // experiments already count from the end of their warm-up.
   const xAxis = computed(() => {
     const voi = store.results?.voi
     const values = voi?.values ?? new Float64Array()
     const { initialPoint, startingPoint } = simulationSettingsStore.simulationSettings
-    const isSettled = initialPoint < startingPoint && values.length > 0 && Math.abs(values[0] - startingPoint) < 1e-9 * Math.max(1, Math.abs(startingPoint))
+    const isSettled =
+      !store.protocolResults &&
+      initialPoint < startingPoint &&
+      values.length > 0 &&
+      Math.abs(values[0] - startingPoint) < 1e-9 * Math.max(1, Math.abs(startingPoint))
     return {
       label: voi?.name.split('/').pop() ?? '',
       unit: voi?.unit ?? '',
       values: isSettled ? values.map((time) => time - startingPoint) : values,
       // Where t = 0 is in the run's own time, when it isn't the same.
       offset: isSettled ? startingPoint : 0,
+      segments: findSegments(store.results?.subs, values),
     }
   })
 
@@ -81,7 +103,26 @@ export function useSimulationCharts(scopeNodes) {
       unit: output.units,
       values: store.results.variables.get(output.reportedName).values,
     }))
-    return [...labelled, ...outputs]
+    // The values the protocol set, as the model ran with them.
+    const inputs = store.protocolResults
+      ? [...store.protocolTargets].flatMap(([parameter, name]) => {
+          const series = store.results.variables.get(name)
+          if (!series) return []
+          const separator = parameter.indexOf('/')
+          return [{
+            key: `protocol::${parameter}`,
+            plot: PROTOCOL_INPUTS_PLOT,
+            component: separator > 0 ? parameter.slice(0, separator) : null,
+            name: parameter.slice(separator + 1),
+            label: parameter,
+            unit: series.unit || 'dimensionless',
+            values: series.values,
+            // Held through each sub-experiment, so drawn as steps rather than ramps between points.
+            isStepped: true,
+          }]
+        })
+      : []
+    return [...inputs, ...labelled, ...outputs]
   }
 
   /**
@@ -105,7 +146,8 @@ export function useSimulationCharts(scopeNodes) {
     const groups = resolveGroups(simulationSettingsStore.plotConfig)
     const plotNames = new Map(groups.map((group) => [group.id, group.name]))
     plotNames.set(INSPECTION_PLOT, 'Inspection modules')
-    const plotOrder = new Map(groups.map((group, index) => [group.id, index]))
+    plotNames.set(PROTOCOL_INPUTS_PLOT, 'Protocol inputs')
+    const plotOrder = new Map([[PROTOCOL_INPUTS_PLOT, -1], ...groups.map((group, index) => [group.id, index])])
 
     const byPlotAndUnit = new Map()
     // Charts follow the plots' order; inspection outputs, then anything not on a plot, come last.
@@ -140,7 +182,7 @@ export function useSimulationCharts(scopeNodes) {
           // The plot's name, with what tells its charts apart when it makes several.
           plotLabel: chartsPerPlot.get(plot) > 1 && parts.length ? `${plotName} (${parts.join(', ')})` : plotName,
           unit,
-          series: group.map((item) => ({ key: item.key, label: item.label, values: item.values, slot: slots.get(item.key) })),
+          series: group.map((item) => ({ key: item.key, label: item.label, values: item.values, slot: slots.get(item.key), isStepped: !!item.isStepped })),
         })
       })
     }

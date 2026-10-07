@@ -317,6 +317,9 @@ class TestSimulationTab(unittest.TestCase):
             self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
             self.assertEqual(page.evaluate(SHOWN_G_M), {"experiments": 2, "values": [0.00389]})
             self.assertEqual(page.evaluate(f"{RESULTS_STORE}.results.voi.values.length"), 21)
+            expect(page.get_by_text("Ran 2 protocol experiments on the whole model")).to_be_visible()
+            # The values it set are plotted first, as the model ran with them.
+            expect(page.locator(".simulation-plot .plot-title").first).to_have_text(re.compile(r"soma_SN/(I_in|g_M)"))
 
             # The second experiment ran with the M current raised.
             page.get_by_role("combobox", name="Experiment to show").click()

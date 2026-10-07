@@ -261,6 +261,7 @@ export function useSimulation() {
       if (token !== runToken) return
       store.finishProtocolRun({
         protocolResults,
+        targets,
         experiment: protocolStore.activeExperiment,
         mapping: source.mapping,
         signature,
@@ -270,7 +271,7 @@ export function useSimulation() {
       if (error.code === 'no-session') session = null
       if (token !== runToken) return
       const partial = error.partialResults && { experiments: error.partialResults.experiments, issues: [], elapsedMs: 0, isStopped: false }
-      const shown = partial && { results: selectExperiment(partial, protocolStore.activeExperiment), protocolResults: partial, mapping: source.mapping }
+      const shown = partial && { results: selectExperiment(partial, protocolStore.activeExperiment), protocolResults: partial, targets, mapping: source.mapping }
       store.failRun('error', { message: error.message, issues: error.issues ?? [] }, shown)
     }
   }

@@ -48,7 +48,7 @@
         class="toolbar-protocol"
         :severity="protocolStore.isProtocolMode ? 'primary' : 'secondary'"
         :aria-pressed="protocolStore.isProtocolMode"
-        :label="protocolStore.isProtocolMode ? 'Protocol' : undefined"
+        :label="protocolStore.isProtocolMode && experimentOptions.length < 2 ? 'Protocol' : undefined"
         aria-label="Run the protocol's experiments"
         v-tooltip.bottom="protocolStore.isProtocolMode ? 'Running the protocol: switch back to the time course' : 'Run the protocol\'s experiments'"
         @click="toggleProtocol"
@@ -223,8 +223,8 @@ const playHint = computed(() => props.blockedReason ?? (props.isLoading ? 'Loadi
 }
 
 .toolbar-experiment {
-  min-width: 0;
-  max-width: 11rem;
+  flex: 0 1 11rem;
+  min-width: 7rem;
 }
 
 /* Too narrow: the protocol button without its label. */

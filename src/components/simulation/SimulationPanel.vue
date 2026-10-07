@@ -122,9 +122,11 @@ const scopeNodes = computed(() =>
   store.scopeNodeIds ? nodes.value.filter((node) => store.scopeNodeIds.includes(node.id)) : nodes.value
 )
 const scopeSummary = computed(() => {
-  if (!store.scopeNodeIds) return 'Simulated the whole model'
+  const experiments = store.protocolResults?.experiments.length
+  const ran = experiments ? `Ran ${experiments} protocol ${experiments === 1 ? 'experiment' : 'experiments'} on` : 'Simulated'
+  if (!store.scopeNodeIds) return `${ran} the whole model`
   const count = store.scopeNodeIds.length
-  return `Simulated ${count} ${count === 1 ? 'instance' : 'instances'} on their own`
+  return `${ran} ${count} ${count === 1 ? 'instance' : 'instances'} on their own`
 })
 const stoppedAt = computed(() => {
   const voi = store.results?.voi

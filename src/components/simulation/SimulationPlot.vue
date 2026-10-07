@@ -48,16 +48,16 @@ import { getChartZoom, setChartZoom } from '../../services/simulation/chartZoom'
 import { SERIES_COLOURS } from '../../services/simulation/seriesSlots'
 
 const CHROME = {
-  light: { text: '#52514e', grid: '#e1e0d9', axis: '#c3c2b7' },
-  dark: { text: '#c3c2b7', grid: '#2c2c2a', axis: '#383835' },
+  light: { text: '#52514e', grid: '#e1e0d9', axis: '#c3c2b7', band: 'rgba(82, 81, 78, 0.06)' },
+  dark: { text: '#c3c2b7', grid: '#2c2c2a', axis: '#383835', band: 'rgba(195, 194, 183, 0.07)' },
 }
 const props = defineProps({
   title: { type: String, required: true },
   // The title as instance/variable paths, to show each instance muted, or null to show `title`.
   titleParts: { type: Array, default: null },
   unit: { type: String, required: true },
-  x: { type: Object, required: true }, // { label, unit, values }
-  series: { type: Array, required: true }, // [{ key, label, slot, values }]
+  x: { type: Object, required: true }, // { label, unit, values, segments? }, segments [{ from, to, number }]
+  series: { type: Array, required: true }, // [{ key, label, slot, values, isStepped? }]
   height: { type: Number, default: 220 },
   // Charts with the same key show their cursors at the same time.
   syncKey: { type: String, default: null },
@@ -142,10 +142,46 @@ function updateReadout(chart) {
   readout.value = {
     left: fitsRight ? x + 12 : Math.max(0, x - 12 - READOUT_WIDTH_PX),
     top: over.offsetTop + 6,
-    time: `${formatValue(chart.data[0][idx])}${props.x.unit ? ` ${shortUnit(props.x.unit)}` : ''}`,
+    time: `${formatValue(chart.data[0][idx])}${props.x.unit ? ` ${shortUnit(props.x.unit)}` : ''}${findSegmentLabel(chart.data[0][idx])}`,
     rows: props.series.map((item) => ({ key: item.key, label: item.label, colour: colourOf(item), value: formatValue(item.values[idx]) })),
   }
 }
+/**
+ * Names the sub-experiment a time falls in, for the readout; the later one at a boundary.
+ *
+ * @param {number} time
+ * @returns {string} ` · sub n`, or nothing outside a protocol.
+ */
+function findSegmentLabel(time) {
+  const segment = (props.x.segments ?? []).findLast(({ from, to }) => time >= from && time <= to)
+  return segment ? ` · sub ${segment.number}` : ''
+}
+
+/**
+ * Shades every other sub-experiment of a protocol's run behind the lines, so where each starts shows.
+ *
+ * @param {Object} chart - The uPlot chart.
+ */
+function drawSegments(chart) {
+  const segments = props.x.segments ?? []
+  if (segments.length < 2) return
+  const { ctx, bbox } = chart
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(bbox.left, bbox.top, bbox.width, bbox.height)
+  ctx.clip()
+  ctx.fillStyle = CHROME[isDarkMode.value ? 'dark' : 'light'].band
+  segments.forEach(({ from, to }, index) => {
+    if (index % 2 === 0) return
+    const left = chart.valToPos(from, 'x', true)
+    const right = chart.valToPos(to, 'x', true)
+    ctx.fillRect(left, bbox.top, right - left, bbox.height)
+  })
+  ctx.restore()
+}
+
+const STEPPED_PATHS = uPlot.paths.stepped({ align: -1 })
+
 let plot = null
 // The time range zoomed into, kept across new values and redraws; null when showing the whole run.
 let zoom = getChartZoom(props.zoomKey)
@@ -214,7 +250,7 @@ function buildOptions(width) {
     scales: { x: { time: false } },
     // Synced charts plot different series, so hiding one mustn't hide its namesake by position elsewhere.
     cursor: { y: false, points: { size: 8 }, ...(props.syncKey && { sync: { key: props.syncKey, setSeries: false } }) },
-    hooks: { setScale: [recordZoom], setCursor: [updateReadout] },
+    hooks: { setScale: [recordZoom], setCursor: [updateReadout], drawClear: [drawSegments] },
     legend: { show: false },
     padding: [8, 12, 0, 0],
     axes: [{ ...axis(timeTicks), size: 28 }, { ...axis(), size: sizeValueAxis }],
@@ -225,6 +261,8 @@ function buildOptions(width) {
         stroke: SERIES_COLOURS[theme][series.slot],
         width: 2,
         points: { show: false },
+        // A value that changes at a point holds from the point before, so a step shows where its sub-experiment starts.
+        ...(series.isStepped && { paths: STEPPED_PATHS }),
       })),
     ],
   }
