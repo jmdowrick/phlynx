@@ -81,14 +81,40 @@ function formatTicks(_, splits) {
   return splits.map((value) => value.toFixed(decimals))
 }
 
+const AXIS_FONT = '11px system-ui, -apple-system, "Segoe UI", sans-serif'
+// What an axis takes beside its labels: uPlot's ticks (10px) and the gap after them (5px), and a little to spare.
+const AXIS_CHROME_PX = 18
+let measuringContext = null
+
 /**
- * Sizes the value axis to fit its longest tick label; its unit is in the chart's heading.
+ * Measures a tick label as the axis draws it.
+ *
+ * @param {string} text
+ * @returns {number} Pixels.
+ */
+function measureLabel(text) {
+  measuringContext ??= document.createElement('canvas').getContext('2d')
+  if (!measuringContext) return text.length * 7
+  measuringContext.font = AXIS_FONT
+  return measuringContext.measureText(text).width
+}
+
+/**
+ * Sizes the value axis to fit its widest tick label; its unit is in the chart's heading.
  *
  * @param {Object} _ - The chart.
  * @param {string[]|null} values - The tick labels, once known.
  * @returns {number} Pixels.
  */
-const sizeValueAxis = (_, values) => Math.max(32, Math.ceil(Math.max(0, ...(values ?? []).map((value) => value.length)) * 6.5) + 12)
+const sizeValueAxis = (_, values) => Math.max(32, Math.ceil(Math.max(0, ...(values ?? []).map(measureLabel))) + AXIS_CHROME_PX)
+
+/**
+ * Pads the chart's right side by half its last time label, which is centred on the right edge, so it isn't cut off.
+ *
+ * @param {Object} chart
+ * @returns {number} Pixels.
+ */
+const padRight = (chart) => Math.max(12, Math.ceil(measureLabel(chart.axes[0]?._values?.at(-1) ?? '') / 2) + 2)
 
 /**
  * Formats a value for the readout, to 5 significant figures.
@@ -236,7 +262,7 @@ function buildOptions(width) {
     stroke: chrome.text,
     grid: { stroke: chrome.grid, width: 1 },
     ticks: { stroke: chrome.axis, width: 1 },
-    font: '11px system-ui, -apple-system, "Segoe UI", sans-serif',
+    font: AXIS_FONT,
   })
   // The time's unit on its last tick, in place of an axis title under the ticks.
   const timeTicks = (chart, splits) => {
@@ -252,7 +278,7 @@ function buildOptions(width) {
     cursor: { y: false, points: { size: 8 }, ...(props.syncKey && { sync: { key: props.syncKey, setSeries: false } }) },
     hooks: { setScale: [recordZoom], setCursor: [updateReadout], drawClear: [drawSegments] },
     legend: { show: false },
-    padding: [8, 12, 0, 0],
+    padding: [8, padRight, 0, 0],
     axes: [{ ...axis(timeTicks), size: 28 }, { ...axis(), size: sizeValueAxis }],
     series: [
       { label: props.x.label },
