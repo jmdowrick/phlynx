@@ -161,6 +161,7 @@
             size="small"
             variant="text"
             severity="info"
+            aria-label="Settings"
             v-tooltip.bottom="{ value: 'Settings', showDelay: 300 }"
             @click="onOpenSettingsDialog"
           />

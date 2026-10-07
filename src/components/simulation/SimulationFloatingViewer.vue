@@ -130,9 +130,9 @@
               />
             </li>
           </ul>
-          <p v-else-if="!isAddingVariable" class="viewer-muted">Nothing on {{ shownPlotName }} yet.</p>
+
           <p v-if="plotNote" class="viewer-note" role="status">{{ plotNote }}</p>
-          <!-- Last, as Add slider and Add plot are. The search shows when asked for, or while the plot is empty. -->
+          <!-- Last, as Add slider and Add plot are. The search shows when asked for. -->
           <div v-if="isAddingVariable" ref="variableSearchEl" class="viewer-variable-search">
             <VariablePathPicker
               :index="variableIndex"
@@ -142,7 +142,6 @@
               @pick="plotEntry"
             />
             <Button
-              v-if="shownSelections.length"
               icon="pi pi-times"
               text
               rounded
@@ -341,10 +340,9 @@ const nodeName = (nodeId) => props.nodes.find((node) => node.id === nodeId)?.dat
 const isAddingVariable = ref(false)
 const variableSearchEl = ref(null)
 
-/** Opens the editor with its search open only while the plot is empty. */
+/** Opens the editor with its search closed, to open from Add variable. */
 function onEditorShow() {
-  isAddingVariable.value = !shownSelections.value.length
-  if (isAddingVariable.value) focusVariableSearch()
+  isAddingVariable.value = false
 }
 
 /** Opens the editor's search and puts the cursor in it. */

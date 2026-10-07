@@ -7,6 +7,7 @@ import { computed, unref } from 'vue'
 import { resolveGroups } from '../services/simulation/plotSelections'
 import { assignSeriesSlots, chunkSeries } from '../services/simulation/seriesSlots'
 import { readNodeSeries } from '../services/simulation/variableMapping'
+import { useAppSettings } from './useAppSettings'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 
@@ -22,6 +23,7 @@ export const INSPECTION_PLOT = '__inspection_modules__'
 export function useSimulationCharts(scopeNodes) {
   const store = useSimulationResultsStore()
   const simulationSettingsStore = useSimulationSettingsStore()
+  const { settings } = useAppSettings()
 
   // Plots that start after the solve does, to let the model settle, count time from their start: t = 0.
   const xAxis = computed(() => {
@@ -59,7 +61,8 @@ export function useSimulationCharts(scopeNodes) {
       name,
       label: `${node.data.name}/${name}`,
     }))
-    const outputs = store.inspectionOutputs.map((output) => ({
+    // Inspection modules plot only when the settings ask for them.
+    const outputs = (settings.plotInspectionModules ? store.inspectionOutputs : []).map((output) => ({
       key: `inspection::${output.id}`,
       plot: INSPECTION_PLOT,
       component: null,

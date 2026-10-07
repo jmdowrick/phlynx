@@ -33,9 +33,7 @@
       <p v-else class="slider-hint">Set a range to slide it.</p>
     </div>
 
-    <p v-if="!sliders.length && !elsewhere.length && !missing.length" class="slider-hint">
-      {{ withPicker ? 'No sliders yet. Search for a constant to try out.' : 'No sliders yet.' }}
-    </p>
+    <p v-if="!withPicker && !sliders.length && !elsewhere.length && !missing.length" class="slider-hint">No sliders yet.</p>
 
     <details v-if="elsewhere.length" class="slider-elsewhere">
       <summary>Not in this run ({{ elsewhere.length }})</summary>
@@ -62,7 +60,7 @@
       <Button label="Remove" text size="small" @click="removeDefinitions([definition])" />
     </div>
 
-    <!-- Last, as Add plot is. The search shows when asked for, or while there are no sliders yet, and tucks away after a pick. -->
+    <!-- Last, as Add plot is. The search shows when asked for, and tucks away after a pick. -->
     <div v-if="withPicker && isAdding" ref="pickerEl" class="slider-picker">
       <VariablePathPicker
         :index="index"
@@ -73,7 +71,6 @@
         @pick="addSlider"
       />
       <Button
-        v-if="sliders.length || elsewhere.length"
         icon="pi pi-times"
         text
         rounded
@@ -248,7 +245,8 @@ const missing = computed(() => resolved.value.filter(({ row }) => !row).map(({ d
 // What can be given a slider: constants and global constants, which libOpenCOR can change between runs.
 // A computed constant comes from the constants in its equation, which are what to slide.
 const pickerEl = ref(null)
-const isAdding = ref(definitions.value.length === 0)
+// The search opens from the Add slider button, never on its own.
+const isAdding = ref(false)
 
 /** Shows the slider search and puts the cursor in it. */
 async function startAdding() {

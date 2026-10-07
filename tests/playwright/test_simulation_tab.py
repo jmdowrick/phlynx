@@ -387,7 +387,7 @@ class TestSimulationTab(unittest.TestCase):
             context.close()
             browser.close()
 
-    def test_whole_model_run_shows_inspection_modules(self):
+    def test_inspection_modules_plot_only_when_the_settings_say(self):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
 
@@ -412,6 +412,13 @@ class TestSimulationTab(unittest.TestCase):
             simulate_whole_model(page)
 
             expect(page.get_by_text("Simulated the whole model")).to_be_visible(timeout=120000)
+            # Not plotted by default.
+            expect(page.locator(".simulation-plot")).to_have_count(0)
+
+            # Turned on in Settings, they plot as a plot of their own.
+            page.get_by_role("button", name="Settings", exact=True).click()
+            page.get_by_role("switch", name="Plot inspection modules").check()
+            page.get_by_role("button", name="Save Changes").click()
             expect(page.locator(".simulation-plot .plot-title")).to_have_text("Soma voltage")
             # ----------- END ------------
 
