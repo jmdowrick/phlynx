@@ -130,6 +130,8 @@ const playHint = computed(() => props.blockedReason ?? (props.isLoading ? 'Loadi
   align-items: center;
   gap: 8px;
   min-width: 0;
+  /* As tall as it has always been, whatever the size of the controls in it. */
+  min-height: 34px;
 }
 
 .toolbar-scope {
@@ -171,9 +173,11 @@ const playHint = computed(() => props.blockedReason ?? (props.isLoading ? 'Loadi
 .toolbar-run {
   position: relative;
   flex-shrink: 0;
-  width: 34px;
-  height: 34px;
+  /* The toggle switch's height and width, and its pill shape, so the two sit as a pair. */
+  width: 2.5rem;
+  height: 1.5rem;
   padding: 0;
+  border-radius: 30px;
   box-shadow: 0 1px 2px color-mix(in srgb, var(--p-text-color) 25%, transparent);
   transition: transform 120ms ease, box-shadow 120ms ease;
 }
@@ -188,8 +192,8 @@ const playHint = computed(() => props.blockedReason ?? (props.isLoading ? 'Loadi
 }
 
 .toolbar-run svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
 }
 
 .toolbar-run--stop:not(:disabled):hover {
@@ -205,8 +209,8 @@ const playHint = computed(() => props.blockedReason ?? (props.isLoading ? 'Loadi
 
 .toolbar-run-dot {
   position: absolute;
-  top: -1px;
-  right: -1px;
+  top: -3px;
+  right: -3px;
   width: 9px;
   height: 9px;
   border-radius: 50%;
