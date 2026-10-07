@@ -200,6 +200,30 @@ CARRY_WORKSPACE_STATES = """async () => {
   return { states: states.length, initialisedFromVariables, notCarried, largestRelative, worst }
 }"""
 
+# Runs a protocol on the 'connected' decay model through the app's worker: a warm-up of 1 s, then k = 0.5 for 2 s and
+# k = 1 for 2 s, as CA would run the same protocol_info.
+RUN_PROTOCOL = """async () => {
+  const { whenLibOpenCORReady } = await import('/src/services/simulation/libopencorLoader.js')
+  const { validateProtocolInfo } = await import('/src/services/protocol/protocolValidation.js')
+  const { readProtocolInfo } = await import('/src/services/protocol/protocolModel.js')
+  const { compileProtocolPlan } = await import('/src/services/protocol/protocolPlan.js')
+  const simulator = await whenLibOpenCORReady()
+  const key = 'protocol-run-' + Math.round(performance.now())
+  const described = await simulator.describeModel({ cellml: __CELLML__, key })
+  const { protocolInfo } = validateProtocolInfo({ pre_times: [1], sim_times: [[2, 2]], params_to_change: { 'decay/k': [[0.5, 1]] } })
+  const plan = compileProtocolPlan({ view: readProtocolInfo(protocolInfo), pointInterval: 0.5 })
+  const settings = { solver: 'CVODE', tolerance: 1e-10, maxSteps: 5000, timeStep: 0 }
+  const results = await simulator.startProtocol({ key, settings, plan, targets: new Map([['decay/k', 'instance_parameters/k']]) }).promise
+  const [experiment] = results.experiments
+  return {
+    described: [...described.variables].map(([name, { kind }]) => name + ':' + kind).sort(),
+    time: [...experiment.voi.values],
+    x: [...experiment.variables.get('decay/x').values],
+    k: [...experiment.variables.get('instance_parameters/k').values],
+    subs: experiment.subs,
+  }
+}"""
+
 
 class TestProtocolSegments(unittest.TestCase):
 
@@ -243,6 +267,27 @@ class TestProtocolSegments(unittest.TestCase):
                     self.assertAlmostEqual(r["restartedEnd"], r["wholeEnd"], places=7)
                     # A constant changed between segments: x carries on, decaying faster.
                     self.assertAlmostEqual(r["kStepEnd"], r["x2"] * math.exp(-2), places=7)
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
+    def test_a_protocol_runs_in_the_worker(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+            context, page = self.open_page(browser)
+
+            # ---------- START -----------
+            r = evaluate_within_a_minute(page, RUN_PROTOCOL.replace("__CELLML__", json.dumps(DECAY_MODELS["connected"])))
+            self.assertIn("decay/x:state", r["described"])
+            self.assertIn("instance_parameters/k:constant", r["described"])
+            self.assertEqual(r["time"], [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4])
+            self.assertEqual(r["k"], [0.5] * 5 + [1] * 4)
+            self.assertEqual(r["subs"], [{"startIndex": 0, "endIndex": 4}, {"startIndex": 4, "endIndex": 8}])
+            # The warm-up decays x before the first point; the second sub-experiment decays it twice as fast.
+            for t, x in zip(r["time"], r["x"]):
+                expected = math.exp(-0.5 * (1 + t)) if t <= 2 else math.exp(-1.5 - (t - 2))
+                self.assertAlmostEqual(x, expected, places=7)
             # ----------- END ------------
 
             context.close()

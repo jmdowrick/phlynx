@@ -175,6 +175,21 @@ export function checkSettings(settings) {
 }
 
 /**
+ * Throws unless a time course can be run: numbers throughout, an end after the start, at least one step, and an
+ * initial time no later than the start.
+ *
+ * @param {{initialTime: number, outputStartTime: number, outputEndTime: number, numberOfSteps: number}} timeCourse
+ */
+export function checkTimeCourse({ initialTime, outputStartTime, outputEndTime, numberOfSteps }) {
+  if (![initialTime, outputStartTime, outputEndTime, numberOfSteps].every(Number.isFinite)) {
+    throw new SimulationError('Every time in the time course needs a value.')
+  }
+  if (outputEndTime <= outputStartTime) throw new SimulationError('The time course needs an end after the start.')
+  if (!Number.isInteger(numberOfSteps) || numberOfSteps < 1) throw new SimulationError('The time course needs at least one step.')
+  if (initialTime > outputStartTime) throw new SimulationError('The initial time can’t be after the start.')
+}
+
+/**
  * Estimates the memory a run's results take: every variable and the VOI, at every output point.
  *
  * @param {Object} task - A SedInstanceTask.
@@ -194,7 +209,7 @@ export function estimateResultBytes(task, numberOfSteps) {
  * @param {Object} options
  * @param {Object} options.module - The libOpenCOR module (see libopencorLoader.js).
  * @param {string} options.cellml - The flattened CellML model.
- * @returns {{run: Function, dispose: Function}}
+ * @returns {{run: Function, describe: Function, dispose: Function}}
  * @throws {SimulationError} When libOpenCOR can't read the model.
  */
 export function createSimulationSession({ module: loc, cellml }) {
@@ -253,13 +268,15 @@ export function createSimulationSession({ module: loc, cellml }) {
    *
    * @param {Object} options
    * @param {Object} options.settings - Simulation settings (simulationSettingsStore.simulationSettings).
+   * @param {Object} [options.timeCourse] - A time course to run in place of the settings' own, as a protocol's
+   *   segments have: `{initialTime, outputStartTime, outputEndTime, numberOfSteps}`.
    * @param {Array<{component: string, variable: string, value: number}>} [options.changes] - Values to run
    *   with in place of the model's, by the names libOpenCOR reports; each must be a constant or a state.
    * @param {Function} [options.onProgress] - Called with the progress, from 0 to 1.
    * @returns {{promise: Promise<Object>, stop: Function}} `promise` resolves with `{ voi, variables, issues,
    *   elapsedMs, isStopped }` or rejects with a SimulationError; `stop` ends the run early, keeping what it has.
    */
-  function run({ settings, changes = [], onProgress = () => {} }) {
+  function run({ settings, timeCourse: givenTimeCourse = null, changes = [], onProgress = () => {} }) {
     let instance = null
     let isStopped = false
 
@@ -270,8 +287,12 @@ export function createSimulationSession({ module: loc, cellml }) {
       const runHandles = []
       const keepForRun = (handle) => (handle && runHandles.push(handle), handle)
       try {
-        checkSettings(settings)
-        const timeCourse = buildUniformTimeCourse(settings)
+        if (givenTimeCourse) {
+          checkTimeCourse(givenTimeCourse)
+          const solverProblem = findSolverSettingsProblem(settings)
+          if (solverProblem) throw new SimulationError(solverProblem)
+        } else checkSettings(settings)
+        const timeCourse = givenTimeCourse ? { ...givenTimeCourse } : buildUniformTimeCourse(settings)
         Object.assign(simulation, timeCourse)
         // The instance takes its own copy of the solver, so the solver is set before each one. The
         // simulation holds the solver, so the run's handles on it can go once the run ends.
@@ -327,7 +348,29 @@ export function createSimulationSession({ module: loc, cellml }) {
     }
   }
 
-  return { run, dispose }
+  /**
+   * Lists the model's variables without running it, so that names can be resolved before a first run.
+   *
+   * @returns {{voi: {name: string, unit: string}, variables: Map<string, {kind: string, unit: string}>}}
+   */
+  function describe() {
+    const instance = document.instantiate()
+    let task = null
+    try {
+      throwOnErrors(instance, 'The model could not be simulated.')
+      task = instance.task(0)
+      const variables = new Map()
+      for (const { kind, count, name, unit } of VARIABLE_KINDS) {
+        for (let i = 0; i < task[count]; i++) variables.set(task[name](i), { kind, unit: task[unit](i) })
+      }
+      return { voi: { name: task.voiName, unit: task.voiUnit }, variables }
+    } finally {
+      task?.delete()
+      instance.delete()
+    }
+  }
+
+  return { run, describe, dispose }
 }
 
 /**
