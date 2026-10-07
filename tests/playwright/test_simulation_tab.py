@@ -25,6 +25,25 @@ FINAL_SOMA_V = (
     " return store.results.variables.get(name).values.at(-1) })()"
 )
 
+# Gives the workspace an obs_data file as CUFLynx sends one, shaped as SN_simple's first two experiments are: a warm-up,
+# then two sub-experiments, the second with the M current's conductance doubled.
+ADD_PROTOCOL = """(() => {
+  const protocol = {
+    pre_times: [0.05, 0.05],
+    sim_times: [[0.1, 0.1], [0.1, 0.1]],
+    params_to_change: { 'soma_SN/I_in': [[0, 0], [0, 0]], 'soma_SN/g_M': [[0.00389, 0.00389], [0.00778, 0.00778]] },
+    experiment_labels: ['SHR', 'SHR M-activation'],
+  }
+  const payload = new TextEncoder().encode(JSON.stringify({ protocol_info: protocol, data_items: [] })).buffer
+  document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('omex')
+    .setArchive({ extras: [{ location: 'SN_simple_obs_data.json', format: 'application/json', payload }] })
+})()"""
+# The values of soma_SN's g_M the shown experiment ran with, and how many experiments ran.
+SHOWN_G_M = (
+    f"(() => {{ const store = {RESULTS_STORE}; const name = [...store.mapping].find(([key]) => key.endsWith('::g_M'))[1];"
+    " return { experiments: store.protocolResults.experiments.length, values: [...new Set(store.results.variables.get(name).values)] } })()"
+)
+
 
 def simulate_selection(page):
     """Switches the Simulation tab to the selection, then presses play."""
@@ -264,6 +283,45 @@ class TestSimulationTab(unittest.TestCase):
 
             dialog.get_by_role("button", name="Maximise the results").click()
             expect(dialog.get_by_role("button", name="Restore the results to their size")).to_be_visible()
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
+    def test_runs_a_protocol_from_cuflynx_and_shows_each_experiment(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+
+            context = browser.new_context(viewport={"width": 1600, "height": 1000})
+            context.add_init_script(OPT_IN_TO_ISOLATION)
+            page = context.new_page()
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+
+            # ---------- START -----------
+            page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function(SIMULATOR_READY, timeout=APP_MOUNT_TIMEOUT)
+            page.evaluate(SHORTEN_SIMULATION)
+            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
+            protocol_button = page.get_by_role("button", name="Run the protocol's experiments")
+            expect(protocol_button).to_have_count(0)
+
+            # A protocol appears with the obs_data file, and turning it on runs it.
+            page.evaluate(ADD_PROTOCOL)
+            protocol_button.click()
+            expect(protocol_button).to_have_attribute("aria-pressed", "true")
+            page.wait_for_function(f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)", timeout=120000)
+            self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
+            self.assertEqual(page.evaluate(SHOWN_G_M), {"experiments": 2, "values": [0.00389]})
+            self.assertEqual(page.evaluate(f"{RESULTS_STORE}.results.voi.values.length"), 21)
+
+            # The second experiment ran with the M current raised.
+            page.get_by_role("combobox", name="Experiment to show").click()
+            page.get_by_role("option", name="SHR M-activation").click()
+            self.assertEqual(page.evaluate(SHOWN_G_M), {"experiments": 2, "values": [0.00778]})
             # ----------- END ------------
 
             context.close()

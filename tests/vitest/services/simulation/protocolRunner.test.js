@@ -80,12 +80,14 @@ describe('runProtocol', () => {
     expect([...experiment.variables.get('c/k').values]).toEqual([0.5, 0.5, 0.5, 0.5, 0.5, 1, 1, 1, 1])
     expect(experiment.subs).toEqual(STEP.experiments[0].subs)
     expect(session.runs.map(({ timeCourse }) => timeCourse)).toEqual(STEP.experiments[0].segments.map(({ timeCourse }) => timeCourse))
-    expect(session.runs[1].changes).toEqual([
+    // The warm-up, then the first sub-experiment carrying on from it, then the second.
+    expect(session.runs.map(({ changes }) => changes.map(({ variable }) => variable))).toEqual([['k'], ['k', 'x'], ['k', 'x']])
+    expect(session.runs[2].changes).toEqual([
       { component: 'c', variable: 'k', value: 1 },
       { component: 'c', variable: 'x', value: x[4] },
     ])
     expect(progress.at(-1)).toBe(1)
-    expect(results).toMatchObject({ issues: [], elapsedMs: 2, isStopped: false })
+    expect(results).toMatchObject({ issues: [], elapsedMs: 3, isStopped: false })
   })
 
   it("lets the protocol's values win over the sliders', and starts each experiment afresh", async () => {
@@ -116,7 +118,8 @@ describe('runProtocol', () => {
 
   it('stops the segment running, keeping the points it computed, and runs no more', async () => {
     const session = createFakeSession({ isHeld: true })
-    const run = runProtocol({ session, plan: STEP, settings: {}, targets: TARGETS })
+    const noWarmUp = plan({ pre_times: [0], sim_times: [[2, 2]], params_to_change: { 'decay/k': [[0.5, 1]] } })
+    const run = runProtocol({ session, plan: noWarmUp, settings: {}, targets: TARGETS })
     await vi.waitFor(() => expect(session.runs).toHaveLength(1))
     run.stop()
     const results = await run.promise

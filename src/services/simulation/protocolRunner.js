@@ -74,15 +74,15 @@ function createExperimentResults(experimentPlan, results) {
  *
  * @param {Object} experiment - From createExperimentResults.
  * @param {Object} results - The segment's.
+ * @param {Object} segment - The segment's plan.
  * @param {Object} sub - The segment's sub-experiment, from the plan's `subs`.
- * @param {boolean} carriesStates
  */
-function joinSegment(experiment, results, sub, carriesStates) {
+function joinSegment(experiment, results, segment, sub) {
   const computed = results.voi.values.length
-  if (!computed) return
+  if (!segment.isLogged || !computed) return
   for (const [name, series] of experiment.variables) {
     const values = results.variables.get(name)?.values
-    if (values) joinSegmentValues(series.values, values, sub, carriesStates)
+    if (values) joinSegmentValues(series.values, values, sub, segment.dropsFirstPoint)
   }
   experiment.filledCount = sub.startIndex + computed
 }
@@ -131,9 +131,10 @@ export function runProtocol({ session, plan, settings, targets, baseChanges = []
       if (isStopped) break
       experiment = null
       let carried = []
-      for (const [index, segment] of experimentPlan.segments.entries()) {
+      for (const segment of experimentPlan.segments) {
         if (isStopped) break
-        const segmentTime = (index === 0 ? experimentPlan.preTime : 0) + segment.duration
+        const segmentTime = segment.duration
+        const sub = experimentPlan.subs[segment.sub]
         let results
         try {
           current = session.run({
@@ -145,7 +146,7 @@ export function runProtocol({ session, plan, settings, targets, baseChanges = []
           if (isStopped) current.stop()
           results = await current.promise
         } catch (error) {
-          if (error.partialResults && experiment) joinSegment(experiment, error.partialResults, experimentPlan.subs[index], segment.carriesStates)
+          if (error.partialResults && experiment) joinSegment(experiment, error.partialResults, segment, sub)
           const experiments = [...finished, ...(experiment ? [finishExperiment(experiment)] : [])]
           const message = plan.experiments.length > 1 ? `Experiment ${finished.length + 1}: ${error.message}` : error.message
           throw new SimulationError(message, error.issues ?? [], experiments.length ? { experiments } : null, error.code ?? null)
@@ -159,7 +160,7 @@ export function runProtocol({ session, plan, settings, targets, baseChanges = []
             throw new SimulationError(`The results would need ${(bytes / 1024 ** 3).toFixed(1)} GB of memory. Use fewer points (a larger point interval).`)
           }
         }
-        joinSegment(experiment, results, experimentPlan.subs[index], segment.carriesStates)
+        joinSegment(experiment, results, segment, sub)
         issues.push(...results.issues)
         elapsedMs += results.elapsedMs
         doneTime += segmentTime

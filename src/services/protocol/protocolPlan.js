@@ -1,7 +1,8 @@
 /**
  * Plans a protocol's runs as circulatory_autogen makes them (protocol_executor.py): each experiment afresh, its first
  * sub-experiment after an unlogged warm-up, each later one carrying on from the states the one before ended with,
- * its clock back at 0.
+ * its clock back at 0. The warm-up runs on its own, through CA's own count of points, so that the solver's limit on
+ * steps between two points isn't spent on the whole of it.
  */
 
 /**
@@ -13,9 +14,10 @@
  * @param {Map<string, string>} [options.kinds] - Each parameter's kind ('state' or 'constant'), where known.
  * @returns {{errors: string[], experiments: Array<{preTime: number, segments: Object[], subs: Array<{startIndex:
  *   number, endIndex: number}>, pointCount: number, modelTime: number}>}} Each segment is `{sub, duration, timeCourse,
- *   values, carriesStates}`:
- *   `timeCourse` as libOpenCOR takes it, `values` as `[{parameter, value}]`, and `carriesStates` when it starts from
- *   the states the segment before ended with. `subs` index each sub-experiment's points in the joined results.
+ *   values, carriesStates, isLogged, dropsFirstPoint}`: `timeCourse` as libOpenCOR takes it, `values` as
+ *   `[{parameter, value}]`, `carriesStates` when it starts from the states the segment before ended with, `isLogged`
+ *   unless it is a warm-up, and `dropsFirstPoint` when its first point repeats the last one before it. `subs` index
+ *   each sub-experiment's points in the joined results.
  */
 export function compileProtocolPlan({ view, pointInterval, kinds = new Map() }) {
   const errors = []
@@ -44,13 +46,23 @@ export function compileProtocolPlan({ view, pointInterval, kinds = new Map() }) 
         }
         values.push({ parameter, value: cell.value })
       }
-      const preTime = s === 0 ? experiment.preTime : 0
+      const { preTime } = experiment
+      if (s === 0 && preTime > 0) {
+        // CA's pre_steps, int(pre_time / dt), at least one.
+        const warmUpSteps = Math.max(1, Math.trunc(preTime / pointInterval))
+        const timeCourse = { initialTime: 0, outputStartTime: 0, outputEndTime: preTime, numberOfSteps: warmUpSteps }
+        segments.push({ sub: 0, duration: preTime, timeCourse, values, carriesStates: false, isLogged: false, dropsFirstPoint: false })
+      }
+      // The first sub-experiment's clock carries on from the warm-up; each later one's starts again at 0.
+      const start = s === 0 ? preTime : 0
       segments.push({
         sub: s,
         duration: sub.duration,
-        timeCourse: { initialTime: 0, outputStartTime: preTime, outputEndTime: preTime + sub.duration, numberOfSteps },
+        timeCourse: { initialTime: start, outputStartTime: start, outputEndTime: start + sub.duration, numberOfSteps },
         values,
-        carriesStates: s > 0,
+        carriesStates: s > 0 || preTime > 0,
+        isLogged: true,
+        dropsFirstPoint: s > 0,
       })
       // A later sub-experiment's first point repeats the last one before it, so the join keeps only one of them.
       const startIndex = pointCount - 1
@@ -89,10 +101,11 @@ export function buildExperimentTime({ preTime, segments, pointCount }) {
   const time = new Float64Array(pointCount)
   let currentTime = 0
   let index = 0
-  for (const { duration, timeCourse, carriesStates } of segments) {
-    if (!carriesStates) currentTime += preTime
+  for (const { sub, duration, timeCourse, isLogged, dropsFirstPoint } of segments) {
+    if (!isLogged) continue
+    if (sub === 0) currentTime += preTime
     const times = buildLinearSpace(currentTime, currentTime + duration, timeCourse.numberOfSteps)
-    for (let i = carriesStates ? 1 : 0; i < times.length; i++) time[index++] = times[i] - preTime
+    for (let i = dropsFirstPoint ? 1 : 0; i < times.length; i++) time[index++] = times[i] - preTime
     currentTime += duration
   }
   return time
@@ -105,8 +118,8 @@ export function buildExperimentTime({ preTime, segments, pointCount }) {
  * @param {Float64Array} joined - The experiment's series, pointCount long.
  * @param {Float64Array} values - The segment's series.
  * @param {{startIndex: number}} sub - The segment's sub-experiment, from the plan's `subs`.
- * @param {boolean} carriesStates - Whether the segment follows another.
+ * @param {boolean} dropsFirstPoint - Whether the segment's first point repeats the last one before it.
  */
-export function joinSegmentValues(joined, values, { startIndex }, carriesStates) {
-  joined.set(carriesStates ? values.subarray(1) : values, carriesStates ? startIndex + 1 : startIndex)
+export function joinSegmentValues(joined, values, { startIndex }, dropsFirstPoint) {
+  joined.set(dropsFirstPoint ? values.subarray(1) : values, dropsFirstPoint ? startIndex + 1 : startIndex)
 }

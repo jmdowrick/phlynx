@@ -12,10 +12,13 @@ import {
   resolveScope,
   summariseScopeReport,
 } from '../services/simulation/scopedModel'
+import { resolveProtocolTargets } from '../services/simulation/protocolTargets'
 import { buildVariableMapping, mapInspectionModules } from '../services/simulation/variableMapping'
+import { compileProtocolPlan } from '../services/protocol/protocolPlan'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
-import { useSimulationResultsStore } from '../stores/simulationResultsStore'
+import { useProtocolStore } from '../stores/protocolStore'
+import { selectExperiment, useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { whenLibCellMLReady } from '../utils/cellml'
 import { FLOW_IDS } from '../utils/constants'
@@ -71,6 +74,7 @@ export function useSimulation() {
   const inspectionModuleStore = useInspectionModuleStore()
   const simulationSettingsStore = useSimulationSettingsStore()
   const store = useSimulationResultsStore()
+  const protocolStore = useProtocolStore()
 
   /**
    * Resolves the scope of some nodes, or of every node.
@@ -81,7 +85,7 @@ export function useSimulation() {
   const resolveCurrentScope = (nodeIds) => resolveScope(nodeIds, nodes.value, edges.value, inspectionModuleStore.modules)
 
   /**
-   * Signs a run's inputs: its scope and the simulation settings.
+   * Signs a run's inputs: its scope, the simulation settings, the slider values and any protocol it runs.
    *
    * @param {ReturnType<typeof resolveScope>} scope
    * @returns {string}
@@ -91,6 +95,7 @@ export function useSimulation() {
       buildScopeSignature(scope, libraryStore),
       JSON.stringify(simulationSettingsStore.simulationSettings),
       JSON.stringify([[...overrides.rows], [...overrides.globals]]),
+      protocolStore.signature,
     ].join(':')
 
   /** The slider values runs try out, for the sliders still defined. */
@@ -99,8 +104,9 @@ export function useSimulation() {
   /**
    * Simulates some nodes, or the whole model, and maps its results back to the nodes. When nothing but
    * slider values has changed since the model the simulator keeps was flattened, it reruns that model with
-   * the new values; otherwise it checks the scope, flattens it with the sliders' values and runs it. A
-   * pre-flight with errors stops it before it runs.
+   * the new values; otherwise it checks the scope, flattens it with the sliders' values and runs it. With the
+   * protocol on, it runs the protocol's experiments instead (see runProtocolOn). A pre-flight with errors stops it
+   * before it runs.
    *
    * @param {string[]|null} [nodeIds] - The nodes to simulate, or null for every node.
    * @returns {Promise<void>}
@@ -132,6 +138,10 @@ export function useSimulation() {
     let built = null
     // Checked every run, since cut connections and inspection modules outside the scope change its warnings.
     store.report = summariseScopeReport(checkScope(scope, libraryStore))
+    if (protocolStore.isActive) {
+      const { errors, warnings } = protocolStore.validation
+      store.report = { errors: [...store.report.errors, ...errors], warnings: [...store.report.warnings, ...warnings] }
+    }
     if (store.report.errors.length) {
       store.failRun('blocked')
       return
@@ -146,6 +156,10 @@ export function useSimulation() {
       }
 
       const onProgress = (progress) => token === runToken && (store.progress = progress)
+      if (protocolStore.isActive) {
+        await runProtocolOn({ simulator, token, nodeIds, scope, structure, overrides, settings, signature, kept: changes ? kept : null, changes, onProgress })
+        return
+      }
       let results
       let mapped = null
       isCurrentRunKept = !!changes
@@ -192,6 +206,72 @@ export function useSimulation() {
       }
     } finally {
       if (token === runToken) currentRun = null
+    }
+  }
+
+  /**
+   * Runs the protocol's experiments on the scope. The kept model is rerun with the sliders' changes when it can be;
+   * otherwise the scope is flattened with them, and the simulator reads it and lists its variables, so the
+   * protocol's parameters can be found in it before anything runs.
+   *
+   * @param {Object} options - What run worked out: `{ simulator, token, nodeIds, scope, structure, overrides,
+   *   settings, signature, kept, changes, onProgress }`, `kept` and `changes` null when the model needs flattening.
+   * @returns {Promise<void>}
+   */
+  async function runProtocolOn({ simulator, token, nodeIds, scope, structure, overrides, settings, signature, kept, changes, onProgress }) {
+    let source = kept
+    if (!source) {
+      const withOverrides = applyParameterOverrides(scope, libraryStore, overrides)
+      const cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore, { check: false }).text()
+      if (token !== runToken) return
+      const built = {
+        key: ++sessionCount,
+        scopeKey: JSON.stringify(nodeIds),
+        structure,
+        cellml,
+        flattenedWith: { rows: new Set(overrides.rows.keys()), globals: new Set(overrides.globals.keys()) },
+      }
+      session = null
+      const described = await simulator.describeModel({ cellml, key: built.key })
+      if (token !== runToken) return
+      source = await mapResults(built, scope, described)
+      if (token !== runToken) return
+      session = source
+    }
+
+    const { view } = protocolStore
+    const { targets, kinds, errors: targetErrors } = resolveProtocolTargets({
+      parameters: view.controls.map(({ parameter }) => parameter),
+      nodes: scope.nodes,
+      mapping: source.mapping,
+      variables: source.variables,
+    })
+    const plan = compileProtocolPlan({ view, pointInterval: settings.pointInterval, kinds })
+    const errors = [...targetErrors, ...plan.errors]
+    if (errors.length) {
+      store.report = { ...store.report, errors }
+      store.failRun('blocked')
+      return
+    }
+
+    isCurrentRunKept = !!kept
+    currentRun = simulator.startProtocol({ key: source.key, settings, plan, targets, baseChanges: changes ?? [], onProgress })
+    try {
+      const protocolResults = await currentRun.promise
+      if (token !== runToken) return
+      store.finishProtocolRun({
+        protocolResults,
+        experiment: protocolStore.activeExperiment,
+        mapping: source.mapping,
+        signature,
+        inspectionOutputs: source.inspectionOutputs,
+      })
+    } catch (error) {
+      if (error.code === 'no-session') session = null
+      if (token !== runToken) return
+      const partial = error.partialResults && { experiments: error.partialResults.experiments, issues: [], elapsedMs: 0, isStopped: false }
+      const shown = partial && { results: selectExperiment(partial, protocolStore.activeExperiment), protocolResults: partial, mapping: source.mapping }
+      store.failRun('error', { message: error.message, issues: error.issues ?? [] }, shown)
     }
   }
 

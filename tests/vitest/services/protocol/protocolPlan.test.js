@@ -45,10 +45,21 @@ describe('compileProtocolPlan', () => {
         segments: [
           {
             sub: 0,
-            duration: 100,
-            timeCourse: { initialTime: 0, outputStartTime: 1, outputEndTime: 101, numberOfSteps: 200 },
+            duration: 1,
+            timeCourse: { initialTime: 0, outputStartTime: 0, outputEndTime: 1, numberOfSteps: 2 },
             values: [{ parameter: 'NKE_pump/flag_0', value: 0 }],
             carriesStates: false,
+            isLogged: false,
+            dropsFirstPoint: false,
+          },
+          {
+            sub: 0,
+            duration: 100,
+            timeCourse: { initialTime: 1, outputStartTime: 1, outputEndTime: 101, numberOfSteps: 200 },
+            values: [{ parameter: 'NKE_pump/flag_0', value: 0 }],
+            carriesStates: true,
+            isLogged: true,
+            dropsFirstPoint: false,
           },
           {
             sub: 1,
@@ -56,6 +67,8 @@ describe('compileProtocolPlan', () => {
             timeCourse: { initialTime: 0, outputStartTime: 0, outputEndTime: 180, numberOfSteps: 360 },
             values: [{ parameter: 'NKE_pump/flag_0', value: 1 }],
             carriesStates: true,
+            isLogged: true,
+            dropsFirstPoint: true,
           },
         ],
       },
@@ -78,11 +91,15 @@ describe('compileProtocolPlan', () => {
     expect(experiments).toHaveLength(1)
     const view = read({ pre_times: [2, 0], sim_times: [[1], [3, 1]], params_to_change: { 'a/k': [[1], [2, 3]] } })
     const plan = compileProtocolPlan({ view, pointInterval: 0.5 })
-    expect(plan.experiments.map(({ segments }) => segments.map(({ carriesStates, timeCourse }) => [carriesStates, timeCourse.outputStartTime]))).toEqual([
-      [[false, 2]],
+    // The first experiment warms up on its own, then carries on from it; the second has no warm-up.
+    expect(plan.experiments.map(({ segments }) => segments.map(({ carriesStates, isLogged, timeCourse }) => [carriesStates, isLogged, timeCourse.initialTime]))).toEqual([
       [
-        [false, 0],
-        [true, 0],
+        [false, false, 0],
+        [true, true, 2],
+      ],
+      [
+        [false, true, 0],
+        [true, true, 0],
       ],
     ])
   })
