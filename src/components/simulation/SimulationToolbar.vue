@@ -48,21 +48,10 @@
         class="toolbar-protocol"
         :severity="protocolStore.isProtocolMode ? 'primary' : 'secondary'"
         :aria-pressed="protocolStore.isProtocolMode"
-        :label="protocolStore.isProtocolMode && experimentOptions.length < 2 ? 'Protocol' : undefined"
+        :label="protocolStore.isProtocolMode && experimentCount < 2 ? 'Protocol' : undefined"
         aria-label="Run the protocol's experiments"
         v-tooltip.bottom="protocolStore.isProtocolMode ? 'Running the protocol: switch back to the time course' : 'Run the protocol\'s experiments'"
         @click="toggleProtocol"
-      />
-      <Select
-        v-if="protocolStore.isProtocolMode && experimentOptions.length > 1"
-        :model-value="protocolStore.activeExperiment"
-        :options="experimentOptions"
-        option-label="label"
-        option-value="value"
-        size="small"
-        class="toolbar-experiment"
-        aria-label="Experiment to show"
-        @update:model-value="showExperiment"
       />
     </template>
 
@@ -123,14 +112,12 @@
 import { computed } from 'vue'
 
 import Button from 'primevue/button'
-import Select from 'primevue/select'
 import ToggleSwitch from 'primevue/toggleswitch'
 
 import { useFloatingViewer } from '../../composables/useFloatingViewer'
 import { useProtocolDialog } from '../../composables/useProtocolDialog'
 import { useSimSettingsDialog } from '../../composables/useSimSettingsDialog'
-import { ALL_EXPERIMENTS, useProtocolStore } from '../../stores/protocolStore'
-import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
+import { useProtocolStore } from '../../stores/protocolStore'
 
 const scopeMode = defineModel('scopeMode', { type: String, default: 'model' })
 const props = defineProps({
@@ -153,13 +140,8 @@ const emit = defineEmits(['play', 'stop', 'expand'])
 const { open: openSimSettings } = useSimSettingsDialog()
 const { open: openProtocolDialog } = useProtocolDialog()
 const protocolStore = useProtocolStore()
-const resultsStore = useSimulationResultsStore()
 
-const experimentOptions = computed(() => {
-  const experiments = (protocolStore.view?.experiments ?? []).map((experiment, index) => ({ label: experiment.label ?? `Experiment ${index + 1}`, value: index }))
-  // Every experiment at once, to compare them on the same charts.
-  return experiments.length > 1 ? [{ label: 'All experiments', value: ALL_EXPERIMENTS }, ...experiments] : experiments
-})
+const experimentCount = computed(() => protocolStore.view?.experiments.length ?? 0)
 
 /** Switches play between the protocol and the time course, running at once as switching the scope does. */
 function toggleProtocol() {
@@ -167,15 +149,6 @@ function toggleProtocol() {
   if (canPlay.value && !props.isRunning) emit('play')
 }
 
-/**
- * Shows another experiment's results.
- *
- * @param {number} index
- */
-function showExperiment(index) {
-  protocolStore.setActiveExperiment(index)
-  resultsStore.showExperiment(index)
-}
 const { state: floatingViewer, toggle: toggleFloatingViewer } = useFloatingViewer()
 
 const isWholeModel = computed({
@@ -237,10 +210,6 @@ const playHint = computed(() => props.blockedReason ?? (props.isLoading ? 'Loadi
   flex-shrink: 0;
 }
 
-.toolbar-experiment {
-  flex: 0 1 11rem;
-  min-width: 7rem;
-}
 
 /* Too narrow: the protocol button without its label. */
 @container (max-width: 300px) {

@@ -3,7 +3,7 @@
  * renumbers the observations that refer to experiments and sub-experiments by their place, so none points at the
  * wrong one after a change.
  */
-import { buildShapeFromForm, readShapeForm } from './protocolModel.js'
+import { buildShapeFromForm, nameExperiment, readShapeForm } from './protocolModel.js'
 import { interpolateTrace } from './protocolPreview.js'
 import { PACING, expandShape, isMapping, normaliseShape } from './protocolShapes.js'
 
@@ -100,7 +100,7 @@ export function addExperiment(document, from) {
     const count = info.sim_times.length
     for (const key of PER_EXPERIMENT) {
       if (!Array.isArray(info[key])) continue
-      if (key === 'experiment_labels') info[key].push(`${info[key][from] ?? 'experiment'} (copy)`)
+      if (key === 'experiment_labels') info[key].push(`${info[key][from] ?? nameExperiment(from)} (copy)`)
       else if (key === 'experiment_colors') info[key].push(COLOURS[count % COLOURS.length])
       else if (key === 'experiment_ids') info[key].push(null)
       else info[key].push(copy(info[key][from]))
@@ -127,7 +127,7 @@ export function addEmptyExperiment(document, { duration = 1, values = new Map() 
     const count = info.sim_times.length
     info.pre_times.push(0)
     info.sim_times.push([duration])
-    if (Array.isArray(info.experiment_labels)) info.experiment_labels.push(`exp_${count}`)
+    if (Array.isArray(info.experiment_labels)) info.experiment_labels.push(nameExperiment(count))
     if (Array.isArray(info.experiment_colors)) info.experiment_colors.push(COLOURS[count % COLOURS.length])
     if (Array.isArray(info.experiment_ids)) info.experiment_ids.push(null)
     for (const [parameter, rows] of Object.entries(info.params_to_change)) rows.push([values.get(parameter) ?? 0])
@@ -310,8 +310,10 @@ export function setTiming(document, { experiment, sub, preTime, duration, label 
       keepStepsToTheEnd(info, experiment, sub, previous, duration)
     }
     if (label !== undefined) {
-      if (!Array.isArray(info.experiment_labels)) info.experiment_labels = info.sim_times.map((_, index) => `exp_${index}`)
-      info.experiment_labels[experiment] = label
+      // Labelling one experiment labels them all, as CA wants one each; the others keep the names they're shown by.
+      if (!Array.isArray(info.experiment_labels)) info.experiment_labels = info.sim_times.map((_, index) => nameExperiment(index))
+      // A cleared name goes back to the experiment's place, rather than leaving it nameless.
+      info.experiment_labels[experiment] = label.trim() || nameExperiment(experiment)
     }
   })
 }

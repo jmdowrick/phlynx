@@ -23,6 +23,8 @@ export const useProtocolStore = defineStore('protocol', () => {
   const isProtocolMode = ref(false)
   /** The experiment whose results are shown, by index, or ALL_EXPERIMENTS. */
   const activeExperiment = ref(0)
+  /** Whether the values the protocol set are plotted after the results. */
+  const isShowingInputs = ref(false)
 
   /** The obs_data file found among the archive's files, or null. */
   const source = computed(() => findObsDataExtra(omexStore.preservedExtras))
@@ -76,11 +78,13 @@ export const useProtocolStore = defineStore('protocol', () => {
   function resetState() {
     isProtocolMode.value = false
     activeExperiment.value = 0
+    isShowingInputs.value = false
   }
 
   return {
     isProtocolMode,
     activeExperiment,
+    isShowingInputs,
     source,
     protocolInfo,
     hasProtocol,

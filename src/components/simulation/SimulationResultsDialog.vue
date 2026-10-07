@@ -18,6 +18,7 @@
   >
     <div class="results-toolbar">
       <p class="results-summary">{{ summary }}</p>
+      <ProtocolResultsControls />
       <ToggleButton
         v-model="isEditing"
         on-label="Edit"
@@ -83,6 +84,7 @@ import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import ToggleButton from 'primevue/togglebutton'
 
+import ProtocolResultsControls from './ProtocolResultsControls.vue'
 import SimulationControls from './SimulationControls.vue'
 import SimulationPlot from './SimulationPlot.vue'
 import { buildResultsCsv, collectResultColumns, composeChartsImage } from '../../services/simulation/resultsExport'

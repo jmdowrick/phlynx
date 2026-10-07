@@ -42,7 +42,7 @@
         <InputText
           :key="`name-${current}`"
           :model-value="experiment.label ?? ''"
-          :placeholder="`Experiment ${current + 1}`"
+          :placeholder="nameExperiment(current)"
           size="small"
           class="experiment-name"
           v-tooltip.bottom="'Rename the experiment'"
@@ -256,7 +256,7 @@ import {
   setTiming,
   setValue,
 } from '../../services/protocol/protocolEditing'
-import { changesDuringWarmUp, readProtocolInfo } from '../../services/protocol/protocolModel'
+import { changesDuringWarmUp, nameExperiment, readProtocolInfo } from '../../services/protocol/protocolModel'
 import { findValueRange, sampleInput, writePolylinePoints } from '../../services/protocol/protocolPreview'
 import { validateProtocolInfo } from '../../services/protocol/protocolValidation'
 import { SERIES_COLOURS } from '../../services/simulation/seriesSlots'
@@ -401,7 +401,7 @@ const countLabel = (count) => `${count} ${count === 1 ? 'part' : 'parts'}`
  * @param {number} position
  * @returns {string}
  */
-const nameOf = (item, position) => item.label ?? `Experiment ${position + 1}`
+const nameOf = (item, position) => item.label ?? nameExperiment(position)
 
 /**
  * Colours an experiment as its file does, or by its place.

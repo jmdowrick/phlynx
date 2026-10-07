@@ -73,7 +73,7 @@ describe('protocolEditing', () => {
       pre_times: [1, 2, 0],
       sim_times: [[1, 2], [3], [5]],
       params_to_change: { 'a/k': [[1, 'p'], [3], [0.5]] },
-      experiment_labels: ['rest', 'exercise', 'exp_2'],
+      experiment_labels: ['rest', 'exercise', 'Experiment 3'],
       experiment_colors: ['r', 'b', 'g'],
     })
     expectValid(edited)
@@ -154,6 +154,11 @@ describe('protocolEditing', () => {
     expect(Object.keys(edited.protocol_info.params_to_change)).toEqual(['a/k'])
     expectValid(edited)
     expect(setTiming({ protocol_info: { pre_times: [0], sim_times: [[1]] } }, { experiment: 0, label: 'x' }).protocol_info.experiment_labels).toEqual(['x'])
+    // Naming one names the others as they were shown, and a cleared name goes back to its place.
+    const unlabelled = { protocol_info: { pre_times: [0, 0, 0], sim_times: [[1], [1], [1]] } }
+    const named = setTiming(unlabelled, { experiment: 1, label: ' control ' })
+    expect(named.protocol_info.experiment_labels).toEqual(['Experiment 1', 'control', 'Experiment 3'])
+    expect(setTiming(named, { experiment: 1, label: '  ' }).protocol_info.experiment_labels).toEqual(['Experiment 1', 'Experiment 2', 'Experiment 3'])
   })
 
   it('finds the observations of an experiment or a sub-experiment', () => {

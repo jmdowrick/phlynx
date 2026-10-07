@@ -27,6 +27,8 @@
         />
       </div>
       <SimulationStatusLine :status="statusLine" />
+      <!-- A row of its own, as the sidebar is too narrow to fit them in the toolbar. -->
+      <ProtocolResultsControls />
     </header>
 
     <!-- Plots and controls each scroll on their own, so a slider and the plot it moves stay in view. -->
@@ -87,6 +89,7 @@ import Splitter from 'primevue/splitter'
 import SplitterPanel from 'primevue/splitterpanel'
 import Select from 'primevue/select'
 
+import ProtocolResultsControls from './ProtocolResultsControls.vue'
 import SimulationControls from './SimulationControls.vue'
 import SimulationPlot from './SimulationPlot.vue'
 import SimulationResultsDialog from './SimulationResultsDialog.vue'

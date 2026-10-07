@@ -1,6 +1,7 @@
 /**
- * The charts of a run's results, as every simulation view shows them: the values a protocol set, the plotted
- * variables of the simulated instances, then the inspection modules' outputs, one chart per plot and unit.
+ * The charts of a run's results, as every simulation view shows them: the plotted variables of the simulated
+ * instances, the values a protocol set when asked for, then the inspection modules' outputs, one chart per plot and
+ * unit.
  */
 import { computed, unref } from 'vue'
 
@@ -17,7 +18,7 @@ const SERIES_SLOT_COUNT = SERIES_COLOURS.light.length
 
 // Inspection modules belong to no instance or plot group, so their outputs make a plot of their own.
 export const INSPECTION_PLOT = '__inspection_modules__'
-// So do the values a protocol sets, shown first.
+// So do the values a protocol sets, shown after the results when asked for.
 export const PROTOCOL_INPUTS_PLOT = '__protocol_inputs__'
 
 /**
@@ -153,7 +154,7 @@ export function useSimulationCharts(scopeNodes) {
       values: results.variables.get(output.reportedName).values,
     }))
     // The values the protocol set, as the model ran with them.
-    const inputs = store.protocolResults
+    const inputs = store.protocolResults && protocolStore.isShowingInputs
       ? [...store.protocolInputs].flatMap(([parameter, { name, isStepped }]) => {
           const series = results.variables.get(name)
           if (!series) return []
@@ -171,7 +172,7 @@ export function useSimulationCharts(scopeNodes) {
           }]
         })
       : []
-    return [...inputs, ...labelled, ...outputs]
+    return [...labelled, ...inputs, ...outputs]
   }
 
   /**
@@ -217,7 +218,8 @@ export function useSimulationCharts(scopeNodes) {
     const plotNames = new Map(groups.map((group) => [group.id, group.name]))
     plotNames.set(INSPECTION_PLOT, 'Inspection modules')
     plotNames.set(PROTOCOL_INPUTS_PLOT, 'Protocol inputs')
-    const plotOrder = new Map([[PROTOCOL_INPUTS_PLOT, -1], ...groups.map((group, index) => [group.id, index])])
+    // The results first, then the values the protocol set, when they're shown.
+    const plotOrder = new Map([...groups.map((group, index) => [group.id, index]), [PROTOCOL_INPUTS_PLOT, groups.length]])
 
     const byPlotAndUnit = new Map()
     // Charts follow the plots' order; inspection outputs, then anything not on a plot, come last.

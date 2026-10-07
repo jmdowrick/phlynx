@@ -23,6 +23,14 @@ export function readShapeForm(shape, duration) {
 }
 
 /**
+ * Names an experiment the file gives no label, by its place, as both PhLynx and CUFLynx show it.
+ *
+ * @param {number} index - From 0.
+ * @returns {string}
+ */
+export const nameExperiment = (index) => `Experiment ${index + 1}`
+
+/**
  * Writes a form as the protocol_shapes entry CA reads, the inverse of readShapeForm.
  *
  * @param {Object} form - `{type: 'step', baseline, level, start}`, `{type: 'pulse', baseline, level, start, end}`,

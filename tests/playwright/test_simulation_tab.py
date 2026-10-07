@@ -335,13 +335,24 @@ class TestSimulationTab(unittest.TestCase):
             self.assertEqual(page.evaluate(SHOWN_G_M), {"experiments": 2, "values": [0.00389]})
             self.assertEqual(page.evaluate(f"{RESULTS_STORE}.results.voi.values.length"), 21)
             expect(page.get_by_text("Ran 2 protocol experiments on the whole model")).to_be_visible()
-            # The values it set are plotted first, as the model ran with them.
-            expect(page.locator(".simulation-plot .plot-title").first).to_have_text(re.compile(r"soma_SN/(I_in|g_M)"))
+            # The values it set are plotted only when asked for, after the results (none are plotted here).
+            titles = page.locator(".simulation-plot .plot-title")
+            expect(titles).to_have_count(0)
+            page.get_by_role("button", name="Show the values the protocol set").first.click()
+            expect(titles.last).to_have_text(re.compile(r"soma_SN/(I_in|g_M)"))
 
             # The second experiment ran with the M current raised.
             page.get_by_role("combobox", name="Experiment to show").click()
             page.get_by_role("option", name="SHR M-activation").click()
             self.assertEqual(page.evaluate(SHOWN_G_M), {"experiments": 2, "values": [0.00778]})
+
+            # The larger view switches between them too, once the sidebar's list has gone.
+            expect(page.get_by_role("listbox")).to_have_count(0)
+            page.get_by_role("button", name="Open the results in a larger view").click()
+            dialog = page.get_by_role("dialog", name="Simulation results")
+            dialog.get_by_role("combobox", name="Experiment to show").click()
+            page.get_by_role("option", name="SHR", exact=True).click()
+            self.assertEqual(page.evaluate(SHOWN_G_M), {"experiments": 2, "values": [0.00389]})
             # ----------- END ------------
 
             context.close()
@@ -374,7 +385,8 @@ class TestSimulationTab(unittest.TestCase):
             self.assertAlmostEqual(start, 0, places=9)
             self.assertAlmostEqual(middle, 0.01, places=9)
             self.assertAlmostEqual(end, 0.02, places=9)
-            expect(page.locator(".simulation-plot .plot-title").first).to_have_text("soma_SN/I_in")
+            page.get_by_role("button", name="Show the values the protocol set").first.click()
+            expect(page.locator(".simulation-plot .plot-title").last).to_have_text("soma_SN/I_in")
             # ----------- END ------------
 
             context.close()

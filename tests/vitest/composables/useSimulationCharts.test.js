@@ -29,7 +29,7 @@ const experiment = () => ({
 describe('useSimulationCharts', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
-  it("shows a protocol's run on its own time, with its sub-experiments, and the values it set first", () => {
+  it("shows a protocol's run on its own time, with its sub-experiments, then the values it set when asked", () => {
     useSimulationSettingsStore().setSimulationSettings({ initialPoint: 0, startingPoint: 0 })
     useSimulationSettingsStore().plotConfig = { groups: [], selections: [{ key: 'n1::V', nodeId: 'n1', variableName: 'V', groupId: '' }] }
     const store = useSimulationResultsStore()
@@ -46,10 +46,14 @@ describe('useSimulationCharts', () => {
       { from: 0, to: 2, number: 1 },
       { from: 2, to: 4, number: 2 },
     ])
-    expect(charts.value.map(({ series }) => series.map(({ isStepped }) => isStepped))).toEqual([[true], [false]])
+    // The results only, at first.
+    expect(charts.value.map(({ plotLabel }) => plotLabel)).toEqual(['Ungrouped'])
+
+    useProtocolStore().isShowingInputs = true
+    expect(charts.value.map(({ series }) => series.map(({ isStepped }) => isStepped))).toEqual([[false], [true]])
     expect(charts.value.map(({ plotLabel, title, unit }) => [plotLabel, title, unit])).toEqual([
-      ['Protocol inputs', 'soma/g', 'siemens'],
       ['Ungrouped', 'soma/V', 'volt'],
+      ['Protocol inputs', 'soma/g', 'siemens'],
     ])
   })
 
