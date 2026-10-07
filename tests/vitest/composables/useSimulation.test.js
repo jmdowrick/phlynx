@@ -19,11 +19,13 @@ const simulator = vi.hoisted(() => ({
   },
   describeModel: async (options) => {
     engine.described.push(options)
+    const driven = options.cellml.includes('<!-- drivers -->')
     return {
       voi: { name: 'm/t', unit: 'second' },
       variables: new Map([
         ['a/x', { kind: 'state', unit: 'dimensionless' }],
-        ['instance_parameters/k', { kind: 'constant', unit: 'dimensionless' }],
+        ['instance_parameters/k', { kind: driven ? 'algebraic' : 'constant', unit: 'dimensionless' }],
+        ...(driven ? [['protocol_drivers/driver_1_selector', { kind: 'constant' }], ['protocol_drivers/driver_1_value', { kind: 'constant' }]] : []),
       ]),
     }
   },
@@ -59,6 +61,14 @@ vi.mock('../../../src/services/simulation/variableMapping', () => ({
   mapInspectionModules: () => [],
 }))
 vi.mock('../../../src/utils/cellml', () => ({ whenLibCellMLReady: async () => ({}) }))
+const drivenModels = vi.hoisted(() => [])
+vi.mock('../../../src/services/simulation/protocolDriverModel', async (importOriginal) => ({
+  ...(await importOriginal()),
+  addProtocolDrivers: ({ cellml, drivers }) => {
+    drivenModels.push(drivers)
+    return { cellml: `${cellml}<!-- drivers -->`, errors: [] }
+  },
+}))
 
 const { cancelSimulation, forgetSimulationSession, useSimulation } = await import('../../../src/composables/useSimulation.js')
 const { useSimulationResultsStore } = await import('../../../src/stores/simulationResultsStore.js')
@@ -465,6 +475,33 @@ describe('useSimulation', () => {
       expect(store.error.message).toBe('Experiment 2: The simulation failed.')
       expect(store.protocolResults.experiments).toHaveLength(1)
       expect(store.results.variables.get('instance_parameters/k').values[0]).toBe(2)
+    })
+
+    it('writes a ramp into the model as a driver, and sets its selector and number in each sub-experiment', async () => {
+      useProtocol({
+        ...PROTOCOL,
+        params_to_change: { 'a/k': [['up'], [3]] },
+        protocol_shapes: { up: { type: 'ramp', from: 0, to: 1 } },
+      })
+      useSimulationSettingsStore().setSimulationSettings({ solver: 'CVODE', timeStep: 0 })
+      const { run } = useSimulation()
+
+      const done = run(null)
+      await settle()
+      expect(drivenModels.at(-1).map(({ parameter }) => parameter)).toEqual(['a/k'])
+      expect(engine.described[0].cellml).toContain('<!-- drivers -->')
+      const [{ options }] = engine.protocolRuns
+      expect(options.targets).toEqual(
+        new Map([
+          ['protocol_drivers/driver_1_selector', 'protocol_drivers/driver_1_selector'],
+          ['protocol_drivers/driver_1_value', 'protocol_drivers/driver_1_value'],
+        ])
+      )
+      expect(options.plan.experiments.map(({ segments }) => segments.map(({ values }) => values.map(({ value }) => value)))).toEqual([[[1, 0]], [[0, 3]]])
+      // CVODE mustn't step past the ramp, which lasts the sub-experiment.
+      expect(options.settings.timeStep).toBe(1)
+      engine.protocolRuns[0].finish(PROTOCOL_RESULTS)
+      await done
     })
 
     it('tells the results are out of date once the protocol is turned off', async () => {

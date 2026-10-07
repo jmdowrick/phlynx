@@ -28,17 +28,20 @@ export function readShapeForm(shape, duration) {
  * @param {*} leaf - A number, or the name of a trace or shape.
  * @param {number} duration - Its sub-experiment's length.
  * @param {Object} protocolInfo
- * @returns {Object} `{kind: 'constant', value}`, `{kind: 'shape', name, shape, form}` or `{kind: 'trace', name, trace}`.
+ * @returns {Object} `{kind: 'constant', value}`, `{kind: 'shape', name, shape, form, trace}` or `{kind: 'trace', name,
+ *   trace}`, `trace` as CA expands it.
  */
 function readCell(leaf, duration, protocolInfo) {
   if (typeof leaf !== 'string') return { kind: 'constant', value: leaf }
   const ownValue = (mapping) => (isMapping(mapping) && Object.hasOwn(mapping, leaf) ? mapping[leaf] : undefined)
+  // As CA reads it, a shape's trace is in protocol_traces too.
+  const trace = ownValue(protocolInfo.protocol_traces) ?? null
   const rawShape = ownValue(protocolInfo.protocol_shapes)
   if (rawShape !== undefined) {
     const shape = normaliseShape(rawShape, leaf)
-    return { kind: 'shape', name: leaf, shape, form: readShapeForm(shape, duration) }
+    return { kind: 'shape', name: leaf, shape, form: readShapeForm(shape, duration), trace }
   }
-  return { kind: 'trace', name: leaf, trace: ownValue(protocolInfo.protocol_traces) ?? null }
+  return { kind: 'trace', name: leaf, trace }
 }
 
 /**

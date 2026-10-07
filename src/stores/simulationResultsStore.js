@@ -28,8 +28,8 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
   const results = shallowRef(null)
   /** A protocol run's results, every experiment's: `{ experiments, issues, elapsedMs, isStopped }`, or null. */
   const protocolResults = shallowRef(null)
-  /** The variable each of the protocol's parameters set, by reported name, as `parameter → name`. */
-  const protocolTargets = shallowRef(new Map())
+  /** What shows each of the protocol's parameters, as `parameter → { name, isStepped }`, `name` as reported. */
+  const protocolInputs = shallowRef(new Map())
   const mapping = shallowRef(null)
   /** The run's inspection module outputs: `[{ id, name, units, reportedName }]`. */
   const inspectionOutputs = shallowRef([])
@@ -99,12 +99,12 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
   /**
    * Records a finished protocol run, showing one of its experiments as `results`.
    *
-   * @param {Object} run - `{ protocolResults, targets, experiment, mapping, signature, inspectionOutputs }`.
+   * @param {Object} run - `{ protocolResults, inputs, experiment, mapping, signature, inspectionOutputs }`.
    */
   function finishProtocolRun(run) {
     finishRun({ ...run, results: selectExperiment(run.protocolResults, run.experiment) })
     protocolResults.value = markRaw(run.protocolResults)
-    protocolTargets.value = markRaw(run.targets ?? new Map())
+    protocolInputs.value = markRaw(run.inputs ?? new Map())
   }
 
   /**
@@ -128,7 +128,7 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     status.value = nextStatus
     error.value = nextError
     protocolResults.value = partial?.protocolResults ? markRaw(partial.protocolResults) : null
-    protocolTargets.value = markRaw(partial?.targets ?? new Map())
+    protocolInputs.value = markRaw(partial?.inputs ?? new Map())
     results.value = partial ? markRaw(partial.results) : null
     mapping.value = partial ? markRaw(partial.mapping) : null
     inspectionOutputs.value = []
@@ -158,7 +158,7 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     error,
     results,
     protocolResults,
-    protocolTargets,
+    protocolInputs,
     mapping,
     inspectionOutputs,
     signature,

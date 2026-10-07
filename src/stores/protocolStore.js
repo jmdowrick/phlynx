@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, markRaw, ref } from 'vue'
 
 import { findObsDataExtra, readObsDataParts } from '../services/protocol/obsDataDocument'
+import { planDrivers } from '../services/protocol/protocolDrivers'
 import { readProtocolInfo } from '../services/protocol/protocolModel'
 import { validateProtocolInfo } from '../services/protocol/protocolValidation'
 import { cyrb53 } from '../utils/misc'
@@ -38,6 +39,10 @@ export const useProtocolStore = defineStore('protocol', () => {
     const { errors, protocolInfo: valid } = validateProtocolInfo(protocolInfo.value)
     return errors.length ? null : markRaw(readProtocolInfo(valid))
   })
+  /** The drivers its ramps and traces need, written into the model (see planDrivers). */
+  const drivers = computed(() => (view.value ? markRaw(planDrivers(view.value)) : []))
+  /** The drivers as written into the model, to tell when it needs flattening again. */
+  const driverSignature = computed(() => (drivers.value.length ? String(cyrb53(JSON.stringify(drivers.value))) : ''))
   /** Whether play runs the protocol. */
   const isActive = computed(() => isProtocolMode.value && (hasProtocol.value || !!source.value?.parseError))
   /** The protocol's inputs to a run, to tell when its results have gone stale. */
@@ -57,5 +62,19 @@ export const useProtocolStore = defineStore('protocol', () => {
     activeExperiment.value = 0
   }
 
-  return { isProtocolMode, activeExperiment, source, protocolInfo, hasProtocol, validation, view, isActive, signature, setActiveExperiment, resetState }
+  return {
+    isProtocolMode,
+    activeExperiment,
+    source,
+    protocolInfo,
+    hasProtocol,
+    validation,
+    view,
+    drivers,
+    driverSignature,
+    isActive,
+    signature,
+    setActiveExperiment,
+    resetState,
+  }
 })

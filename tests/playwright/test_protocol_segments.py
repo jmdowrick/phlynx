@@ -55,6 +55,23 @@ DECAY_MODELS = {
     <map_variables variable_1="k" variable_2="k"/>
   </connection>
 </model>""",
+    # As PhLynx flattens it: time in environment, constants in instance_parameters.
+    "flattened": """<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
+  <units name="per_second"><unit units="second" exponent="-1"/></units>
+  <component name="environment"><variable name="time" units="second" interface="public"/></component>
+  <component name="decay">
+    <variable name="t" units="second" interface="public"/>
+    <variable name="x" units="dimensionless" initial_value="1"/>
+    <variable name="k" units="per_second" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>x</ci></apply><apply><times/><apply><minus/><ci>k</ci></apply><ci>x</ci></apply></apply>
+    </math>
+  </component>
+  <component name="instance_parameters"><variable name="k" units="per_second" initial_value="0.5" interface="public"/></component>
+  <connection component_1="environment" component_2="decay"><map_variables variable_1="time" variable_2="t"/></connection>
+  <connection component_1="decay" component_2="instance_parameters"><map_variables variable_1="k" variable_2="k"/></connection>
+</model>""",
 }
 
 # Runs the decay model in __CELLML__ as segments, reporting what each check needs.
@@ -244,6 +261,39 @@ RUN_SHORT_PULSE = """async () => {
   return { segments: plan.experiments[0].segments.length, before: x[637], after: x[638], end: x.at(-1) }
 }"""
 
+# A ramp of k from 0 to 1 over 2 s, written into the model as a driver: x = exp(-t^2 / 4).
+RUN_RAMP = """async () => {
+  const { whenLibOpenCORReady } = await import('/src/services/simulation/libopencorLoader.js')
+  const { whenLibCellMLReady } = await import('/src/utils/cellml.js')
+  const { validateProtocolInfo } = await import('/src/services/protocol/protocolValidation.js')
+  const { readProtocolInfo } = await import('/src/services/protocol/protocolModel.js')
+  const { compileProtocolPlan } = await import('/src/services/protocol/protocolPlan.js')
+  const { planDrivers, findShortestFeature } = await import('/src/services/protocol/protocolDrivers.js')
+  const { addProtocolDrivers } = await import('/src/services/simulation/protocolDriverModel.js')
+  const { protocolInfo } = validateProtocolInfo({
+    pre_times: [0], sim_times: [[2]], params_to_change: { 'decay/k': [['up']] },
+    protocol_shapes: { up: { type: 'ramp', from: 0, to: 1 } },
+  })
+  const view = readProtocolInfo(protocolInfo)
+  const drivers = planDrivers(view)
+  const { cellml, errors } = addProtocolDrivers({ libcellml: await whenLibCellMLReady(), cellml: __CELLML__, drivers })
+  const simulator = await whenLibOpenCORReady()
+  const key = 'protocol-ramp-' + Math.round(performance.now())
+  const described = await simulator.describeModel({ cellml, key })
+  const driven = new Map([['decay/k', { selectorParameter: 'protocol_drivers/driver_1_selector', valueParameter: 'protocol_drivers/driver_1_value', selectors: drivers[0].selectors }]])
+  const plan = compileProtocolPlan({ view, pointInterval: 0.1, drivers: driven })
+  const targets = new Map([['protocol_drivers/driver_1_selector', 'protocol_drivers/driver_1_selector'], ['protocol_drivers/driver_1_value', 'protocol_drivers/driver_1_value']])
+  const settings = { solver: 'CVODE', tolerance: 1e-10, maxSteps: 5000, timeStep: findShortestFeature(drivers) }
+  const results = await simulator.startProtocol({ key, settings, plan, targets }).promise
+  const [experiment] = results.experiments
+  return {
+    errors, planErrors: plan.errors,
+    kKind: described.variables.get('instance_parameters/k')?.kind,
+    time: [...experiment.voi.values],
+    x: [...experiment.variables.get('decay/x').values],
+  }
+}"""
+
 
 class TestProtocolSegments(unittest.TestCase):
 
@@ -264,7 +314,8 @@ class TestProtocolSegments(unittest.TestCase):
             context, page = self.open_page(browser)
 
             # ---------- START -----------
-            for name, cellml in DECAY_MODELS.items():
+            for name in ("local", "connected"):
+                cellml = DECAY_MODELS[name]
                 with self.subTest(model=name):
                     r = evaluate_within_a_minute(page, RUN_DECAY_SEGMENTS.replace("__CELLML__", json.dumps(cellml)))
                     print(f"\n[{name}] {json.dumps(r)}")
@@ -324,6 +375,23 @@ class TestProtocolSegments(unittest.TestCase):
             self.assertAlmostEqual(r["before"], 1, places=9)
             self.assertAlmostEqual(r["after"], math.exp(-1), places=7)
             self.assertAlmostEqual(r["end"], math.exp(-1), places=7)
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
+    def test_a_ramp_runs_as_a_driver_the_model_computes(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+            context, page = self.open_page(browser)
+
+            # ---------- START -----------
+            r = evaluate_within_a_minute(page, RUN_RAMP.replace("__CELLML__", json.dumps(DECAY_MODELS["flattened"])))
+            self.assertEqual([r["errors"], r["planErrors"]], [[], []])
+            self.assertNotEqual(r["kKind"], "constant")
+            self.assertEqual(len(r["time"]), 21)
+            for t, x in zip(r["time"], r["x"]):
+                self.assertAlmostEqual(x, math.exp(-t * t / 4), places=6)
             # ----------- END ------------
 
             context.close()

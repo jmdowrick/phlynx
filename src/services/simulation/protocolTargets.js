@@ -41,3 +41,20 @@ export function resolveProtocolTargets({ parameters, nodes, mapping, variables }
   }
   return { targets, kinds, errors }
 }
+
+/**
+ * Finds the rows of the scope's nodes that some protocol parameters name, as `instance/variable`.
+ *
+ * @param {string[]} parameters
+ * @param {Array<Object>} nodes
+ * @returns {Set<string>} Their `nodeId::name` keys.
+ */
+export function findParameterRows(parameters, nodes) {
+  const keys = new Set()
+  for (const parameter of parameters) {
+    const separator = parameter.indexOf('/')
+    const node = separator > 0 ? nodes.find((candidate) => candidate.data?.name === parameter.slice(0, separator)) : null
+    if (node) keys.add(mappingKey(node.id, parameter.slice(separator + 1)))
+  }
+  return keys
+}

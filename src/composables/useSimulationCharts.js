@@ -105,7 +105,7 @@ export function useSimulationCharts(scopeNodes) {
     }))
     // The values the protocol set, as the model ran with them.
     const inputs = store.protocolResults
-      ? [...store.protocolTargets].flatMap(([parameter, name]) => {
+      ? [...store.protocolInputs].flatMap(([parameter, { name, isStepped }]) => {
           const series = store.results.variables.get(name)
           if (!series) return []
           const separator = parameter.indexOf('/')
@@ -117,8 +117,8 @@ export function useSimulationCharts(scopeNodes) {
             label: parameter,
             unit: series.unit || 'dimensionless',
             values: series.values,
-            // Held through each sub-experiment, so drawn as steps rather than ramps between points.
-            isStepped: true,
+            // A number held through each sub-experiment is drawn as steps rather than ramps between points.
+            isStepped,
           }]
         })
       : []

@@ -12,8 +12,10 @@ import {
   resolveScope,
   summariseScopeReport,
 } from '../services/simulation/scopedModel'
-import { resolveProtocolTargets } from '../services/simulation/protocolTargets'
+import { DRIVER_COMPONENT, addProtocolDrivers, nameDriverVariables } from '../services/simulation/protocolDriverModel'
+import { findParameterRows, resolveProtocolTargets } from '../services/simulation/protocolTargets'
 import { buildVariableMapping, mapInspectionModules } from '../services/simulation/variableMapping'
+import { findShortestFeature } from '../services/protocol/protocolDrivers'
 import { compileProtocolPlan } from '../services/protocol/protocolPlan'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
@@ -61,6 +63,18 @@ export const getRunToken = () => runToken
 /** Forgets the model the worker keeps, so the next run flattens afresh. For a workspace cleared or replaced. */
 export function forgetSimulationSession() {
   session = null
+}
+
+/**
+ * Leaves some rows' slider values out of the overrides, as for parameters a protocol drives.
+ *
+ * @param {{rows: Map<string, number>, globals: Map<string, number>}} overrides
+ * @param {Set<string>} keys - The rows' `nodeId::name` keys.
+ * @returns {{rows: Map<string, number>, globals: Map<string, number>}}
+ */
+function withoutRows(overrides, keys) {
+  if (!keys.size) return overrides
+  return { ...overrides, rows: new Map([...overrides.rows].filter(([key]) => !keys.has(key))) }
 }
 
 /**
@@ -117,8 +131,10 @@ export function useSimulation() {
     store.startRun(nodeIds)
 
     const scope = resolveCurrentScope(nodeIds)
-    const structure = buildScopeSignature(scope, libraryStore)
-    const overrides = currentOverrides()
+    // A protocol's ramps and traces are written into the model, so they are part of what it was flattened from.
+    const drivers = protocolStore.isActive ? protocolStore.drivers : []
+    const structure = [buildScopeSignature(scope, libraryStore), ...(drivers.length ? [protocolStore.driverSignature] : [])].join(':')
+    const overrides = withoutRows(currentOverrides(), findParameterRows(drivers.map(({ parameter }) => parameter), scope.nodes))
     const settings = { ...simulationSettingsStore.simulationSettings }
     const signature = signRun(scope, overrides)
 
@@ -218,12 +234,23 @@ export function useSimulation() {
    *   settings, signature, kept, changes, onProgress }`, `kept` and `changes` null when the model needs flattening.
    * @returns {Promise<void>}
    */
-  async function runProtocolOn({ simulator, token, nodeIds, scope, structure, overrides, settings, signature, kept, changes, onProgress }) {
+  async function runProtocolOn({ simulator, token, nodeIds, scope, structure, overrides, settings: givenSettings, signature, kept, changes, onProgress }) {
+    let settings = givenSettings
     let source = kept
     if (!source) {
       const withOverrides = applyParameterOverrides(scope, libraryStore, overrides)
-      const cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore, { check: false }).text()
+      let cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore, { check: false }).text()
       if (token !== runToken) return
+      if (protocolStore.drivers.length) {
+        const added = addProtocolDrivers({ libcellml: await whenLibCellMLReady(), cellml, drivers: protocolStore.drivers })
+        if (token !== runToken) return
+        if (added.errors.length) {
+          store.report = { ...store.report, errors: added.errors }
+          store.failRun('blocked')
+          return
+        }
+        cellml = added.cellml
+      }
       const built = {
         key: ++sessionCount,
         scopeKey: JSON.stringify(nodeIds),
@@ -239,14 +266,35 @@ export function useSimulation() {
       session = source
     }
 
-    const { view } = protocolStore
+    const { view, drivers } = protocolStore
+    // A driven parameter is set through its driver's selector and number, which the model reports by their own names.
+    const driven = new Map(
+      drivers.map((driver) => {
+        const names = nameDriverVariables(driver)
+        const variable = (name) => `${DRIVER_COMPONENT}/${name}`
+        return [driver.parameter, { selectorParameter: variable(names.selector), valueParameter: variable(names.value), selectors: driver.selectors }]
+      })
+    )
     const { targets, kinds, errors: targetErrors } = resolveProtocolTargets({
-      parameters: view.controls.map(({ parameter }) => parameter),
+      parameters: [
+        ...view.controls.map(({ parameter }) => parameter).filter((parameter) => !driven.has(parameter)),
+        ...[...driven.values()].flatMap(({ selectorParameter, valueParameter }) => [selectorParameter, valueParameter]),
+      ],
       nodes: scope.nodes,
       mapping: source.mapping,
       variables: source.variables,
     })
-    const plan = compileProtocolPlan({ view, pointInterval: settings.pointInterval, kinds })
+    const plan = compileProtocolPlan({ view, pointInterval: settings.pointInterval, kinds, drivers: driven })
+    // What the inputs chart shows of each parameter: its own variable, or its driver's output, which changes smoothly.
+    const inputs = new Map(view.controls.flatMap(({ parameter }) => {
+      const driver = drivers.find((candidate) => candidate.parameter === parameter)
+      if (!driver) return targets.has(parameter) ? [[parameter, { name: targets.get(parameter), isStepped: true }]] : []
+      const output = `${DRIVER_COMPONENT}/${nameDriverVariables(driver).output}`
+      return source.variables.has(output) ? [[parameter, { name: output, isStepped: false }]] : []
+    }))
+    // CVODE mustn't step past any point of a driver's traces.
+    const shortest = findShortestFeature(drivers)
+    if ((settings.solver ?? 'CVODE') === 'CVODE' && Number.isFinite(shortest)) settings = { ...settings, timeStep: settings.timeStep > 0 ? Math.min(settings.timeStep, shortest) : shortest }
     const errors = [...targetErrors, ...plan.errors]
     store.report = { errors, warnings: [...store.report.warnings, ...plan.warnings] }
     if (errors.length) {
@@ -261,7 +309,7 @@ export function useSimulation() {
       if (token !== runToken) return
       store.finishProtocolRun({
         protocolResults,
-        targets,
+        inputs,
         experiment: protocolStore.activeExperiment,
         mapping: source.mapping,
         signature,
@@ -271,7 +319,7 @@ export function useSimulation() {
       if (error.code === 'no-session') session = null
       if (token !== runToken) return
       const partial = error.partialResults && { experiments: error.partialResults.experiments, issues: [], elapsedMs: 0, isStopped: false }
-      const shown = partial && { results: selectExperiment(partial, protocolStore.activeExperiment), protocolResults: partial, targets, mapping: source.mapping }
+      const shown = partial && { results: selectExperiment(partial, protocolStore.activeExperiment), protocolResults: partial, inputs, mapping: source.mapping }
       store.failRun('error', { message: error.message, issues: error.issues ?? [] }, shown)
     }
   }

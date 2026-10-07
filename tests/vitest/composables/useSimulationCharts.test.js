@@ -34,7 +34,7 @@ describe('useSimulationCharts', () => {
     const store = useSimulationResultsStore()
     store.finishProtocolRun({
       protocolResults: { experiments: [experiment()], issues: [], elapsedMs: 1, isStopped: false },
-      targets: new Map([['soma/g', 'instance_parameters/g']]),
+      inputs: new Map([['soma/g', { name: 'instance_parameters/g', isStepped: true }]]),
       experiment: 0,
       mapping: new Map([['n1::V', 'soma/V']]),
       signature: 's',

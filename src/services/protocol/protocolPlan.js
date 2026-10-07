@@ -51,6 +51,9 @@ function findGridIndex(offset, spacing) {
  * @param {Object} options.view - The protocol, from readProtocolInfo.
  * @param {number} options.pointInterval - The time between output points, CA's dt.
  * @param {Map<string, string>} [options.kinds] - Each parameter's kind ('state' or 'constant'), where known.
+ * @param {Map<string, {selectorParameter: string, valueParameter: string, selectors: number[][]}>} [options.drivers] -
+ *   The parameters a driver computes (see planDrivers), by parameter: each sub-experiment sets its driver's selector
+ *   and number instead.
  * @returns {{errors: string[], warnings: string[], experiments: Array<{preTime: number, segments: Object[], subs:
  *   Array<{startIndex: number, endIndex: number, duration: number, numberOfSteps: number}>, pointCount: number,
  *   modelTime: number}>}} Each segment is `{sub, duration, timeCourse, values, carriesStates, isLogged,
@@ -59,7 +62,7 @@ function findGridIndex(offset, spacing) {
  *   warm-up, `dropsFirstPoint` when its first point repeats the last one before it, and `startIndex` where its points
  *   go in the joined results. `subs` index each sub-experiment's points there.
  */
-export function compileProtocolPlan({ view, pointInterval, kinds = new Map() }) {
+export function compileProtocolPlan({ view, pointInterval, kinds = new Map(), drivers = new Map() }) {
   const errors = []
   const warnings = []
   if (!(pointInterval > 0) || !Number.isFinite(pointInterval)) {
@@ -85,6 +88,12 @@ export function compileProtocolPlan({ view, pointInterval, kinds = new Map() }) 
         // CA sets a state's initial value only before the first sub-experiment; later ones carry their states on.
         if (s > 0 && kinds.get(parameter) === 'state') {
           errors.push(`${where(s)}: ${parameter} is a state, so it can only be set for the first sub-experiment.`)
+          continue
+        }
+        const driver = drivers.get(parameter)
+        if (driver) {
+          schedules.push({ parameter: driver.selectorParameter, valueAt: () => driver.selectors[e][s], edges: [] })
+          schedules.push({ parameter: driver.valueParameter, valueAt: () => (cell.kind === 'constant' ? cell.value : 0), edges: [] })
           continue
         }
         if (cell.kind !== 'constant' && kinds.get(parameter) === 'state') {

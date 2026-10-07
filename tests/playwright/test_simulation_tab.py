@@ -44,6 +44,23 @@ SHOWN_G_M = (
     " return { experiments: store.protocolResults.experiments.length, values: [...new Set(store.results.variables.get(name).values)] } })()"
 )
 
+# A ramp of soma_SN's input current, which the model computes as a driver.
+ADD_RAMP_PROTOCOL = ADD_PROTOCOL.replace(
+    """    pre_times: [0.05, 0.05],
+    sim_times: [[0.1, 0.1], [0.1, 0.1]],
+    params_to_change: { 'soma_SN/I_in': [[0, 0], [0, 0]], 'soma_SN/g_M': [[0.00389, 0.00389], [0.00778, 0.00778]] },
+    experiment_labels: ['SHR', 'SHR M-activation'],""",
+    """    pre_times: [0],
+    sim_times: [[0.2]],
+    params_to_change: { 'soma_SN/I_in': [['up']] },
+    protocol_shapes: { up: { type: 'ramp', from: 0, to: 0.02 } },""",
+)
+# The input current as the ramp ran it: at the start, halfway and the end.
+SHOWN_I_IN = (
+    f"(() => {{ const store = {RESULTS_STORE}; const values = store.results.variables.get(store.protocolInputs.get('soma_SN/I_in').name).values;"
+    " return [values[0], values[10], values.at(-1)] })()"
+)
+
 
 def simulate_selection(page):
     """Switches the Simulation tab to the selection, then presses play."""
@@ -325,6 +342,39 @@ class TestSimulationTab(unittest.TestCase):
             page.get_by_role("combobox", name="Experiment to show").click()
             page.get_by_role("option", name="SHR M-activation").click()
             self.assertEqual(page.evaluate(SHOWN_G_M), {"experiments": 2, "values": [0.00778]})
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
+    def test_runs_a_protocol_ramp_as_an_input_the_model_computes(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+
+            context = browser.new_context(viewport={"width": 1600, "height": 1000})
+            context.add_init_script(OPT_IN_TO_ISOLATION)
+            page = context.new_page()
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+
+            # ---------- START -----------
+            page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function(SIMULATOR_READY, timeout=APP_MOUNT_TIMEOUT)
+            page.evaluate(SHORTEN_SIMULATION)
+            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
+
+            page.evaluate(ADD_RAMP_PROTOCOL)
+            page.get_by_role("button", name="Run the protocol's experiments").click()
+            page.wait_for_function(f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)", timeout=120000)
+            self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
+            start, middle, end = page.evaluate(SHOWN_I_IN)
+            self.assertAlmostEqual(start, 0, places=9)
+            self.assertAlmostEqual(middle, 0.01, places=9)
+            self.assertAlmostEqual(end, 0.02, places=9)
+            expect(page.locator(".simulation-plot .plot-title").first).to_have_text("soma_SN/I_in")
             # ----------- END ------------
 
             context.close()
