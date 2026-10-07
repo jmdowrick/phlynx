@@ -96,7 +96,6 @@ class TestSimulationTab(unittest.TestCase):
             plot_variable(page, "soma_SN/V")
             expect(page.locator(".simulation-plot canvas")).to_have_count(1)
             expect(page.locator(".simulation-plot .plot-title")).to_have_text("soma_SN/V")
-            expect(page.locator(".simulation-plot .u-legend")).to_contain_text("V")
             expect(page.locator(".instance-node--simulated")).to_have_count(1)
 
             # A variable in another unit gets its own chart, which the tab scrolls to.
@@ -245,8 +244,8 @@ class TestSimulationTab(unittest.TestCase):
             # Hovering one chart shows the cursor at the same time on the other.
             box = charts.first.locator(".u-over").bounding_box()
             page.mouse.move(box["x"] + box["width"] * 0.6, box["y"] + box["height"] / 2)
-            times = charts.locator(".u-legend .u-series:first-child .u-value")
-            expect(times.nth(0)).not_to_have_text("–")
+            times = charts.locator(".plot-readout-time")
+            expect(times).to_have_count(2)
             expect(times.nth(1)).to_have_text(times.nth(0).inner_text())
 
             with page.expect_download() as download:

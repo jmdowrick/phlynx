@@ -157,7 +157,7 @@ let figuresObserver = null
 
 // About two fifths of the tab's width, within what keeps a plot readable, and no taller than the plots'
 // pane less a chart's title and legend, so one chart is seen whole.
-const CHART_CHROME_PX = 64
+const CHART_CHROME_PX = 30
 const chartHeight = computed(() => {
   const byWidth = Math.min(460, Math.max(200, panelWidth.value * 0.42))
   const byPane = figuresHeight.value ? figuresHeight.value - CHART_CHROME_PX : byWidth

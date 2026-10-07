@@ -413,8 +413,8 @@ watch(chartEl, (element) => {
 })
 onBeforeUnmount(() => resizeObserver?.disconnect())
 
-// The plot's title and legend take about 54px besides the drawing, which includes its axes.
-const CHART_CHROME_PX = 54
+// The plot's heading takes about 24px besides the drawing, which includes its axes.
+const CHART_CHROME_PX = 24
 const chartHeight = computed(() =>
   Math.max(120, Math.round(chartAreaHeight.value / Math.max(1, shownCharts.value.length) - CHART_CHROME_PX))
 )
