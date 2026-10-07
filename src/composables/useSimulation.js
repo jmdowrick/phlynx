@@ -12,12 +12,10 @@ import {
   resolveScope,
   summariseScopeReport,
 } from '../services/simulation/scopedModel'
-import { DRIVER_COMPONENT, addProtocolDrivers, nameDriverVariables } from '../services/simulation/protocolDriverModel'
-import { findParameterRows, resolveProtocolTargets } from '../services/simulation/protocolTargets'
+import { addProtocolDrivers } from '../services/simulation/protocolDriverModel'
+import { prepareProtocolRun } from '../services/simulation/protocolRun'
+import { findParameterRows } from '../services/simulation/protocolTargets'
 import { buildVariableMapping, mapInspectionModules } from '../services/simulation/variableMapping'
-import { findShortestFeature } from '../services/protocol/libopencorEngine/protocolDrivers'
-import { findCircAutogenLimits } from '../services/protocol/protocolCompatibility'
-import { compileProtocolPlan } from '../services/protocol/libopencorEngine/protocolPlan'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useProtocolStore } from '../stores/protocolStore'
@@ -267,39 +265,17 @@ export function useSimulation() {
       session = source
     }
 
-    const { view, drivers } = protocolStore
-    // A driven parameter is set through its driver's selector and number, which the model reports by their own names.
-    const driven = new Map(
-      drivers.map((driver) => {
-        const names = nameDriverVariables(driver)
-        const variable = (name) => `${DRIVER_COMPONENT}/${name}`
-        return [driver.parameter, { selectorParameter: variable(names.selector), valueParameter: variable(names.value), selectors: driver.selectors }]
-      })
-    )
-    const { targets, kinds, errors: targetErrors } = resolveProtocolTargets({
-      parameters: [
-        ...view.controls.map(({ parameter }) => parameter).filter((parameter) => !driven.has(parameter)),
-        ...[...driven.values()].flatMap(({ selectorParameter, valueParameter }) => [selectorParameter, valueParameter]),
-      ],
+    const prepared = prepareProtocolRun({
+      view: protocolStore.view,
+      drivers: protocolStore.drivers,
       nodes: scope.nodes,
       mapping: source.mapping,
       variables: source.variables,
+      settings,
     })
-    const plan = compileProtocolPlan({ view, pointInterval: settings.pointInterval, kinds, drivers: driven })
-    // What the inputs chart shows of each parameter: its own variable, or its driver's output, which changes smoothly.
-    const inputs = new Map(view.controls.flatMap(({ parameter }) => {
-      const driver = drivers.find((candidate) => candidate.parameter === parameter)
-      if (!driver) return targets.has(parameter) ? [[parameter, { name: targets.get(parameter), isStepped: true }]] : []
-      const output = `${DRIVER_COMPONENT}/${nameDriverVariables(driver).output}`
-      return source.variables.has(output) ? [[parameter, { name: output, isStepped: false }]] : []
-    }))
-    // CVODE mustn't step past any point of a driver's traces.
-    const shortest = findShortestFeature(drivers)
-    if ((settings.solver ?? 'CVODE') === 'CVODE' && Number.isFinite(shortest)) settings = { ...settings, timeStep: settings.timeStep > 0 ? Math.min(settings.timeStep, shortest) : shortest }
-    const errors = [...targetErrors, ...plan.errors]
-    // Now that each parameter's kind is known: a state CUFLynx couldn't drive.
-    const limits = findCircAutogenLimits(view, { kinds }).filter((message) => !store.report.warnings.includes(message))
-    store.report = { errors, warnings: [...store.report.warnings, ...plan.warnings, ...limits] }
+    const { plan, targets, inputs, errors } = prepared
+    settings = prepared.settings
+    store.report = { errors, warnings: [...store.report.warnings, ...prepared.warnings.filter((message) => !store.report.warnings.includes(message))] }
     if (errors.length) {
       store.failRun('blocked')
       return
