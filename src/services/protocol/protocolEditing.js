@@ -3,7 +3,8 @@
  * renumbers the observations that refer to experiments and sub-experiments by their place, so none points at the
  * wrong one after a change.
  */
-import { PACING, isMapping } from './protocolShapes.js'
+import { interpolateTrace } from './protocolPreview.js'
+import { PACING, expandShape, isMapping, normaliseShape } from './protocolShapes.js'
 
 // The lists in protocol_info with one entry per experiment.
 const PER_EXPERIMENT = ['pre_times', 'sim_times', 'experiment_labels', 'experiment_colors', 'experiment_ids']
@@ -152,13 +153,39 @@ export function moveExperiment(document, from, to) {
  */
 export function addSubExperiment(document, experiment) {
   return editDocument(document, ({ protocol_info: info }) => {
-    info.sim_times[experiment].push(info.sim_times[experiment].at(-1))
-    for (const rows of Object.values(info.params_to_change)) {
-      const last = rows[experiment].at(-1)
-      // A shape belongs to its sub-experiment, so the new one holds a number instead.
-      rows[experiment].push(typeof last === 'number' ? last : 0)
-    }
+    const subs = info.sim_times[experiment]
+    const last = subs.length - 1
+    // The last sub-experiment's clock: the first's starts with the warm-up, as CA runs it.
+    const end = (last === 0 ? info.pre_times?.[experiment] ?? 0 : 0) + subs[last]
+    for (const rows of Object.values(info.params_to_change)) rows[experiment].push(findEndValue(info, rows[experiment][last], end))
+    subs.push(subs[last])
   })
+}
+
+/**
+ * Finds the value an input ends a sub-experiment on, as CA runs it: a number's own, a shape's or a trace's at the
+ * sub-experiment's end, held at its last value past its own end.
+ *
+ * @param {Object} info - The protocol_info.
+ * @param {number|string} leaf - A params_to_change value.
+ * @param {number} end - The sub-experiment's end on its clock.
+ * @returns {number} 0 for an input that can't be read.
+ */
+export function findEndValue(info, leaf, end) {
+  if (typeof leaf === 'number') return leaf
+  const own = (mapping) => (isMapping(mapping) && Object.hasOwn(mapping, leaf) ? mapping[leaf] : undefined)
+  try {
+    const rawShape = own(info.protocol_shapes)
+    if (rawShape !== undefined) {
+      const shape = normaliseShape(rawShape, leaf)
+      return interpolateTrace(expandShape(shape, shape.duration ?? end, leaf), end)
+    }
+    const trace = own(info.protocol_traces)
+    if (trace?.t?.length) return interpolateTrace(trace, end)
+  } catch {
+    // A shape CA would refuse has no end to carry on from.
+  }
+  return 0
 }
 
 /**

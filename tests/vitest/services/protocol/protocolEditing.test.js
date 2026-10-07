@@ -86,9 +86,10 @@ describe('protocolEditing', () => {
     expectValid(edited)
   })
 
-  it('adds and removes sub-experiments, holding numbers and renumbering observations', () => {
+  it('adds and removes sub-experiments, carrying each input on from where it ended, and renumbering observations', () => {
     const added = addSubExperiment(DOCUMENT, 0)
     expect(added.protocol_info.sim_times[0]).toEqual([1, 2, 2])
+    // The pulse of 1 lasting 1 has ended by the end of its 2.
     expect(added.protocol_info.params_to_change['a/k'][0]).toEqual([1, 'p', 0])
     expectValid(added)
 
@@ -96,6 +97,22 @@ describe('protocolEditing', () => {
     expect(removed.protocol_info.sim_times[0]).toEqual([2])
     expect(removed.data_items).toEqual([{ data_item_name: 'first', subexperiment_idx: 0 }, DOCUMENT.data_items[1]])
     expect(removeSubExperiment(DOCUMENT, 1, 0).protocol_info.sim_times[1]).toEqual([3])
+  })
+
+  it('carries a ramp, a step and a trace on from the value each ended on', () => {
+    const document = {
+      protocol_info: {
+        pre_times: [2],
+        sim_times: [[4]],
+        params_to_change: { 'a/r': [['up']], 'a/s': [['on']], 'a/t': [['rec']], 'a/n': [[7]] },
+        protocol_shapes: { up: { type: 'ramp', from: 0, to: 3 }, on: { baseline: 1, events: [{ level: 5, start: 1, length: 9 }] } },
+        protocol_traces: { rec: { t: [0, 2, 4], values: [0, 8, 2] } },
+      },
+    }
+    const added = addSubExperiment(document, 0).protocol_info.params_to_change
+    // The first sub-experiment's clock starts with the 2 of warm-up, so it ends at 6: the ramp of 4 has ended on 3,
+    // and the trace is held at its last value.
+    expect(Object.fromEntries(Object.entries(added).map(([name, rows]) => [name, rows[0][1]]))).toEqual({ 'a/r': 3, 'a/s': 5, 'a/t': 2, 'a/n': 7 })
   })
 
   it('sets timings, labels, parameters and values', () => {
