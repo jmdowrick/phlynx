@@ -54,31 +54,25 @@
           <div class="timeline" :style="{ gridTemplateColumns: columns }">
             <div class="column-head warm-up-head" :class="{ 'warm-up-head--none': !(experiment.preTime > 0) }">
               <span class="column-title" v-tooltip.bottom="'Run first, unplotted, to let the model settle'">Warm-up</span>
-              <InputNumber
+              <InlineNumber
                 :model-value="experiment.preTime"
                 :min="0"
-                :max-fraction-digits="8"
                 suffix=" s"
-                size="small"
-                fluid
-                class="column-length"
                 aria-label="Warm-up"
-                @update:model-value="(value) => value != null && edit(setTiming, { experiment: current, preTime: value })"
+                @update:model-value="(value) => edit(setTiming, { experiment: current, preTime: value })"
               />
             </div>
             <div v-for="(sub, s) in experiment.subs" :key="`head-${s}`" class="column-head">
               <span class="column-title" :title="`Sub-experiment ${s + 1}`">{{ s + 1 }}</span>
-              <InputNumber
+              <InlineNumber
                 :model-value="sub.duration"
                 :min="0"
-                :max-fraction-digits="8"
+                is-min-excluded
                 suffix=" s"
-                size="small"
-                fluid
-                class="column-length"
                 :aria-label="`Sub-experiment ${s + 1} length`"
-                @update:model-value="(value) => value != null && edit(setTiming, { experiment: current, sub: s, duration: value })"
+                @update:model-value="(value) => edit(setTiming, { experiment: current, sub: s, duration: value })"
               />
+              <span class="column-spacer"></span>
               <Button
                 v-if="experiment.subs.length > 1"
                 icon="pi pi-times"
@@ -222,12 +216,12 @@
 import { computed, nextTick, ref } from 'vue'
 
 import Button from 'primevue/button'
-import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
 import Menu from 'primevue/menu'
 import Message from 'primevue/message'
 import Popover from 'primevue/popover'
 
+import InlineNumber from './InlineNumber.vue'
 import ProtocolCellEditor from './ProtocolCellEditor.vue'
 import { INPUT_KINDS, findInputKind } from './protocolKinds'
 import VariablePathPicker from './VariablePathPicker.vue'
@@ -290,8 +284,8 @@ const setParameters = computed(() => new Set(view.value.controls.map(({ paramete
 const columns = computed(() => {
   // Shares of the space left, made to sum to 10: factors summing to less than 1 would leave some of it unused.
   const total = experiment.value.duration || 1
-  const subs = experiment.value.subs.map(({ duration }) => `minmax(7.5rem, ${((10 * Math.max(duration, 0)) / total).toFixed(4)}fr)`)
-  return ['8.5rem', ...subs, '2.5rem'].join(' ')
+  const subs = experiment.value.subs.map(({ duration }) => `minmax(6rem, ${((10 * Math.max(duration, 0)) / total).toFixed(4)}fr)`)
+  return ['7.5rem', ...subs, '2.5rem'].join(' ')
 })
 
 // Each parameter's lane: its input in the warm-up and in each sub-experiment, on one scale.
@@ -801,9 +795,8 @@ function alignCell() {
   background: var(--p-content-hover-background);
 }
 
-.column-length {
+.column-spacer {
   flex: 1;
-  min-width: 0;
 }
 
 .warm-up-head {

@@ -1,0 +1,109 @@
+<template>
+  <InputNumber
+    v-if="isEditing"
+    ref="inputEl"
+    v-model="draft"
+    :min="min"
+    :max-fraction-digits="8"
+    :suffix="suffix"
+    size="small"
+    class="inline-number-input"
+    :aria-label="ariaLabel"
+    @keydown.enter.prevent="commit"
+    @keydown.escape.prevent.stop="cancel"
+    @blur="commit"
+  />
+  <button
+    v-else
+    type="button"
+    class="inline-number"
+    :aria-label="`Edit ${ariaLabel.toLowerCase()}, ${formatted}`"
+    :title="`${formatted}. Double-click to edit.`"
+    @dblclick="startEditing"
+    @keydown.enter.prevent="startEditing"
+  >
+    {{ formatted }}
+  </button>
+</template>
+
+<script setup>
+/**
+ * A number shown as text, edited in place: double-click it (or press Enter on it), then Enter or a click away keeps
+ * the new value and Escape leaves it, as instance and project names are edited.
+ */
+import { computed, nextTick, ref } from 'vue'
+
+import InputNumber from 'primevue/inputnumber'
+
+const props = defineProps({
+  modelValue: { type: Number, default: null },
+  ariaLabel: { type: String, required: true },
+  suffix: { type: String, default: '' },
+  min: { type: Number, default: undefined },
+  // Whether the value must be above `min`, not just at it, as a length must be above 0.
+  isMinExcluded: { type: Boolean, default: false },
+})
+const emit = defineEmits(['update:modelValue'])
+
+const isEditing = ref(false)
+const draft = ref(null)
+const inputEl = ref(null)
+const formatted = computed(() => `${Number.isFinite(props.modelValue) ? Number(props.modelValue.toPrecision(6)) : '–'}${props.suffix}`)
+
+/** Shows the field, with the cursor in it. */
+async function startEditing() {
+  draft.value = props.modelValue
+  isEditing.value = true
+  await nextTick()
+  inputEl.value?.$el?.querySelector('input')?.select()
+}
+
+/** Keeps the value typed, unless it isn't one the field allows, and shows it as text again. */
+function commit() {
+  if (!isEditing.value) return
+  isEditing.value = false
+  const value = draft.value
+  if (value == null || !Number.isFinite(value)) return
+  if (props.min != null && (props.isMinExcluded ? value <= props.min : value < props.min)) return
+  if (value !== props.modelValue) emit('update:modelValue', value)
+}
+
+/** Leaves the value as it was. */
+function cancel() {
+  isEditing.value = false
+}
+</script>
+
+<style scoped>
+.inline-number {
+  min-width: 0;
+  padding: 1px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  white-space: nowrap;
+  cursor: text;
+}
+
+.inline-number:hover {
+  border-color: var(--p-content-border-color);
+  background: var(--p-content-background);
+}
+
+.inline-number:focus-visible {
+  outline: 2px solid var(--p-primary-color);
+  outline-offset: 1px;
+}
+
+.inline-number-input {
+  width: 6.5rem;
+}
+
+.inline-number-input :deep(input) {
+  width: 100%;
+}
+</style>
