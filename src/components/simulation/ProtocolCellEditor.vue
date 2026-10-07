@@ -23,7 +23,7 @@
     </div>
 
     <div v-if="kind === 'number'" class="cell-fields">
-      <label>Value <InputNumber v-model="fields.value" :max-fraction-digits="8" :suffix="valueSuffix" size="small" fluid autofocus /></label>
+      <label>Value <NumberInput v-model="fields.value" :suffix="valueSuffix" aria-label="Value" autofocus /></label>
     </div>
     <div v-else-if="kind === 'trace'" class="cell-fields cell-fields--trace">
       <Select
@@ -45,19 +45,25 @@
     <div v-else class="cell-fields">
       <label v-for="(field, position) in FORM_FIELDS[kind]" :key="field.key">
         {{ field.label }}
-        <InputNumber
+        <NumberInput
           v-model="fields[field.key]"
-          :min="field.min"
-          :max-fraction-digits="8"
           :suffix="field.isTime ? ' s' : field.isValue ? valueSuffix : undefined"
-          size="small"
-          fluid
+          :aria-label="field.label"
           :autofocus="position === 0"
         />
       </label>
     </div>
 
     <Message v-if="problem" severity="error" size="small">{{ problem }}</Message>
+    <p v-if="canContinue" class="continue-note">
+      <Button
+        :label="`Start from ${formatNumber(previousEnd)}, where sub-experiment ${sub} ended`"
+        icon="pi pi-arrow-right"
+        link
+        size="small"
+        @click="fields[startField] = previousEnd"
+      />
+    </p>
 
     <p v-if="canAlign" class="align-note">
       <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
@@ -81,14 +87,14 @@ import { computed, reactive, ref } from 'vue'
 import Papa from 'papaparse'
 
 import Button from 'primevue/button'
-import InputNumber from 'primevue/inputnumber'
 import Message from 'primevue/message'
 import Select from 'primevue/select'
 import SelectButton from 'primevue/selectbutton'
 
+import NumberInput from './NumberInput.vue'
 import { INPUT_KINDS } from './protocolKinds'
 import { buildShapeFromForm } from '../../services/protocol/protocolModel'
-import { findValueRange, sampleInput, writePolylinePoints } from '../../services/protocol/protocolPreview'
+import { findValueRange, interpolateTrace, sampleInput, writePolylinePoints } from '../../services/protocol/protocolPreview'
 import { expandShape, normaliseShape } from '../../services/protocol/protocolShapes'
 
 // Each kind's fields: values, in the parameter's units, and times, in seconds.
@@ -134,31 +140,56 @@ const props = defineProps({
   // The experiment's warm-up, when this input starts with it.
   preTime: { type: Number, default: 0 },
   canAlign: { type: Boolean, default: false },
+  // The value the sub-experiment before ended on, when there is one, to carry on from.
+  previousEnd: { type: Number, default: null },
 })
 const emit = defineEmits(['apply', 'align', 'cancel'])
 
-const startValue = props.cell.kind === 'constant' ? props.cell.value : 0
 const form = props.cell.form
-const kind = ref(props.initialKind ?? (props.cell.kind === 'constant' ? 'number' : props.cell.kind === 'trace' || !form ? 'trace' : form.type))
-// Every kind's fields at once, so switching kinds keeps what was typed; the defaults are CUFLynx's.
+// A shape of several events has no simpler form, so it is pacing still.
+const kind = ref(props.initialKind ?? (props.cell.kind === 'constant' ? 'number' : props.cell.kind === 'trace' ? 'trace' : form?.type ?? 'pacing'))
+const own = readLevels(props.cell, props.duration)
+// The level to move to, when the input has only one: double it, as CUFLynx does.
+const otherLevel = own.end !== own.start ? own.end : own.start * 2 || 1
+// Every kind's fields at once, so switching kinds keeps what was typed. A new kind keeps the levels the input has, a
+// ramp's ends becoming a step's before and after, and a pulse's timing becoming a beat's.
 const fields = reactive({
-  value: startValue,
-  baseline: form?.baseline ?? startValue,
-  level: form?.level ?? (startValue * 2 || 1),
+  value: props.cell.kind === 'constant' ? props.cell.value : own.end,
+  baseline: form?.baseline ?? form?.from ?? own.start,
+  level: form?.level ?? form?.to ?? otherLevel,
   start: form?.start ?? props.duration / 4,
-  end: form?.end ?? props.duration / 2,
-  length: form?.length ?? props.duration / 100,
+  end: form?.end ?? (form?.length != null ? form.start + form.length : props.duration / 2),
+  length: form?.length ?? (form?.end != null ? form.end - form.start : props.duration / 100),
   period: form?.period ?? props.duration / 10,
   multiplier: form?.multiplier ?? 0,
-  from: form?.from ?? startValue,
-  to: form?.to ?? (startValue * 2 || 1),
+  from: form?.from ?? form?.baseline ?? own.start,
+  to: form?.to ?? form?.level ?? otherLevel,
 })
+// The field a changing input starts from, which can carry on from the sub-experiment before.
+const startField = computed(() => ({ step: 'baseline', pulse: 'baseline', pacing: 'baseline', ramp: 'from' })[kind.value] ?? null)
+const canContinue = computed(() => props.previousEnd != null && startField.value && fields[startField.value] !== props.previousEnd)
 const traceNames = computed(() => Object.keys(props.traces))
 // Values are in the parameter's units, shown after them as times show seconds.
 const valueSuffix = computed(() => (props.units && props.units !== 'dimensionless' ? ` ${props.units}` : undefined))
 const traceName = ref(props.cell.kind === 'trace' ? props.cell.name : null)
 const importedTrace = ref(null)
 const csvProblem = ref('')
+
+/**
+ * Reads the levels an input starts and ends a sub-experiment on.
+ *
+ * @param {Object} cell - From readProtocolInfo.
+ * @param {number} duration
+ * @returns {{start: number, end: number}}
+ */
+function readLevels(cell, duration) {
+  if (cell.kind === 'constant') return { start: cell.value, end: cell.value }
+  const form = cell.form
+  if (form?.type === 'ramp') return { start: form.from, end: form.to }
+  if (form) return { start: form.baseline, end: form.level }
+  if (cell.trace?.t?.length) return { start: cell.trace.values[0], end: interpolateTrace(cell.trace, duration) }
+  return { start: 0, end: 0 }
+}
 
 /**
  * Formats a number shortly.
@@ -176,6 +207,8 @@ const draft = computed(() => {
     if (traceName.value && props.traces[traceName.value]) return { traceName: traceName.value, preview: props.traces[traceName.value] }
     return { problem: csvProblem.value || null }
   }
+  const late = findLateTime()
+  if (late) return { problem: late }
   const shape = buildShapeFromForm({ type: kind.value, ...fields }, props.duration)
   try {
     return { shape, preview: expandShape(normaliseShape(shape, 'input'), props.duration, 'input') }
@@ -185,6 +218,20 @@ const draft = computed(() => {
   }
 })
 const problem = computed(() => draft.value.problem ?? null)
+
+/**
+ * Finds a time the input is given that falls after its sub-experiment ends.
+ *
+ * @returns {string|null} Why it can't be, or null.
+ */
+function findLateTime() {
+  const end = `the sub-experiment's end, at ${formatNumber(props.duration)} s`
+  if (kind.value === 'step' && fields.start >= props.duration) return `The step comes at or after ${end}.`
+  if (kind.value === 'pulse' && fields.start >= props.duration) return `The pulse starts at or after ${end}.`
+  if (kind.value === 'pulse' && fields.end > props.duration) return `The pulse ends after ${end}.`
+  if (kind.value === 'pacing' && fields.start >= props.duration) return `The first beat comes at or after ${end}.`
+  return null
+}
 const canApply = computed(() => !draft.value.problem && Object.keys(draft.value).some((key) => ['value', 'shape', 'trace', 'traceName'].includes(key)))
 
 // The input over the sub-experiment, as CA would run it.
@@ -371,6 +418,10 @@ function apply() {
 .subtle {
   color: var(--p-text-muted-color);
   font-size: 0.8125rem;
+}
+
+.continue-note {
+  margin: 0;
 }
 
 .align-note {

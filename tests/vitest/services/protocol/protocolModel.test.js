@@ -57,6 +57,22 @@ describe('readProtocolInfo', () => {
   })
 })
 
+describe('a shape CA would refuse', () => {
+  it('stays in its own cell, with why, while the others read and draw as they are', () => {
+    const { controls } = readProtocolInfo({
+      pre_times: [0],
+      sim_times: [[1, 1]],
+      params_to_change: { 'a/k': [['bad', 'up']] },
+      protocol_shapes: { bad: { events: [{ level: 1, start: 5, length: 1 }] }, up: { type: 'ramp', from: 0, to: 2 } },
+      protocol_traces: {},
+    })
+    const [bad, up] = controls[0].cells[0]
+    expect(bad).toMatchObject({ kind: 'shape', name: 'bad', shape: null, form: null, trace: null })
+    expect(bad.error).toMatch(/fires nothing/)
+    expect(up).toMatchObject({ kind: 'shape', form: { type: 'ramp', from: 0, to: 2 }, trace: { t: [0, 1], values: [0, 2] } })
+  })
+})
+
 describe('readShapeForm', () => {
   const form = (shape, duration) => readShapeForm(normaliseShape(shape, 's'), duration)
 

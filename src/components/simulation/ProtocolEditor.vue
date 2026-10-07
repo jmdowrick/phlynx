@@ -5,7 +5,7 @@
       <h3>Run the model as experiments</h3>
       <p>
         A protocol is a set of experiments. Each runs the model through sub-experiments in turn, setting parameters to
-        numbers, steps, pulses, pacing, ramps or recorded traces, as CUFLynx and circulatory autogen do.
+        numbers, steps, pulses, pacing, ramps or recorded traces.
       </p>
       <Button label="Create a protocol" icon="pi pi-plus" @click="emitDocument(ensureProtocol(document))" />
     </div>
@@ -34,7 +34,7 @@
             />
           </li>
         </ul>
-        <Button label="Add experiment" icon="pi pi-plus" text size="small" class="rail-add" aria-label="Add an experiment, a copy of this one" v-tooltip.bottom="'A copy of the experiment shown'" @click="addExperimentCopy" />
+        <Button label="Add experiment" icon="pi pi-plus" text size="small" class="rail-add" v-tooltip.bottom="'A new experiment, each parameter at its value in the model. Duplicate one from its menu.'" @click="addFreshExperiment" />
         <Menu ref="experimentMenu" :model="experimentMenuItems" popup />
       </nav>
 
@@ -49,6 +49,11 @@
           aria-label="Experiment name"
           @change="(event) => edit(setTiming, { experiment: current, label: event.target.value })"
         />
+
+        <div v-if="validation.errors.length || validation.warnings.length" class="messages" role="status">
+          <Message v-for="message in validation.errors" :key="message" severity="error" size="small">{{ message }}</Message>
+          <Message v-for="message in validation.warnings" :key="message" severity="warn" size="small">{{ message }}</Message>
+        </div>
 
         <div class="timeline-scroll">
           <div class="timeline" :style="{ gridTemplateColumns: columns }">
@@ -73,14 +78,17 @@
                 @update:model-value="(value) => edit(setTiming, { experiment: current, sub: s, duration: value })"
               />
               <span class="column-spacer"></span>
+              <!-- Always there, so a heading is as tall with one sub-experiment as with several; hidden for the last. -->
               <Button
-                v-if="experiment.subs.length > 1"
                 icon="pi pi-times"
                 text
                 rounded
                 size="small"
                 severity="secondary"
                 class="column-remove"
+                :class="{ 'column-remove--none': experiment.subs.length < 2 }"
+                :disabled="experiment.subs.length < 2"
+                :aria-hidden="experiment.subs.length < 2"
                 :aria-label="`Remove sub-experiment ${s + 1}`"
                 @click="removeSub(s)"
               />
@@ -94,6 +102,7 @@
               <div class="lane-label" :title="lane.parameter">
                 <span class="lane-path"><span class="lane-component">{{ lane.component }}/</span>{{ lane.name }}</span>
                 <span class="lane-units">{{ lane.units }}</span>
+                <span v-if="lane.range" class="lane-range">{{ lane.range }}</span>
               </div>
               <div class="lane-cell lane-cell--warm-up" aria-hidden="true">
                 <svg v-if="lane.warmUp" class="lane-plot" viewBox="0 0 100 40" preserveAspectRatio="none">
@@ -104,13 +113,18 @@
                 v-for="cell in lane.cells"
                 :key="cell.sub"
                 class="lane-cell"
-                :class="{ 'lane-cell--early': cell.isEarly, 'lane-cell--open': isEditing(lane.parameter, cell.sub) }"
+                :class="{
+                  'lane-cell--early': cell.isEarly,
+                  'lane-cell--clash': cell.isClash,
+                  'lane-cell--error': cell.error,
+                  'lane-cell--open': isEditing(lane.parameter, cell.sub),
+                }"
               >
                 <button
                   type="button"
                   class="lane-hit"
                   :aria-label="`Change how ${lane.parameter} varies in sub-experiment ${cell.sub + 1}`"
-                  :title="cell.isEarly ? 'Starts with the warm-up, as circulatory autogen runs it' : `${cell.description}. Click to edit.`"
+                  :title="cell.note ?? `${cell.description}. Click to edit.`"
                   @click="(event) => openCell(event.currentTarget.parentElement, lane.parameter, cell.cell, cell.sub)"
                 ></button>
                 <svg v-if="cell.points" class="lane-plot" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
@@ -121,10 +135,10 @@
                   class="kind-chip"
                   aria-haspopup="menu"
                   :aria-label="`How ${lane.parameter} varies in sub-experiment ${cell.sub + 1}: ${cell.kind.label}`"
-                  :title="cell.description"
+                  :title="cell.note ?? cell.description"
                   @click="(event) => openKindMenu(event, lane.parameter, cell)"
                 >
-                  <i v-if="cell.isEarly" class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                  <i v-if="cell.note" class="pi pi-exclamation-triangle" aria-hidden="true"></i>
                   <svg class="kind-glyph" viewBox="0 0 16 10" aria-hidden="true"><polyline :points="cell.kind.glyph" /></svg>
                   <span>{{ cell.caption }}</span>
                   <i class="pi pi-chevron-down kind-caret" aria-hidden="true"></i>
@@ -139,7 +153,7 @@
                   severity="secondary"
                   :aria-label="`Stop setting ${lane.parameter}`"
                   v-tooltip.left="'Stop setting it'"
-                  @click="edit(removeParameter, lane.parameter)"
+                  @click="confirmRemovingParameter(lane.parameter)"
                 />
               </div>
             </template>
@@ -168,10 +182,6 @@
         <Button v-else label="Add parameter to set" icon="pi pi-plus" text size="small" class="add-parameter-button" @click="startAddingParameter" />
         <p v-if="!lanes.length" class="lanes-empty">Add a parameter for the experiments to set, such as a stimulus current or a conductance.</p>
 
-        <div v-if="validation.errors.length || validation.warnings.length" class="messages">
-          <Message v-for="message in validation.errors" :key="message" severity="error" size="small">{{ message }}</Message>
-          <Message v-for="message in validation.warnings" :key="message" severity="warn" size="small">{{ message }}</Message>
-        </div>
       </div>
     </div>
 
@@ -199,6 +209,7 @@
         :colour="colour"
         :pre-time="experiment?.preTime ?? 0"
         :can-align="!!editing && isEarly(editing.cell, editing.sub)"
+        :previous-end="editing.previousEnd"
         @apply="applyCell"
         @align="alignCell"
         @cancel="cellPopover.hide()"
@@ -229,11 +240,13 @@ import { useConfirmDialog } from '../../composables/useConfirmDialog'
 import { readObsDataParts } from '../../services/protocol/obsDataDocument'
 import { findCircAutogenLimits } from '../../services/protocol/protocolCompatibility'
 import {
+  addEmptyExperiment,
   addExperiment,
   addParameter,
   addSubExperiment,
   alignWithWarmUp,
   ensureProtocol,
+  findEndValue,
   findObservationsAt,
   moveExperiment,
   removeExperiment,
@@ -288,6 +301,14 @@ const columns = computed(() => {
   return ['7.5rem', ...subs, '2.5rem'].join(' ')
 })
 
+// The sub-experiments of the experiment shown in which more than one input changes over time, which CUFLynx can't run.
+const clashingSubs = computed(
+  () =>
+    new Set(
+      experiment.value.subs.map((_, s) => s).filter((s) => view.value.controls.filter(({ cells }) => cells[current.value][s].kind !== 'constant').length > 1)
+    )
+)
+
 // Each parameter's lane: its input in the warm-up and in each sub-experiment, on one scale.
 const lanes = computed(() =>
   view.value.controls.map(({ parameter, cells }) => {
@@ -299,6 +320,8 @@ const lanes = computed(() =>
     const warmUp = preTime > 0 ? sampleInput(row[0], 0, preTime) : null
     const { low, high } = findValueRange([warmUp, ...samples])
     const draw = (sample, [from, to]) => sample && writePolylinePoints(sample, { from, to, low, high, ...BOX })
+    const values = [warmUp, ...samples].flatMap((sample) => sample?.values ?? [])
+    const [least, most] = values.length ? [Math.min(...values), Math.max(...values)] : []
     const separator = parameter.indexOf('/')
     return {
       parameter,
@@ -306,15 +329,31 @@ const lanes = computed(() =>
       name: parameter.slice(separator + 1),
       units: unitsByPath.value.get(parameter) ?? '',
       warmUp: warmUp && draw(warmUp, [0, preTime]),
-      cells: row.map((cell, s) => ({
-        sub: s,
-        cell,
-        points: draw(samples[s], windows[s]),
-        caption: captionOf(cell),
-        kind: findInputKind(cell),
-        description: describeCell(cell),
-        isEarly: isEarly(cell, s),
-      })),
+      // The values it takes in this experiment, as its lane's scale.
+      range: values.length ? (least === most ? formatNumber(least) : `${formatNumber(least)} to ${formatNumber(most)}`) : '',
+      cells: row.map((cell, s) => {
+        const early = isEarly(cell, s)
+        const clash = clashingSubs.value.has(s) && cell.kind !== 'constant'
+        return {
+          sub: s,
+          cell,
+          points: draw(samples[s], windows[s]),
+          caption: captionOf(cell),
+          kind: findInputKind(cell),
+          description: describeCell(cell),
+          isEarly: early,
+          isClash: clash,
+          error: cell.error ?? null,
+          // What's wrong with it, if anything, first what CA refuses.
+          note: cell.error
+            ? `Circulatory autogen refuses this: ${cell.error}`
+            : clash
+              ? "CUFLynx can't run this: it follows only one input changing over time in each sub-experiment."
+              : early
+                ? 'Starts with the warm-up, as circulatory autogen runs it.'
+                : null,
+        }
+      }),
     }
   })
 )
@@ -333,7 +372,8 @@ function withDefaults(info) {
     sim_times: simTimes,
     pre_times: simTimes.map((_, e) => info.pre_times?.[e] ?? 0),
     params_to_change: Object.fromEntries(Object.entries(info.params_to_change ?? {}).map(([parameter, matrix]) => [parameter, rows(matrix)])),
-    protocol_shapes: {},
+    // Kept, so a shape CA would refuse affects only its own segment (see readProtocolInfo).
+    protocol_shapes: info.protocol_shapes ?? {},
     protocol_traces: info.protocol_traces ?? {},
   }
 }
@@ -378,15 +418,19 @@ function colourOf(item, position) {
 }
 
 /**
- * Captions a segment: its number, or the kind of input.
+ * Captions a segment: its number, or its kind of input with its levels.
  *
  * @param {Object} cell
  * @returns {string}
  */
 function captionOf(cell) {
+  const form = cell.form
   if (cell.kind === 'constant') return formatNumber(cell.value)
   if (cell.kind === 'trace') return 'Trace'
-  return { step: 'Step', pulse: 'Pulse', pacing: 'Pacing', ramp: 'Ramp' }[cell.form?.type] ?? 'Pacing'
+  if (!form) return 'Pacing'
+  if (form.type === 'step') return `Step ${formatNumber(form.baseline)}→${formatNumber(form.level)}`
+  if (form.type === 'ramp') return `Ramp ${formatNumber(form.from)}→${formatNumber(form.to)}`
+  return `${form.type === 'pulse' ? 'Pulse' : 'Pacing'} ${formatNumber(form.level)}`
 }
 
 /**
@@ -437,6 +481,27 @@ const edit = (change, ...args) => emitDocument(change(props.document, ...args))
 function addExperimentCopy() {
   edit(addExperiment, current.value)
   selected.value = view.value.experiments.length
+}
+
+/** Adds an experiment afresh, each parameter at its value in the model, and shows it. */
+function addFreshExperiment() {
+  const values = new Map(view.value.controls.map(({ parameter }) => [parameter, findModelValue(parameter)]))
+  // As long as the experiment shown starts, so its time scale suits the model.
+  edit(addEmptyExperiment, { duration: experiment.value.subs[0].duration, values })
+  selected.value = view.value.experiments.length
+}
+
+/**
+ * Finds a parameter's value in the model, as its node or global constant has it.
+ *
+ * @param {string} parameter - `instance/variable`.
+ * @returns {number|undefined}
+ */
+function findModelValue(parameter) {
+  const entry = index.value.find((candidate) => candidate.path === parameter)
+  const row = entry && props.nodes.find((node) => node.id === entry.nodeId)?.data?.variables?.find((candidate) => candidate.name === entry.rowName)
+  const raw = row?.type === 'global_constant' ? props.getGlobalConstant(row.name)?.value : row?.value
+  return Number.isFinite(Number(raw)) && String(raw ?? '').trim() !== '' ? Number(raw) : undefined
 }
 
 const experimentMenu = ref(null)
@@ -514,6 +579,22 @@ async function removeSub(sub) {
   edit(removeSubExperiment, current.value, sub)
 }
 
+/**
+ * Stops setting a parameter, once confirmed, as it goes from every experiment.
+ *
+ * @param {string} parameter
+ */
+async function confirmRemovingParameter(parameter) {
+  const isConfirmed = await confirm({
+    header: `Stop setting ${parameter}?`,
+    message: 'The protocol stops setting it in every experiment. Undo brings it back.',
+    severity: 'warning',
+    acceptLabel: 'Stop setting it',
+    rejectLabel: 'Keep',
+  })
+  if (isConfirmed) edit(removeParameter, parameter)
+}
+
 const parameterPickerEl = ref(null)
 // The parameter search opens from its button, never on its own.
 const isAddingParameter = ref(false)
@@ -532,10 +613,7 @@ async function startAddingParameter() {
  */
 function addPicked(entry) {
   isAddingParameter.value = false
-  const row = props.nodes.find((node) => node.id === entry.nodeId)?.data?.variables?.find((candidate) => candidate.name === entry.rowName)
-  const raw = row?.type === 'global_constant' ? props.getGlobalConstant(row.name)?.value : row?.value
-  const value = Number.isFinite(Number(raw)) && String(raw ?? '').trim() !== '' ? Number(raw) : 0
-  edit(addParameter, entry.path, value)
+  edit(addParameter, entry.path, findModelValue(entry.path) ?? 0)
 }
 
 const cellPopover = ref(null)
@@ -551,6 +629,21 @@ let editCount = 0
  * @returns {boolean}
  */
 const isEditing = (parameter, sub) => editing.value?.parameter === parameter && editing.value?.sub === sub
+
+/**
+ * Finds the value a parameter ended the sub-experiment before on, as CA runs it, to carry on from.
+ *
+ * @param {string} parameter
+ * @param {number} sub
+ * @returns {number|null} Null for the first sub-experiment.
+ */
+function findPreviousEnd(parameter, sub) {
+  if (sub === 0) return null
+  const { preTime, subs } = experiment.value
+  // The first sub-experiment's clock starts with the warm-up.
+  const end = (sub - 1 === 0 ? preTime : 0) + subs[sub - 1].duration
+  return findEndValue(protocolInfo.value, protocolInfo.value.params_to_change[parameter][current.value][sub - 1], end)
+}
 
 const kindMenu = ref(null)
 // The segment whose kind is being chosen: `{ anchor, parameter, cell, sub, kind }`.
@@ -589,7 +682,7 @@ function openKindMenu(event, parameter, { cell, sub, kind }) {
  */
 function openCell(anchor, parameter, cell, sub, kind = null) {
   const units = unitsByPath.value.get(parameter) ?? ''
-  editing.value = { key: ++editCount, parameter, cell, sub, kind, duration: experiment.value.subs[sub].duration, units }
+  editing.value = { key: ++editCount, parameter, cell, sub, kind, duration: experiment.value.subs[sub].duration, units, previousEnd: findPreviousEnd(parameter, sub) }
   // Once the click is over, or it closes the popover again.
   setTimeout(() => cellPopover.value?.show({ currentTarget: anchor }, anchor), 0)
 }
@@ -822,6 +915,10 @@ function alignCell() {
   opacity: 1;
 }
 
+.column-remove--none {
+  visibility: hidden;
+}
+
 .column-add {
   display: flex;
   align-items: center;
@@ -882,9 +979,25 @@ function alignCell() {
   background: repeating-linear-gradient(135deg, var(--hatch) 0 6px, transparent 6px 12px);
 }
 
-.lane-cell--early {
+.lane-cell--early,
+.lane-cell--clash {
   border-color: var(--p-orange-400);
   border-style: dashed;
+}
+
+.lane-cell--error {
+  border-color: var(--p-red-500);
+  border-style: solid;
+}
+
+.lane-range {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--p-text-muted-color);
+}
+
+.lane-range::before {
+  content: '· ';
 }
 
 .lane-plot {

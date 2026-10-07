@@ -3,6 +3,7 @@
  * renumbers the observations that refer to experiments and sub-experiments by their place, so none points at the
  * wrong one after a change.
  */
+import { buildShapeFromForm, readShapeForm } from './protocolModel.js'
 import { interpolateTrace } from './protocolPreview.js'
 import { PACING, expandShape, isMapping, normaliseShape } from './protocolShapes.js'
 
@@ -108,6 +109,28 @@ export function addExperiment(document, from) {
       // The copy's shapes and traces are its own, so editing one experiment never changes the other.
       rows.push(rows[from].map((leaf, sub) => (typeof leaf === 'string' ? copyInput(info, leaf, nameCellInput(parameter, count, sub)) : leaf)))
     }
+  })
+}
+
+/**
+ * Adds an experiment after the others, afresh: no warm-up, and one sub-experiment in which each parameter holds a
+ * value of its own.
+ *
+ * @param {Object} document
+ * @param {Object} [options]
+ * @param {number} [options.duration] - The sub-experiment's length.
+ * @param {Map<string, number>} [options.values] - Each parameter's value, as the model has it; 0 where it has none.
+ * @returns {Object}
+ */
+export function addEmptyExperiment(document, { duration = 1, values = new Map() } = {}) {
+  return editDocument(document, ({ protocol_info: info }) => {
+    const count = info.sim_times.length
+    info.pre_times.push(0)
+    info.sim_times.push([duration])
+    if (Array.isArray(info.experiment_labels)) info.experiment_labels.push(`exp_${count}`)
+    if (Array.isArray(info.experiment_colors)) info.experiment_colors.push(COLOURS[count % COLOURS.length])
+    if (Array.isArray(info.experiment_ids)) info.experiment_ids.push(null)
+    for (const [parameter, rows] of Object.entries(info.params_to_change)) rows.push([values.get(parameter) ?? 0])
   })
 }
 
@@ -281,7 +304,11 @@ export function removeSubExperiment(document, experiment, sub) {
 export function setTiming(document, { experiment, sub, preTime, duration, label }) {
   return editDocument(document, ({ protocol_info: info }) => {
     if (preTime !== undefined) info.pre_times[experiment] = preTime
-    if (duration !== undefined) info.sim_times[experiment][sub] = duration
+    if (duration !== undefined) {
+      const previous = info.sim_times[experiment][sub]
+      info.sim_times[experiment][sub] = duration
+      keepStepsToTheEnd(info, experiment, sub, previous, duration)
+    }
     if (label !== undefined) {
       if (!Array.isArray(info.experiment_labels)) info.experiment_labels = info.sim_times.map((_, index) => `exp_${index}`)
       info.experiment_labels[experiment] = label
@@ -348,16 +375,49 @@ export const nameCellInput = (parameter, experiment, sub) => `${parameter.replac
  *   number[]}}} change - The shape as protocol_shapes has it, or the trace as protocol_traces has it.
  * @returns {Object}
  */
-export function setInput(document, { parameter, experiment, sub, shape, trace }) {
-  return editDocument(document, ({ protocol_info: info }) => {
-    // Never a name another sub-experiment uses, as one copied, moved or left by a removal may.
-    const name = findFreeName(info, nameCellInput(parameter, experiment, sub), { parameter, experiment, sub })
-    const [kept, other] = shape ? ['protocol_shapes', 'protocol_traces'] : ['protocol_traces', 'protocol_shapes']
-    if (isMapping(info[other])) delete info[other][name]
-    if (!isMapping(info[kept])) info[kept] = {}
-    info[kept][name] = shape ?? trace
-    info.params_to_change[parameter][experiment][sub] = name
-  })
+export function setInput(document, change) {
+  return editDocument(document, ({ protocol_info: info }) => writeInput(info, change))
+}
+
+/**
+ * Writes a sub-experiment's input into a protocol_info, as setInput does.
+ *
+ * @param {Object} info - Changed in place.
+ * @param {{parameter: string, experiment: number, sub: number, shape?: Object, trace?: Object}} change
+ */
+function writeInput(info, { parameter, experiment, sub, shape, trace }) {
+  // Never a name another sub-experiment uses, as one copied, moved or left by a removal may.
+  const name = findFreeName(info, nameCellInput(parameter, experiment, sub), { parameter, experiment, sub })
+  const [kept, other] = shape ? ['protocol_shapes', 'protocol_traces'] : ['protocol_traces', 'protocol_shapes']
+  if (isMapping(info[other])) delete info[other][name]
+  if (!isMapping(info[kept])) info[kept] = {}
+  info[kept][name] = shape ?? trace
+  info.params_to_change[parameter][experiment][sub] = name
+}
+
+/**
+ * Keeps each step of a sub-experiment held to its end when its length changes: a step lasts to the end it was made
+ * for, so it would otherwise end early, as a pulse, or fire nothing.
+ *
+ * @param {Object} info - Changed in place.
+ * @param {number} experiment
+ * @param {number} sub
+ * @param {number} previous - The length the sub-experiment had.
+ * @param {number} duration - The length it has now.
+ */
+function keepStepsToTheEnd(info, experiment, sub, previous, duration) {
+  for (const [parameter, rows] of Object.entries(info.params_to_change)) {
+    const leaf = rows[experiment][sub]
+    const raw = typeof leaf === 'string' && isMapping(info.protocol_shapes) && Object.hasOwn(info.protocol_shapes, leaf) ? info.protocol_shapes[leaf] : null
+    if (!raw || 'duration' in raw) continue
+    let form
+    try {
+      form = readShapeForm(normaliseShape(raw, leaf), previous)
+    } catch {
+      continue
+    }
+    if (form?.type === 'step' && form.start < duration) writeInput(info, { parameter, experiment, sub, shape: buildShapeFromForm(form, duration) })
+  }
 }
 
 /**

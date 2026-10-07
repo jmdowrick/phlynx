@@ -2,7 +2,7 @@
  * Reads a protocol_info as experiments of sub-experiments, and the value each controlled parameter takes in each:
  * the view the run planner and the editor work from.
  */
-import { PACING, RAMP, findIntervals, isMapping, normaliseShape } from './protocolShapes.js'
+import { PACING, RAMP, expandShape, findIntervals, isMapping, normaliseShape } from './protocolShapes.js'
 
 /**
  * Reads what a single-event pacing shape or a ramp was written as, the way CUFLynx's editor offers them: a step runs
@@ -44,8 +44,8 @@ export function buildShapeFromForm(form, duration) {
  * @param {*} leaf - A number, or the name of a trace or shape.
  * @param {number} duration - Its sub-experiment's length.
  * @param {Object} protocolInfo
- * @returns {Object} `{kind: 'constant', value}`, `{kind: 'shape', name, shape, form, trace}` or `{kind: 'trace', name,
- *   trace}`, `trace` as CA expands it.
+ * @returns {Object} `{kind: 'constant', value}`, `{kind: 'shape', name, shape, form, trace, error?}` or `{kind: 'trace',
+ *   name, trace}`, `trace` as CA expands it; a shape CA would refuse has a null shape and the reason as `error`.
  */
 function readCell(leaf, duration, protocolInfo) {
   if (typeof leaf !== 'string') return { kind: 'constant', value: leaf }
@@ -53,11 +53,15 @@ function readCell(leaf, duration, protocolInfo) {
   // As CA reads it, a shape's trace is in protocol_traces too.
   const trace = ownValue(protocolInfo.protocol_traces) ?? null
   const rawShape = ownValue(protocolInfo.protocol_shapes)
-  if (rawShape !== undefined) {
+  if (rawShape === undefined) return { kind: 'trace', name: leaf, trace }
+  // A shape CA would refuse is kept to its own cell, with why, so the others read as they are.
+  try {
     const shape = normaliseShape(rawShape, leaf)
-    return { kind: 'shape', name: leaf, shape, form: readShapeForm(shape, duration), trace }
+    const expanded = trace ?? expandShape(shape, shape.duration ?? duration, leaf)
+    return { kind: 'shape', name: leaf, shape, form: readShapeForm(shape, duration), trace: expanded }
+  } catch (error) {
+    return { kind: 'shape', name: leaf, shape: null, form: null, trace: null, error: error.message }
   }
-  return { kind: 'trace', name: leaf, trace }
 }
 
 /**

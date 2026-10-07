@@ -1,16 +1,12 @@
 <template>
-  <InputNumber
+  <NumberInput
     v-if="isEditing"
     ref="inputEl"
     v-model="draft"
-    :min="min"
-    :max-fraction-digits="8"
     :suffix="suffix"
-    size="small"
     class="inline-number-input"
     :aria-label="ariaLabel"
-    @keydown.enter.prevent="commit"
-    @keydown.escape.prevent.stop="cancel"
+    @keydown="onKeydown"
     @blur="commit"
   />
   <button
@@ -18,8 +14,8 @@
     type="button"
     class="inline-number"
     :aria-label="`Edit ${ariaLabel.toLowerCase()}, ${formatted}`"
-    :title="`${formatted}. Double-click to edit.`"
-    @dblclick="startEditing"
+    :title="`${formatted}. Click to edit.`"
+    @click="startEditing"
     @keydown.enter.prevent="startEditing"
   >
     {{ formatted }}
@@ -28,12 +24,12 @@
 
 <script setup>
 /**
- * A number shown as text, edited in place: double-click it (or press Enter on it), then Enter or a click away keeps
- * the new value and Escape leaves it, as instance and project names are edited.
+ * A number shown as text, edited in place: click it (or press Enter on it), then Enter or a click away keeps the new
+ * value and Escape leaves it.
  */
 import { computed, nextTick, ref } from 'vue'
 
-import InputNumber from 'primevue/inputnumber'
+import NumberInput from './NumberInput.vue'
 
 const props = defineProps({
   modelValue: { type: Number, default: null },
@@ -55,7 +51,23 @@ async function startEditing() {
   draft.value = props.modelValue
   isEditing.value = true
   await nextTick()
-  inputEl.value?.$el?.querySelector('input')?.select()
+  inputEl.value?.select()
+}
+
+/**
+ * Keeps the value on Enter, and leaves it on Escape.
+ *
+ * @param {KeyboardEvent} event
+ */
+function onKeydown(event) {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    commit()
+  } else if (event.key === 'Escape') {
+    event.preventDefault()
+    event.stopPropagation()
+    cancel()
+  }
 }
 
 /** Keeps the value typed, unless it isn't one the field allows, and shows it as text again. */
@@ -109,9 +121,9 @@ function cancel() {
 
 .inline-number-input :deep(input) {
   box-sizing: border-box;
-  width: 100%;
   height: 1.75rem;
   padding-top: 0;
   padding-bottom: 0;
+  padding-right: 1.75rem;
 }
 </style>

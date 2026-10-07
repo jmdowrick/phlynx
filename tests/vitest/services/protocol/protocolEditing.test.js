@@ -4,6 +4,7 @@ import { readProtocolInfo, buildShapeFromForm, readShapeForm } from '../../../..
 import { compileProtocolPlan } from '../../../../src/services/protocol/libopencorEngine/protocolPlan.js'
 import { normaliseShape } from '../../../../src/services/protocol/protocolShapes.js'
 import {
+  addEmptyExperiment,
   addExperiment,
   alignWithWarmUp,
   addParameter,
@@ -66,6 +67,18 @@ describe('protocolEditing', () => {
     expectValid(edited)
   })
 
+  it('adds an experiment afresh, each parameter at the value given for it', () => {
+    const edited = addEmptyExperiment(DOCUMENT, { duration: 5, values: new Map([['a/k', 0.5]]) })
+    expect(edited.protocol_info).toMatchObject({
+      pre_times: [1, 2, 0],
+      sim_times: [[1, 2], [3], [5]],
+      params_to_change: { 'a/k': [[1, 'p'], [3], [0.5]] },
+      experiment_labels: ['rest', 'exercise', 'exp_2'],
+      experiment_colors: ['r', 'b', 'g'],
+    })
+    expectValid(edited)
+  })
+
   it('removes an experiment and its observations, renumbering the rest', () => {
     const edited = removeExperiment(DOCUMENT, 0)
     expect(edited.protocol_info).toMatchObject({ pre_times: [2], sim_times: [[3]], experiment_labels: ['exercise'] })
@@ -114,6 +127,20 @@ describe('protocolEditing', () => {
     // The first sub-experiment's clock starts with the 2 of warm-up, so it ends at 6: the ramp of 4 has ended on 3,
     // and the trace is held at its last value.
     expect(Object.fromEntries(Object.entries(added).map(([name, rows]) => [name, rows[0][1]]))).toEqual({ 'a/r': 3, 'a/s': 5, 'a/t': 2, 'a/n': 7 })
+  })
+
+  it('keeps a step held to the end of its sub-experiment as its length changes', () => {
+    const document = setInput(
+      { protocol_info: { pre_times: [0], sim_times: [[10]], params_to_change: { 'a/k': [[1]] } } },
+      { parameter: 'a/k', experiment: 0, sub: 0, shape: buildShapeFromForm({ type: 'step', baseline: 1, level: 5, start: 4 }, 10) }
+    )
+    const formAt = (edited, duration) => {
+      const info = edited.protocol_info
+      return readShapeForm(normaliseShape(info.protocol_shapes[info.params_to_change['a/k'][0][0]], 's'), duration)
+    }
+    expect(formAt(setTiming(document, { experiment: 0, sub: 0, duration: 20 }), 20)).toEqual({ type: 'step', baseline: 1, level: 5, start: 4 })
+    expect(formAt(setTiming(document, { experiment: 0, sub: 0, duration: 6 }), 6)).toEqual({ type: 'step', baseline: 1, level: 5, start: 4 })
+    expectValid(setTiming(document, { experiment: 0, sub: 0, duration: 6 }))
   })
 
   it('sets timings, labels, parameters and values', () => {
