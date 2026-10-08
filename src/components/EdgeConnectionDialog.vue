@@ -42,7 +42,7 @@
             <div class="col-subheaders">
               <span class="col-header">Type</span>
               <span class="col-header">Label</span>
-              <span class="col-header">Multiport</span>
+              <span class="col-header">Port type</span>
               <span class="col-header">Variables</span>
               <span aria-hidden="true"></span>
               <span aria-hidden="true"></span>
