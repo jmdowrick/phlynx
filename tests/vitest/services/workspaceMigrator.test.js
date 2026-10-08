@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import { beforeAll, describe, expect, it } from 'vitest'
+import { analyzeMathXml } from '../../../src/services/math/analyzeMath'
 import { detectVersion, migrateWorkspace, separateNodeParameters } from '../../../src/services/workspaceMigrator'
 import { PHLYNX_PROJECT_VERSION } from '../../../src/utils/constants'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
@@ -243,6 +244,39 @@ function expectedRowReferences(doc, era) {
   return references
 }
 
+const isBlankValue = (value) => value == null || String(value).trim() === ''
+
+/**
+ * Lists the value each node row gives the model, keyed `<node>|<variable>`, following a name to the
+ * row it refers to. Rows the math computes are left out.
+ *
+ * @param {Object} doc - A 1.0.0 or 1.1.0 workspace.
+ * @param {boolean} mathFallback - Whether a blank row falls back to the math's initial value, as 1.0.0 did.
+ * @returns {Map<string, string>}
+ */
+function effectiveValues(doc, mathFallback) {
+  const math = new Map(doc.store.availableMath)
+  const globals = new Map(doc.store.globalConstants ?? [])
+  const values = new Map()
+  for (const { data } of doc.flow.nodes) {
+    const analysis = analyzeMathXml(math.get(data.mathRef) ?? '')
+    const initialValues = new Map((analysis?.declared ?? []).map((variable) => [variable.name, variable.initialValue]))
+    const states = new Set(analysis?.stateVariables ?? [])
+    const raw = new Map()
+    for (const row of data.variables ?? []) {
+      const isState = states.has(row.name)
+      if (row.type === 'variable' && !isState) continue
+      let value = row.type === 'global_constant' ? globals.get(row.name)?.value : undefined
+      if (isBlankValue(value) && (mathFallback || !isState)) value = row.value
+      if (isBlankValue(value) && (mathFallback || isState)) value = initialValues.get(row.name)
+      raw.set(row.name, isBlankValue(value) ? '' : String(value).trim())
+    }
+    const resolve = (value, depth = 0) => (raw.has(value) && depth < 10 ? resolve(raw.get(value), depth + 1) : value)
+    for (const [name, value] of raw) values.set(`${data.name}|${name}`, resolve(value))
+  }
+  return values
+}
+
 const globalReferences = (globalConstants = []) => Object.fromEntries(globalConstants.map(([name, entry]) => [name, entry.data_reference]))
 
 describe('migrateWorkspace over saved workspaces', () => {
@@ -287,6 +321,16 @@ describe('migrateWorkspace over saved workspaces', () => {
     const defaultRefs = new Set(migrated.store.mathDefaults.map(([mathRef]) => mathRef))
     for (const mathRef of separatedRefs) expect(defaultRefs).toContain(mathRef)
   })
+
+  it.each(FIXTURES.filter(([, era]) => era === 'v1-0-0'))(
+    'gives the model the same values for %s after migrating',
+    (name) => {
+      const doc = readFixture(name)
+      const before = effectiveValues(doc, true)
+      const after = effectiveValues(migrateWorkspace(doc), false)
+      for (const [key, value] of before) expect({ key, value: after.get(key) }).toEqual({ key, value })
+    }
+  )
 
   it.each(FIXTURES)('migrates %s once, so loading the result again changes nothing', (name) => {
     const migrated = migrateWorkspace(readFixture(name))

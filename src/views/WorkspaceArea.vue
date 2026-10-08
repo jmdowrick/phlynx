@@ -392,7 +392,7 @@
             :delete-key-code="dialogVisible ? [] : ['Backspace', 'Delete']"
           >
             <HelperLines :horizontal="helperLineHorizontal" :vertical="helperLineVertical" :alignment="alignment" />
-            <MiniMap :pannable="true" :zoomable="true" class="mini-map" />
+            <MiniMap :pannable="true" :zoomable="true" :node-color="miniMapNodeColour" class="mini-map" />
             <Controls :fit-view-params="fitViewParams">
               <ControlButton :disabled="screenshotDisabled" title="PNG Screenshot" @click="doPngScreenshot">
                 <i class="pi pi-image"></i>
@@ -585,6 +585,9 @@ import { notify } from '../utils/notify'
 import { getHelperLines } from '../utils/helperLines'
 import { getPurgedUrlForResource, getUrlForResource, loadManifest } from '../utils/resources'
 import { useClearWorkspace } from '../composables/useClearWorkspace'
+import { useColorScheme } from '../composables/useColorScheme'
+import { useNodeThemeStore } from '../stores/nodeThemeStore'
+import { categoryColour } from '../utils/nodeThemes'
 import { readFileAsText, cyrb53 } from '../utils/misc'
 import { buildGhostHandles, normaliseHandleSlots } from '../utils/handles'
 import { bindLibCellML, processCellMLData, loadParametersFromCellML } from '../utils/cellml'
@@ -636,7 +639,6 @@ const fitViewParams = computed(() => ({
 const SEARCH_BAR_TOP = 150
 const TOAST_GAP_BELOW_SEARCH_BAR = 16
 const toastTop = computed(() => SEARCH_BAR_TOP + TOAST_GAP_BELOW_SEARCH_BAR)
-
 
 const {
   addEdges,
@@ -879,10 +881,12 @@ const onDrop = async (event) => {
 
     const cellmlFiles = Array.from(files).filter((f) => f.name.toLowerCase().endsWith('.cellml'))
 
-    if (cellmlFiles.length === 0) {
+    const omexFiles = Array.from(files).filter((f) => f.name.toLowerCase().endsWith('.omex'))
+
+    if (cellmlFiles.length === 0 && omexFiles.length === 0) {
       notify.warning({
         title: 'Unsupported File Type',
-        message: 'Only .cellml files can be dropped onto the workspace.',
+        message: 'Only .cellml and .omex files can be dropped onto the workspace.',
       })
       return
     }
@@ -895,7 +899,28 @@ const onDrop = async (event) => {
       return
     }
 
-    await loadCellMLFiles(cellmlFiles)
+    if (cellmlFiles.length > 0) {
+      await loadCellMLFiles(cellmlFiles)
+    }
+
+    if (omexFiles.length > 0) {
+      for (const file of omexFiles) {
+        try {
+          const arrayBuffer = await file.arrayBuffer()
+          const result = await importOmexFile(arrayBuffer)
+          await processImportedOmexArchive(arrayBuffer, result, file.name)
+          notify.success({
+            title: 'OMEX Import Complete',
+            message: `${file.name} imported successfully!`,
+          })
+        } catch (error) {
+          notify.error({
+            title: 'OMEX Import Failed',
+            message: error.message,
+          })
+        }
+      }
+    }
   } else {
     onDropModule(event)
   }
@@ -907,6 +932,13 @@ const inspectionModuleStore = useInspectionModuleStore()
 const historyStore = useFlowHistoryStore()
 const simulationSettingsStore = useSimulationSettingsStore()
 const omexStore = useOmexStore()
+const nodeThemeStore = useNodeThemeStore()
+const { isDarkMode } = useColorScheme()
+
+/** MiniMap nodes follow the active node colour theme; uncategorised nodes keep the MiniMap default grey. */
+function miniMapNodeColour(node) {
+  return categoryColour(nodeThemeStore.activeTheme, node.data?.domainType, isDarkMode.value) ?? (isDarkMode.value ? '#3f3f46' : '#e2e2e2')
+}
 const { loadFromInstanceArray } = useLoadFromInstanceArray({ fitViewParams })
 const { loadFromCellML } = useLoadFromCellML({ fitViewParams })
 const { capture } = useScreenshot()
