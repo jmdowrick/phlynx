@@ -397,7 +397,7 @@
             :delete-key-code="dialogVisible ? [] : ['Backspace', 'Delete']"
           >
             <HelperLines :horizontal="helperLineHorizontal" :vertical="helperLineVertical" :alignment="alignment" />
-            <MiniMap :pannable="true" :zoomable="true" class="mini-map" />
+            <MiniMap :pannable="true" :zoomable="true" :node-color="miniMapNodeColour" class="mini-map" />
             <Controls :fit-view-params="fitViewParams">
               <ControlButton :disabled="screenshotDisabled" title="PNG Screenshot" @click="doPngScreenshot">
                 <i class="pi pi-image"></i>
@@ -599,6 +599,9 @@ import { notify } from '../utils/notify'
 import { getHelperLines } from '../utils/helperLines'
 import { getPurgedUrlForResource, getUrlForResource, loadManifest } from '../utils/resources'
 import { useClearWorkspace } from '../composables/useClearWorkspace'
+import { useColorScheme } from '../composables/useColorScheme'
+import { useNodeThemeStore } from '../stores/nodeThemeStore'
+import { categoryColour } from '../utils/nodeThemes'
 import { readFileAsText, cyrb53 } from '../utils/misc'
 import { buildGhostHandles, normaliseHandleSlots } from '../utils/handles'
 import { bindLibCellML, processCellMLData, loadParametersFromCellML } from '../utils/cellml'
@@ -945,6 +948,13 @@ const inspectionModuleStore = useInspectionModuleStore()
 const historyStore = useFlowHistoryStore()
 const simulationSettingsStore = useSimulationSettingsStore()
 const omexStore = useOmexStore()
+const nodeThemeStore = useNodeThemeStore()
+const { isDarkMode } = useColorScheme()
+
+/** MiniMap nodes follow the active node colour theme; uncategorised nodes keep the MiniMap default grey. */
+function miniMapNodeColour(node) {
+  return categoryColour(nodeThemeStore.activeTheme, node.data?.domainType, isDarkMode.value) ?? (isDarkMode.value ? '#3f3f46' : '#e2e2e2')
+}
 const { loadFromInstanceArray } = useLoadFromInstanceArray({ fitViewParams })
 const { loadFromCellML } = useLoadFromCellML({ fitViewParams })
 const { capture } = useScreenshot()
