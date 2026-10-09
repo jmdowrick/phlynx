@@ -242,7 +242,7 @@ function nextAvailableComponentName(model, baseName) {
   return candidateName
 }
 
-function sanitiseCellMLIdentifier(name) {
+export function sanitiseCellMLIdentifier(name) {
   let sanitised = (name ?? '').trim().replace(/[^a-zA-Z0-9_]/g, '_')
   if (!/^[a-zA-Z_]/.test(sanitised)) {
     sanitised = `_${sanitised}`
@@ -896,8 +896,11 @@ function connectVariables(model, sourceComp, srcVariable, targetComp, tgtVariabl
  * @param {Array} inspectionModules - Records from useInspectionModuleStore().modules, each
  *   { name, units, variables: [{ nodeId, variableName, ... }] }. Each becomes its own generated
  *   component summing the selected variables — see createInspectionModuleComponent.
+ * @param {object} [options]
+ * @param {boolean} [options.check=true] - Validates and analyses the result, throwing on errors. Most of the
+ *   time on large models; a simulator that checks the model itself can skip it.
  */
-export function generateFlattenedModel(nodes, edges, libraryStore, inspectionModules = []) {
+export function generateFlattenedModel(nodes, edges, libraryStore, inspectionModules = [], { check = true } = {}) {
   const appVersion = __APP_VERSION__ || '0.0.0'
 
   // Initialize core objects
@@ -1223,15 +1226,17 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
       handleLoggerErrors(importer, `Importer error count: ${importer.errorCount()}`)
     }
 
-    validator.validateModel(flattenedModel)
-    if (validator.errorCount()) {
-      handleLoggerErrors(validator, `Validator error count: ${validator.errorCount()}`)
-    }
+    if (check) {
+      validator.validateModel(flattenedModel)
+      if (validator.errorCount()) {
+        handleLoggerErrors(validator, `Validator error count: ${validator.errorCount()}`)
+      }
 
-    analyser.analyseModel(flattenedModel)
-    if (analyser.errorCount()) {
-      flattenedModel.delete()
-      handleLoggerErrors(analyser, `Analyser error count: ${analyser.errorCount()}`)
+      analyser.analyseModel(flattenedModel)
+      if (analyser.errorCount()) {
+        flattenedModel.delete()
+        handleLoggerErrors(analyser, `Analyser error count: ${analyser.errorCount()}`)
+      }
     }
 
     let flattenedModelString = printer.printModel(flattenedModel, false)

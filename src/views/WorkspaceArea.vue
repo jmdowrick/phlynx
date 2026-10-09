@@ -143,14 +143,16 @@
           <Button
             iconOnly
             style="margin-left: 10px"
-            icon="pi pi-chart-line"
             size="small"
             variant="text"
             severity="info"
             :disabled="!somethingAvailable"
+            aria-label="Configure simulation settings"
             v-tooltip.bottom="{ value: 'Configure simulation settings', showDelay: 300 }"
             @click="onOpenSimSettingsDialog"
-          />
+          >
+            <SimulationSettingsIcon />
+          </Button>
 
           <Button
             iconOnly
@@ -159,6 +161,7 @@
             size="small"
             variant="text"
             severity="info"
+            aria-label="Settings"
             v-tooltip.bottom="{ value: 'Settings', showDelay: 300 }"
             @click="onOpenSettingsDialog"
           />
@@ -237,7 +240,9 @@
             v-tooltip.bottom="{
               value:
                 !somethingAvailable || currentSendDisabled
-                  ? 'The Send option is disabled because CellML library is not ready yet.'
+                  ? currentSendMode.isSelection && libcellml.status === 'ready'
+                    ? 'Select instances to send them on their own.'
+                    : 'The Send option is disabled because CellML library is not ready yet.'
                   : `Send to ${currentSendMode.label}`,
               showDelay: 300,
             }"
@@ -419,6 +424,7 @@
         </div>
       </main>
       <ContextSidebar
+        ref="contextSidebarRef"
         :initial-width="480"
         :min-width="260"
         :max-width="1200"
@@ -476,7 +482,8 @@
     @generate="onMacroBuilderGenerate"
   />
 
-  <SimSettingsDialog v-model="simSettingsDialogVisible" :nodes="nodes" />
+  <SimulationFloatingViewer :nodes="nodes" />
+  <SimSettingsDialog v-model="simSettingsDialog.visible" :section="simSettingsDialog.section" :nodes="nodes" />
 
   <SettingsDialog v-model="settingsDialogVisible" />
 
@@ -529,6 +536,7 @@ import { MiniMap } from '@vue-flow/minimap'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
+import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
@@ -558,6 +566,7 @@ import ModuleReplacementDialog from '../components/ModuleReplacementDialog.vue'
 import SaveDialog from '../components/SaveDialog.vue'
 import MacroBuilderDialog from '../components/MacroBuilderDialog.vue'
 import SimSettingsDialog from '../components/SimSettingsDialog.vue'
+import SimulationFloatingViewer from '../components/simulation/SimulationFloatingViewer.vue'
 import EdgeConnectionDialog from '../components/EdgeConnectionDialog.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
 import HelperLines from '../components/HelperLines.vue'
@@ -571,11 +580,16 @@ import AddHandleLeft from '../components/icons/AddHandles/AddHandleLeft.vue'
 import AddHandleTop from '../components/icons/AddHandles/AddHandleTop.vue'
 import AddHandleRight from '../components/icons/AddHandles/AddHandleRight.vue'
 import DustpanBrush from '../components/icons/DustpanBrush.vue'
+import SimulationSettingsIcon from '../components/icons/SimulationSettingsIcon.vue'
 
 import { useScreenshot } from '../services/useScreenshot'
 import { useMacroGenerator } from '../services/generate/generateWorkflow'
 import { migrateWorkspace, separateNodeParameters } from '../services/workspaceMigrator'
 import { buildWorkspaceFile } from '../services/workspaceFile'
+import { useSimulation } from '../composables/useSimulation'
+import { useSimSettingsDialog } from '../composables/useSimSettingsDialog'
+import { useFloatingViewer } from '../composables/useFloatingViewer'
+import { scopeFlowObject } from '../services/simulation/scopedModel'
 import { relayoutNodes } from '../services/layouts/physics'
 import { extractSimData as extractSimDataFromSedml } from '../services/import/sedml'
 import { extractSimData as extractSimDataFromSimulationJson } from '../services/import/simulation'
@@ -645,6 +659,7 @@ const {
   addEdges,
   addNodes,
   applyNodeChanges,
+  addSelectedNodes,
   applyEdgeChanges,
   dimensions,
   edges,
@@ -659,6 +674,7 @@ const {
   onConnectEnd,
   removeEdges,
   removeNodes,
+  removeSelectedNodes,
   screenToFlowCoordinate,
   setViewport,
   toObject,
@@ -700,7 +716,7 @@ const dialogVisible = computed(() => {
     exportDialogVisible.value ||
     replacementDialogVisible.value ||
     macroBuilderDialogVisible.value ||
-    simSettingsDialogVisible.value ||
+    simSettingsDialog.visible ||
     settingsDialogVisible.value ||
     edgeConnectionDialogVisible.value ||
     instanceEditorDialogVisible.value ||
@@ -960,7 +976,7 @@ const importDialogVisible = ref(false)
 const exportDialogVisible = ref(false)
 const replacementDialogVisible = ref(false)
 const macroBuilderDialogVisible = ref(false)
-const simSettingsDialogVisible = ref(false)
+const { state: simSettingsDialog, open: openSimSettingsDialog } = useSimSettingsDialog()
 const settingsDialogVisible = ref(false)
 const edgeConnectionDialogVisible = ref(false)
 const inspectionModuleDialogVisible = ref(false)
@@ -1025,6 +1041,7 @@ const {
   onExportConfirm,
   hasModelChanged,
   snapshotFlowState,
+  selectedNodeIds: computed(() => getSelectedNodes.value.map((node) => node.id)),
 })
 
 const cellMlExportTooltip = computed(() => {
@@ -1035,6 +1052,7 @@ const cellMlExportTooltip = computed(() => {
   if (!somethingAvailable.value) {
     return prefix + 'there is nothing to export. Please add some modules to the workspace first.'
   }
+  if (currentExportMode.value?.isSelection) return 'Select instances to export them on their own.'
   return 'This should not be shown when CellML export is enabled.'
 })
 
@@ -2124,7 +2142,7 @@ function onOpenMacroBuilderDialog() {
 }
 
 function onOpenSimSettingsDialog() {
-  simSettingsDialogVisible.value = true
+  openSimSettingsDialog()
 }
 
 function onOpenSettingsDialog() {
@@ -2133,6 +2151,20 @@ function onOpenSettingsDialog() {
 
 async function onInstanceEditConfirm(save) {
   const updatedCount = await saveInstanceEdit(save)
+  // Applied with the editor kept open: it reloads from the instance as saved.
+  if (save.keepOpen) {
+    const node = findNode(save.id)
+    if (node) {
+      currentEditingNode.value = {
+        ...currentEditingNode.value,
+        name: node.data.name,
+        mathRef: node.data.mathRef,
+        variables: node.data.variables,
+        ports: node.data.ports,
+        handles: node.data.handles,
+      }
+    }
+  }
   notify.success({
     title: 'CellML Updated',
     message: `Updated ${updatedCount} node${updatedCount !== 1 ? 's' : ''} to ${save.mathRef.split(':').pop()}.`,
@@ -2303,6 +2335,11 @@ function handleCreateInspectionModule(payload) {
 }
 
 const contextMenuRef = ref(null)
+const contextSidebarRef = ref(null)
+// The floating viewer's way back to the Simulation tab.
+useFloatingViewer().setTabOpener(() => contextSidebarRef.value?.showTab('sim'))
+const { run: runSimulation } = useSimulation()
+const simulationResultsStore = useSimulationResultsStore()
 
 const paneContextMenuItems = [
   {
@@ -2341,8 +2378,51 @@ function onNodeContextMenu({ clientX, clientY, id }) {
         onOpenReplacementDialog(node)
       },
     },
+    {
+      label: simulateLabelFor(id),
+      action: () => simulateFromNode(id),
+    },
   ]
   contextMenuRef.value.open(clientX, clientY)
+}
+
+/**
+ * Gets the nodes a node's Simulate menu item runs: its selection, or the node alone when it isn't selected.
+ *
+ * @param {string} id
+ * @returns {string[]}
+ */
+function simulationScopeFor(id) {
+  const selectedIds = getSelectedNodes.value.map((node) => node.id)
+  return selectedIds.includes(id) ? selectedIds : [id]
+}
+
+/**
+ * Names a node's Simulate menu item by what it will run.
+ *
+ * @param {string} id
+ * @returns {string}
+ */
+function simulateLabelFor(id) {
+  const count = simulationScopeFor(id).length
+  return count > 1 ? `Simulate Selection (${count})` : 'Simulate Instance'
+}
+
+/**
+ * Simulates a node's selection, or the node alone, and shows the Simulation tab.
+ *
+ * @param {string} id
+ */
+function simulateFromNode(id) {
+  const scope = [...simulationScopeFor(id)].sort()
+  // The canvas selection becomes what runs, so the Simulation tab doesn't see it as changed.
+  if (!getSelectedNodes.value.some((node) => node.id === id)) {
+    removeSelectedNodes(getSelectedNodes.value)
+    addSelectedNodes([findNode(id)].filter(Boolean))
+  }
+  contextSidebarRef.value?.showTab('sim')
+  simulationResultsStore.scopeMode = 'selection'
+  runSimulation(scope)
 }
 
 function createNewInstanceAtPosition(clientX, clientY) {
@@ -2498,12 +2578,14 @@ function recomputeMissingCouplings() {
 }
 
 /**
- * Creates a snapshot of the current flow state, including nodes and edges, and returns it as a JSON string.
- * This is used to determine if the workspace has been modified that would change the Math or Port configurations.
- * Leading us to set the CUFLynx modified state to true, which will let CUFLynx know that existing analysis is now invalid.
+ * Snapshots the flow (nodes, edges, math and global parameters) as JSON, for OMEX archives and for
+ * detecting changes since one was imported.
+ *
+ * @param {string[]|null} [nodeIds] - Only these nodes and the edges between them, or every node.
+ * @returns {string} The snapshot JSON.
  */
-function snapshotFlowState() {
-  const flowState = toObject()
+function snapshotFlowState(nodeIds = null) {
+  const flowState = scopeFlowObject(toObject(), nodeIds)
   const mathLibrary = new Map()
 
   const nodeData = flowState.nodes.map((node) => {
@@ -3177,6 +3259,8 @@ watch(
   justify-content: space-between;
   align-items: center;
   height: var(--view-header-height);
+  /* Its height whatever the sidebar holds, rather than squeezed by a tall Simulation tab. */
+  flex-shrink: 0;
   box-sizing: border-box;
   padding: 0 var(--view-header-padding-x);
   border-bottom: 1px solid var(--p-content-border-color);

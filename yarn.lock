@@ -990,6 +990,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@opencor/libopencor@npm:^1.20261006.1":
+  version: 1.20261006.1
+  resolution: "@opencor/libopencor@npm:1.20261006.1"
+  checksum: 10c0/bd2fdeff0cd8da4fb59e066efbcadd91871393935f3297508acf98fc65810d1d03bca2c84229ad54626d330a089fa18fe287d67d8ebd9ae7a6bccdcb35ac1729
+  languageName: node
+  linkType: hard
+
 "@parcel/watcher-android-arm64@npm:2.5.1":
   version: 2.5.1
   resolution: "@parcel/watcher-android-arm64@npm:2.5.1"
@@ -1165,6 +1172,13 @@ __metadata:
   dependencies:
     "@primeuix/styled": "npm:^0.7.4"
   checksum: 10c0/4e51aa7ce0a73946b5605c485c281e3e5d82937efa5da1881e31aaae810ccbef34e29b888d24823428ad3303fa2825c99a88dfcb53718e15bfee18b63a12a53d
+  languageName: node
+  linkType: hard
+
+"@primeuix/utils@npm:0.6.2":
+  version: 0.6.2
+  resolution: "@primeuix/utils@npm:0.6.2"
+  checksum: 10c0/15014eac0a3c62a5d154fd5ba730417099643645545f04a01d107cd11e8c8578d8696c7901d6154dd9185c760073cd2336527744920e24ba148028b0fb8369b9
   languageName: node
   linkType: hard
 
@@ -5738,6 +5752,8 @@ __metadata:
     "@hsorby/changelog": "npm:^3.0.3"
     "@lezer/highlight": "npm:^1.2.3"
     "@lezer/lr": "npm:^1.4.8"
+    "@opencor/libopencor": "npm:^1.20261006.1"
+    "@primeuix/utils": "npm:0.6.2"
     "@primevue/themes": "npm:4"
     "@tailwindcss/vite": "npm:^4.3.3"
     "@vitejs/plugin-vue": "npm:^6.0.1"
@@ -5775,6 +5791,7 @@ __metadata:
     tailwindcss: "npm:^4.3.3"
     tailwindcss-primeui: "npm:^0.6.1"
     unplugin-vue-markdown: "npm:^29.2.0"
+    uplot: "npm:1.6.32"
     vite: "npm:^7.1.7"
     vite-plugin-electron: "npm:^0.29.0"
     vitest: "npm:^4.0.18"
@@ -7140,6 +7157,13 @@ __metadata:
     picomatch: "npm:^4.0.3"
     webpack-virtual-modules: "npm:^0.6.2"
   checksum: 10c0/273c1eab0eca4470c7317428689295c31dbe8ab0b306504de9f03cd20c156debb4131bef24b27ac615862958c5dd950a3951d26c0723ea774652ab3624149cff
+  languageName: node
+  linkType: hard
+
+"uplot@npm:1.6.32":
+  version: 1.6.32
+  resolution: "uplot@npm:1.6.32"
+  checksum: 10c0/4d9cdd5f53371656cfc178ea4ae0d8c9bdbe4c98c99df847926d7e5f5a5bcb8043561219da2979fee7616aabe3619d80fee093befdfe39aae65e6621284c39b1
   languageName: node
   linkType: hard
 

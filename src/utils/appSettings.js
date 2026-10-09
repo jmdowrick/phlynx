@@ -21,6 +21,18 @@ export const SETTING_SECTIONS = [
     ],
   },
   {
+    title: 'Simulation',
+    settings: [
+      {
+        key: 'plotInspectionModules',
+        type: 'toggle',
+        label: 'Plot inspection modules',
+        description: 'After a run, show the outputs of the inspection modules it covered as a plot of their own.',
+        default: false,
+      },
+    ],
+  },
+  {
     title: 'Image export',
     settings: [
       {

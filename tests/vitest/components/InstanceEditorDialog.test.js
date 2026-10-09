@@ -80,7 +80,13 @@ function mountDialog(props = {}) {
     props: { modelValue: false, id: 'a', initialName: 'a', mathRef: MATH_REF, ...props },
     global: {
       plugins: [PrimeVue],
-      stubs: { Dialog: DialogStub, CellMLTextEditor: FakeEditor, MathWorkbenchEditor: FakeEditor, ParameterTable: ParameterTableStub },
+      stubs: {
+        Dialog: DialogStub,
+        CellMLTextEditor: FakeEditor,
+        MathWorkbenchEditor: FakeEditor,
+        ParameterTable: ParameterTableStub,
+        SimulationPanel: { name: 'SimulationPanel', props: ['instanceId'], template: '<div class="simulation-panel-stub" />' },
+      },
       directives: { tooltip: {} },
     },
   })
@@ -229,6 +235,95 @@ describe('InstanceEditorDialog new module template (#634)', () => {
 
     expect(wrapper.emitted('confirm')).toBeUndefined()
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+})
+
+describe('InstanceEditorDialog Plot tab', () => {
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  })
+
+  beforeEach(async () => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    useLibraryStore().addMath(MATH_REF, XML)
+    const { useSimulationSettingsStore } = await import('../../../src/stores/simulationSettingsStore.js')
+    useSimulationSettingsStore().setPlotConfig({
+      groups: [
+        { id: 'plot-1', name: 'Plot 1' },
+        { id: 'plot-2', name: 'Plot 2' },
+      ],
+      selections: [{ key: 'a::x', nodeId: 'a', nodeName: 'a', variableName: 'x', units: 'metre', type: 'variable', plot: true, groupId: 'plot-2' }],
+    })
+  })
+
+  /**
+   * Opens the dialog on its Plot tab, with the math reported.
+   *
+   * @returns {Promise<import('@vue/test-utils').VueWrapper>} The Plot tab's simulation workbench.
+   */
+  async function openPlotTab() {
+    mountDialog({ defaultTab: 'plot' })
+    const editor = await open()
+    await report(editor, 'init', XML)
+    await flushPromises()
+    return wrapper.findComponent({ name: 'SimulationPanel' })
+  }
+
+  it('simulates the instance from its Plot tab', async () => {
+    const workbench = await openPlotTab()
+    expect(workbench.props('instanceId')).toBe('a')
+  })
+
+  it('sends the variables the instance plots with the save, as the workbench left them', async () => {
+    await openPlotTab()
+    const { useSimulationSettingsStore } = await import('../../../src/stores/simulationSettingsStore.js')
+    const store = useSimulationSettingsStore()
+    store.setPlotConfig({ ...store.plotConfig, selections: [...store.plotConfig.selections, { key: 'a::t', nodeId: 'a', nodeName: 'a', variableName: 't', units: 'second', type: 'variable', plot: true, groupId: 'plot-1' }] })
+
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await flushPromises()
+
+    const [save] = wrapper.emitted('confirm')[0]
+    expect(save.plotVariables).toEqual([
+      { name: 'x', groupId: 'plot-2' },
+      { name: 't', groupId: 'plot-1' },
+    ])
+  })
+
+  it('applies a save and stays open', async () => {
+    await openPlotTab()
+    await wrapper.findAll('button').find((button) => button.text() === 'Apply').trigger('click')
+    await flushPromises()
+
+    const [save] = wrapper.emitted('confirm')[0]
+    expect(save.keepOpen).toBe(true)
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
+  it('saves a plotted variable under its new name after a rename in the math', async () => {
+    mountDialog({ defaultTab: 'plot' })
+    const editor = await open()
+    await report(editor, 'init', XML)
+    await report(editor, 'edit', XML.replaceAll('name="x"', 'name="y"').replaceAll('<ci>x</ci>', '<ci>y</ci>'))
+
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await flushPromises()
+
+    const [save] = wrapper.emitted('confirm')[0]
+    expect(save.plotVariables).toEqual([{ name: 'y', groupId: 'plot-2' }])
+  })
+
+  it('closes without asking when only plots changed, as they apply as they change', async () => {
+    await openPlotTab()
+    const { useSimulationSettingsStore } = await import('../../../src/stores/simulationSettingsStore.js')
+    useSimulationSettingsStore().setPlotConfig({ groups: [{ id: 'plot-1', name: 'Plot 1' }], selections: [] })
+
+    await wrapper.findAll('button').find((button) => button.text() === 'Cancel').trigger('click')
+    await flushPromises()
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
   })
 })
 

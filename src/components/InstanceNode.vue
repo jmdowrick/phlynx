@@ -3,7 +3,7 @@
     class="instance-node"
     :id="id"
     ref="instanceNode"
-    :class="{ selected: selected }"
+    :class="{ selected: selected, 'instance-node--simulated': isSimulated }"
     @contextmenu.stop.prevent="openContextMenu"
     @mousedown.capture="StopDrag"
     @dblclick="openInstanceEditor('parameters')"
@@ -101,6 +101,7 @@ import Button from 'primevue/button'
 import SanitisedInput from './SanitisedInput.vue'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
+import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useNodeThemeStore } from '../stores/nodeThemeStore'
 import { getHandleId, getHandleStyle, handlePosition, isCornerHandle } from '../utils/handles'
 import { sanitiseName } from '../utils/identifiers'
@@ -135,6 +136,10 @@ const props = defineProps({
     required: true,
   }, // { handles, variables, mathRef, moduleRef, ports, name }
 })
+
+const simulationResultsStore = useSimulationResultsStore()
+// Outlined while the Simulation tab shows results of a selection that includes it.
+const isSimulated = computed(() => !!simulationResultsStore.results && !!simulationResultsStore.scopeNodeIds?.includes(props.id))
 
 const emit = defineEmits([
   'open-instance-editor',

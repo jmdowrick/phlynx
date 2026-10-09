@@ -193,6 +193,31 @@ describe('migrateWorkspace', () => {
     expect(migrated.simulation.simulationSettings).toBeDefined()
   })
 
+  it('gives a 1.1.0 file the solver settings its runs used, keeping its other settings', () => {
+    const migrated = migrateWorkspace({
+      id: 'phlynx-project',
+      version: '1.1.0',
+      flow: { nodes: [], edges: [] },
+      store: { availableMath: [] },
+      simulation: {
+        simulationSettings: { pointInterval: 0.25, endingPoint: 3, solver: 'RungeKutta4', timeStep: 0.2, tolerance: 1e-6, maxSteps: 10000, extra: 'kept' },
+        plotConfig: { groups: [] },
+        parameterScanConfig: {},
+      },
+      inspectionModules: [],
+    })
+    expect(migrated.simulation.simulationSettings).toEqual({
+      pointInterval: 0.25,
+      endingPoint: 3,
+      solver: 'CVODE',
+      timeStep: 0,
+      tolerance: 1e-7,
+      maxSteps: 500,
+      extra: 'kept',
+    })
+    expect(migrated.simulation.plotConfig).toEqual({ groups: [] })
+  })
+
   it('refuses a version it does not know', () => {
     expect(() => migrateWorkspace({ version: '99.0.0', flow: { nodes: [] }, store: {} })).toThrow(/99\.0\.0/)
   })
