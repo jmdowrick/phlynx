@@ -261,7 +261,7 @@
                     </Column>
 
                     <!-- One connection with every variable None, or several with each True, Sum or Multiply -->
-                    <Column header="Port type" style="width: 5rem">
+                    <Column header="Mode" style="width: 5rem">
                       <template #body="slotProps">
                         <Button
                           text
