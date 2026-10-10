@@ -78,15 +78,12 @@ import { computed } from 'vue'
 import Button from 'primevue/button'
 
 import RunSwatch from './RunSwatch.vue'
-import { describeRunInputs, MAX_TRACKED_RUNS, runDash } from '../../services/simulation/trackedRuns'
-import { GLOBAL_COMPONENT } from '../../services/simulation/variableIndex'
+import { useTrackRun } from '../../composables/useTrackRun'
+import { MAX_TRACKED_RUNS, runDash } from '../../services/simulation/trackedRuns'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
-import { useSimulationSettingsStore } from '../../stores/simulationSettingsStore'
 
 const store = useSimulationResultsStore()
-const settingsStore = useSimulationSettingsStore()
-
-const definitions = computed(() => settingsStore.parameterScanConfig?.selections ?? [])
+const { liveInputs, trackBlocker, track } = useTrackRun()
 
 /**
  * Formats a value to 5 significant figures, as the charts' readout does.
@@ -105,22 +102,7 @@ const formatValue = (value) => (Number.isFinite(value) ? String(Number(value.toP
 const describe = (inputs) =>
   inputs.length ? inputs.map(({ label, value, units }) => `${label} = ${formatValue(value)}${units ? ` ${units}` : ''}`).join('; ') : 'The model’s values'
 
-const liveInputs = computed(() => describeRunInputs(store.runInputs?.overrides, definitions.value, GLOBAL_COMPONENT))
 const liveDetail = computed(() => (store.results ? describe(liveInputs.value) : 'Not run yet'))
-
-// Why the shown run can't be tracked, or null when it can.
-const trackBlocker = computed(() => {
-  if (store.status === 'running') return 'Wait for the run to finish'
-  if (!store.results) return 'Run the simulation first'
-  if (!['done', 'stopped'].includes(store.status)) return 'The last run didn’t finish'
-  if (store.trackedRuns.length >= MAX_TRACKED_RUNS) return `Up to ${MAX_TRACKED_RUNS} runs can be tracked: stop tracking one to track another`
-  return null
-})
-
-/** Tracks the shown run, with the slider values it tried out. */
-function track() {
-  if (!trackBlocker.value) store.trackRun(liveInputs.value)
-}
 </script>
 
 <style scoped>

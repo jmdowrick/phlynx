@@ -447,6 +447,9 @@ class TestSimulationTab(unittest.TestCase):
             viewer.get_by_role("button", name="Show the sliders").click()
             expect(viewer.locator(".slider-row")).to_have_count(1)
             self.assertGreater(viewer.bounding_box()["height"], height_before + 40)
+            # The viewer tracks the shown run, whose line stays on the plot as the slider moves.
+            viewer.get_by_role("button", name=re.compile(r"^Track this run \(0 of 5")).click()
+            expect(viewer.get_by_role("button", name=re.compile(r"^Track this run \(1 of 5"))).to_be_visible()
             page.evaluate(f"window.__shownResults = {RESULTS_STORE}.results")
             viewer.locator(".p-slider-handle").first.focus()
             for _ in range(10):
@@ -454,6 +457,7 @@ class TestSimulationTab(unittest.TestCase):
             page.wait_for_function(
                 f"{RESULTS_STORE}.results !== window.__shownResults && {RESULTS_STORE}.status === 'done'", timeout=60000
             )
+            expect(viewer.locator(".simulation-plot .plot-key[aria-label=Runs] li")).to_have_text(["Live", "#1"])
 
             # Back to the tab closes the window and opens the sidebar on the Simulation tab.
             viewer.get_by_role("button", name="Back to the Simulation tab").click()
