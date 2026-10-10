@@ -125,6 +125,20 @@ ode(V, t) = flow_in - flow_out;
 
 In this example, PhLynx interprets `ode(V, t)` as the derivative dV/dt. The solver will then integrate this variable over the course of the simulation.
 
+PhLynx treats the variable of integration (the second argument of `ode`) as time, whatever it is called: `t`, `time`, `tau` and so on. It is connected to the simulation clock when the model is exported. Any other variable is just a variable, even one named `t`, so you can still use `t` for something else, such as a thickness, and give it a value in the parameter table.
+
+A module without ODEs that still needs time, such as a stimulus that switches on and off, can declare a variable named `t` or `time` in time units (for example `second`). PhLynx then connects that variable to the clock too.
+
+#### Algebraic Systems
+
+A model doesn't need any ODEs. If none of its modules has one, it is an **algebraic system**: its equations are solved once, and nothing changes over time. Running it in the Simulation tab lists the value of each plotted variable instead of drawing a chart. An OMEX export describes it as a steady-state simulation.
+
+**Example:**
+```bash
+// A lever: the load moved for a given effort
+load = effort * arm_ratio;
+```
+
 #### Conditional Logic (Piecewise)
 
 CellML uses a `sel` (select) block to handle conditional logic, such as a valve opening or closing based on pressure.

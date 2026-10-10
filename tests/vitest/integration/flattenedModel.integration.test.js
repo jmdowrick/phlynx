@@ -412,15 +412,16 @@ describe('scoped models', () => {
 
   const componentOf = (text, name) => text.match(new RegExp(`<component name="${name}">[\\s\\S]*?</component>`))?.[0] ?? ''
 
-  it('stops a selection with nothing to integrate, which the build would reject', () => {
+  it('builds a selection with nothing to integrate as an algebraic system, with no clock', async () => {
     const { nodes, edges } = buildNetwork()
     const scope = resolveScope(['leaf_1'], nodes, edges)
     const report = checkScope(scope, store)
 
-    expect(report.errors).toEqual([expect.stringMatching(/no instance in this selection has a differential equation/i)])
+    expect(report.errors).toEqual([])
     expect(report.zeroedBoundaries).toEqual([{ nodeId: 'leaf_1', nodeName: 'leaf_1', variableName: 'u' }])
-    expect(report.canBuild).toBe(false)
-    expect(() => buildScopedModel(scope, store)).toThrow()
+    expect(report.canBuild).toBe(true)
+    const text = await buildScopedModel(scope, store).text()
+    expect(text).not.toMatch(/<component name="environment"/)
   })
 
   it('sets a boundary condition the cut leaves without a value to 0', async () => {

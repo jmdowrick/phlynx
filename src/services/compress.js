@@ -89,7 +89,9 @@ export async function generateOmexArchive(cellmlData, flowSnapshot, simData = {}
   const omexStore = useOmexStore()
 
   const cellmlFileName = addInfo.cellmlFileName
-  const sedmlText = generateSedmlData(simData.simulationSettings, cellmlFileName)
+  // A model without ODEs has no VOI, and is solved once rather than over time.
+  const isSteadyState = !!addInfo.extractedData && !addInfo.extractedData.voi
+  const sedmlText = generateSedmlData(simData.simulationSettings, cellmlFileName, { isSteadyState })
   const simulationJson = buildSimulationJson(simData.plotConfig, simData.parameterScanConfig, addInfo.extractedData)
 
   const reservedLocations = new Set(['manifest.xml', 'document.sedml', cellmlFileName, 'flow-snapshot.json', 'changes.json'])

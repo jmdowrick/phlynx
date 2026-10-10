@@ -1,4 +1,4 @@
-import { inferType, isEmpty, isNumericLiteral } from './variables.js'
+import { findTimeNames, inferType, isEmpty, isNumericLiteral } from './variables.js'
 import { analyzeMathXml } from '../services/math/analyzeMath.js'
 import { resolveBoundaryValues } from '../services/export/boundaryValues.js'
 import { couplingConflicts, multiplyFactor, sharedSumConflicts, variableTypes } from './multiport.js'
@@ -683,7 +683,17 @@ function handleLoggerErrors(logger, headerMessage, dontThrow = false) {
   }
 }
 
-function addEnvironmentComponent(model) {
+/**
+ * Adds the `environment` component, whose `time` is the model's clock, and connects each component's time
+ * variable to it. A model without ODEs is algebraic: it has no clock, and so no environment.
+ *
+ * @param {Object} model - A libcellml Model.
+ * @param {Array<{component: Object, timeNames: Set<string>}>} timeVariables - Each component's time variables.
+ * @param {boolean} hasOde - Whether any component integrates over time.
+ */
+function addEnvironmentComponent(model, timeVariables, hasOde) {
+  if (!hasOde) return
+
   const environmentComp = new _libcellml.Component()
   environmentComp.setName('environment')
   model.addComponent(environmentComp)
@@ -694,27 +704,22 @@ function addEnvironmentComponent(model) {
   timeVar.setInterfaceTypeByString('public')
   environmentComp.addVariable(timeVar)
 
-  for (let i = 0; i < model.componentCount(); i++) {
-    const component = model.componentByIndex(i)
-
-    if (component.name() === 'environment') {
-      component.delete()
-      continue
-    }
-    const timeVarInComp = component.variableByName('t') || component.variableByName('time')
-    if (timeVarInComp) {
-      const timeUnits = timeVar.units()
+  const timeUnits = timeVar.units()
+  for (const { component, timeNames } of timeVariables) {
+    for (const name of timeNames) {
+      const timeVarInComp = component.variableByName(name)
+      if (!timeVarInComp) continue
       const timeVarInCompUnits = timeVarInComp.units()
       if (_libcellml.Units.compatible(timeUnits, timeVarInCompUnits)) {
+        ensurePublicInterface(timeVarInComp)
         _libcellml.Variable.addEquivalence(timeVar, timeVarInComp)
       }
-      timeUnits.delete()
       timeVarInCompUnits.delete()
       timeVarInComp.delete()
     }
-    component.delete()
   }
 
+  timeUnits.delete()
   environmentComp.delete()
   timeVar.delete()
 }
@@ -1019,6 +1024,10 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
     // Values live only in the parameter rows, so one left blank leaves its variable uninitialised.
     const missingValues = []
 
+    // Each component's time variables, connected to the environment's clock once the model has one.
+    const timeVariables = []
+    let hasOde = false
+
     // ---------------------------------
     // Process Nodes (Create Components)
     // ---------------------------------
@@ -1039,6 +1048,16 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
       modelFromInstance.delete()
 
       nodeComponentMap.set(node.id, originalComponent)
+
+      // Time is what the math integrates over, not a name; a value set in the parameter rows makes it a parameter.
+      const analysis = libraryStore.getMathAnalysis?.(mathRef) ?? analyzeMathXml(modelString)
+      hasOde ||= analysis?.voi?.length > 0
+      const declaredUnits = new Map((analysis?.declared ?? []).map((variable) => [variable.name, variable.units]))
+      const timeNames = findTimeNames(analysis, (name) => declaredUnits.get(name))
+      for (const v of node.data.variables ?? []) {
+        if (v.type === 'global_constant' || isSetAsConstant(node.id, v)) timeNames.delete(v.name)
+      }
+      timeVariables.push({ component: originalComponent, timeNames })
 
       // Add Units found in MathML.
       const mathUnits = extractUnitsFromMath(originalComponent.math())
@@ -1199,7 +1218,7 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
 
     model.linkUnits()
 
-    addEnvironmentComponent(model)
+    addEnvironmentComponent(model, timeVariables, hasOde)
 
     if (globalParameterComponent.variableCount() === 0) {
       model.removeComponentByName(PHLYNX_GLOBAL_PARAMETERS_COMPONENT_NAME, true)
@@ -1276,9 +1295,8 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
   }
 }
 
-function isPossibleParameter(variable, includeInitialised = false) {
-  const varName = variable.name()
-  if (varName === 't' || varName === 'time') return false
+function isPossibleParameter(variable, timeNames, includeInitialised = false) {
+  if (timeNames.has(variable.name())) return false
   if (!includeInitialised && variable.initialValue() !== '') return false
   return true
 }
@@ -1293,10 +1311,11 @@ export function extractVariablesFromMath(math, includeInitialisedVariables = tru
     const variables = []
     if (math) {
       const analysis = analyzeMathXml(math)
+      const declaredUnits = new Map((analysis?.declared ?? []).map((variable) => [variable.name, variable.units]))
       const roles = {
         states: new Set(analysis?.stateVariables),
         assigned: new Set(analysis?.assigned),
-        voi: new Set(analysis?.voi),
+        time: findTimeNames(analysis, (name) => declaredUnits.get(name)),
       }
       const parser = new _libcellml.Parser(false)
       garbageCollector.add(parser)
@@ -1311,7 +1330,7 @@ export function extractVariablesFromMath(math, includeInitialisedVariables = tru
         garbageCollector.add(variable)
         const units = variable.units()
         garbageCollector.add(units)
-        if (isPossibleParameter(variable, includeInitialisedVariables)) {
+        if (isPossibleParameter(variable, roles.time, includeInitialisedVariables)) {
           const initialValue = variable.initialValue()
           variables.push({
             name: variable.name(),

@@ -1,5 +1,5 @@
 import { cleanName } from './identifiers'
-import { TIME_NAMES, ACCESS, NO_ACCESS } from './constants'
+import { TIME_NAMES, TIME_UNITS, ACCESS, NO_ACCESS } from './constants'
 
 export function isEditableVariableType(variableType) {
   return variableType !== 'variable' && variableType !== 'boundary_condition'
@@ -33,15 +33,35 @@ export const accessFromInterface = (cellmlInterface) =>
 // ── Types ────────────────────────────────────────────────────────────────────
 
 /**
- * Infers a row's type from its role in the math. States, equation LHS names, the variable of
- * integration and time are computed ('variable'); being an initialiser doesn't count.
+ * Finds the variables a component's math uses as time. With an ODE that is its variable of integration,
+ * whatever it is called. Without one, a variable named like time (`t`, `time`) in time units that the
+ * math doesn't compute is taken as time, so a module that only reads the clock (a stimulus, say) still
+ * gets it.
+ *
+ * @param {{voi?: Iterable<string>, stateVariables?: Iterable<string>, assigned?: Iterable<string>,
+ *   referenced?: Iterable<string>, declared?: Array<{name: string}>}} analysis - A math analysis.
+ * @param {(name: string) => (string|undefined)} unitsOf - A variable's units, when known.
+ * @returns {Set<string>}
+ */
+export function findTimeNames(analysis, unitsOf) {
+  const voi = new Set(analysis?.voi ?? [])
+  if (voi.size) return voi
+
+  const computed = new Set([...(analysis?.stateVariables ?? []), ...(analysis?.assigned ?? [])])
+  const names = new Set([...(analysis?.declared ?? []).map((variable) => variable.name), ...(analysis?.referenced ?? [])])
+  return new Set([...names].filter((name) => TIME_NAMES.has(name) && !computed.has(name) && TIME_UNITS.has(unitsOf(name))))
+}
+
+/**
+ * Infers a row's type from its role in the math. States, equation LHS names and time (see
+ * findTimeNames) are computed ('variable'); being an initialiser doesn't count.
  *
  * @param {string} name
- * @param {{states: Set, assigned: Set, voi: Set}} roles
+ * @param {{states: Set, assigned: Set, time: Set}} roles
  * @returns {'variable'|'constant'}
  */
-export function inferType(name, { states, assigned, voi }) {
-  if (states.has(name) || assigned.has(name) || voi.has(name) || TIME_NAMES.has(name)) return 'variable'
+export function inferType(name, { states, assigned, time }) {
+  if (states.has(name) || assigned.has(name) || time.has(name)) return 'variable'
   return 'constant'
 }
 
