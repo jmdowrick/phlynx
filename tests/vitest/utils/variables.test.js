@@ -87,6 +87,12 @@ describe('findTimeNames', () => {
     expect(findTimeNames(analysis, unitsFrom({ t: 'millisecond' }))).toEqual(new Set(['t']))
   })
 
+  it('reads the units the math declares before asking for others', () => {
+    const analysis = { voi: [], declared: [{ name: 't', units: 'second' }], referenced: ['t'] }
+    expect(findTimeNames(analysis)).toEqual(new Set(['t']))
+    expect(findTimeNames(analysis, unitsFrom({ t: 'metre' }))).toEqual(new Set(['t']))
+  })
+
   it('finds no time in an algebraic module whose t isn’t in time units, or is computed', () => {
     expect(findTimeNames({ voi: [], referenced: ['t'] }, unitsFrom({ t: 'metre' }))).toEqual(new Set())
     expect(findTimeNames({ voi: [], referenced: ['t'] }, unitsFrom({}))).toEqual(new Set())

@@ -39,17 +39,20 @@ export const accessFromInterface = (cellmlInterface) =>
  * gets it.
  *
  * @param {{voi?: Iterable<string>, stateVariables?: Iterable<string>, assigned?: Iterable<string>,
- *   referenced?: Iterable<string>, declared?: Array<{name: string}>}} analysis - A math analysis.
- * @param {(name: string) => (string|undefined)} unitsOf - A variable's units, when known.
+ *   referenced?: Iterable<string>, declared?: Array<{name: string, units?: string}>}} analysis - A math analysis.
+ * @param {(name: string) => (string|undefined)} [unitsOf] - Units of a variable the math doesn't declare.
  * @returns {Set<string>}
  */
-export function findTimeNames(analysis, unitsOf) {
+export function findTimeNames(analysis, unitsOf = () => undefined) {
   const voi = new Set(analysis?.voi ?? [])
   if (voi.size) return voi
 
+  const declared = analysis?.declared ?? []
+  const declaredUnits = new Map(declared.map((variable) => [variable.name, variable.units]))
   const computed = new Set([...(analysis?.stateVariables ?? []), ...(analysis?.assigned ?? [])])
-  const names = new Set([...(analysis?.declared ?? []).map((variable) => variable.name), ...(analysis?.referenced ?? [])])
-  return new Set([...names].filter((name) => TIME_NAMES.has(name) && !computed.has(name) && TIME_UNITS.has(unitsOf(name))))
+  const names = new Set([...declared.map((variable) => variable.name), ...(analysis?.referenced ?? [])])
+  const isTime = (name) => TIME_NAMES.has(name) && !computed.has(name) && TIME_UNITS.has(declaredUnits.get(name) || unitsOf(name))
+  return new Set([...names].filter(isTime))
 }
 
 /**

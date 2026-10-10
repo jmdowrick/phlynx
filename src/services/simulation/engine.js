@@ -285,7 +285,7 @@ export function createSimulationSession({ module: loc, cellml }) {
       const elapsedMs = instance.waitForRun()
       if (instance.hasErrors) throw new SimulationError('The model could not be solved.', readIssues(instance))
       onProgress(1)
-      return { ...readResults(task, null, 1), issues: readIssues(instance), elapsedMs, isStopped: false, isSteadyState }
+      return { ...readResults(task, null, 1), issues: readIssues(instance), elapsedMs, isStopped, isSteadyState }
     }
 
     const promise = (async () => {

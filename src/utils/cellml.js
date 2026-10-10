@@ -1052,8 +1052,7 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
       // Time is what the math integrates over, not a name; a value set in the parameter rows makes it a parameter.
       const analysis = libraryStore.getMathAnalysis?.(mathRef) ?? analyzeMathXml(modelString)
       hasOde ||= analysis?.voi?.length > 0
-      const declaredUnits = new Map((analysis?.declared ?? []).map((variable) => [variable.name, variable.units]))
-      const timeNames = findTimeNames(analysis, (name) => declaredUnits.get(name))
+      const timeNames = findTimeNames(analysis)
       for (const v of node.data.variables ?? []) {
         if (v.type === 'global_constant' || isSetAsConstant(node.id, v)) timeNames.delete(v.name)
       }
@@ -1311,11 +1310,10 @@ export function extractVariablesFromMath(math, includeInitialisedVariables = tru
     const variables = []
     if (math) {
       const analysis = analyzeMathXml(math)
-      const declaredUnits = new Map((analysis?.declared ?? []).map((variable) => [variable.name, variable.units]))
       const roles = {
         states: new Set(analysis?.stateVariables),
         assigned: new Set(analysis?.assigned),
-        time: findTimeNames(analysis, (name) => declaredUnits.get(name)),
+        time: findTimeNames(analysis),
       }
       const parser = new _libcellml.Parser(false)
       garbageCollector.add(parser)

@@ -33,10 +33,9 @@ export const modeFor = (isSimple) => (isSimple ? SIMPLE_MODE : ADVANCED_MODE)
  * @returns {{states: Set<string>, assigned: Set<string>, time: Set<string>}}
  */
 function getRoles(analysis, rows) {
-  const declaredUnits = new Map(analysis.declared.map((variable) => [variable.name, variable.units]))
   const rowUnits = new Map(rows.map((row) => [row.name, row.units]))
-  const unitsOf = (name) => declaredUnits.get(name) || rowUnits.get(name)
-  return { states: new Set(analysis.stateVariables), assigned: new Set(analysis.assigned), time: findTimeNames(analysis, unitsOf) }
+  const time = findTimeNames(analysis, (name) => rowUnits.get(name))
+  return { states: new Set(analysis.stateVariables), assigned: new Set(analysis.assigned), time }
 }
 
 /**

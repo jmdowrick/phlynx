@@ -272,6 +272,23 @@ describe('startSimulation', () => {
     expect(fake.simulation.numberOfSteps).toBeUndefined()
   })
 
+  it('reports a steady state stopped while it solves as stopped', async () => {
+    const fake = createFakeLibOpenCOR({ voiName: '', steadyState: true, stateCount: 0, pollsToFinish: 3 })
+    fake.task.voi = new Float64Array()
+    const start = fake.instance.startRun.getMockImplementation()
+    fake.instance.startRun.mockImplementation(() => {
+      const started = start()
+      run.stop()
+      return started
+    })
+
+    const run = startSimulation({ module: fake.loc, cellml: '<model/>', settings: SETTINGS })
+    const result = await run.promise
+
+    expect(fake.instance.stopRun).toHaveBeenCalled()
+    expect(result).toMatchObject({ isSteadyState: true, isStopped: true })
+  })
+
   it('rejects a run whose results wouldn’t fit in memory, before starting it', async () => {
     const fake = createFakeLibOpenCOR({ stateCount: 1000 })
     const settings = { ...SETTINGS, endingPoint: MAX_RESULT_BYTES / 8 / 1000, pointInterval: 1 }
