@@ -76,7 +76,7 @@ describe('loadLibOpenCOR', () => {
 
       const run = client.startSimulation({ cellml: '<model/>', settings: { endingPoint: 1 }, onProgress })
       const { id } = worker.sent.at(-1)
-      expect(worker.sent.at(-1)).toEqual({ type: 'run', id, cellml: '<model/>', key: null, settings: { endingPoint: 1 }, changes: [] })
+      expect(worker.sent.at(-1)).toEqual({ type: 'run', id, cellml: '<model/>', key: null, settings: { endingPoint: 1 }, changes: [], sweep: null })
       worker.reply({ type: 'progress', id, value: 0.5 })
       const values = new Float64Array([1, 2])
       worker.reply({ type: 'done', id, results: { voi: { name: 't', values }, variables: [['c/x', { kind: 'state', values }]], isStopped: false } })
@@ -93,7 +93,7 @@ describe('loadLibOpenCOR', () => {
 
       const run = client.startSimulation({ key: 3, settings: {}, changes })
       const { id } = worker.sent.at(-1)
-      expect(worker.sent.at(-1)).toEqual({ type: 'run', id, cellml: null, key: 3, settings: {}, changes })
+      expect(worker.sent.at(-1)).toEqual({ type: 'run', id, cellml: null, key: 3, settings: {}, changes, sweep: null })
       worker.reply({ type: 'error', id, message: 'The model needs reading again.', issues: [], code: 'no-session' })
 
       expect((await run.promise.catch((reason) => reason)).code).toBe('no-session')

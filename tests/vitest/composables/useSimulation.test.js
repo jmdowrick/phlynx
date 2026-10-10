@@ -99,6 +99,53 @@ describe('useSimulation', () => {
     expect(store.mapping.get('a::x')).toBe('a/x')
   })
 
+  it('sweeps a model without ODEs once a first solve names the parameter, then sweeps a rerun at once', async () => {
+    nodes.value = [createNode('a', [{ name: 'x', type: 'variable' }, { name: 'k', type: 'constant', value: '2' }])]
+    const sweep = { key: 'a::k', nodeId: 'a', nodeName: 'a', parameterName: 'k', type: 'constant', from: 1, to: 3, points: 3 }
+    useSimulationSettingsStore().setSimulationSettings({ ...useSimulationSettingsStore().simulationSettings, sweep })
+    const variables = new Map([['a/x', { kind: 'computedConstant' }], ['instance_parameters/k', { kind: 'constant' }]])
+    const solved = { voi: { name: '', unit: '', values: new Float64Array() }, variables, isStopped: false, isSteadyState: true }
+    const swept = { ...solved, voi: { name: 'instance_parameters/k', unit: '', values: new Float64Array([1, 2, 3]) }, isSweep: true }
+    const { run } = useSimulation()
+
+    const done = run(['a'])
+    await settle()
+    engine.runs[0].finish(solved)
+    await settle()
+    expect(engine.runs[1].options.cellml).toBeUndefined()
+    expect(engine.runs[1].options.key).toBe(engine.runs[0].options.key)
+    expect(engine.runs[1].options.sweep).toEqual({ component: 'instance_parameters', variable: 'k', values: [1, 2, 3] })
+    engine.runs[1].finish(swept)
+    await done
+    expect(store.status).toBe('done')
+    expect(store.results).toMatchObject({ isSweep: true, sweepLabel: 'a/k' })
+
+    const rerun = run(['a'])
+    await settle()
+    expect(engine.runs[2].options.cellml).toBeUndefined()
+    expect(engine.runs[2].options.sweep).toEqual({ component: 'instance_parameters', variable: 'k', values: [1, 2, 3] })
+    engine.runs[2].finish(swept)
+    await rerun
+    expect(engine.runs).toHaveLength(3)
+  })
+
+  it('explains a sweep of something the model computes', async () => {
+    useSimulationSettingsStore().setSimulationSettings({
+      ...useSimulationSettingsStore().simulationSettings,
+      sweep: { key: 'a::x', nodeId: 'a', nodeName: 'a', parameterName: 'x', type: 'constant', from: 1, to: 3, points: 3 },
+    })
+    const { run } = useSimulation()
+
+    const done = run(['a'])
+    await settle()
+    engine.runs[0].finish({ ...RESULTS, voi: { name: '', unit: '', values: new Float64Array() }, variables: new Map([['a/x', { kind: 'algebraic' }]]), isSteadyState: true })
+    await done
+
+    expect(store.status).toBe('error')
+    expect(store.error.message).toMatch(/a\/x is computed by the model/)
+    expect(engine.runs).toHaveLength(1)
+  })
+
   it('stops before running when the pre-flight finds errors', async () => {
     nodes.value = [createNode('a', [{ name: 'k', type: 'constant', value: '' }])]
     const { run } = useSimulation()

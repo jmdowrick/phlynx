@@ -135,13 +135,13 @@ export function countComputedPoints(voi, { outputStartTime, outputEndTime, numbe
  *
  * @param {Object} task - A SedInstanceTask.
  * @param {Object|null} stoppedTimeCourse - The time course of a stopped run, whose computed points alone are kept.
- * @param {number} [pointCount] - How many points to keep, when already known; a steady state has one.
+ * @param {number} [pointCount] - How many points to keep, when already known.
  * @returns {{voi: {name: string, unit: string, values: Float64Array}, variables: Map<string, Object>}}
  */
 function readResults(task, stoppedTimeCourse, pointCount) {
   const voi = task.voi
   const length = pointCount ?? (stoppedTimeCourse ? countComputedPoints(voi, stoppedTimeCourse) : voi.length)
-  const copy = (values) => Float64Array.from(values.subarray(0, Math.min(length, values.length)))
+  const copy = (values) => Float64Array.from(values.subarray(0, length))
   const variables = new Map()
   for (const { kind, count, name, unit, values } of VARIABLE_KINDS) {
     for (let i = 0; i < task[count]; i++) {
@@ -258,34 +258,82 @@ export function createSimulationSession({ module: loc, cellml }) {
    * @param {Object} options.settings - Simulation settings (simulationSettingsStore.simulationSettings).
    * @param {Array<{component: string, variable: string, value: number}>} [options.changes] - Values to run
    *   with in place of the model's, by the names libOpenCOR reports; each must be a constant or a state.
+   * @param {{component: string, variable: string, values: number[]}|null} [options.sweep] - For a model without
+   *   ODEs: a constant, by the name libOpenCOR reports, to solve the model at each of the values of.
    * @param {Function} [options.onProgress] - Called with the progress, from 0 to 1.
    * @returns {{promise: Promise<Object>, stop: Function}} `promise` resolves with `{ voi, variables, issues,
-   *   elapsedMs, isStopped, isSteadyState }` (a steady state has one value per variable and an empty VOI) or
-   *   rejects with a SimulationError; `stop` ends the run early, keeping what it has.
+   *   elapsedMs, isStopped, isSteadyState, isSweep }` or rejects with a SimulationError; `stop` ends the run early,
+   *   keeping what it has. A steady state has one value per variable and an empty VOI; a sweep, one value per
+   *   swept value, which are its VOI.
    */
-  function run({ settings, changes = [], onProgress = () => {} }) {
+  function run({ settings, changes = [], sweep = null, onProgress = () => {} }) {
     let instance = null
     let isStopped = false
 
     /**
-     * Solves an algebraic model once: each variable gets one value, and there is no VOI.
+     * Solves an algebraic model: once, or once per value of a sweep. Each solve gives every variable one
+     * value; a sweep's values become the results' VOI, so its results read like a time course over them.
      *
      * @param {Array} runChanges
-     * @param {Function} keepForRun
-     * @returns {Promise<Object>} As a run's results, with `isSteadyState` set.
+     * @param {{component: string, variable: string, values: number[]}|null} runSweep
+     * @returns {Promise<Object>} As a run's results, with `isSteadyState` set, and `isSweep` for a sweep.
      */
-    async function solveSteadyState(runChanges, keepForRun) {
-      applyChanges(runChanges)
-      instance = document.instantiate()
-      throwOnErrors(instance, 'The model could not be solved.')
-      const task = keepForRun(instance.task(0))
-      if (isStopped) return { ...readResults(task, null, 0), issues: [], elapsedMs: 0, isStopped, isSteadyState }
-      if (!instance.startRun()) throw new SimulationError('The model could not be solved.', readIssues(instance))
-      while (instance.status.value === RUNNING) await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
-      const elapsedMs = instance.waitForRun()
-      if (instance.hasErrors) throw new SimulationError('The model could not be solved.', readIssues(instance))
-      onProgress(1)
-      return { ...readResults(task, null, 1), issues: readIssues(instance), elapsedMs, isStopped, isSteadyState }
+    async function solveSteadyState(runChanges, runSweep) {
+      const isTarget = (change) => change.component === runSweep?.component && change.variable === runSweep?.variable
+      const points = runSweep ? runSweep.values : [null]
+      const columns = new Map()
+      let solved = 0
+      let elapsedMs = 0
+      let issues = []
+
+      /** The results of the points solved so far. */
+      const collect = () => {
+        const variables = new Map([...columns].map(([name, { kind, unit, values }]) => [name, { kind, unit, values: values.slice(0, solved) }]))
+        const voi = runSweep
+          ? { name: `${runSweep.component}/${runSweep.variable}`, unit: columns.get(`${runSweep.component}/${runSweep.variable}`)?.unit ?? '', values: Float64Array.from(points.slice(0, solved)) }
+          : { name: '', unit: '', values: new Float64Array() }
+        return { voi, variables }
+      }
+
+      for (const value of points) {
+        if (isStopped) break
+        applyChanges(value === null ? runChanges : [...runChanges.filter((change) => !isTarget(change)), { component: runSweep.component, variable: runSweep.variable, value }])
+        instance = document.instantiate()
+        try {
+          throwOnErrors(instance, 'The model could not be solved.')
+          const task = instance.task(0)
+          try {
+            if (!instance.startRun()) throw new SimulationError('The model could not be solved.', readIssues(instance))
+            while (instance.status.value === RUNNING) await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+            elapsedMs += instance.waitForRun()
+            if (instance.hasErrors) {
+              const at = runSweep ? ` at ${runSweep.component}/${runSweep.variable} = ${value}` : ''
+              throw new SimulationError(`The model could not be solved${at}.`, readIssues(instance), solved > 1 ? collect() : null)
+            }
+            for (const { kind, count, name, unit, values } of VARIABLE_KINDS) {
+              for (let i = 0; i < task[count]; i++) {
+                const variableName = task[name](i)
+                if (!columns.has(variableName)) columns.set(variableName, { kind, unit: task[unit](i), values: new Float64Array(points.length) })
+                columns.get(variableName).values[solved] = task[values](i)[0]
+              }
+            }
+            issues = readIssues(instance)
+          } finally {
+            task?.delete()
+          }
+        } finally {
+          if (instance.status.value === RUNNING) {
+            instance.stopRun()
+            instance.waitForRun()
+          }
+          instance.delete()
+          instance = null
+        }
+        solved++
+        onProgress(solved / points.length)
+      }
+
+      return { ...collect(), issues, elapsedMs, isStopped: solved < points.length, isSteadyState, isSweep: !!runSweep }
     }
 
     const promise = (async () => {
@@ -295,7 +343,7 @@ export function createSimulationSession({ module: loc, cellml }) {
       const runHandles = []
       const keepForRun = (handle) => (handle && runHandles.push(handle), handle)
       try {
-        if (isSteadyState) return await solveSteadyState(changes, keepForRun)
+        if (isSteadyState) return await solveSteadyState(changes, sweep)
 
         checkSettings(settings)
         const timeCourse = buildUniformTimeCourse(settings)

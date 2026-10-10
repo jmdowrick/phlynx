@@ -31,15 +31,18 @@ export function useSimulationCharts(scopeNodes) {
     const voi = store.results?.voi
     const values = voi?.values ?? new Float64Array()
     const { initialPoint, startingPoint } = simulationSettingsStore.simulationSettings
-    const isSettled = initialPoint < startingPoint && values.length > 0 && Math.abs(values[0] - startingPoint) < 1e-9 * Math.max(1, Math.abs(startingPoint))
+    // A sweep's values are the swept parameter's, never times to settle over.
+    const isSweep = !!store.results?.isSweep
+    const isSettled =
+      !isSweep && initialPoint < startingPoint && values.length > 0 && Math.abs(values[0] - startingPoint) < 1e-9 * Math.max(1, Math.abs(startingPoint))
     return {
-      label: voi?.name.split('/').pop() ?? '',
+      label: isSweep ? store.results.sweepLabel : voi?.name.split('/').pop() ?? '',
       unit: voi?.unit ?? '',
       values: isSettled ? values.map((time) => time - startingPoint) : values,
       // Where t = 0 is in the run's own time, when it isn't the same.
       offset: isSettled ? startingPoint : 0,
       // A model without ODEs is solved once: one value per variable, and no time to plot them against.
-      isSteadyState: !!store.results?.isSteadyState,
+      isSteadyState: !!store.results?.isSteadyState && !isSweep,
     }
   })
 

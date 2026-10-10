@@ -63,13 +63,13 @@ function createClient(worker, onReady) {
      * reads that model and keeps it under `key`; without, it reruns the model it keeps under `key`, and
      * rejects with code 'no-session' if it no longer has it.
      *
-     * @param {Object} options - `{ cellml, key, settings, changes, onProgress }`.
+     * @param {Object} options - `{ cellml, key, settings, changes, sweep, onProgress }`.
      * @returns {{promise: Promise<Object>, stop: Function}}
      */
-    startSimulation({ cellml = null, key = null, settings, changes = [], onProgress = () => {} }) {
+    startSimulation({ cellml = null, key = null, settings, changes = [], sweep = null, onProgress = () => {} }) {
       const id = nextId++
       const promise = new Promise((resolve, reject) => pending.set(id, { resolve, reject, onProgress }))
-      worker.postMessage({ type: 'run', id, cellml, key, settings: { ...settings }, changes })
+      worker.postMessage({ type: 'run', id, cellml, key, settings: { ...settings }, changes, sweep })
       return { promise, stop: () => worker.postMessage({ type: 'stop', id }) }
     },
   })

@@ -272,6 +272,36 @@ describe('startSimulation', () => {
     expect(fake.simulation.numberOfSteps).toBeUndefined()
   })
 
+  it('sweeps a constant of a model without ODEs, solving it once per value', async () => {
+    const fake = createFakeLibOpenCOR({ voiName: '', steadyState: true, stateCount: 0 })
+    fake.task.voi = new Float64Array()
+    const swept = () => Number(fake.model.changes.find((change) => change.variableName === 'a').newValue)
+    Object.assign(fake.task, {
+      constantCount: 1,
+      constantName: () => 'c/a',
+      constantUnit: () => 'volt',
+      constant: () => new Float64Array([swept()]),
+      computedConstantCount: 1,
+      computedConstantName: () => 'c/y',
+      computedConstantUnit: () => 'metre',
+      computedConstant: () => new Float64Array([2 * swept()]),
+    })
+    const onProgress = vi.fn()
+
+    const session = createSimulationSession({ module: fake.loc, cellml: '<model/>' })
+    const changes = [{ component: 'c', variable: 'a', value: 99 }, { component: 'c', variable: 'k', value: 1 }]
+    const sweep = { component: 'c', variable: 'a', values: [1, 2, 3] }
+    const result = await session.run({ settings: SETTINGS, changes, sweep, onProgress }).promise
+    session.dispose()
+
+    expect(result).toMatchObject({ isSteadyState: true, isSweep: true, isStopped: false })
+    expect(result.voi).toEqual({ name: 'c/a', unit: 'volt', values: new Float64Array([1, 2, 3]) })
+    expect([...result.variables.get('c/y').values]).toEqual([2, 4, 6])
+    // The swept value replaces a slider's, and the other changes stay.
+    expect(fake.model.changes.map((change) => [change.variableName, change.newValue])).toEqual([['k', '1'], ['a', '3']])
+    expect(onProgress.mock.calls.map(([value]) => value)).toEqual([1 / 3, 2 / 3, 1])
+  })
+
   it('reports a steady state stopped while it solves as stopped', async () => {
     const fake = createFakeLibOpenCOR({ voiName: '', steadyState: true, stateCount: 0, pollsToFinish: 3 })
     fake.task.voi = new Float64Array()

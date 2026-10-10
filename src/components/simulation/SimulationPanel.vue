@@ -121,8 +121,9 @@ const selectedNodeIds = computed(() => getSelectedNodes.value.map((node) => node
 const scopeNodes = computed(() =>
   store.scopeNodeIds ? nodes.value.filter((node) => store.scopeNodeIds.includes(node.id)) : nodes.value
 )
-// Without ODEs there is no time course: the model is solved once.
+// Without ODEs there is no time course: the model is solved once, or once per value of a sweep.
 const isSteadyState = computed(() => !!store.results?.isSteadyState)
+const isSweep = computed(() => !!store.results?.isSweep)
 const scopeSummary = computed(() => {
   const verb = isSteadyState.value ? 'Solved' : 'Simulated'
   if (!store.scopeNodeIds) return `${verb} the whole model`
@@ -131,15 +132,24 @@ const scopeSummary = computed(() => {
 })
 const stoppedAt = computed(() => {
   const voi = store.results?.voi
-  return voi?.values.length ? `${voi.values.at(-1).toPrecision(4)} ${voi.unit}` : 'the start'
+  if (!voi?.values.length) return 'the start'
+  const value = `${voi.values.at(-1).toPrecision(4)} ${voi.unit}`.trim()
+  return isSweep.value ? `${store.results.sweepLabel} = ${value}` : value
 })
 
 // A solve that starts before the plots do, to let the model settle, says so.
 const settleNote = computed(() => {
   const { initialPoint, startingPoint } = simulationSettingsStore.simulationSettings
-  return initialPoint < startingPoint ? ` from ${initialPoint} s, plotted from ${startingPoint} s` : ''
+  return !isSteadyState.value && initialPoint < startingPoint ? ` from ${initialPoint} s, plotted from ${startingPoint} s` : ''
+})
+const sweepNote = computed(() => {
+  const values = store.results?.voi?.values
+  if (!isSweep.value || !values?.length) return ''
+  const unit = store.results.voi.unit ? ` ${store.results.voi.unit}` : ''
+  return ` at ${values.length} values of ${store.results.sweepLabel}, from ${values[0]} to ${values.at(-1)}${unit}`
 })
 const resultsSummary = computed(() => {
+  if (isSweep.value && store.status === 'done') return `${scopeSummary.value}${sweepNote.value}.`
   if (isSteadyState.value && store.status === 'done') return `${scopeSummary.value}, once: without differential equations, nothing changes over time.`
   if (store.status === 'stopped') return `${scopeSummary.value}${settleNote.value}, stopped at ${stoppedAt.value}.`
   if (store.status === 'error') return `${scopeSummary.value}${settleNote.value}, up to ${stoppedAt.value} before the solver failed.`
