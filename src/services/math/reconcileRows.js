@@ -3,7 +3,7 @@
  * Pure (no Vue, no DOM), so it is safe in a worker.
  *
  * A row's type says where its value comes from:
- * - `variable`: this component's math computes it (state, assigned, time). Only computed
+ * - `variable`: this component's math computes it (state, assigned, VoI). Only computed
  *   rows are variables, and computed rows always are.
  * - `boundary_condition`: another module supplies it through a port.
  * - `constant` / `global_constant`: the parameter pane supplies it. The default for a new row.
@@ -12,7 +12,7 @@
  * `variable` the math doesn't compute: in a port it becomes a boundary condition, else a constant.
  */
 import { ACCESS, NO_ACCESS } from '../../utils/constants'
-import { accessFromInterface, findTimeNames, inferType, isNumericLiteral, syncInitialiserUnits } from '../../utils/variables'
+import { accessFromInterface, findVoiNames, inferType, isNumericLiteral, syncInitialiserUnits } from '../../utils/variables'
 
 export const SIMPLE_MODE = 'simple'
 export const ADVANCED_MODE = 'advanced'
@@ -30,19 +30,19 @@ export const modeFor = (isSimple) => (isSimple ? SIMPLE_MODE : ADVANCED_MODE)
  *
  * @param {import('./analyzeMath').MathAnalysis} analysis
  * @param {Array} rows - Rows giving units the math doesn't declare.
- * @returns {{states: Set<string>, assigned: Set<string>, time: Set<string>}}
+ * @returns {{states: Set<string>, assigned: Set<string>, voi: Set<string>}}
  */
 function getRoles(analysis, rows) {
   const rowUnits = new Map(rows.map((row) => [row.name, row.units]))
-  const time = findTimeNames(analysis, (name) => rowUnits.get(name))
-  return { states: new Set(analysis.stateVariables), assigned: new Set(analysis.assigned), time }
+  const voi = findVoiNames(analysis, (name) => rowUnits.get(name))
+  return { states: new Set(analysis.stateVariables), assigned: new Set(analysis.assigned), voi }
 }
 
 /**
  * Resolves a row's type from what the math computes, what the ports carry and the stored type.
  *
  * @param {string} name
- * @param {{states: Set, assigned: Set, time: Set}} roles
+ * @param {{states: Set, assigned: Set, voi: Set}} roles
  * @param {Object|undefined} previousRow
  * @param {Set<string>|null} portVariables - Names the instance's ports carry; null keeps a stored `variable`.
  * @returns {string} The row type.
@@ -112,7 +112,7 @@ function findInitialiserPairings(analysis, previousRows, stateNames) {
 
 /**
  * @typedef {Object} RowContext
- * @property {{states: Set, assigned: Set, time: Set}} roles
+ * @property {{states: Set, assigned: Set, voi: Set}} roles
  * @property {Set<string>|null} portVariables - Names the instance's ports carry; null if unknown.
  * @property {Map<string, string>} defaults - Values taken out of the math, for rows with none yet.
  */
@@ -149,7 +149,7 @@ function buildSimpleModeRow(name, declaration, previousRow, { roles, portVariabl
  */
 function buildAdvancedModeRow(name, declaration, previousRow, { roles, portVariables, defaults }) {
   const hasInitialValue = !!declaration.initialValue
-  const defaultAccess = roles.time.has(name) ? accessFromInterface(declaration.interface) : ACCESS
+  const defaultAccess = roles.voi.has(name) ? accessFromInterface(declaration.interface) : ACCESS
   return {
     name,
     units: declaration.units,

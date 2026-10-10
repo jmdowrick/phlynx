@@ -8,7 +8,7 @@ import { buildAlgorithm, buildUniformTimeCourse } from '../simulation/sedParamet
 const steadyStateSimulation = () => '    <steadyState id="simulation1"/>'
 
 /**
- * Writes the SED-ML simulation for a model with ODEs: a uniform time course with its solver.
+ * Writes the SED-ML simulation for a model with ODEs: a uniform course over its variable of integration, with its solver. SED-ML calls it a time course whatever the VoI is.
  *
  * @param {Object} simData - Simulation settings.
  * @returns {string}
@@ -34,7 +34,7 @@ ${parameters}
  * @param {Object} simData - Simulation settings (simulationSettingsStore.simulationSettings).
  * @param {string} [cellmlFileName='model.cellml']
  * @param {{isSteadyState?: boolean}} [options] - isSteadyState: the model has no ODEs, so it is solved once
- *   rather than over time, and the time settings don't apply.
+ *   rather than over a variable of integration, and the course settings don't apply.
  * @returns {string}
  */
 export function generateSedmlData(simData, cellmlFileName = 'model.cellml', { isSteadyState = false } = {}) {

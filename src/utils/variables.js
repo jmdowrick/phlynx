@@ -33,17 +33,17 @@ export const accessFromInterface = (cellmlInterface) =>
 // ── Types ────────────────────────────────────────────────────────────────────
 
 /**
- * Finds the variables a component's math uses as time. With an ODE that is its variable of integration,
- * whatever it is called. Without one, a variable named like time (`t`, `time`) in time units that the
- * math doesn't compute is taken as time, so a module that only reads the clock (a stimulus, say) still
- * gets it.
+ * Finds the variables a component's math uses as the variable of integration (VoI): with an ODE, what it
+ * integrates over, whatever that is called or measured in. A module without an ODE that only reads a clock
+ * (a stimulus, say) has no VoI of its own, so a variable named like time (`t`, `time`) in time units that
+ * its math doesn't compute is guessed to be the model's VoI.
  *
  * @param {{voi?: Iterable<string>, stateVariables?: Iterable<string>, assigned?: Iterable<string>,
  *   referenced?: Iterable<string>, declared?: Array<{name: string, units?: string}>}} analysis - A math analysis.
  * @param {(name: string) => (string|undefined)} [unitsOf] - Units of a variable the math doesn't declare.
  * @returns {Set<string>}
  */
-export function findTimeNames(analysis, unitsOf = () => undefined) {
+export function findVoiNames(analysis, unitsOf = () => undefined) {
   const voi = new Set(analysis?.voi ?? [])
   if (voi.size) return voi
 
@@ -51,20 +51,20 @@ export function findTimeNames(analysis, unitsOf = () => undefined) {
   const declaredUnits = new Map(declared.map((variable) => [variable.name, variable.units]))
   const computed = new Set([...(analysis?.stateVariables ?? []), ...(analysis?.assigned ?? [])])
   const names = new Set([...declared.map((variable) => variable.name), ...(analysis?.referenced ?? [])])
-  const isTime = (name) => TIME_NAMES.has(name) && !computed.has(name) && TIME_UNITS.has(declaredUnits.get(name) || unitsOf(name))
-  return new Set([...names].filter(isTime))
+  const readsClock = (name) => TIME_NAMES.has(name) && !computed.has(name) && TIME_UNITS.has(declaredUnits.get(name) || unitsOf(name))
+  return new Set([...names].filter(readsClock))
 }
 
 /**
- * Infers a row's type from its role in the math. States, equation LHS names and time (see
- * findTimeNames) are computed ('variable'); being an initialiser doesn't count.
+ * Infers a row's type from its role in the math. States, equation LHS names and the VoI (see
+ * findVoiNames) are computed ('variable'); being an initialiser doesn't count.
  *
  * @param {string} name
- * @param {{states: Set, assigned: Set, time: Set}} roles
+ * @param {{states: Set, assigned: Set, voi: Set}} roles
  * @returns {'variable'|'constant'}
  */
-export function inferType(name, { states, assigned, time }) {
-  if (states.has(name) || assigned.has(name) || time.has(name)) return 'variable'
+export function inferType(name, { states, assigned, voi }) {
+  if (states.has(name) || assigned.has(name) || voi.has(name)) return 'variable'
   return 'constant'
 }
 

@@ -530,9 +530,9 @@ describe('mapping a scoped run’s results back to instances', () => {
     return { scope, cellml: await buildScopedModel(scope, store).text() }
   }
 
-  /** Results reporting values under the given names, as the engine returns them. */
+  /** Results reporting values under the given names, as the engine returns them, over the hub's VoI t. */
   const resultsFor = (names) => ({
-    voi: { name: 'environment/time', unit: 'second', values: new Float64Array([0, 1]) },
+    voi: { name: 'environment/t', unit: 'second', values: new Float64Array([0, 1]) },
     variables: new Map(names.map((name, i) => [name, { kind: 'algebraic', unit: '', values: new Float64Array([i, i]) }])),
   })
 
@@ -542,14 +542,14 @@ describe('mapping a scoped run’s results back to instances', () => {
 
     const mapping = buildVariableMapping({ libcellml, cellml, nodes: scope.nodes, results })
 
-    expect(mapping.get(mappingKey('hub', 't'))).toBe('environment/time')
+    expect(mapping.get(mappingKey('hub', 't'))).toBe('environment/t')
     expect(mapping.get(mappingKey('hub', 'u'))).toBe('hub/u')
     expect(mapping.get(mappingKey('leaf_1', 'u'))).toBe('hub/u')
     expect(mapping.get(mappingKey('leaf_2', 'u'))).toBe('hub/u')
     expect(mapping.get(mappingKey('leaf_1', 'v'))).toBe('leaf_1/v')
     expect(mapping.get(mappingKey('leaf_2', 'k'))).toBe('instance_parameters/leaf_2_k')
     expect(readNodeSeries(results, mapping, 'leaf_2', 'u')).toMatchObject({ name: 'hub/u', kind: 'algebraic' })
-    expect(readNodeSeries(results, mapping, 'hub', 't')).toMatchObject({ name: 'environment/time', kind: 'voi' })
+    expect(readNodeSeries(results, mapping, 'hub', 't')).toMatchObject({ name: 'environment/t', kind: 'voi' })
   })
 
   it('follows the run when it reports another member of the same variables', async () => {
