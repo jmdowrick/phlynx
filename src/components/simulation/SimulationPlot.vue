@@ -58,6 +58,7 @@ import 'uplot/dist/uPlot.min.css'
 
 import { useColorScheme } from '../../composables/useColorScheme'
 import { getChartZoom, setChartZoom } from '../../services/simulation/chartZoom'
+import { findNearestPoint } from '../../services/simulation/nearestPoint'
 import { SERIES_COLOURS } from '../../services/simulation/seriesSlots'
 
 const CHROME = {
@@ -69,7 +70,8 @@ const props = defineProps({
   // The title as instance/variable paths, to show each instance muted, or null to show `title`.
   titleParts: { type: Array, default: null },
   unit: { type: String, required: true },
-  x: { type: Object, required: true }, // { label, unit, values, isSteadyState, isSweep, isPhase }
+  // { label, unit, values, isSteadyState, isSweep, isPhase, run }: a phase plot's `run` is the run's own x-axis.
+  x: { type: Object, required: true },
   series: { type: Array, required: true }, // [{ key, label, slot, values }]
   height: { type: Number, default: 220 },
   // Charts with the same key show their cursors at the same time.
@@ -156,20 +158,84 @@ const colourOf = (item) => SERIES_COLOURS[isDarkMode.value ? 'dark' : 'light'][i
  * @param {Object} chart - The uPlot chart.
  */
 function updateReadout(chart) {
-  if (props.x.isPhase) return
+  if (props.x.isPhase) {
+    updatePhaseReadout(chart)
+    return
+  }
   const { idx, left } = chart.cursor
   if (idx == null || left == null || left < 0) {
     readout.value = null
     return
   }
+  readout.value = {
+    ...placeReadout(chart, left),
+    time: `${formatValue(chart.data[0][idx])}${xUnit() ? ` ${xUnit()}` : ''}`,
+    rows: props.series.map((item) => ({ key: item.key, label: item.label, colour: colourOf(item), value: formatValue(item.values[idx]) })),
+  }
+}
+
+/**
+ * Places the readout beside the cursor, flipping to its left near the chart's right edge.
+ *
+ * @param {Object} chart - The uPlot chart.
+ * @param {number} left - The cursor's position in the plot area.
+ * @returns {{left: number, top: number}}
+ */
+function placeReadout(chart, left) {
   const over = chart.over
   const x = over.offsetLeft + left
   const fitsRight = x + 12 + READOUT_WIDTH_PX <= chart.root.clientWidth
+  return { left: fitsRight ? x + 12 : Math.max(0, x - 12 - READOUT_WIDTH_PX), top: over.offsetTop + 6 }
+}
+
+// How near the cursor, in pixels, a phase plot's point must be to be read out.
+const PHASE_HOVER_RADIUS_PX = 40
+
+/**
+ * Finds a phase plot series' point nearest the cursor, for uPlot to mark and the readout to show.
+ *
+ * @param {Object} chart - The uPlot chart.
+ * @param {number} seriesIndex
+ * @returns {number|null}
+ */
+function nearestPhasePoint(chart, seriesIndex) {
+  const { left, top } = chart.cursor
+  if (seriesIndex === 0 || left == null || left < 0) return null
+  const [xs, ys] = chart.data[seriesIndex]
+  const toLeft = (value) => chart.valToPos(value, 'x')
+  const toTop = (value) => chart.valToPos(value, 'y')
+  return findNearestPoint(xs, ys, toLeft, toTop, left, top, PHASE_HOVER_RADIUS_PX)
+}
+
+/**
+ * Shows a phase plot's points nearest the cursor: the nearest one's x and when in the run it is, then each
+ * series' value at its own nearest point.
+ *
+ * @param {Object} chart - The uPlot chart.
+ */
+function updatePhaseReadout(chart) {
+  const { left, top, idxs } = chart.cursor
+  const found = props.series
+    .map((item, i) => ({ item, idx: idxs?.[i + 1] }))
+    .filter(({ idx }) => idx != null)
+    .map((point) => {
+      const pointLeft = chart.valToPos(props.x.values[point.idx], 'x')
+      const pointTop = chart.valToPos(point.item.values[point.idx], 'y')
+      return { ...point, distance: Math.hypot(pointLeft - left, pointTop - top) }
+    })
+  if (!found.length) {
+    readout.value = null
+    return
+  }
+  const nearest = found.reduce((best, point) => (point.distance < best.distance ? point : best))
+  const unitOf = (unit) => (unit && unit !== 'dimensionless' ? ` ${shortUnit(unit)}` : '')
+  const name = (label) => label?.split('/').pop() ?? ''
+  const run = props.x.run
+  const when = run?.values?.length ? ` · ${name(run.label)} ${formatValue(run.values[nearest.idx])}${unitOf(run.unit)}` : ''
   readout.value = {
-    left: fitsRight ? x + 12 : Math.max(0, x - 12 - READOUT_WIDTH_PX),
-    top: over.offsetTop + 6,
-    time: `${formatValue(chart.data[0][idx])}${xUnit() ? ` ${xUnit()}` : ''}`,
-    rows: props.series.map((item) => ({ key: item.key, label: item.label, colour: colourOf(item), value: formatValue(item.values[idx]) })),
+    ...placeReadout(chart, left),
+    time: `${name(props.x.label)} ${formatValue(props.x.values[nearest.idx])}${xUnit() ? ` ${xUnit()}` : ''}${when}`,
+    rows: found.map(({ item, idx }) => ({ key: item.key, label: item.label, colour: colourOf(item), value: formatValue(item.values[idx]) })),
   }
 }
 let plot = null
@@ -242,7 +308,9 @@ function buildOptions(width) {
       width,
       height: props.height,
       scales: { x: { time: false }, y: {} },
-      cursor: { drag: { x: true, y: true }, points: { show: false } },
+      // uPlot marks each series' point that nearestPhasePoint finds, as its readout shows.
+      cursor: { drag: { x: true, y: true }, points: { size: 8 }, dataIdx: nearestPhasePoint },
+      hooks: { setCursor: [updateReadout] },
       legend: { show: false },
       padding: [8, 12, 0, 0],
       axes: [{ ...axis(timeTicks), size: 28 }, { ...axis(), size: sizeValueAxis }],

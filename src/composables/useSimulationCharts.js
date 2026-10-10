@@ -144,7 +144,18 @@ export function useSimulationCharts(scopeNodes) {
     for (const group of groups) {
       if (!group.xAxis || xAxis.value.isSteadyState) continue
       const plotted = readPlotted(group.xAxis, nodesById, outputsById)
-      plotXAxes.set(group.id, plotted && { key: group.xAxis.key, label: `${plotted.node.data.name}/${plotted.name}`, unit: plotted.unit, values: plotted.values, isPhase: true })
+      plotXAxes.set(
+        group.id,
+        plotted && {
+          key: group.xAxis.key,
+          label: `${plotted.node.data.name}/${plotted.name}`,
+          unit: plotted.unit,
+          values: plotted.values,
+          isPhase: true,
+          // When each point is, for the readout: the run's own x-axis, time or a sweep's parameter.
+          run: { label: xAxis.value.label, unit: xAxis.value.unit, values: xAxis.value.values },
+        }
+      )
     }
     plotNames.set(INSPECTION_PLOT, 'Inspection modules')
     const plotOrder = new Map(groups.map((group, index) => [group.id, index]))
