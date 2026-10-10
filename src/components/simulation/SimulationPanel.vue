@@ -40,10 +40,11 @@
             :title="chart.title"
             :title-parts="chart.titleParts"
             :unit="chart.unit"
-            :x="xAxis"
+            :x="chart.x ?? xAxis"
+            :note="chart.note"
             :series="chart.series"
             :height="chartHeight"
-            sync-key="simulation-panel"
+            :sync-key="chart.x ? null : 'simulation-panel'"
           />
         </template>
         <p v-else class="panel-empty">{{ figuresHint }}</p>

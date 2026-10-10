@@ -139,6 +139,12 @@ A model doesn't need any ODEs. If none of its modules has one, it is an **algebr
 load = effort * arm_ratio;
 ```
 
+To see how an algebraic system responds over a range, **sweep** one of its parameters. In **Simulation Settings → Sweep**, choose a parameter, a global constant, or a boundary condition that holds its own value. Then set the range (**From**, **To**) and the number of **Points**. Each run solves the model once per value, and every plot is drawn against the swept parameter. For example, sweep a channel's membrane voltage to plot its current–voltage curve. Sliders still apply, so moving one redraws the whole curve. Web OpenCOR can't run sweeps, so an OMEX export solves the model once, at the parameter's own value.
+
+#### Plotting One Variable Against Another
+
+By default a plot is drawn against time, or against the swept parameter of an algebraic system. To plot against another variable from the same run instead, such as a phase plot of `w` against `v`, open the plot's **⋯** menu, choose **Plot against a variable…** and pick the variable. **Plot against time** in the same menu undoes it. The CSV download includes the variable a plot is drawn against, and an OMEX export draws the plot the same way in web OpenCOR.
+
 #### Conditional Logic (Piecewise)
 
 CellML uses a `sel` (select) block to handle conditional logic, such as a valve opening or closing based on pressure.

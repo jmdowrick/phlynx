@@ -261,6 +261,7 @@
           v-model:target-plot-id="targetPlotId"
           v-model:plot-config="draftPlotConfig"
           :nodes="nodes"
+          :index="variableIndex"
           class="plots-list"
           @add-here="focusPlotPicker"
         />
@@ -439,7 +440,10 @@ const solverProblem = computed(() => findSolverSettingsProblem(localSimulationSe
 const isFixedStepSolver = computed(() => !!SOLVERS[localSimulationSettings.value.solver]?.isFixedStep)
 
 const sweepProblem = computed(() => (localSimulationSettings.value.sweep ? findSweepProblem(localSimulationSettings.value.sweep) : null))
-const sweepSuffix = computed(() => (localSimulationSettings.value.sweep?.units ? ` ${localSimulationSettings.value.sweep.units}` : ''))
+const sweepSuffix = computed(() => {
+  const units = localSimulationSettings.value.sweep?.units
+  return units && units !== 'dimensionless' ? ` ${units}` : ''
+})
 
 /**
  * Sweeps a picked parameter, over a range around its value.

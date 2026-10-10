@@ -43,7 +43,44 @@ export function useSimulationCharts(scopeNodes) {
       offset: isSettled ? startingPoint : 0,
       // A model without ODEs is solved once: one value per variable, and no time to plot them against.
       isSteadyState: !!store.results?.isSteadyState && !isSweep,
+      isSweep,
     }
+  })
+
+  /**
+   * Reads the values of a plotted variable, or of the variable a plot plots against: an instance's, or an
+   * inspection module's output.
+   *
+   * @param {{nodeId: string, variableName: string}} reference
+   * @param {Map<string, Object>} nodesById
+   * @param {Map<string, Object>} outputsById
+   * @returns {{node: Object, name: string, unit: string, values: Float64Array}|null}
+   */
+  function readPlotted({ nodeId, variableName }, nodesById, outputsById) {
+    // An inspection module's output put on a plot, as a variable of no instance.
+    if (isInspectionNodeId(nodeId)) {
+      const output = outputsById.get(nodeId.slice('inspection:'.length))
+      const series = output && store.results.variables.get(output.reportedName)
+      return series ? { node: { id: nodeId, data: { name: INSPECTION_COMPONENT } }, name: output.name, unit: output.units, values: series.values } : null
+    }
+    const node = nodesById.get(nodeId)
+    const series = node && readNodeSeries(store.results, store.mapping, node.id, variableName)
+    return series ? { node, name: variableName, unit: series.unit || 'dimensionless', values: series.values } : null
+  }
+
+  /**
+   * Says that a plot plots against the run's own x-axis, as the variable it is set to plot against has no
+   * values in the run.
+   *
+   * @param {{nodeName: string, variableName: string}} reference
+   * @returns {string}
+   */
+  const missingXNote = (reference) =>
+    `${reference.nodeName}/${reference.variableName} isn’t in this run, so this plot is against ${xAxis.value.label || 'time'}.`
+
+  const lookups = () => ({
+    nodesById: new Map(unref(scopeNodes).map((node) => [node.id, node])),
+    outputsById: new Map(store.inspectionOutputs.map((output) => [output.id, output])),
   })
 
   /**
@@ -53,21 +90,12 @@ export function useSimulationCharts(scopeNodes) {
    * @returns {Array<{key: string, plot: string, label: string, unit: string, values: Float64Array}>}
    */
   function collectSeries() {
-    const nodesById = new Map(unref(scopeNodes).map((node) => [node.id, node]))
-    const outputsById = new Map(store.inspectionOutputs.map((output) => [output.id, output]))
+    const { nodesById, outputsById } = lookups()
     const variables = (simulationSettingsStore.plotConfig?.selections ?? []).flatMap((selection) => {
-      // An inspection module's output put on a plot, as a variable of no instance.
-      if (isInspectionNodeId(selection.nodeId)) {
-        const output = outputsById.get(selection.nodeId.slice('inspection:'.length))
-        const series = output && store.results.variables.get(output.reportedName)
-        if (!series) return []
-        const node = { id: selection.nodeId, data: { name: INSPECTION_COMPONENT } }
-        return [{ key: selection.key, plot: selection.groupId ?? '', node, name: output.name, unit: output.units, values: series.values }]
-      }
-      const node = nodesById.get(selection.nodeId)
-      const series = node && readNodeSeries(store.results, store.mapping, node.id, selection.variableName)
-      if (!series) return []
-      return [{ key: `${node.id}::${selection.variableName}`, plot: selection.groupId ?? '', node, name: selection.variableName, unit: series.unit || 'dimensionless', values: series.values }]
+      const plotted = readPlotted(selection, nodesById, outputsById)
+      if (!plotted) return []
+      const key = isInspectionNodeId(selection.nodeId) ? selection.key : `${plotted.node.id}::${selection.variableName}`
+      return [{ key, plot: selection.groupId ?? '', ...plotted }]
     })
     // Named as the variable search names them: instance/variable.
     const labelled = variables.map(({ node, name, ...series }) => ({
@@ -109,6 +137,15 @@ export function useSimulationCharts(scopeNodes) {
     // Named as the plot cards name them, even for an imported config that lists no plots.
     const groups = resolveGroups(simulationSettingsStore.plotConfig)
     const plotNames = new Map(groups.map((group) => [group.id, group.name]))
+    // A plot against a variable, as a phase plot is, takes its x values from the same run. One solve has
+    // a single point, so it lists its values instead, as every other plot does.
+    const { nodesById, outputsById } = lookups()
+    const plotXAxes = new Map()
+    for (const group of groups) {
+      if (!group.xAxis || xAxis.value.isSteadyState) continue
+      const plotted = readPlotted(group.xAxis, nodesById, outputsById)
+      plotXAxes.set(group.id, plotted && { key: group.xAxis.key, label: `${plotted.node.data.name}/${plotted.name}`, unit: plotted.unit, values: plotted.values, isPhase: true })
+    }
     plotNames.set(INSPECTION_PLOT, 'Inspection modules')
     const plotOrder = new Map(groups.map((group, index) => [group.id, index]))
 
@@ -145,6 +182,10 @@ export function useSimulationCharts(scopeNodes) {
           // The plot's name, with what tells its charts apart when it makes several.
           plotLabel: chartsPerPlot.get(plot) > 1 && parts.length ? `${plotName} (${parts.join(', ')})` : plotName,
           unit,
+          // Null to plot against the run's own x-axis: time, or a sweep's parameter.
+          x: plotXAxes.get(plot) ?? null,
+          // Says so when the plot is set to plot against a variable the run has no values for.
+          note: plotXAxes.has(plot) && !plotXAxes.get(plot) ? missingXNote(groups.find((item) => item.id === plot).xAxis) : null,
           series: group.map((item) => ({ key: item.key, label: item.label, values: item.values, slot: slots.get(item.key) })),
         })
       })

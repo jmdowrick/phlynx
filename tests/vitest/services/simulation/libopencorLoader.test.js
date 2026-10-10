@@ -1,3 +1,4 @@
+import { reactive } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { libopencor, loadLibOpenCOR, resetLibOpenCORLoader, whenLibOpenCORReady } from '../../../../src/services/simulation/libopencorLoader.js'
@@ -85,6 +86,16 @@ describe('loadLibOpenCOR', () => {
       expect(onProgress).toHaveBeenCalledWith(0.5)
       expect(results.variables).toBeInstanceOf(Map)
       expect(results.variables.get('c/x').kind).toBe('state')
+    })
+
+    it('sends the store’s reactive settings as plain data a worker message can carry', async () => {
+      const { worker, client } = await loadClient()
+      const settings = reactive({ endingPoint: 1, sweep: { parameterName: 'V', from: -1, to: 1, points: 3 } })
+
+      client.startSimulation({ key: 3, settings: { ...settings } })
+
+      expect(() => structuredClone(worker.sent.at(-1))).not.toThrow()
+      expect(worker.sent.at(-1).settings).toEqual({ endingPoint: 1, sweep: { parameterName: 'V', from: -1, to: 1, points: 3 } })
     })
 
     it('reruns the model the worker keeps by its key, with parameter changes', async () => {

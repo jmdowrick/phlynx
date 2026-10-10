@@ -50,10 +50,11 @@
             :title="chart.title"
             :title-parts="chart.titleParts"
             :unit="chart.unit"
-            :x="xAxis"
+            :x="chart.x ?? xAxis"
+            :note="chart.note"
             :series="chart.series"
             :height="chartHeight"
-            sync-key="simulation-results-dialog"
+            :sync-key="chart.x ? null : 'simulation-results-dialog'"
           />
           <p class="results-hint">Drag across a chart to zoom in; double-click it to zoom out.</p>
         </div>

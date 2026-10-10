@@ -6,6 +6,8 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { analyzeMathXml } from '../../../src/services/math/analyzeMath.js'
 import { reconcileRows } from '../../../src/services/math/reconcileRows.js'
 import { createSimulationSession } from '../../../src/services/simulation/engine.js'
+import { createSweep, resolveSweepTarget, sweepValues } from '../../../src/services/simulation/sweep.js'
+import { buildVariableMapping } from '../../../src/services/simulation/variableMapping.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { extractVoiAndParametersFromModel, generateFlattenedModel } from '../../../src/utils/cellml.js'
 import { BASELINE_SIMULATION_SETTINGS } from '../../../src/utils/constants.js'
@@ -96,11 +98,12 @@ const environmentVoi = (text) => text.match(/<component name="environment">\s*<v
 
 describe('variables of integration and algebraic systems in the flattened model', () => {
   let store
+  let libcellml
   // One libOpenCOR for the file: a second instance in the same page breaks the first.
   let libOpenCOR
 
   beforeAll(async () => {
-    await ensureLibCellmlReady()
+    ;({ instance: libcellml } = await ensureLibCellmlReady())
     libOpenCOR = await createLibOpenCOR()
   }, 120000)
 
@@ -185,6 +188,26 @@ describe('variables of integration and algebraic systems in the flattened model'
       expect(results.isSteadyState).toBe(true)
       expect(results.voi.values).toHaveLength(0)
       expect([...results.variables.get('lever/y').values]).toEqual([6])
+    } finally {
+      session.dispose()
+    }
+  }, 60000)
+
+  it('sweeps a parameter of an algebraic system in libOpenCOR, solving it at each value', async () => {
+    const node = buildNode('lever', ALGEBRAIC_XML, { a: '3', t: '2' })
+    const cellml = await flatten([node])
+    const session = createSimulationSession({ module: libOpenCOR, cellml })
+    try {
+      const solved = await session.run({ settings: {} }).promise
+      const mapping = buildVariableMapping({ libcellml, cellml, nodes: [node], results: solved })
+      const sweep = { ...createSweep(node, node.data.variables.find((row) => row.name === 't'), () => null), from: 0, to: 4, points: 5 }
+      const target = resolveSweepTarget({ sweep, nodes: [node], mapping, variables: solved.variables })
+
+      const swept = await session.run({ settings: {}, sweep: { ...target, values: sweepValues(sweep) } }).promise
+      expect(swept).toMatchObject({ isSteadyState: true, isSweep: true, isStopped: false })
+      expect([...swept.voi.values]).toEqual([0, 1, 2, 3, 4])
+      expect(swept.voi.unit).toBe('metre')
+      expect([...swept.variables.get('lever/y').values]).toEqual([0, 3, 6, 9, 12])
     } finally {
       session.dispose()
     }

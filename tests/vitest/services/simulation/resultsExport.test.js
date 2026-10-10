@@ -20,6 +20,17 @@ describe('collectResultColumns', () => {
   })
 })
 
+describe('collectResultColumns for a plot against a variable', () => {
+  it('adds the variable a plot plots against, once, even when it is plotted too', () => {
+    const phaseX = { key: 'b::V', label: 'b.V', unit: 'mV', values: W.values, isPhase: true }
+    const charts = [
+      { unit: 'mV', x: phaseX, series: [V] },
+      { unit: 'mV', series: [W] },
+    ]
+    expect(collectResultColumns(X, charts).map((column) => column.key)).toEqual(['__voi__', 'b::V', 'a::V'])
+  })
+})
+
 describe('buildResultsCsv', () => {
   it('writes a header with units, then every point at full precision', () => {
     const csv = buildResultsCsv(collectResultColumns(X, [{ unit: 'mV', series: [V, W] }]))

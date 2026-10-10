@@ -69,7 +69,8 @@ function createClient(worker, onReady) {
     startSimulation({ cellml = null, key = null, settings, changes = [], sweep = null, onProgress = () => {} }) {
       const id = nextId++
       const promise = new Promise((resolve, reject) => pending.set(id, { resolve, reject, onProgress }))
-      worker.postMessage({ type: 'run', id, cellml, key, settings: { ...settings }, changes, sweep })
+      // Plain copies: a store's settings are reactive proxies, which a worker message can't carry.
+      worker.postMessage({ type: 'run', id, cellml, key, settings: JSON.parse(JSON.stringify(settings)), changes, sweep })
       return { promise, stop: () => worker.postMessage({ type: 'stop', id }) }
     },
   })
