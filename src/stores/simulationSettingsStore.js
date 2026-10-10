@@ -3,7 +3,7 @@ import { ref } from 'vue'
 
 import { BASELINE_SIMULATION_SETTINGS } from '../utils/constants'
 
-function cloneSimulationSettings(settings = {}) {
+export function cloneSimulationSettings(settings = {}) {
   return {
     ...BASELINE_SIMULATION_SETTINGS,
     ...settings,

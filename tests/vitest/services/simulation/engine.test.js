@@ -302,6 +302,61 @@ describe('startSimulation', () => {
     expect(onProgress.mock.calls.map(([value]) => value)).toEqual([1 / 3, 2 / 3, 1])
   })
 
+  /**
+   * Builds a fake model without ODEs whose c/y is twice its swept constant c/a.
+   *
+   * @returns {Object} As createFakeLibOpenCOR.
+   */
+  function createSweepFake() {
+    const fake = createFakeLibOpenCOR({ voiName: '', steadyState: true, stateCount: 0 })
+    fake.task.voi = new Float64Array()
+    const swept = () => Number(fake.model.changes.find((change) => change.variableName === 'a').newValue)
+    Object.assign(fake.task, {
+      computedConstantCount: 1,
+      computedConstantName: () => 'c/y',
+      computedConstantUnit: () => 'metre',
+      computedConstant: () => new Float64Array([2 * swept()]),
+    })
+    return fake
+  }
+
+  const SWEEP = { component: 'c', variable: 'a', values: [1, 2, 3] }
+
+  it('drops the point a sweep was stopped during, and reports it stopped', async () => {
+    const fake = createSweepFake()
+    const start = fake.instance.startRun.getMockImplementation()
+    const session = createSimulationSession({ module: fake.loc, cellml: '<model/>' })
+    fake.instance.startRun.mockImplementation(() => {
+      const started = start()
+      if (fake.instance.startRun.mock.calls.length === 3) run.stop()
+      return started
+    })
+
+    const run = session.run({ settings: SETTINGS, sweep: SWEEP })
+    const result = await run.promise
+    session.dispose()
+
+    expect(result).toMatchObject({ isSweep: true, isStopped: true })
+    expect([...result.voi.values]).toEqual([1, 2])
+    expect([...result.variables.get('c/y').values]).toEqual([2, 4])
+  })
+
+  it('keeps what a failed sweep solved, as a sweep', async () => {
+    const fake = createSweepFake()
+    fake.instance.waitForRun = () => {
+      if (fake.instance.startRun.mock.calls.length === 3) Object.assign(fake.instance, { hasErrors: true, issueCount: 0 })
+      return 1
+    }
+    const session = createSimulationSession({ module: fake.loc, cellml: '<model/>' })
+
+    const error = await failureOf(session.run({ settings: SETTINGS, sweep: SWEEP }).promise)
+    session.dispose()
+
+    expect(error.message).toBe('The model could not be solved at c/a = 3.')
+    expect(error.partialResults).toMatchObject({ isSteadyState: true, isSweep: true })
+    expect([...error.partialResults.variables.get('c/y').values]).toEqual([2, 4])
+  })
+
   it('reports a steady state stopped while it solves as stopped', async () => {
     const fake = createFakeLibOpenCOR({ voiName: '', steadyState: true, stateCount: 0, pollsToFinish: 3 })
     fake.task.voi = new Float64Array()

@@ -306,16 +306,16 @@ export function createSimulationSession({ module: loc, cellml }) {
             if (!instance.startRun()) throw new SimulationError('The model could not be solved.', readIssues(instance))
             while (instance.status.value === RUNNING) await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
             elapsedMs += instance.waitForRun()
+            // A solve stopped part way may not have converged, so its values aren't kept.
+            if (isStopped) break
             if (instance.hasErrors) {
               const at = runSweep ? ` at ${runSweep.component}/${runSweep.variable} = ${value}` : ''
-              throw new SimulationError(`The model could not be solved${at}.`, readIssues(instance), solved > 1 ? collect() : null)
+              const partial = solved > 1 ? { ...collect(), isSteadyState, isSweep: !!runSweep } : null
+              throw new SimulationError(`The model could not be solved${at}.`, readIssues(instance), partial)
             }
-            for (const { kind, count, name, unit, values } of VARIABLE_KINDS) {
-              for (let i = 0; i < task[count]; i++) {
-                const variableName = task[name](i)
-                if (!columns.has(variableName)) columns.set(variableName, { kind, unit: task[unit](i), values: new Float64Array(points.length) })
-                columns.get(variableName).values[solved] = task[values](i)[0]
-              }
+            for (const [variableName, { kind, unit, values }] of readResults(task, null, 1).variables) {
+              if (!columns.has(variableName)) columns.set(variableName, { kind, unit, values: new Float64Array(points.length) })
+              columns.get(variableName).values[solved] = values[0]
             }
             issues = readIssues(instance)
           } finally {

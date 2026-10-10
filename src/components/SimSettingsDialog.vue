@@ -316,7 +316,7 @@ import { createSweep, findSweepProblem, isSweepableRow, MAX_SWEEP_POINTS } from 
 import { buildVariableIndex, resolvePlotTarget } from '../services/simulation/variableIndex'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
-import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
+import { cloneSimulationSettings, useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -409,8 +409,7 @@ const hasUnsavedChanges = computed(() => props.modelValue && JSON.stringify(crea
 
 /** Copies the store into the drafts, as the dialog opens. */
 function initialiseDialog() {
-  const { sweep } = simulationSettings.value
-  localSimulationSettings.value = { ...simulationSettings.value, ...(sweep && { sweep: { ...sweep } }) }
+  localSimulationSettings.value = cloneSimulationSettings(simulationSettings.value)
   draftPlotConfig.value = JSON.parse(JSON.stringify(plotConfig.value ?? {}))
   draftScanConfig.value = JSON.parse(JSON.stringify(parameterScanConfig.value?.selections ? parameterScanConfig.value : { selections: [] }))
   plotNote.value = ''

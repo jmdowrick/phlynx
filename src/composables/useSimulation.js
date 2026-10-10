@@ -191,8 +191,12 @@ export function useSimulation() {
           flattenedWith: { rows: new Set(overrides.rows.keys()), globals: new Set(overrides.globals.keys()) },
         }
         session = null
-        currentRun = simulator.startSimulation({ cellml, key: built.key, settings, onProgress })
+        // With a sweep to follow, this run only maps the model, so finishing it isn't the end of the run.
+        const mapOnProgress = settings.sweep ? (progress) => progress < 1 && onProgress(progress) : onProgress
+        currentRun = simulator.startSimulation({ cellml, key: built.key, settings, onProgress: mapOnProgress })
         results = await currentRun.promise
+        // Until a sweep starts there is no run to stop, so Stop abandons this one.
+        currentRun = null
       }
       if (token !== runToken) return
 
@@ -214,7 +218,8 @@ export function useSimulation() {
     } catch (error) {
       if (token === runToken) {
         const source = changes ? kept : built
-        const partial = error.partialResults && source && (await mapPartialResults(source, scope, error.partialResults))
+        const partialResults = error.partialResults?.isSweep ? { ...error.partialResults, sweepLabel: sweepLabel(settings.sweep) } : error.partialResults
+        const partial = partialResults && source && (await mapPartialResults(source, scope, partialResults))
         if (token === runToken) store.failRun('error', { message: error.message, issues: error.issues ?? [] }, partial)
       }
     } finally {
