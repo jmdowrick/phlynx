@@ -17,6 +17,12 @@ SHORTEN_SIMULATION = (
     "document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s"
     ".get('simulationSettings').setSimulationSettings({ endingPoint: 1, pointInterval: 0.01 })"
 )
+# The model's full 10 s, which it fires late in, so a change of Cm moves its spikes. Its points are finer than
+# the workspace's 0.01 s, between which the solver runs out of steps.
+FULL_SIMULATION = (
+    "document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s"
+    ".get('simulationSettings').setSimulationSettings({ endingPoint: 10, pointInterval: 0.001 })"
+)
 APP_MOUNT_TIMEOUT = 60000
 SIMULATOR_READY = "document.querySelector('#app').__vue_app__._context.provides.$libopencor.status === 'ready'"
 RESULTS_STORE = "document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('simulationResults')"
@@ -180,14 +186,15 @@ class TestSimulationTab(unittest.TestCase):
             soma = page.get_by_text("SN_somacell_modules.cellmlsoma_SN")
             soma.wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
-            page.evaluate(SHORTEN_SIMULATION)
+            page.evaluate(FULL_SIMULATION)
             soma.click()
             page.locator(".resizable-context-panel .aside-collapse-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             simulate_selection(page)
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
             plot_variable(page, "soma_SN/V")
-            add_slider(page, "soma_SN/g_Na")
+            add_slider(page, "soma_SN/Cm")
+            page.wait_for_function(f"{RESULTS_STORE}.status === 'done'", timeout=120000)
 
             page.get_by_role("button", name=re.compile(r"^Runs \(0\)")).click()
             expect(page.get_by_text("Track a run to keep its lines on the charts")).to_be_visible()
@@ -200,24 +207,28 @@ class TestSimulationTab(unittest.TestCase):
 
             before = page.evaluate(FINAL_SOMA_V)
             page.get_by_role("button", name=re.compile(r"^Sliders \(")).click()
-            page.get_by_role("slider", name="g_Na value").focus()
+            page.get_by_role("slider", name="Cm value").focus()
             for _ in range(300):
                 page.keyboard.press("ArrowRight")
             page.wait_for_function(
                 f"{RESULTS_STORE}.status === 'done' && {FINAL_SOMA_V} !== {before!r}",
                 timeout=120000,
             )
-            # The tracked run keeps its own values, and says what the slider was when it ran.
-            tracked = page.evaluate(
+            # The tracked run keeps its own values, whose spikes the larger Cm has moved.
+            tracked, largest_difference = page.evaluate(
                 f"(() => {{ const store = {RESULTS_STORE}; const run = store.trackedRuns[0];"
-                " return run.results.variables.get(run.mapping.get('dndnode_0::V')).values.at(-1) })()"
+                " const read = (results, mapping) => results.variables.get(mapping.get('dndnode_0::V')).values;"
+                " const tracked = read(run.results, run.mapping); const live = read(store.results, store.mapping);"
+                " let largest = 0; for (let i = 0; i < tracked.length; i++) largest = Math.max(largest, Math.abs(tracked[i] - live[i]));"
+                " return [tracked.at(-1), largest] })()"
             )
             self.assertEqual(tracked, before)
+            self.assertGreater(largest_difference, 10)
             expect(run_key).to_have_text(["Live", "#1"])
 
             page.get_by_role("button", name=re.compile(r"^Runs \(1\)")).click()
             expect(page.locator(".run-item").nth(1)).to_contain_text("The model’s values")
-            expect(page.locator(".run-item").nth(0)).to_contain_text("soma_SN/g_Na = 2.438 microS")
+            expect(page.locator(".run-item").nth(0)).to_contain_text("soma_SN/Cm = 31.8 picoF")
             page.get_by_role("button", name="Hide run #1").click()
             expect(run_key).to_have_count(0)
             page.get_by_role("button", name="Show run #1").click()
