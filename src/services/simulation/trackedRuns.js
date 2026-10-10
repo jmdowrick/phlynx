@@ -69,13 +69,13 @@ export const fadeColour = (colour) =>
     .padStart(2, '0')}`
 
 /**
- * Checks whether two times are the same output point.
+ * Checks whether two values of the variable of integration (VoI) are the same output point.
  *
  * @param {number} a
  * @param {number} b
  * @returns {boolean}
  */
-const isSameTime = (a, b) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b))
+const isSameVoi = (a, b) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b))
 
 /**
  * Checks whether two runs have the same output points.
@@ -84,35 +84,35 @@ const isSameTime = (a, b) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), 
  * @param {ArrayLike<number>} b
  * @returns {boolean}
  */
-export function haveSameTimes(a, b) {
+export function haveSameVoi(a, b) {
   if (a === b) return true
   if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) if (!isSameTime(a[i], b[i])) return false
+  for (let i = 0; i < a.length; i++) if (!isSameVoi(a[i], b[i])) return false
   return true
 }
 
 /**
- * Puts runs on one time axis, since a chart's lines share one. Runs with the same output points, as a slider
- * moving gives, share theirs; otherwise, as after a change of time course or a run stopped early, the axis
+ * Puts runs on one VoI axis, since a chart's lines share one. Runs with the same output points, as a slider
+ * moving gives, share theirs; otherwise, as after a change of output points or a run stopped early, the axis
  * holds every run's points and each run has no value at the others'.
  *
- * @param {ArrayLike<number>} live - The live run's times.
- * @param {Array<ArrayLike<number>>} others - Each tracked run's times.
- * @returns {{values: ArrayLike<number>, align: (times: ArrayLike<number>, values: ArrayLike<number>) => ArrayLike<number>}}
+ * @param {ArrayLike<number>} first - The VoI values of the run whose axis is kept while the others match it.
+ * @param {Array<ArrayLike<number>>} others - Each other run's VoI values.
+ * @returns {{values: ArrayLike<number>, align: (voi: ArrayLike<number>, values: ArrayLike<number>) => ArrayLike<number>}}
  */
-export function alignTimes(live, others) {
-  if (others.every((times) => haveSameTimes(live, times))) return { values: live, align: (_, values) => values }
-  const all = [live, ...others].flatMap((times) => Array.from(times)).sort((a, b) => a - b)
+export function alignVoi(first, others) {
+  if (others.every((voi) => haveSameVoi(first, voi))) return { values: first, align: (_, values) => values }
+  const all = [first, ...others].flatMap((voi) => Array.from(voi)).sort((a, b) => a - b)
   const values = []
-  for (const time of all) if (!values.length || !isSameTime(values.at(-1), time)) values.push(time)
+  for (const point of all) if (!values.length || !isSameVoi(values.at(-1), point)) values.push(point)
   return {
     values,
-    align(times, series) {
-      if (haveSameTimes(values, times)) return series
+    align(voi, series) {
+      if (haveSameVoi(values, voi)) return series
       const aligned = new Array(values.length).fill(null)
       let j = 0
-      for (let i = 0; i < times.length && i < series.length; i++) {
-        while (j < values.length && values[j] < times[i] && !isSameTime(values[j], times[i])) j++
+      for (let i = 0; i < voi.length && i < series.length; i++) {
+        while (j < values.length && values[j] < voi[i] && !isSameVoi(values[j], voi[i])) j++
         if (j < values.length) aligned[j] = series[i]
       }
       return aligned
@@ -121,18 +121,18 @@ export function alignTimes(live, others) {
 }
 
 /**
- * Gets the times a run's charts show: from the start of its plots, when they start after the solve does
- * to let the model settle.
+ * Gets the VoI values a run's charts show: from the start of its plots, when they start after the solve
+ * does to let the model settle.
  *
  * @param {{voi?: {values: Float64Array}}|null} results
  * @param {{initialPoint: number, startingPoint: number}} settings - The run's simulation settings.
  * @returns {{values: Float64Array, offset: number}}
  */
-export function displayTimes(results, settings) {
+export function displayVoi(results, settings) {
   const values = results?.voi?.values ?? new Float64Array()
   const { initialPoint, startingPoint } = settings ?? {}
-  const isSettled = initialPoint < startingPoint && values.length > 0 && isSameTime(values[0], startingPoint)
-  return isSettled ? { values: values.map((time) => time - startingPoint), offset: startingPoint } : { values, offset: 0 }
+  const isSettled = initialPoint < startingPoint && values.length > 0 && isSameVoi(values[0], startingPoint)
+  return isSettled ? { values: values.map((point) => point - startingPoint), offset: startingPoint } : { values, offset: 0 }
 }
 
 /**

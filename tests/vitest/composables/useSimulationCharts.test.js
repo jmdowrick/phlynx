@@ -14,17 +14,17 @@ const MAPPING = new Map([
 ])
 
 /**
- * Makes results with V and w over some times.
+ * Makes results with V and w over some values of the VoI.
  *
- * @param {number[]} times
+ * @param {number[]} voi
  * @param {number} offset - Added to each value, to tell runs apart.
  * @returns {Object}
  */
-const makeResults = (times, offset) => ({
-  voi: { name: 'cell/t', unit: 'second', values: new Float64Array(times) },
+const makeResults = (voi, offset) => ({
+  voi: { name: 'cell/t', unit: 'second', values: new Float64Array(voi) },
   variables: new Map([
-    ['cell/V', { unit: 'mV', values: new Float64Array(times.map((time) => time + offset)) }],
-    ['cell/w', { unit: 'mV', values: new Float64Array(times.map(() => offset)) }],
+    ['cell/V', { unit: 'mV', values: new Float64Array(voi.map((point) => point + offset)) }],
+    ['cell/w', { unit: 'mV', values: new Float64Array(voi.map(() => offset)) }],
   ]),
   isStopped: false,
 })
@@ -84,7 +84,7 @@ describe('useSimulationCharts with tracked runs', () => {
     expect(charts.value[0].series).toEqual([])
   })
 
-  it('puts runs with other output points on one time axis', () => {
+  it('puts runs with other output points on one VoI axis', () => {
     const { xAxis, charts } = useSimulationCharts(NODES)
     finish(makeResults([0, 1], 0))
     store.trackRun()
@@ -94,7 +94,7 @@ describe('useSimulationCharts with tracked runs', () => {
     expect(Array.from(tracked.values)).toEqual([0, null, 1])
   })
 
-  it('leaves a hidden live run’s points off the time axis', () => {
+  it('leaves a hidden live run’s points off the VoI axis', () => {
     const { xAxis, charts } = useSimulationCharts(NODES)
     finish(makeResults([0, 1], 0))
     store.trackRun()

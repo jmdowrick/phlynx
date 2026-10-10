@@ -8,7 +8,7 @@ import { computed, unref } from 'vue'
 import { resolveGroups } from '../services/simulation/plotSelections'
 import { INSPECTION_COMPONENT, isInspectionNodeId } from '../services/simulation/variableIndex'
 import { assignSeriesSlots, chunkSeries } from '../services/simulation/seriesSlots'
-import { alignTimes, displayTimes, runDash, runLabel } from '../services/simulation/trackedRuns'
+import { alignVoi, displayVoi, runDash, runLabel } from '../services/simulation/trackedRuns'
 import { readNodeSeries } from '../services/simulation/variableMapping'
 import { useAppSettings } from './useAppSettings'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
@@ -28,22 +28,22 @@ export function useSimulationCharts(scopeNodes) {
   const simulationSettingsStore = useSimulationSettingsStore()
   const { settings } = useAppSettings()
 
-  // The tracked runs shown, each with the times its charts show.
+  // The tracked runs shown, each with the values of the variable of integration (VoI) its charts show.
   const shownRuns = computed(() =>
     store.trackedRuns
       .filter((run) => run.isVisible)
-      .map((run) => ({ ...run, times: displayTimes(run.results, run.settings ?? simulationSettingsStore.simulationSettings).values }))
+      .map((run) => ({ ...run, voiValues: displayVoi(run.results, run.settings ?? simulationSettingsStore.simulationSettings).values }))
   )
 
-  // Plots that start after the solve does, to let the model settle, count time from their start: t = 0.
-  const liveTimes = computed(() => displayTimes(store.results, simulationSettingsStore.simulationSettings))
+  // Plots that start after the solve does, to let the model settle, count the VoI from their start: 0.
+  const liveVoi = computed(() => displayVoi(store.results, simulationSettingsStore.simulationSettings))
 
-  // One time axis for the runs shown, which is the live run's while they share it. A hidden live run's
+  // One VoI axis for the runs shown, which is the live run's while they share it. A hidden live run's
   // points are left out, so tracked runs with the same points still draw without gaps.
-  const timeline = computed(() => {
-    const runTimes = shownRuns.value.map((run) => run.times)
-    if (!store.isLiveRunVisible && runTimes.length) return alignTimes(runTimes[0], runTimes.slice(1))
-    return alignTimes(liveTimes.value.values, runTimes)
+  const voiAxis = computed(() => {
+    const runVoi = shownRuns.value.map((run) => run.voiValues)
+    if (!store.isLiveRunVisible && runVoi.length) return alignVoi(runVoi[0], runVoi.slice(1))
+    return alignVoi(liveVoi.value.values, runVoi)
   })
 
   const xAxis = computed(() => {
@@ -51,10 +51,10 @@ export function useSimulationCharts(scopeNodes) {
     return {
       label: voi?.name.split('/').pop() ?? '',
       unit: voi?.unit ?? '',
-      values: timeline.value.values,
-      // Where t = 0 is in the run's own time, when it isn't the same.
-      offset: liveTimes.value.offset,
-      // A model without ODEs is solved once: one value per variable, and no time to plot them against.
+      values: voiAxis.value.values,
+      // Where 0 is in the run's own VoI, when it isn't the same.
+      offset: liveVoi.value.offset,
+      // A model without ODEs is solved once: one value per variable, and no VoI to plot them against.
       isSteadyState: !!store.results?.isSteadyState,
     }
   })
@@ -144,10 +144,10 @@ export function useSimulationCharts(scopeNodes) {
       byPlotAndUnit.get(id).series.push(series)
     }
 
-    // Each tracked run's values by series key, and its times; a variable it didn't simulate has no line.
-    const { align } = timeline.value
+    // Each tracked run's values by series key, and its VoI values; a variable it didn't simulate has no line.
+    const { align } = voiAxis.value
     const runs = shownRuns.value.map((run) => ({ run, values: new Map(collectSeries(run).map((series) => [series.key, series.values])) }))
-    const live = liveTimes.value.values
+    const live = liveVoi.value.values
 
     const nextSlots = new Map()
     const result = []
@@ -173,7 +173,7 @@ export function useSimulationCharts(scopeNodes) {
                     key: `${run.id}::${item.key}`,
                     label: runLabel(item.label, run.number),
                     variableLabel: item.label,
-                    values: align(run.times, values.get(item.key)),
+                    values: align(run.voiValues, values.get(item.key)),
                     slot: slots.get(item.key),
                     run: { number: run.number, dash: runDash(run.number) },
                   },

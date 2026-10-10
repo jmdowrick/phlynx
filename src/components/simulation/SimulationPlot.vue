@@ -272,7 +272,7 @@ function buildOptions(width) {
         stroke: series.run ? fadeColour(SERIES_COLOURS[theme][series.slot]) : SERIES_COLOURS[theme][series.slot],
         width: series.run ? 1.5 : 2,
         ...(series.run && { dash: series.run.dash }),
-        // Runs with different output points share a time axis on which each has gaps at the others' points.
+        // Runs with different output points share a VoI axis on which each has gaps at the others' points.
         spanGaps: true,
         points: { show: false },
       })),

@@ -3,12 +3,12 @@ import { describe, expect, it } from 'vitest'
 import {
   MAX_TRACKED_RUNS,
   RUN_DASHES,
-  alignTimes,
+  alignVoi,
   describeRunInputs,
-  displayTimes,
+  displayVoi,
   fadeColour,
   formatPlotValue,
-  haveSameTimes,
+  haveSameVoi,
   nextRunNumber,
   runDash,
   runLabel,
@@ -43,19 +43,19 @@ describe('formatPlotValue', () => {
   })
 })
 
-describe('alignTimes', () => {
-  it('keeps the live run’s times while the tracked runs share them', () => {
+describe('alignVoi', () => {
+  it('keeps the live run’s VoI values while the tracked runs share them', () => {
     const live = new Float64Array([0, 0.5, 1])
-    const { values, align } = alignTimes(live, [new Float64Array([0, 0.5, 1 + 1e-12])])
+    const { values, align } = alignVoi(live, [new Float64Array([0, 0.5, 1 + 1e-12])])
     expect(values).toBe(live)
     const series = new Float64Array([1, 2, 3])
     expect(align(live, series)).toBe(series)
   })
 
-  it('holds every run’s times when they differ, each run with gaps at the others’', () => {
+  it('holds every run’s VoI values when they differ, each run with gaps at the others’', () => {
     const live = new Float64Array([0, 1, 2])
     const tracked = new Float64Array([0, 0.5, 1])
-    const { values, align } = alignTimes(live, [tracked])
+    const { values, align } = alignVoi(live, [tracked])
     expect(values).toEqual([0, 0.5, 1, 2])
     expect(align(live, [10, 11, 12])).toEqual([10, null, 11, 12])
     expect(align(tracked, [20, 21, 22])).toEqual([20, 21, 22, null])
@@ -63,26 +63,26 @@ describe('alignTimes', () => {
 
   it('aligns a run stopped early, with no values past where it stopped', () => {
     const live = new Float64Array([0, 1])
-    const { values, align } = alignTimes(live, [new Float64Array([0, 1, 2])])
+    const { values, align } = alignVoi(live, [new Float64Array([0, 1, 2])])
     expect(values).toEqual([0, 1, 2])
     expect(align(live, [5, 6])).toEqual([5, 6, null])
   })
 })
 
-describe('haveSameTimes', () => {
+describe('haveSameVoi', () => {
   it('tells runs with other output points apart', () => {
-    expect(haveSameTimes([0, 1], [0, 1])).toBe(true)
-    expect(haveSameTimes([0, 1], [0, 1, 2])).toBe(false)
-    expect(haveSameTimes([0, 1], [0, 1.1])).toBe(false)
+    expect(haveSameVoi([0, 1], [0, 1])).toBe(true)
+    expect(haveSameVoi([0, 1], [0, 1, 2])).toBe(false)
+    expect(haveSameVoi([0, 1], [0, 1.1])).toBe(false)
   })
 })
 
-describe('displayTimes', () => {
-  it('counts time from the plots’ start when they start after the solve does', () => {
+describe('displayVoi', () => {
+  it('counts the VoI from the plots’ start when they start after the solve does', () => {
     const results = { voi: { values: new Float64Array([5, 6, 7]) } }
-    expect(displayTimes(results, { initialPoint: 0, startingPoint: 5 })).toEqual({ values: new Float64Array([0, 1, 2]), offset: 5 })
-    expect(displayTimes(results, { initialPoint: 5, startingPoint: 5 })).toEqual({ values: results.voi.values, offset: 0 })
-    expect(displayTimes(null, { initialPoint: 0, startingPoint: 0 }).values).toHaveLength(0)
+    expect(displayVoi(results, { initialPoint: 0, startingPoint: 5 })).toEqual({ values: new Float64Array([0, 1, 2]), offset: 5 })
+    expect(displayVoi(results, { initialPoint: 5, startingPoint: 5 })).toEqual({ values: results.voi.values, offset: 0 })
+    expect(displayVoi(null, { initialPoint: 0, startingPoint: 0 }).values).toHaveLength(0)
   })
 })
 
