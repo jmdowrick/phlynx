@@ -93,4 +93,16 @@ describe('useSimulationCharts with tracked runs', () => {
     const tracked = charts.value[0].series.find((series) => series.key === 'run_1::a::V')
     expect(Array.from(tracked.values)).toEqual([0, null, 1])
   })
+
+  it('leaves a hidden live run’s points off the time axis', () => {
+    const { xAxis, charts } = useSimulationCharts(NODES)
+    finish(makeResults([0, 1], 0))
+    store.trackRun()
+    finish(makeResults([0, 1], 5))
+    store.trackRun()
+    finish(makeResults([0, 0.5, 1], 10))
+    store.isLiveRunVisible = false
+    expect(Array.from(xAxis.value.values)).toEqual([0, 1])
+    expect(charts.value[0].series.every((series) => !series.values.includes(null))).toBe(true)
+  })
 })

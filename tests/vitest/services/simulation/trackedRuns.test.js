@@ -7,6 +7,7 @@ import {
   describeRunInputs,
   displayTimes,
   fadeColour,
+  formatPlotValue,
   haveSameTimes,
   nextRunNumber,
   runDash,
@@ -29,6 +30,16 @@ describe('tracked run numbers and dashes', () => {
   it('names a run’s line after its variable’s, and fades its colour', () => {
     expect(runLabel('a/V', 2)).toBe('a/V [#2]')
     expect(fadeColour('#2a78d6')).toMatch(/^#2a78d6[0-9a-f]{2}$/)
+  })
+})
+
+describe('formatPlotValue', () => {
+  it('shows 5 significant figures, without trailing zeros, and a dash for no value', () => {
+    expect(formatPlotValue(3.14159265)).toBe('3.1416')
+    expect(formatPlotValue(2)).toBe('2')
+    expect(formatPlotValue(0.000123456789)).toBe('0.00012346')
+    expect(formatPlotValue(null)).toBe('–')
+    expect(formatPlotValue(NaN)).toBe('–')
   })
 })
 

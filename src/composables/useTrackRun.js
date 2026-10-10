@@ -4,7 +4,7 @@
  */
 import { computed } from 'vue'
 
-import { describeRunInputs, MAX_TRACKED_RUNS } from '../services/simulation/trackedRuns'
+import { describeRunInputs } from '../services/simulation/trackedRuns'
 import { GLOBAL_COMPONENT } from '../services/simulation/variableIndex'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
@@ -22,17 +22,11 @@ export function useTrackRun() {
   const liveInputs = computed(() => describeRunInputs(store.runInputs?.overrides, settingsStore.parameterScanConfig?.selections, GLOBAL_COMPONENT))
 
   // Why the shown run can't be tracked, or null when it can.
-  const trackBlocker = computed(() => {
-    if (store.status === 'running') return 'Wait for the run to finish'
-    if (!store.results) return 'Run the simulation first'
-    if (!['done', 'stopped'].includes(store.status)) return 'The last run didn’t finish'
-    if (store.trackedRuns.length >= MAX_TRACKED_RUNS) return `Up to ${MAX_TRACKED_RUNS} runs can be tracked: stop tracking one to track another`
-    return null
-  })
+  const trackBlocker = computed(() => store.trackBlocker)
 
   /** Tracks the shown run, with the slider values it ran with. */
   function track() {
-    if (!trackBlocker.value) store.trackRun(liveInputs.value)
+    store.trackRun(liveInputs.value)
   }
 
   return { liveInputs, trackBlocker, track }

@@ -37,6 +37,14 @@ export const runDash = (number) => RUN_DASHES[(number - 1) % RUN_DASHES.length]
 export const runLabel = (label, number) => `${label} [#${number}]`
 
 /**
+ * Formats a value to 5 significant figures, as the charts' readout and the runs list show values.
+ *
+ * @param {number} value
+ * @returns {string} The value, or '–' when it isn't a finite number.
+ */
+export const formatPlotValue = (value) => (Number.isFinite(value) ? String(Number(value.toPrecision(5))) : '–')
+
+/**
  * Picks the lowest number no tracked run has, so the runs tracked at once never share a dash.
  *
  * @param {Array<{number: number}>} runs

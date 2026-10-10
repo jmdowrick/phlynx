@@ -67,7 +67,7 @@ import RunSwatch from './RunSwatch.vue'
 import { useColorScheme } from '../../composables/useColorScheme'
 import { getChartZoom, setChartZoom } from '../../services/simulation/chartZoom'
 import { SERIES_COLOURS } from '../../services/simulation/seriesSlots'
-import { fadeColour } from '../../services/simulation/trackedRuns'
+import { fadeColour, formatPlotValue as formatValue } from '../../services/simulation/trackedRuns'
 
 const CHROME = {
   light: { text: '#52514e', grid: '#e1e0d9', axis: '#c3c2b7' },
@@ -114,14 +114,6 @@ function formatTicks(_, splits) {
  */
 const sizeValueAxis = (_, values) => Math.max(32, Math.ceil(Math.max(0, ...(values ?? []).map((value) => value.length)) * 6.5) + 12)
 
-/**
- * Formats a value for the readout, to 5 significant figures.
- *
- * @param {number|null|undefined} value
- * @returns {string}
- */
-const formatValue = (value) => (Number.isFinite(value) ? String(Number(value.toPrecision(5))) : '–')
-
 // The readout's width, about, to keep it inside the chart.
 const READOUT_WIDTH_PX = 150
 
@@ -161,6 +153,7 @@ const runKey = computed(() => {
 
 // How many variables the lines show, however many runs they are from.
 const variableCount = computed(() => new Set(props.series.map((item) => item.variableLabel ?? item.label)).size)
+const hasRuns = computed(() => props.series.some((item) => item.run))
 
 /**
  * Names a line in the readout: its variable, when the chart has several, and its run, apart from the
@@ -170,8 +163,7 @@ const variableCount = computed(() => new Set(props.series.map((item) => item.var
  * @returns {{label: string|null, run: string|null}}
  */
 function readoutNames(item) {
-  const hasRuns = props.series.some((other) => other.run)
-  const run = hasRuns ? (item.run ? `#${item.run.number}` : 'Live') : null
+  const run = hasRuns.value ? (item.run ? `#${item.run.number}` : 'Live') : null
   return { label: variableCount.value > 1 ? item.variableLabel ?? item.label : null, run }
 }
 

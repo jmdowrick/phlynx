@@ -79,19 +79,12 @@ import Button from 'primevue/button'
 
 import RunSwatch from './RunSwatch.vue'
 import { useTrackRun } from '../../composables/useTrackRun'
-import { MAX_TRACKED_RUNS, runDash } from '../../services/simulation/trackedRuns'
+import { formatPlotValue as formatValue, MAX_TRACKED_RUNS, runDash } from '../../services/simulation/trackedRuns'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
 
 const store = useSimulationResultsStore()
 const { liveInputs, trackBlocker, track } = useTrackRun()
 
-/**
- * Formats a value to 5 significant figures, as the charts' readout does.
- *
- * @param {number} value
- * @returns {string}
- */
-const formatValue = (value) => (Number.isFinite(value) ? String(Number(value.toPrecision(5))) : String(value))
 
 /**
  * Says what slider values a run tried out.

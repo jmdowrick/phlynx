@@ -44,6 +44,30 @@ describe('simulationResultsStore tracked runs', () => {
     expect(store.trackedRuns).toHaveLength(1)
   })
 
+  it('says why the shown run can’t be tracked, as trackRun decides', () => {
+    const blockers = []
+    const expectAgreement = () => {
+      blockers.push(store.trackBlocker)
+      expect(store.canTrackRun()).toBe(store.trackBlocker === null)
+    }
+    expectAgreement()
+    store.startRun(null)
+    expectAgreement()
+    finish()
+    expectAgreement()
+    for (let i = 0; i < MAX_TRACKED_RUNS; i++) store.trackRun()
+    expectAgreement()
+    store.failRun('error', { message: 'no' }, { results: makeResults(), mapping: new Map() })
+    expectAgreement()
+    expect(blockers).toEqual([
+      'Run the simulation first',
+      'Wait for the run to finish',
+      null,
+      `Up to ${MAX_TRACKED_RUNS} runs can be tracked: stop tracking one to track another`,
+      'The last run didn’t finish',
+    ])
+  })
+
   it('tracks a stopped run, but not a failed one', () => {
     finish(null, makeResults({ isStopped: true }))
     expect(store.trackRun()).not.toBeNull()

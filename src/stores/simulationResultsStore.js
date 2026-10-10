@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { markRaw, ref, shallowRef } from 'vue'
+import { computed, markRaw, ref, shallowRef } from 'vue'
 
 import { MAX_TRACKED_RUNS, nextRunNumber } from '../services/simulation/trackedRuns'
 
@@ -97,8 +97,15 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     if (trackedRuns.value.some((tracked) => !!tracked.results.isSteadyState !== !!run.results.isSteadyState)) removeAllTrackedRuns()
   }
 
-  /** Whether the shown results can be tracked: a run finished or stopped, with room for another. */
-  const canTrackRun = () => !!results.value && ['done', 'stopped'].includes(status.value) && trackedRuns.value.length < MAX_TRACKED_RUNS
+  /** Why the shown results can't be tracked, or null when they can: a run finished or stopped, with room for another. */
+  const trackBlocker = computed(() => {
+    if (status.value === 'running') return 'Wait for the run to finish'
+    if (!results.value) return 'Run the simulation first'
+    if (!['done', 'stopped'].includes(status.value)) return 'The last run didn’t finish'
+    if (trackedRuns.value.length >= MAX_TRACKED_RUNS) return `Up to ${MAX_TRACKED_RUNS} runs can be tracked: stop tracking one to track another`
+    return null
+  })
+  const canTrackRun = () => !trackBlocker.value
 
   /**
    * Keeps the shown results on the charts as a tracked run.
@@ -201,6 +208,7 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     runInputs,
     trackedRuns,
     isLiveRunVisible,
+    trackBlocker,
     canTrackRun,
     trackRun,
     removeTrackedRun,

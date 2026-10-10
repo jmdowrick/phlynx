@@ -38,8 +38,13 @@ export function useSimulationCharts(scopeNodes) {
   // Plots that start after the solve does, to let the model settle, count time from their start: t = 0.
   const liveTimes = computed(() => displayTimes(store.results, simulationSettingsStore.simulationSettings))
 
-  // One time axis for the live run and the tracked runs shown, which is the live run's while they share it.
-  const timeline = computed(() => alignTimes(liveTimes.value.values, shownRuns.value.map((run) => run.times)))
+  // One time axis for the runs shown, which is the live run's while they share it. A hidden live run's
+  // points are left out, so tracked runs with the same points still draw without gaps.
+  const timeline = computed(() => {
+    const runTimes = shownRuns.value.map((run) => run.times)
+    if (!store.isLiveRunVisible && runTimes.length) return alignTimes(runTimes[0], runTimes.slice(1))
+    return alignTimes(liveTimes.value.values, runTimes)
+  })
 
   const xAxis = computed(() => {
     const voi = store.results?.voi
