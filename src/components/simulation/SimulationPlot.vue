@@ -5,7 +5,7 @@
         <template v-if="titleParts">
           <template v-for="(part, index) in titleParts" :key="index"
             ><span v-if="index" class="plot-title-separator">, </span
-            ><span v-if="series.length > 1 && series[index]" class="plot-key-swatch plot-title-swatch" :style="{ background: colourOf(series[index]) }" aria-hidden="true"></span
+            ><span v-if="titleParts.length > 1 && part.slot !== undefined" class="plot-key-swatch plot-title-swatch" :style="{ background: colourOf(part) }" aria-hidden="true"></span
             ><span v-if="part.component" class="plot-title-component">{{ part.component }}/</span><span>{{ part.name }}</span></template
           >
         </template>
@@ -17,13 +17,22 @@
     <!-- A key only when the title names the plot rather than its lines, which it colours itself. -->
     <ul v-if="series.length > 1 && !titleParts && !x.isSteadyState" class="plot-key">
       <li v-for="item in series" :key="item.key">
-        <span class="plot-key-swatch" :style="{ background: colourOf(item) }" aria-hidden="true"></span>{{ item.label }}
+        <RunSwatch v-if="item.run" :colour="colourOf(item)" :dash="item.run.dash" /><span v-else class="plot-key-swatch" :style="{ background: colourOf(item) }" aria-hidden="true"></span
+        >{{ item.label }}
+      </li>
+    </ul>
+    <!-- With the title naming the lines, which runs they are from: the live run solid, tracked runs dashed. -->
+    <ul v-if="runKey.length && titleParts && !x.isSteadyState" class="plot-key" aria-label="Runs">
+      <li v-for="item in runKey" :key="item.number">
+        <RunSwatch v-if="item.dash" :colour="chrome.text" :dash="item.dash" /><span v-else class="plot-key-swatch" :style="{ background: chrome.text }" aria-hidden="true"></span
+        >{{ item.label }}
       </li>
     </ul>
     <!-- A steady state has one value per variable and no time to plot them against. -->
     <ul v-if="x.isSteadyState" class="plot-values">
-      <li v-for="item in series" :key="item.key">
-        <span class="plot-key-swatch" :style="{ background: colourOf(item) }" aria-hidden="true"></span>
+      <li v-for="item in readoutOrder" :key="item.key">
+        <RunSwatch v-if="item.run" :colour="colourOf(item)" :dash="item.run.dash" />
+        <span v-else class="plot-key-swatch" :style="{ background: colourOf(item) }" aria-hidden="true"></span>
         <span class="plot-values-label">{{ item.label }}</span>
         <span class="plot-values-value">{{ formatValue(item.values[0]) }}</span>
       </li>
@@ -34,8 +43,10 @@
       <div v-if="readout" class="plot-readout" :style="{ left: `${readout.left}px`, top: `${readout.top}px` }" aria-hidden="true">
         <div class="plot-readout-time">{{ readout.time }}</div>
         <div v-for="row in readout.rows" :key="row.key" class="plot-readout-row">
-          <span class="plot-key-swatch" :style="{ background: row.colour }"></span>
-          <span v-if="series.length > 1" class="plot-readout-label">{{ row.label }}</span>
+          <RunSwatch v-if="row.dash" :colour="row.colour" :dash="row.dash" />
+          <span v-else class="plot-key-swatch" :style="{ background: row.colour }"></span>
+          <span v-if="row.label" class="plot-readout-label">{{ row.label }}</span>
+          <span v-if="row.run" class="plot-readout-run">{{ row.run }}</span>
           <span class="plot-readout-value">{{ row.value }}</span>
         </div>
       </div>
@@ -52,9 +63,11 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 
+import RunSwatch from './RunSwatch.vue'
 import { useColorScheme } from '../../composables/useColorScheme'
 import { getChartZoom, setChartZoom } from '../../services/simulation/chartZoom'
 import { SERIES_COLOURS } from '../../services/simulation/seriesSlots'
+import { fadeColour } from '../../services/simulation/trackedRuns'
 
 const CHROME = {
   light: { text: '#52514e', grid: '#e1e0d9', axis: '#c3c2b7' },
@@ -66,7 +79,9 @@ const props = defineProps({
   titleParts: { type: Array, default: null },
   unit: { type: String, required: true },
   x: { type: Object, required: true }, // { label, unit, values, isSteadyState }
-  series: { type: Array, required: true }, // [{ key, label, slot, values }]
+  // [{ key, label, variableLabel, slot, values, run }], run being a tracked run's `{ number, dash }`, or null for
+  // the live run.
+  series: { type: Array, required: true },
   height: { type: Number, default: 220 },
   // Charts with the same key show their cursors at the same time.
   syncKey: { type: String, default: null },
@@ -133,6 +148,36 @@ const readout = ref(null)
  */
 const colourOf = (item) => SERIES_COLOURS[isDarkMode.value ? 'dark' : 'light'][item.slot]
 
+const chrome = computed(() => CHROME[isDarkMode.value ? 'dark' : 'light'])
+
+// The runs the lines are from, once tracked runs are shown.
+const runKey = computed(() => {
+  const runs = new Map()
+  for (const item of props.series) if (item.run) runs.set(item.run.number, { number: item.run.number, label: `#${item.run.number}`, dash: item.run.dash })
+  if (!runs.size) return []
+  const key = [...runs.values()].sort((a, b) => a.number - b.number)
+  return props.series.some((item) => !item.run) ? [{ number: 0, label: 'Live', dash: null }, ...key] : key
+})
+
+// How many variables the lines show, however many runs they are from.
+const variableCount = computed(() => new Set(props.series.map((item) => item.variableLabel ?? item.label)).size)
+
+/**
+ * Names a line in the readout: its variable, when the chart has several, and its run, apart from the
+ * variable so a long name cut short still says which run it is.
+ *
+ * @param {{label: string, variableLabel?: string, run: {number: number}|null}} item
+ * @returns {{label: string|null, run: string|null}}
+ */
+function readoutNames(item) {
+  const hasRuns = props.series.some((other) => other.run)
+  const run = hasRuns ? (item.run ? `#${item.run.number}` : 'Live') : null
+  return { label: variableCount.value > 1 ? item.variableLabel ?? item.label : null, run }
+}
+
+// The live run's values first, then each tracked run's, though the tracked runs' lines are drawn first.
+const readoutOrder = computed(() => [...props.series].sort((a, b) => (a.run?.number ?? 0) - (b.run?.number ?? 0)))
+
 /**
  * Shows the values under the cursor beside it, flipping to its left near the chart's right edge, or hides
  * them as the cursor leaves.
@@ -152,7 +197,7 @@ function updateReadout(chart) {
     left: fitsRight ? x + 12 : Math.max(0, x - 12 - READOUT_WIDTH_PX),
     top: over.offsetTop + 6,
     time: `${formatValue(chart.data[0][idx])}${props.x.unit ? ` ${shortUnit(props.x.unit)}` : ''}`,
-    rows: props.series.map((item) => ({ key: item.key, label: item.label, colour: colourOf(item), value: formatValue(item.values[idx]) })),
+    rows: readoutOrder.value.map((item) => ({ key: item.key, ...readoutNames(item), colour: colourOf(item), dash: item.run?.dash ?? null, value: formatValue(item.values[idx]) })),
   }
 }
 let plot = null
@@ -229,10 +274,14 @@ function buildOptions(width) {
     axes: [{ ...axis(timeTicks), size: 28 }, { ...axis(), size: sizeValueAxis }],
     series: [
       { label: props.x.label },
+      // A tracked run's line is its variable's colour, faded and dashed.
       ...props.series.map((series) => ({
         label: series.label,
-        stroke: SERIES_COLOURS[theme][series.slot],
-        width: 2,
+        stroke: series.run ? fadeColour(SERIES_COLOURS[theme][series.slot]) : SERIES_COLOURS[theme][series.slot],
+        width: series.run ? 1.5 : 2,
+        ...(series.run && { dash: series.run.dash }),
+        // Runs with different output points share a time axis on which each has gaps at the others' points.
+        spanGaps: true,
         points: { show: false },
       })),
     ],
@@ -304,7 +353,11 @@ defineExpose({
     const colours = SERIES_COLOURS[isDarkMode.value ? 'dark' : 'light']
     // The unit is in the heading, not on the canvas, so the image's title carries it.
     const title = props.unit ? `${props.title} (${props.unit})` : props.title
-    return { title, canvas: plot.ctx.canvas, legend: props.series.map((series) => ({ label: series.label, colour: colours[series.slot] })) }
+    return {
+      title,
+      canvas: plot.ctx.canvas,
+      legend: readoutOrder.value.map((series) => ({ label: series.label, colour: colours[series.slot], dash: series.run?.dash ?? null })),
+    }
   },
 })
 // New values, as a slider moving gives, keep a zoomed chart on its time range, with the values refitted to it.
@@ -456,6 +509,11 @@ watch(
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  color: var(--p-text-muted-color);
+}
+
+.plot-readout-run {
+  flex-shrink: 0;
   color: var(--p-text-muted-color);
 }
 

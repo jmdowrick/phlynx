@@ -39,6 +39,14 @@ describe('buildResultsCsv', () => {
   })
 })
 
+describe('tracked runs', () => {
+  it('lists a chart’s live run before its tracked runs, leaving a gap where a run has no value', () => {
+    const tracked = { key: 'run_1::a::V', label: 'V [#1]', values: [-70, null, -68], run: { number: 1, dash: [8, 4] } }
+    const csv = buildResultsCsv(collectResultColumns(X, [{ unit: 'mV', series: [tracked, { ...V, run: null }] }]))
+    expect(csv).toBe('t (second),V (mV),V [#1] (mV)\r\n0,-65,-70\r\n0.5,-60.25,\r\n1,1e-7,-68\r\n')
+  })
+})
+
 describe('columnHeader', () => {
   it('leaves out a missing unit', () => {
     expect(columnHeader({ label: 'x', unit: '' })).toBe('x')

@@ -165,6 +165,72 @@ class TestSimulationTab(unittest.TestCase):
             browser.close()
 
 
+    def test_tracked_run_stays_on_the_chart_as_a_slider_moves(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+
+            context = browser.new_context(viewport={"width": 1600, "height": 1000})
+            context.add_init_script(OPT_IN_TO_ISOLATION)
+            page = context.new_page()
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+
+            # ---------- START -----------
+            soma = page.get_by_text("SN_somacell_modules.cellmlsoma_SN")
+            soma.wait_for(timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
+            page.evaluate(SHORTEN_SIMULATION)
+            soma.click()
+            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
+            simulate_selection(page)
+            expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
+            plot_variable(page, "soma_SN/V")
+            add_slider(page, "soma_SN/g_Na")
+
+            page.get_by_role("button", name=re.compile(r"^Runs \(0\)")).click()
+            expect(page.get_by_text("Track a run to keep its lines on the charts")).to_be_visible()
+            page.get_by_role("button", name="Track run").click()
+            expect(page.get_by_role("button", name=re.compile(r"^Runs \(1\)"))).to_be_visible()
+            expect(page.get_by_text("Run #1")).to_be_visible()
+            # The chart says which run each line is from: the live run solid, the tracked run dashed.
+            run_key = page.locator(".simulation-plot .plot-key[aria-label=Runs] li")
+            expect(run_key).to_have_text(["Live", "#1"])
+
+            before = page.evaluate(FINAL_SOMA_V)
+            page.get_by_role("button", name=re.compile(r"^Sliders \(")).click()
+            page.get_by_role("slider", name="g_Na value").focus()
+            for _ in range(300):
+                page.keyboard.press("ArrowRight")
+            page.wait_for_function(
+                f"{RESULTS_STORE}.status === 'done' && {FINAL_SOMA_V} !== {before!r}",
+                timeout=120000,
+            )
+            # The tracked run keeps its own values, and says what the slider was when it ran.
+            tracked = page.evaluate(
+                f"(() => {{ const store = {RESULTS_STORE}; const run = store.trackedRuns[0];"
+                " return run.results.variables.get(run.mapping.get('dndnode_0::V')).values.at(-1) })()"
+            )
+            self.assertEqual(tracked, before)
+            expect(run_key).to_have_text(["Live", "#1"])
+
+            page.get_by_role("button", name=re.compile(r"^Runs \(1\)")).click()
+            expect(page.locator(".run-item").nth(1)).to_contain_text("The model’s values")
+            expect(page.locator(".run-item").nth(0)).to_contain_text("soma_SN/g_Na = 2.438 microS")
+            page.get_by_role("button", name="Hide run #1").click()
+            expect(run_key).to_have_count(0)
+            page.get_by_role("button", name="Show run #1").click()
+            expect(run_key).to_have_text(["Live", "#1"])
+            page.get_by_role("button", name="Stop tracking run #1").click()
+            expect(page.get_by_role("button", name=re.compile(r"^Runs \(0\)"))).to_be_visible()
+            expect(run_key).to_have_count(0)
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
+
     def test_plots_variables_of_two_instances_on_one_chart(self):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
