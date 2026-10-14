@@ -102,10 +102,12 @@ export const checkResourcesAreLoaded = (requestedModules, store) => {
 
   for (const module of requestedModules) {
     const moduleRef = `${module.module_type}:${module.module_subtype}`
-    if (!(store.availableModules.has(moduleRef))) {
+    // A per-instance variant from a CA export is kept aside from the library (see libraryStore.caVariants).
+    const found = store.availableModules.get(moduleRef) ?? store.caVariants?.get(moduleRef)
+    if (!found) {
       missingResources.modules.add(moduleRef)
     } else {
-      const mathRef = store.availableModules.get(moduleRef)?.mathRef 
+      const mathRef = found.mathRef
       if (!(store.availableMath.has(mathRef))) {
         missingResources.math.add(mathRef)
       }

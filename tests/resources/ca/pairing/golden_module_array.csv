@@ -1,0 +1,9 @@
+name,module_subtype,module_type,inp_instances,out_instances
+a,pv,arterial_simple,,split
+split,pv__llkpq9j1,split_junction,a,b
+b,pv__qwwmtcda,arterial_simple,split,c s1 s2
+c,pv__hgvzov1c,arterial_simple,b,d s1 s2
+d,pv,arterial_simple,c,e
+e,pv__0m6x4f2r,arterial_simple,d,
+s1,nn__4l86p0do,flow_sum_2,b c,
+s2,nn__1n8hhq50,flow_sum_2,b c,

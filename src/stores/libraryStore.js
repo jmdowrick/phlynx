@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { parseLayout } from 'cellml-text-editor'
 import { ref, computed, markRaw } from 'vue'
 import { normaliseConfig, buildModule, parseMathRef, uniqueModuleRef } from '../utils/config'
+import { foldVariantModule } from '../services/caVariants'
 import {
   AFFINE_UNIT_CONVERSIONS,
   GENERATED_UNITS_FILE,
@@ -49,6 +50,9 @@ export const useLibraryStore = defineStore('library', () => {
   const mathRefHash = ref(new Map())
   const availableUnits = ref([])
   const globalConstants = ref(new Map())
+  // Per-instance variants a CA export wrote, by ref: kept out of the library, which gets the module each stands in
+  // for, and read only while a module array is imported (see buildWorkflowGraph). Never saved.
+  const caVariants = ref(new Map())
 
   // mathRef -> Map of the values that came with that math when it was added. They only seed new
   // instances: an existing instance's rows never read them, so math and parameters stay separate.
@@ -111,6 +115,7 @@ export const useLibraryStore = defineStore('library', () => {
     availableUnits.value = []
     mathDefaults.value.clear()
     mathLayouts.value.clear()
+    caVariants.value.clear()
     availableMathAnalysis.clear()
     pendingAnalysis.clear()
   }
@@ -165,6 +170,15 @@ export const useLibraryStore = defineStore('library', () => {
 
   // --- SETTERS ---
 
+  /**
+   * Adds a config file's modules. A per-instance variant the CA export wrote (see services/caVariants.js) is kept
+   * aside for a module array to build its instances from, and the library gets the module it stands in for, from
+   * the file's own entry for it when there is one, else folded back from the variant.
+   *
+   * @param {string} filename
+   * @param {Array} configs - The file's entries.
+   * @returns {number} How many modules the library took.
+   */
   function addConfigFile(filename, configs) {
     let totalAdded = 0
 
@@ -172,13 +186,16 @@ export const useLibraryStore = defineStore('library', () => {
       return totalAdded
     }
 
-    configs.forEach((config) => {
-      if (!config.component_file || typeof config.component_file !== 'string') {
-        return totalAdded
-      }
-
-      if (addModule(normaliseConfig(config))) totalAdded++
-    })
+    const modules = configs
+      .filter((config) => config.component_file && typeof config.component_file === 'string')
+      .map(normaliseConfig)
+    for (const module of modules.filter((module) => !module.baseModuleRef)) {
+      if (addModule(module)) totalAdded++
+    }
+    for (const module of modules.filter((module) => module.baseModuleRef)) {
+      caVariants.value.set(module.moduleRef, module)
+      if (addModule(foldVariantModule(module))) totalAdded++
+    }
     return totalAdded
   }
 
@@ -624,6 +641,7 @@ export const useLibraryStore = defineStore('library', () => {
     mathHashIndex,
     availableModules,
     availableUnits,
+    caVariants,
 
     // Derived State 
     globalVariables,

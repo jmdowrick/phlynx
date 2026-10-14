@@ -12,6 +12,7 @@ import { getId as getNextNodeId } from '../../utils/nodes'
 import { getPortVariables, reconcileRows } from '../math/reconcileRows'
 import { isBlank } from '../../utils/variables'
 import { caHeartInputs, HEART_IVC_FLOW, heartSlotPin, instanceNames, isHeart } from '../caRules'
+import { foldVariantNodes } from '../caVariants'
 
 /**
  * Builds an instance's variables from its math analysis, keeping the module's configured values
@@ -22,7 +23,7 @@ import { caHeartInputs, HEART_IVC_FLOW, heartSlotPin, instanceNames, isHeart } f
  * @param {Map<string, string>} mathDefaults - From libraryStore.getMathDefaults.
  * @returns {Array} Parameter rows.
  */
-function resolveInstanceVariables(moduleData, mathAnalysis, mathDefaults) {
+export function resolveInstanceVariables(moduleData, mathAnalysis, mathDefaults) {
   // A module's blank value means none was configured, so the math's default should fill it.
   const templateRows = (moduleData.variables ?? []).map((variable) =>
     isBlank(variable.value) ? { ...variable, value: null } : variable
@@ -344,6 +345,9 @@ function zeroHeartIvcFlow(instanceRefs, pendingInstances) {
  * @param {Object} [options]
  * @param {boolean} [options.caRules=false] - Applies circulatory_autogen's heart rule, for a CA module array: each
  *   input takes the heart slot of its place in inp_instances, and a heart with two inputs has no ivc flow.
+ * @param {Map<string, Object>} [options.variants] - Per-instance variants of modules the CA export wrote (see
+ *   libraryStore.caVariants), by ref: their rows are built from them, connected through their ports, then folded
+ *   back onto the module each stands in for (see foldVariantNodes).
  * @returns {{ pendingInstances: Array, pendingEdges: Array, conflicts: Array<string>, ivcZeroedHearts: string[] }}
  *   conflicts: a message for each conduit left out as a port it needs has no free slot; ivcZeroedHearts: the hearts
  *   whose ivc flow CA's rule set to 0, which a parameters file must not set (see withoutZeroedIvcRows).
@@ -355,11 +359,12 @@ export function buildWorkflowGraph(
   currentNodes,
   progressCallback = null,
   getMathDefaults = null,
-  { caRules = false } = {}
+  { caRules = false, variants = null } = {}
 ) {
+  const modules = variants?.size ? new Map([...availableModules, ...variants]) : availableModules
   const pendingInstances = buildInstances(
     instanceRefs,
-    availableModules,
+    modules,
     getMathAnalysis,
     currentNodes,
     progressCallback,
@@ -367,5 +372,7 @@ export function buildWorkflowGraph(
   )
   const ivcZeroedHearts = caRules ? zeroHeartIvcFlow(instanceRefs, pendingInstances) : []
   const { edges: pendingEdges, conflicts } = buildEdges(instanceRefs, pendingInstances, caRules)
+  const built = instanceRefs.map((ref) => modules.get(`${ref.module_type}:${ref.module_subtype}`))
+  foldVariantNodes(pendingInstances, pendingEdges, built)
   return { pendingInstances, pendingEdges, conflicts, ivcZeroedHearts }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { orderForCa } from '../../../../src/services/export/caOrder.js'
+import { orderForCa } from '../../fixtures/ca/order.js'
 
 const vesselPort = (portType, variable) => ({ label: 'vessel_port', portType, variables: [variable], multiportType: 'None' })
 const node = (id, ports, moduleRef = 'vessel:v') => ({ id, data: { name: id, moduleRef, ports } })
@@ -45,7 +45,7 @@ function order(nodes, edges) {
   }
 }
 
-describe('orderForCa', () => {
+describe('orderCaLists', () => {
   it('gives the same lists whatever the edge order, where the slots decide it', () => {
     const split = node('s', [vesselPort('exit_ports', 'a'), vesselPort('exit_ports', 'b')])
     const [b, c] = [node('b', entrances(1)), node('c', entrances(1))]

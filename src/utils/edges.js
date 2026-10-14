@@ -39,7 +39,8 @@
  * services/export/caOrder.js), but the rules differ: CA groups a module's exit
  * (or entrance) and general ports of one label together, gives a heart's
  * entrance vessel_ports by place in its inp_vessels, and wires a non-vessel_port
- * to every free slot.
+ * to every free slot. Where no order matches, the export gives the coupled
+ * slots labels of their own (services/export/caPairing.js).
  *
  * Non-multiport constraint
  * ------------------------

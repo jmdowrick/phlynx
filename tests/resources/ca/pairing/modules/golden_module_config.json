@@ -1,0 +1,1215 @@
+[
+  {
+    "module_type": "arterial_simple",
+    "module_subtype": "pv",
+    "module_format": "cellml",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_simple_type",
+    "entrance_ports": [
+      {
+        "port_type": "vessel_port",
+        "variables": [
+          "v",
+          "u_in"
+        ]
+      }
+    ],
+    "exit_ports": [
+      {
+        "port_type": "vessel_port",
+        "variables": [
+          "v_out",
+          "u"
+        ]
+      },
+      {
+        "port_type": "flow_port",
+        "variables": [
+          "v"
+        ]
+      },
+      {
+        "port_type": "volume_port",
+        "variables": [
+          "q"
+        ]
+      }
+    ],
+    "general_ports": [],
+    "variables_and_units": [
+      [
+        "q",
+        "m3",
+        "access",
+        "variable"
+      ],
+      [
+        "q_C",
+        "m3",
+        "access",
+        "variable"
+      ],
+      [
+        "q_0",
+        "m3",
+        "access",
+        "constant"
+      ],
+      [
+        "R_v",
+        "Js_per_m6",
+        "access",
+        "variable"
+      ],
+      [
+        "C",
+        "m6_per_J",
+        "access",
+        "constant"
+      ],
+      [
+        "t",
+        "second",
+        "access",
+        "variable"
+      ],
+      [
+        "v",
+        "m3_per_s",
+        "access",
+        "variable"
+      ],
+      [
+        "u_in",
+        "J_per_m3",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "u",
+        "J_per_m3",
+        "access",
+        "variable"
+      ],
+      [
+        "R",
+        "Js_per_m6",
+        "access",
+        "constant"
+      ],
+      [
+        "I",
+        "Js2_per_m6",
+        "access",
+        "constant"
+      ],
+      [
+        "v_out",
+        "m3_per_s",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "u_C",
+        "J_per_m3",
+        "access",
+        "variable"
+      ],
+      [
+        "u_0",
+        "J_per_m3",
+        "access",
+        "constant"
+      ],
+      [
+        "u_ext",
+        "J_per_m3",
+        "access",
+        "constant"
+      ],
+      [
+        "v_init",
+        "m3_per_s",
+        "access",
+        "constant"
+      ],
+      [
+        "q_C_init",
+        "m3",
+        "access",
+        "constant"
+      ]
+    ]
+  },
+  {
+    "module_type": "split_junction",
+    "module_subtype": "pv__llkpq9j1",
+    "phlynx_base_subtype": "pv",
+    "module_format": "cellml",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_split_type",
+    "entrance_ports": [
+      {
+        "port_type": "vessel_port",
+        "variables": [
+          "v",
+          "u_in"
+        ]
+      }
+    ],
+    "exit_ports": [
+      {
+        "port_type": "vessel_port__1",
+        "variables": [
+          "v_out_1",
+          "u"
+        ],
+        "phlynx_label": "vessel_port"
+      },
+      {
+        "port_type": "vessel_port",
+        "variables": [
+          "v_out_2",
+          "u"
+        ]
+      },
+      {
+        "port_type": "pressure_and_deriv_port",
+        "variables": [
+          "u",
+          "du_C_dt"
+        ]
+      },
+      {
+        "port_type": "pressure_feedback_port",
+        "variables": [
+          "u"
+        ]
+      },
+      {
+        "port_type": "flow_feedback_port",
+        "variables": [
+          "v"
+        ]
+      },
+      {
+        "port_type": "volume_port",
+        "variables": [
+          "q"
+        ]
+      }
+    ],
+    "general_ports": [],
+    "variables_and_units": [
+      [
+        "q_0",
+        "m3",
+        "access",
+        "variable"
+      ],
+      [
+        "r_0",
+        "metre",
+        "no_access",
+        "constant"
+      ],
+      [
+        "l",
+        "metre",
+        "no_access",
+        "constant"
+      ],
+      [
+        "q",
+        "m3",
+        "access",
+        "variable"
+      ],
+      [
+        "q_C",
+        "m3",
+        "access",
+        "variable"
+      ],
+      [
+        "h",
+        "metre",
+        "access",
+        "variable"
+      ],
+      [
+        "a_vessel",
+        "dimensionless",
+        "no_access",
+        "global_constant"
+      ],
+      [
+        "b_vessel",
+        "per_m",
+        "no_access",
+        "global_constant"
+      ],
+      [
+        "c_vessel",
+        "dimensionless",
+        "no_access",
+        "global_constant"
+      ],
+      [
+        "d_vessel",
+        "per_m",
+        "no_access",
+        "global_constant"
+      ],
+      [
+        "I",
+        "Js2_per_m6",
+        "access",
+        "variable"
+      ],
+      [
+        "rho",
+        "Js2_per_m5",
+        "no_access",
+        "global_constant"
+      ],
+      [
+        "C",
+        "m6_per_J",
+        "access",
+        "variable"
+      ],
+      [
+        "E",
+        "J_per_m3",
+        "access",
+        "constant"
+      ],
+      [
+        "R",
+        "Js_per_m6",
+        "access",
+        "variable"
+      ],
+      [
+        "mu",
+        "Js_per_m3",
+        "no_access",
+        "global_constant"
+      ],
+      [
+        "R_v",
+        "Js_per_m6",
+        "access",
+        "variable"
+      ],
+      [
+        "t",
+        "second",
+        "access",
+        "variable"
+      ],
+      [
+        "v",
+        "m3_per_s",
+        "access",
+        "variable"
+      ],
+      [
+        "u_in",
+        "J_per_m3",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "u",
+        "J_per_m3",
+        "access",
+        "variable"
+      ],
+      [
+        "beta_g",
+        "dimensionless",
+        "access",
+        "global_constant"
+      ],
+      [
+        "g",
+        "m_per_s2",
+        "no_access",
+        "global_constant"
+      ],
+      [
+        "theta",
+        "dimensionless",
+        "access",
+        "constant"
+      ],
+      [
+        "du_C_dt",
+        "J_per_m3s",
+        "access",
+        "variable"
+      ],
+      [
+        "v_out_1",
+        "m3_per_s",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "v_out_2",
+        "m3_per_s",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "u_C",
+        "J_per_m3",
+        "access",
+        "variable"
+      ],
+      [
+        "u_ext",
+        "J_per_m3",
+        "access",
+        "constant"
+      ],
+      [
+        "u_0",
+        "J_per_m3",
+        "access",
+        "constant"
+      ],
+      [
+        "v_init",
+        "m3_per_s",
+        "access",
+        "constant"
+      ],
+      [
+        "q_C_init",
+        "m3",
+        "access",
+        "constant"
+      ]
+    ]
+  },
+  {
+    "module_type": "arterial_simple",
+    "module_subtype": "pv__qwwmtcda",
+    "phlynx_base_subtype": "pv",
+    "module_format": "cellml",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_simple_type",
+    "entrance_ports": [
+      {
+        "port_type": "vessel_port",
+        "variables": [
+          "v",
+          "u_in"
+        ]
+      }
+    ],
+    "exit_ports": [
+      {
+        "port_type": "vessel_port",
+        "variables": [
+          "v_out",
+          "u"
+        ]
+      },
+      {
+        "port_type": "flow_port__1",
+        "variables": [
+          "v"
+        ],
+        "multi_port": "True",
+        "phlynx_label": "flow_port"
+      },
+      {
+        "port_type": "volume_port",
+        "variables": [
+          "q"
+        ]
+      }
+    ],
+    "general_ports": [
+      {
+        "port_type": "ctrl",
+        "variables": [
+          "q"
+        ],
+        "phlynx_port_type": "entrance_ports",
+        "phlynx_variables": [
+          "q",
+          "u"
+        ],
+        "phlynx_index": 1
+      }
+    ],
+    "variables_and_units": [
+      [
+        "q",
+        "m3",
+        "access",
+        "variable"
+      ],
+      [
+        "q_C",
+        "m3",
+        "access",
+        "variable"
+      ],
+      [
+        "q_0",
+        "m3",
+        "access",
+        "constant"
+      ],
+      [
+        "R_v",
+        "Js_per_m6",
+        "access",
+        "variable"
+      ],
+      [
+        "C",
+        "m6_per_J",
+        "access",
+        "constant"
+      ],
+      [
+        "t",
+        "second",
+        "access",
+        "variable"
+      ],
+      [
+        "v",
+        "m3_per_s",
+        "access",
+        "variable"
+      ],
+      [
+        "u_in",
+        "J_per_m3",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "u",
+        "J_per_m3",
+        "access",
+        "variable"
+      ],
+      [
+        "R",
+        "Js_per_m6",
+        "access",
+        "constant"
+      ],
+      [
+        "I",
+        "Js2_per_m6",
+        "access",
+        "constant"
+      ],
+      [
+        "v_out",
+        "m3_per_s",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "u_C",
+        "J_per_m3",
+        "access",
+        "variable"
+      ],
+      [
+        "u_0",
+        "J_per_m3",
+        "access",
+        "constant"
+      ],
+      [
+        "u_ext",
+        "J_per_m3",
+        "access",
+        "constant"
+      ],
+      [
+        "v_init",
+        "m3_per_s",
+        "access",
+        "constant"
+      ],
+      [
+        "q_C_init",
+        "m3",
+        "access",
+        "constant"
+      ]
+    ]
+  },
+  {
+    "module_type": "arterial_simple",
+    "module_subtype": "pv__hgvzov1c",
+    "phlynx_base_subtype": "pv",
+    "module_format": "cellml",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_simple_type",
+    "entrance_ports": [
+      {
+        "port_type": "vessel_port",
+        "variables": [
+          "v",
+          "u_in"
+        ]
+      },
+      {
+        "port_type": "flow_port__2",
+        "variables": [
+          "v"
+        ],
+        "phlynx_label": "flow_port"
+      }
+    ],
+    "exit_ports": [
+      {
+        "port_type": "vessel_port",
+        "variables": [
+          "v_out",
+          "u"
+        ]
+      },
+      {
+        "port_type": "flow_port",
+        "variables": [
+          "v"
+        ],
+        "multi_port": "True"
+      },
+      {
+        "port_type": "volume_port",
+        "variables": [
+          "q"
+        ]
+      }
+    ],
+    "general_ports": [
+      {
+        "port_type": "ctrl",
+        "variables": [
+          "q_0"
+        ]
+      }
+    ],
+    "variables_and_units": [
+      [
+        "q",
+        "m3",
+        "access",
+        "variable"
+      ],
+      [
+        "q_C",
+        "m3",
+        "access",
+        "variable"
+      ],
+      [
+        "q_0",
+        "m3",
+        "access",
+        "constant"
+      ],
+      [
+        "R_v",
+        "Js_per_m6",
+        "access",
+        "variable"
+      ],
+      [
+        "C",
+        "m6_per_J",
+        "access",
+        "constant"
+      ],
+      [
+        "t",
+        "second",
+        "access",
+        "variable"
+      ],
+      [
+        "v",
+        "m3_per_s",
+        "access",
+        "variable"
+      ],
+      [
+        "u_in",
+        "J_per_m3",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "u",
+        "J_per_m3",
+        "access",
+        "variable"
+      ],
+      [
+        "R",
+        "Js_per_m6",
+        "access",
+        "global_constant"
+      ],
+      [
+        "I",
+        "Js2_per_m6",
+        "access",
+        "constant"
+      ],
+      [
+        "v_out",
+        "m3_per_s",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "u_C",
+        "J_per_m3",
+        "access",
+        "variable"
+      ],
+      [
+        "u_0",
+        "J_per_m3",
+        "access",
+        "constant"
+      ],
+      [
+        "u_ext",
+        "J_per_m3",
+        "access",
+        "constant"
+      ],
+      [
+        "v_init",
+        "m3_per_s",
+        "access",
+        "constant"
+      ],
+      [
+        "q_C_init",
+        "m3",
+        "access",
+        "constant"
+      ]
+    ]
+  },
+  {
+    "module_type": "arterial_simple",
+    "module_subtype": "pv__0m6x4f2r",
+    "phlynx_base_subtype": "pv",
+    "module_format": "cellml",
+    "component_file": "User_modules.cellml",
+    "component_type": "pv_simple_copy_type",
+    "entrance_ports": [
+      {
+        "port_type": "vessel_port",
+        "variables": [
+          "v",
+          "u_in"
+        ]
+      }
+    ],
+    "exit_ports": [
+      {
+        "port_type": "vessel_port",
+        "variables": [
+          "v_out",
+          "u"
+        ]
+      },
+      {
+        "port_type": "flow_port",
+        "variables": [
+          "v"
+        ]
+      },
+      {
+        "port_type": "volume_port",
+        "variables": [
+          "q"
+        ]
+      }
+    ],
+    "general_ports": [],
+    "variables_and_units": [
+      [
+        "q",
+        "m3",
+        "access",
+        "variable"
+      ],
+      [
+        "q_C",
+        "m3",
+        "access",
+        "variable"
+      ],
+      [
+        "q_0",
+        "m3",
+        "access",
+        "constant"
+      ],
+      [
+        "R_v",
+        "Js_per_m6",
+        "access",
+        "variable"
+      ],
+      [
+        "C",
+        "m6_per_J",
+        "access",
+        "constant"
+      ],
+      [
+        "t",
+        "second",
+        "access",
+        "variable"
+      ],
+      [
+        "v",
+        "m3_per_s",
+        "access",
+        "variable"
+      ],
+      [
+        "u_in",
+        "J_per_m3",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "u",
+        "J_per_m3",
+        "access",
+        "variable"
+      ],
+      [
+        "R",
+        "Js_per_m6",
+        "access",
+        "constant"
+      ],
+      [
+        "I",
+        "Js2_per_m6",
+        "access",
+        "constant"
+      ],
+      [
+        "v_out",
+        "m3_per_s",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "u_C",
+        "J_per_m3",
+        "access",
+        "variable"
+      ],
+      [
+        "u_0",
+        "J_per_m3",
+        "access",
+        "constant"
+      ],
+      [
+        "u_ext",
+        "J_per_m3",
+        "access",
+        "constant"
+      ],
+      [
+        "v_init",
+        "m3_per_s",
+        "access",
+        "constant"
+      ],
+      [
+        "q_C_init",
+        "m3",
+        "access",
+        "constant"
+      ]
+    ]
+  },
+  {
+    "module_type": "flow_sum_2",
+    "module_subtype": "nn__4l86p0do",
+    "phlynx_base_subtype": "nn",
+    "module_format": "cellml",
+    "component_file": "BG_modules.cellml",
+    "component_type": "flow_sum_2_type",
+    "entrance_ports": [
+      {
+        "port_type": "flow_port__1",
+        "variables": [
+          "v_1"
+        ],
+        "phlynx_label": "flow_port"
+      },
+      {
+        "port_type": "flow_port",
+        "variables": [
+          "v_2"
+        ]
+      }
+    ],
+    "exit_ports": [
+      {
+        "port_type": "flow_port",
+        "variables": [
+          "v_total"
+        ]
+      }
+    ],
+    "general_ports": [],
+    "variables_and_units": [
+      [
+        "v_total",
+        "m3_per_s",
+        "access",
+        "variable"
+      ],
+      [
+        "v_1",
+        "m3_per_s",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "v_2",
+        "m3_per_s",
+        "access",
+        "boundary_condition"
+      ]
+    ]
+  },
+  {
+    "module_type": "flow_sum_2",
+    "module_subtype": "nn__1n8hhq50",
+    "phlynx_base_subtype": "nn",
+    "module_format": "cellml",
+    "component_file": "BG_modules.cellml",
+    "component_type": "flow_sum_2_type",
+    "entrance_ports": [
+      {
+        "port_type": "flow_port",
+        "variables": [
+          "v_1"
+        ]
+      },
+      {
+        "port_type": "flow_port__1",
+        "variables": [
+          "v_2"
+        ],
+        "phlynx_label": "flow_port"
+      }
+    ],
+    "exit_ports": [
+      {
+        "port_type": "flow_port",
+        "variables": [
+          "v_total"
+        ]
+      }
+    ],
+    "general_ports": [],
+    "variables_and_units": [
+      [
+        "v_total",
+        "m3_per_s",
+        "access",
+        "variable"
+      ],
+      [
+        "v_1",
+        "m3_per_s",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "v_2",
+        "m3_per_s",
+        "access",
+        "boundary_condition"
+      ]
+    ]
+  },
+  {
+    "module_type": "split_junction",
+    "module_subtype": "pv",
+    "module_format": "cellml",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_split_type",
+    "entrance_ports": [
+      {
+        "port_type": "vessel_port",
+        "variables": [
+          "v",
+          "u_in"
+        ]
+      }
+    ],
+    "exit_ports": [
+      {
+        "port_type": "vessel_port",
+        "variables": [
+          "v_out_1",
+          "u"
+        ]
+      },
+      {
+        "port_type": "vessel_port",
+        "variables": [
+          "v_out_2",
+          "u"
+        ]
+      },
+      {
+        "port_type": "pressure_and_deriv_port",
+        "variables": [
+          "u",
+          "du_C_dt"
+        ]
+      },
+      {
+        "port_type": "pressure_feedback_port",
+        "variables": [
+          "u"
+        ]
+      },
+      {
+        "port_type": "flow_feedback_port",
+        "variables": [
+          "v"
+        ]
+      },
+      {
+        "port_type": "volume_port",
+        "variables": [
+          "q"
+        ]
+      }
+    ],
+    "general_ports": [],
+    "variables_and_units": [
+      [
+        "u",
+        "J_per_m3",
+        "access",
+        "variable"
+      ],
+      [
+        "u_C",
+        "J_per_m3",
+        "access",
+        "variable"
+      ],
+      [
+        "du_C_dt",
+        "J_per_m3s",
+        "access",
+        "variable"
+      ],
+      [
+        "v",
+        "m3_per_s",
+        "access",
+        "variable"
+      ],
+      [
+        "q_C",
+        "m3",
+        "access",
+        "variable"
+      ],
+      [
+        "q_0",
+        "m3",
+        "access",
+        "variable"
+      ],
+      [
+        "q",
+        "m3",
+        "access",
+        "variable"
+      ],
+      [
+        "E",
+        "J_per_m3",
+        "access",
+        "constant"
+      ],
+      [
+        "l",
+        "metre",
+        "no_access",
+        "constant"
+      ],
+      [
+        "r_0",
+        "metre",
+        "no_access",
+        "constant"
+      ],
+      [
+        "u_0",
+        "J_per_m3",
+        "access",
+        "constant"
+      ],
+      [
+        "theta",
+        "dimensionless",
+        "access",
+        "constant"
+      ],
+      [
+        "u_ext",
+        "J_per_m3",
+        "access",
+        "constant"
+      ],
+      [
+        "beta_g",
+        "dimensionless",
+        "access",
+        "global_constant"
+      ],
+      [
+        "rho",
+        "Js2_per_m5",
+        "no_access",
+        "global_constant"
+      ],
+      [
+        "mu",
+        "Js_per_m3",
+        "no_access",
+        "global_constant"
+      ],
+      [
+        "g",
+        "m_per_s2",
+        "no_access",
+        "global_constant"
+      ],
+      [
+        "a_vessel",
+        "dimensionless",
+        "no_access",
+        "global_constant"
+      ],
+      [
+        "b_vessel",
+        "per_m",
+        "no_access",
+        "global_constant"
+      ],
+      [
+        "c_vessel",
+        "dimensionless",
+        "no_access",
+        "global_constant"
+      ],
+      [
+        "d_vessel",
+        "per_m",
+        "no_access",
+        "global_constant"
+      ],
+      [
+        "v_out_1",
+        "m3_per_s",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "v_out_2",
+        "m3_per_s",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "u_in",
+        "J_per_m3",
+        "access",
+        "boundary_condition"
+      ]
+    ]
+  },
+  {
+    "module_type": "flow_sum_2",
+    "module_subtype": "nn",
+    "module_format": "cellml",
+    "component_file": "BG_modules.cellml",
+    "component_type": "flow_sum_2_type",
+    "entrance_ports": [
+      {
+        "port_type": "flow_port",
+        "variables": [
+          "v_1"
+        ]
+      },
+      {
+        "port_type": "flow_port",
+        "variables": [
+          "v_2"
+        ]
+      }
+    ],
+    "exit_ports": [
+      {
+        "port_type": "flow_port",
+        "variables": [
+          "v_total"
+        ]
+      }
+    ],
+    "general_ports": [],
+    "variables_and_units": [
+      [
+        "v_1",
+        "m3_per_s",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "v_2",
+        "m3_per_s",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "v_total",
+        "m3_per_s",
+        "access",
+        "variable"
+      ]
+    ]
+  }
+]

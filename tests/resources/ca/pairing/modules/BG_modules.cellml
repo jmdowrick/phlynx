@@ -1,0 +1,425 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="http://www.cellml.org/cellml/2.0#" name="modules">
+  <component name="pv_simple_type">
+    <variable name="t" units="second" interface="public"/>
+    <variable name="I" units="Js2_per_m6" interface="public"/>
+    <variable name="C" units="m6_per_J" interface="public"/>
+    <variable name="R" units="Js_per_m6" interface="public"/>
+    <variable name="R_v" units="Js_per_m6" interface="public"/>
+    <variable name="q_0" units="m3" interface="public"/>
+    <variable name="u_0" units="J_per_m3" interface="public"/>
+    <variable name="u_ext" units="J_per_m3" interface="public"/>
+    <variable name="u_in" units="J_per_m3" interface="public"/>
+    <variable name="v" units="m3_per_s" initial_value="v_init" interface="public"/>
+    <variable name="v_init" units="m3_per_s" interface="public"/>
+    <variable name="u" units="J_per_m3" interface="public"/>
+    <variable name="u_C" units="J_per_m3" interface="public"/>
+    <variable name="v_out" units="m3_per_s" interface="public"/>
+    <variable name="q_C" units="m3" initial_value="q_C_init" interface="public"/>
+    <variable name="q_C_init" units="m3" interface="public"/>
+    <variable name="q" units="m3" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML" xmlns:cellml="http://www.cellml.org/cellml/2.0#">
+      <apply>
+        <eq/>
+        <ci>q</ci>
+        <apply>
+          <plus/>
+          <ci>q_C</ci>
+          <ci>q_0</ci>
+        </apply>
+      </apply>
+      <!-- emperical relation-->
+      <apply>
+        <eq/>
+        <ci>R_v</ci>
+        <apply>
+          <divide/>
+          <cn cellml:units="second">0.01</cn>
+          <ci>C</ci>
+        </apply>
+      </apply>
+      <!-- Conservation Laws-->
+      <apply>
+        <eq/>
+        <apply>
+          <diff/>
+          <bvar>
+            <ci>t</ci>
+          </bvar>
+          <ci>v</ci>
+        </apply>
+        <apply>
+          <divide/>
+          <apply>
+            <minus/>
+            <apply>
+              <minus/>
+              <ci>u_in</ci>
+              <ci>u</ci>
+            </apply>
+            <apply>
+              <times/>
+              <ci>R</ci>
+              <ci>v</ci>
+            </apply>
+          </apply>
+          <ci>I</ci>
+        </apply>
+      </apply>
+      <apply>
+        <eq/>
+        <apply>
+          <diff/>
+          <bvar>
+            <ci>t</ci>
+          </bvar>
+          <ci>q_C</ci>
+        </apply>
+        <apply>
+          <minus/>
+          <ci>v</ci>
+          <ci>v_out</ci>
+        </apply>
+      </apply>
+      <!-- constitutive laws-->
+      <apply>
+        <eq/>
+        <ci>u_C</ci>
+        <apply>
+          <divide/>
+          <ci>q_C</ci>
+          <ci>C</ci>
+        </apply>
+      </apply>
+      <apply>
+        <eq/>
+        <ci>u</ci>
+        <apply>
+          <plus/>
+          <ci>u_0</ci>
+          <ci>u_C</ci>
+          <ci>u_ext</ci>
+          <apply>
+            <times/>
+            <ci>R_v</ci>
+            <apply>
+              <minus/>
+              <ci>v</ci>
+              <ci>v_out</ci>
+            </apply>
+          </apply>
+        </apply>
+      </apply>
+    </math>
+  </component>
+  <component name="pv_split_type">
+    <variable name="t" units="second" interface="public"/>
+    <variable name="mu" units="Js_per_m3" interface="public"/>
+    <variable name="rho" units="Js2_per_m5" interface="public"/>
+    <variable name="g" units="m_per_s2" interface="public"/>
+    <variable name="beta_g" units="dimensionless" interface="public"/>
+    <variable name="theta" units="dimensionless" interface="public"/>
+    <variable name="E" units="J_per_m3" interface="public"/>
+    <variable name="l" units="metre" interface="public"/>
+    <variable name="h" units="metre" interface="public"/>
+    <variable name="r_0" units="metre" interface="public"/>
+    <variable name="u_0" units="J_per_m3" interface="public"/>
+    <variable name="I" units="Js2_per_m6" interface="public"/>
+    <variable name="C" units="m6_per_J" interface="public"/>
+    <variable name="R" units="Js_per_m6" interface="public"/>
+    <variable name="R_v" units="Js_per_m6" interface="public"/>
+    <variable name="a_vessel" units="dimensionless" interface="public"/>
+    <variable name="b_vessel" units="per_m" interface="public"/>
+    <variable name="c_vessel" units="dimensionless" interface="public"/>
+    <variable name="d_vessel" units="per_m" interface="public"/>
+    <variable name="u_ext" units="J_per_m3" interface="public"/>
+    <variable name="u_in" units="J_per_m3" interface="public"/>
+    <variable name="v" units="m3_per_s" initial_value="v_init" interface="public"/>
+    <variable name="v_init" units="m3_per_s" interface="public"/>
+    <variable name="u" units="J_per_m3" interface="public"/>
+    <variable name="u_C" units="J_per_m3" interface="public"/>
+    <variable name="du_C_dt" units="J_per_m3s" interface="public"/>
+    <variable name="v_out_1" units="m3_per_s" interface="public"/>
+    <variable name="v_out_2" units="m3_per_s" interface="public"/>
+    <variable name="q_C" units="m3" initial_value="q_C_init" interface="public"/>
+    <variable name="q_C_init" units="m3" interface="public"/>
+    <variable name="q_0" units="m3" interface="public"/>
+    <variable name="q" units="m3" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML" xmlns:cellml="http://www.cellml.org/cellml/2.0#">
+      <apply>
+        <eq/>
+        <ci>q_0</ci>
+        <apply>
+          <times/>
+          <pi/>
+          <apply>
+            <power/>
+            <ci>r_0</ci>
+            <cn cellml:units="dimensionless">2</cn>
+          </apply>
+          <ci>l</ci>
+        </apply>
+      </apply>
+      <apply>
+        <eq/>
+        <ci>q</ci>
+        <apply>
+          <plus/>
+          <ci>q_C</ci>
+          <ci>q_0</ci>
+        </apply>
+      </apply>
+      <!-- Constitutive Relations-->
+      <apply>
+        <eq/>
+        <ci>h</ci>
+        <apply>
+          <times/>
+          <ci>r_0</ci>
+          <apply>
+            <plus/>
+            <apply>
+              <times/>
+              <ci>a_vessel</ci>
+              <apply>
+                <exp/>
+                <apply>
+                  <times/>
+                  <ci>b_vessel</ci>
+                  <ci>r_0</ci>
+                </apply>
+              </apply>
+            </apply>
+            <apply>
+              <times/>
+              <ci>c_vessel</ci>
+              <apply>
+                <exp/>
+                <apply>
+                  <times/>
+                  <ci>d_vessel</ci>
+                  <ci>r_0</ci>
+                </apply>
+              </apply>
+            </apply>
+          </apply>
+        </apply>
+      </apply>
+      <apply>
+        <eq/>
+        <ci>I</ci>
+        <apply>
+          <divide/>
+          <apply>
+            <times/>
+            <ci>rho</ci>
+            <ci>l</ci>
+          </apply>
+          <apply>
+            <times/>
+            <pi/>
+            <apply>
+              <power/>
+              <ci>r_0</ci>
+              <cn cellml:units="dimensionless">2</cn>
+            </apply>
+          </apply>
+        </apply>
+      </apply>
+      <apply>
+        <eq/>
+        <ci>C</ci>
+        <apply>
+          <divide/>
+          <apply>
+            <times/>
+            <cn cellml:units="dimensionless">2</cn>
+            <pi/>
+            <apply>
+              <power/>
+              <ci>r_0</ci>
+              <cn cellml:units="dimensionless">3</cn>
+            </apply>
+            <ci>l</ci>
+          </apply>
+          <apply>
+            <times/>
+            <ci>E</ci>
+            <ci>h</ci>
+          </apply>
+        </apply>
+      </apply>
+      <apply>
+        <eq/>
+        <ci>R</ci>
+        <apply>
+          <divide/>
+          <apply>
+            <times/>
+            <cn cellml:units="dimensionless">8</cn>
+            <ci>mu</ci>
+            <ci>l</ci>
+          </apply>
+          <apply>
+            <times/>
+            <pi/>
+            <apply>
+              <power/>
+              <ci>r_0</ci>
+              <cn cellml:units="dimensionless">4</cn>
+            </apply>
+          </apply>
+        </apply>
+      </apply>
+      <apply>
+        <eq/>
+        <ci>R_v</ci>
+        <apply>
+          <divide/>
+          <cn cellml:units="second">0.01</cn>
+          <ci>C</ci>
+        </apply>
+      </apply>
+      <!-- Conservation Laws-->
+      <apply>
+        <eq/>
+        <apply>
+          <diff/>
+          <bvar>
+            <ci>t</ci>
+          </bvar>
+          <ci>v</ci>
+        </apply>
+        <apply>
+          <divide/>
+          <apply>
+            <minus/>
+            <apply>
+              <minus/>
+              <apply>
+                <minus/>
+                <ci>u_in</ci>
+                <ci>u</ci>
+              </apply>
+              <apply>
+                <times/>
+                <ci>R</ci>
+                <ci>v</ci>
+              </apply>
+            </apply>
+            <apply>
+              <times/>
+              <ci>beta_g</ci>
+              <ci>rho</ci>
+              <ci>g</ci>
+              <ci>l</ci>
+              <apply>
+                <cos/>
+                <apply>
+                  <divide/>
+                  <apply>
+                    <times/>
+                    <ci>theta</ci>
+                    <pi/>
+                  </apply>
+                  <cn cellml:units="dimensionless">180</cn>
+                </apply>
+              </apply>
+            </apply>
+          </apply>
+          <ci>I</ci>
+        </apply>
+      </apply>
+      <!-- The below assumes constant compliance and is only used as an approximate output for the baroreceptor-->
+      <apply>
+        <eq/>
+        <ci>du_C_dt</ci>
+        <apply>
+          <divide/>
+          <apply>
+            <minus/>
+            <apply>
+              <minus/>
+              <ci>v</ci>
+              <ci>v_out_1</ci>
+            </apply>
+            <ci>v_out_2</ci>
+          </apply>
+          <ci>C</ci>
+        </apply>
+      </apply>
+      <!-- the below allows non constant compliance-->
+      <apply>
+        <eq/>
+        <apply>
+          <diff/>
+          <bvar>
+            <ci>t</ci>
+          </bvar>
+          <ci>q_C</ci>
+        </apply>
+        <apply>
+          <minus/>
+          <apply>
+            <minus/>
+            <ci>v</ci>
+            <ci>v_out_1</ci>
+          </apply>
+          <ci>v_out_2</ci>
+        </apply>
+      </apply>
+      <apply>
+        <eq/>
+        <ci>u_C</ci>
+        <apply>
+          <plus/>
+          <apply>
+            <divide/>
+            <ci>q_C</ci>
+            <ci>C</ci>
+          </apply>
+          <ci>u_ext</ci>
+        </apply>
+      </apply>
+      <apply>
+        <eq/>
+        <ci>u</ci>
+        <apply>
+          <plus/>
+          <ci>u_0</ci>
+          <ci>u_C</ci>
+          <apply>
+            <times/>
+            <ci>R_v</ci>
+            <apply>
+              <minus/>
+              <apply>
+                <minus/>
+                <ci>v</ci>
+                <ci>v_out_1</ci>
+              </apply>
+              <ci>v_out_2</ci>
+            </apply>
+          </apply>
+        </apply>
+      </apply>
+    </math>
+  </component>
+  <component name="flow_sum_2_type">
+    <variable name="t" units="second" interface="public"/>
+    <variable name="v_1" units="m3_per_s" interface="public"/>
+    <variable name="v_2" units="m3_per_s" interface="public"/>
+    <variable name="v_total" units="m3_per_s" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>v_total</ci>
+        <apply>
+          <plus/>
+          <ci>v_1</ci>
+          <ci>v_2</ci>
+        </apply>
+      </apply>
+    </math>
+  </component>
+</model>

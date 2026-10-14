@@ -6,7 +6,7 @@ import createLibOpenCOR from '@opencor/libopencor'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { orderForCa } from '../../../src/services/export/caOrder.js'
+import { orderForCa } from '../fixtures/ca/order.js'
 import { expandHierarchy } from '../../../src/services/hierarchy/expand.js'
 import { compareCanonical, compareSimulations } from '../../../src/services/testing/modelCompare.js'
 import { migrateWorkspace } from '../../../src/services/workspaceMigrator.js'

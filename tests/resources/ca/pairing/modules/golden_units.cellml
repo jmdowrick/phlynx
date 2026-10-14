@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="http://www.cellml.org/cellml/2.0#" name="units">
+  <units name="Js2_per_m6">
+    <unit units="joule"/>
+    <unit units="second" exponent="2"/>
+    <unit units="metre" exponent="-6"/>
+  </units>
+  <units name="m6_per_J">
+    <unit units="metre" exponent="6"/>
+    <unit units="joule" exponent="-1"/>
+  </units>
+  <units name="Js_per_m6">
+    <unit units="joule"/>
+    <unit units="second"/>
+    <unit units="metre" exponent="-6"/>
+  </units>
+  <units name="m3">
+    <unit units="metre" exponent="3"/>
+  </units>
+  <units name="J_per_m3">
+    <unit units="joule"/>
+    <unit units="metre" exponent="-3"/>
+  </units>
+  <units name="m3_per_s">
+    <unit units="metre" exponent="3"/>
+    <unit units="second" exponent="-1"/>
+  </units>
+  <units name="Js_per_m3">
+    <unit units="joule"/>
+    <unit units="second"/>
+    <unit units="metre" exponent="-3"/>
+  </units>
+  <units name="Js2_per_m5">
+    <unit units="joule"/>
+    <unit units="second" exponent="2"/>
+    <unit units="metre" exponent="-5"/>
+  </units>
+  <units name="m_per_s2">
+    <unit units="metre"/>
+    <unit units="second" exponent="-2"/>
+  </units>
+  <units name="per_m">
+    <unit units="metre" exponent="-1"/>
+  </units>
+  <units name="J_per_m3s">
+    <unit units="joule"/>
+    <unit units="metre" exponent="-3"/>
+    <unit units="second" exponent="-1"/>
+  </units>
+</model>

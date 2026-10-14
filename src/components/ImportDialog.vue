@@ -572,6 +572,10 @@ const getInstanceArrayPayload = () => {
 
 const createTemporaryStore = () => {
   const availableModules = detachReactivity(libraryStore.availableModules)
+  // A module array builds its instances from the variants a config imported earlier kept aside, too.
+  for (const [moduleRef, module] of detachReactivity(libraryStore.caVariants ?? new Map())) {
+    if (!availableModules.has(moduleRef)) availableModules.set(moduleRef, module)
+  }
   const availableMath = detachReactivity(libraryStore.availableMath)
   const availableCollections = detachReactivity(libraryStore.availableCollections)
 

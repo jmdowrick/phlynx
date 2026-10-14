@@ -3,6 +3,7 @@
  * slots, and warnings about the junction types and multi_port shapes CA wires by vessel type. PhLynx's own coupling
  * (utils/edges.js) and CellML know none of them.
  */
+import { BASE_SUBTYPE_KEY } from '../utils/config'
 import { PORT_TYPE_OPTIONS } from '../utils/constants'
 import { notify } from '../utils/notify'
 import { isHeart, listNamed } from './export/caCellml'
@@ -140,7 +141,8 @@ export function legacyFlowPortModules(configs) {
 
 /**
  * Lists the entries of some config files that the library would add: the first entry of each ref it doesn't hold, as
- * libraryStore.addConfigFile keeps a module it already has and skips an entry without a component_file.
+ * libraryStore.addConfigFile keeps a module it already has and skips an entry without a component_file. A variant the
+ * CA export wrote adds the module it stands in for, after the files' own entries.
  *
  * @param {Iterable<{payload: Object[]}>} files - Config files, staged or in an import payload; read before adding.
  * @param {(moduleRef: string) => boolean} hasModule - Whether the library holds a module ref.
@@ -148,16 +150,16 @@ export function legacyFlowPortModules(configs) {
  */
 export function newConfigEntries(files, hasModule) {
   const seen = new Set()
-  return [...(files ?? [])]
+  const entries = [...(files ?? [])]
     .flatMap((file) => (Array.isArray(file?.payload) ? file.payload : []))
-    .filter((entry) => {
-      const ref = `${entry?.module_type}:${entry?.module_subtype}`
-      if (!entry?.component_file || typeof entry.component_file !== 'string' || hasModule(ref) || seen.has(ref)) {
-        return false
-      }
-      seen.add(ref)
-      return true
-    })
+    .filter((entry) => entry?.component_file && typeof entry.component_file === 'string')
+  const isVariant = (entry) => typeof entry[BASE_SUBTYPE_KEY] === 'string' && entry[BASE_SUBTYPE_KEY] !== ''
+  return [...entries.filter((entry) => !isVariant(entry)), ...entries.filter(isVariant)].filter((entry) => {
+    const ref = `${entry.module_type}:${isVariant(entry) ? entry[BASE_SUBTYPE_KEY] : entry.module_subtype}`
+    if (hasModule(ref) || seen.has(ref)) return false
+    seen.add(ref)
+    return true
+  })
 }
 
 /**
