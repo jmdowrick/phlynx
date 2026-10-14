@@ -111,6 +111,40 @@ describe('generateFlattenedModel with units made from expressions', () => {
     expect(text).toMatch(/<units name="uL_per_s">/)
     expect(text).toMatch(/<unit (?=[^>]*units="litre")(?=[^>]*prefix="micro")[^>]*\/>/)
   })
+
+  it('imports a unit only a number uses, and makes a celsius number dimensionless', async () => {
+    setActivePinia(createPinia())
+    const store = useLibraryStore()
+    store.addUnitsFile({
+      componentFile: 'units.cellml',
+      model: `<model xmlns="http://www.cellml.org/cellml/2.0#" name="units">
+  <units name="celsius"><unit units="kelvin"/></units>
+  <units name="per_second"><unit units="second" exponent="-1"/></units>
+</model>`,
+    })
+    store.addMath(
+      'file:temp',
+      `<model xmlns="http://www.cellml.org/cellml/2.0#" name="temp">
+  <component name="temp">
+    <variable name="t" units="second" interface="public"/>
+    <variable name="T" units="dimensionless" interface="public"/>
+    <variable name="x" units="dimensionless" initial_value="1" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML" xmlns:cellml="http://www.cellml.org/cellml/2.0#">
+      <apply><eq/><ci>T</ci><cn cellml:units="celsius">37</cn></apply>
+      <apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>x</ci></apply><cn cellml:units="per_second">1</cn></apply>
+    </math>
+  </component>
+</model>`
+    )
+
+    const rows = reconcileRows(analyzeMathXml(store.availableMath.get('file:temp')), [], { defaults: store.getMathDefaults('file:temp') })
+    const node = { id: 'n1', type: 'instanceNode', data: { name: 'temp_1', mathRef: 'file:temp', variables: rows, ports: [] } }
+
+    const text = await (await generateFlattenedModel([node], [], store)).text()
+    expect(text).toMatch(/<units name="per_second">/)
+    expect(text).not.toMatch(/celsius/)
+    expect(text.match(/<cn [^>]*>37<\/cn>/)[0].match(/units="[^"]*"/g)).toEqual(['units="dimensionless"'])
+  })
 })
 
 describe('boundary values in a migrated workspace', () => {
