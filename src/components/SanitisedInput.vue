@@ -284,7 +284,7 @@ defineExpose({ focus, updatePosition })
 /* Positioned by script from the field's bounding box; sits above the modal dialog. */
 .sanitised-input__popover--floating {
   position: fixed;
-  z-index: 4000;
+  z-index: 11000;
 }
 
 .sanitised-input__arrow {
@@ -325,7 +325,7 @@ defineExpose({ focus, updatePosition })
 
 .sanitised-input__suggestions--floating {
   position: fixed;
-  z-index: 4000;
+  z-index: 11000;
 }
 
 .sanitised-input__options {
