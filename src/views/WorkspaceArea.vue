@@ -587,6 +587,7 @@ import { useLoadFromCellML } from '../composables/useLoadFromCellml'
 import { useLoadFromUrl } from '../composables/useLoadFromUrl'
 import { createUrlLoaders } from '../services/urlLoaders'
 import { parseCellMLConnections } from '../services/import/parseCellmlConnections'
+import { prepareCellmlImport } from '../services/import/prepareCellml'
 import { useGtm } from '../composables/useGtm'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useImportExportSend } from '../composables/useImportExportSend'
@@ -1376,15 +1377,17 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
       'This case is not fully implemented yet, but we will load the CellML file but the module configuration is not currently used to build the workspace.'
     )
     console.warn('moduleConfigFile', moduleConfigFile)
-    const cellmlPayload = parseCellMLConnections(cellmlContent, result.files.cellml)
-    await loadCellMLData(cellmlContent, result.files.cellml, { notify: false })
-    const parameters = loadParametersFromCellML(cellmlContent)
+    const importedCellml = prepareCellmlImport(cellmlContent, result.files.cellml)
+    const cellmlPayload = parseCellMLConnections(importedCellml, result.files.cellml)
+    await loadCellMLData(importedCellml, result.files.cellml, { notify: false })
+    const parameters = loadParametersFromCellML(importedCellml)
     await loadFromCellML(cellmlPayload, result.files.cellml)
   } else {
     // Last, and not great, scenario: if we don't have a flow snapshot or module configuration, we can still load the CellML file to build the workspace.
-    const cellmlPayload = parseCellMLConnections(cellmlContent, result.files.cellml)
-    await loadCellMLData(cellmlContent, result.files.cellml, { notify: false })
-    const parameters = loadParametersFromCellML(cellmlContent)
+    const importedCellml = prepareCellmlImport(cellmlContent, result.files.cellml)
+    const cellmlPayload = parseCellMLConnections(importedCellml, result.files.cellml)
+    await loadCellMLData(importedCellml, result.files.cellml, { notify: false })
+    const parameters = loadParametersFromCellML(importedCellml)
     await loadFromCellML(cellmlPayload, result.files.cellml, parameters)
   }
 
