@@ -1,0 +1,167 @@
+import { describe, expect, it } from 'vitest'
+
+import { buildSubsystem, buildSupermoduleInterface } from '../../../src/services/import/buildWorkflow.js'
+import { EXPOSURE_EDGE_TYPE, SUBSYSTEM_NODE_TYPE, SUPERMODULE_INTERFACE_NODE_TYPE } from '../../../src/utils/constants.js'
+import {
+  assertNodeId,
+  canPlaceSubsystem,
+  edgeScopeProblem,
+  findSupermoduleCycle,
+  indexByScope,
+  isModelEdge,
+  localIdOf,
+  MAX_NESTING_DEPTH,
+  nextNodeId,
+  nextSupermoduleId,
+  nodeIdProblem,
+  splitNodeId,
+  supermoduleDependencies,
+  supermoduleDepth,
+  supermoduleUses,
+} from '../../../src/utils/hierarchy.js'
+import { getId } from '../../../src/utils/nodes.js'
+
+const node = (id, scope = null, extra = {}) => ({ id, type: 'instanceNode', data: { scope, ...extra } })
+const sm = (id, name = id) => buildSupermoduleInterface(id, { name })
+const instance = (id, smId, scope = null) => buildSubsystem(id, id, smId, { scope })
+
+describe('ids', () => {
+  const nodes = [node('dndnode_0'), node('dndnode_4'), sm('sm_1'), node('sm_1~dndnode_7', 'sm_1'), node('sm_1~dndnode_2', 'sm_1')]
+
+  it('gives a root node today’s next id', () => {
+    expect(nextNodeId(null, nodes)).toBe('dndnode_5')
+    expect(nextNodeId(null, nodes)).toBe(getId(nodes.map((n) => n.id)))
+    expect(nextNodeId(null, [])).toBe('dndnode_0')
+  })
+
+  it('gives a nested node its scope and the next local id of that scope', () => {
+    expect(nextNodeId('sm_1', nodes)).toBe('sm_1~dndnode_8')
+    expect(nextNodeId('sm_9', nodes)).toBe('sm_9~dndnode_0')
+  })
+
+  it('gives a new super-module the next sm_ id', () => {
+    expect(nextSupermoduleId(nodes)).toBe('sm_2')
+  })
+
+  it('splits and reads local ids', () => {
+    expect(splitNodeId('sm_1~dndnode_7')).toEqual({ scope: 'sm_1', localId: 'dndnode_7' })
+    expect(splitNodeId('dndnode_0')).toEqual({ scope: null, localId: 'dndnode_0' })
+    expect(localIdOf(node('sm_1~dndnode_7', 'sm_1'))).toBe('dndnode_7')
+    expect(localIdOf(sm('sm_1'))).toBe('sm_1')
+    expect(localIdOf(node('dndnode_0'))).toBe('dndnode_0')
+  })
+
+  it('accepts ids that keep the rules', () => {
+    expect(nodeIdProblem('dndnode_0')).toBeNull()
+    expect(nodeIdProblem('macronode_3_iter_1')).toBeNull()
+    expect(nodeIdProblem('sm_1~dndnode_0', 'sm_1')).toBeNull()
+    expect(nodeIdProblem('sm_1', 'sm_1', { isInterface: true })).toBeNull()
+    expect(() => assertNodeId(buildSubsystem('sm_1~dndnode_3', 'heart', 'sm_2', { scope: 'sm_1' }))).not.toThrow()
+    expect(() => assertNodeId(sm('sm_1'))).not.toThrow()
+  })
+
+  it('rejects ids with "/", "::" or a misplaced "~"', () => {
+    expect(nodeIdProblem('a/b')).toMatch(/"\/"/)
+    expect(nodeIdProblem('a::b')).toMatch(/"::"/)
+    expect(nodeIdProblem('a~b')).toMatch(/outside a super-module/)
+    expect(nodeIdProblem('sm_2~a', 'sm_1')).toMatch(/does not start with its scope/)
+    expect(nodeIdProblem('sm_1~a~b', 'sm_1')).toMatch(/one local id/)
+    expect(nodeIdProblem('sm_2', 'sm_1', { isInterface: true })).toMatch(/not in its own scope/)
+    expect(() => assertNodeId(node('sm_1~a', 'sm_1', { localId: 'b' }))).toThrow(/does not match its local id/)
+  })
+})
+
+describe('builders', () => {
+  it('builds a subsystem with its local id', () => {
+    const built = buildSubsystem('sm_1~dndnode_3', 'heart', 'sm_2', { scope: 'sm_1', overrides: { lv: { E: { value: '2' } } } })
+    expect(built).toEqual({
+      id: 'sm_1~dndnode_3',
+      type: SUBSYSTEM_NODE_TYPE,
+      position: { x: 100, y: 100 },
+      data: { scope: 'sm_1', localId: 'dndnode_3', name: 'heart', smId: 'sm_2', overrides: { lv: { E: { value: '2' } } }, ports: [], handles: [] },
+    })
+    expect(buildSubsystem('dndnode_3', 'heart', 'sm_2').data).toMatchObject({ scope: null, localId: 'dndnode_3', overrides: {} })
+  })
+
+  it('refuses an id that is not in the scope given', () => {
+    expect(() => buildSubsystem('dndnode_3', 'heart', 'sm_2', { scope: 'sm_1' })).toThrow('does not start with its scope "sm_1~"')
+    expect(() => buildSubsystem('sm_9~dndnode_3', 'heart', 'sm_2', { scope: 'sm_1' })).toThrow()
+    expect(() => buildSubsystem('sm_1~dndnode_3', 'heart', 'sm_2')).toThrow('outside a super-module')
+    expect(() => buildSupermoduleInterface('sm~1', { name: 'heart' })).toThrow()
+    expect(() => buildSupermoduleInterface('sm/1', { name: 'heart' })).toThrow()
+  })
+
+  it('builds an undeletable interface node holding the definition', () => {
+    expect(buildSupermoduleInterface('sm_1', { name: 'heart', submoduleOrder: ['ra'] })).toEqual({
+      id: 'sm_1',
+      type: SUPERMODULE_INTERFACE_NODE_TYPE,
+      deletable: false,
+      position: { x: 0, y: 0 },
+      data: {
+        scope: 'sm_1',
+        localId: 'sm_1',
+        supermodule: { name: 'heart', ca: null, submoduleOrder: ['ra'], exposedPorts: [], localConstants: [], naming: 'prefixed', source: null },
+      },
+    })
+  })
+})
+
+describe('scopes and edges', () => {
+  it('indexes nodes by scope, in order', () => {
+    const nodes = [node('a'), node('sm_1~x', 'sm_1'), node('b'), { id: 'legacy', data: {} }]
+    const index = indexByScope(nodes)
+    expect(index.get(null).map((n) => n.id)).toEqual(['a', 'b', 'legacy'])
+    expect(index.get('sm_1').map((n) => n.id)).toEqual(['sm_1~x'])
+  })
+
+  it('finds edges that join two scopes, or end at an interface node without being exposure edges', () => {
+    const nodes = [node('a'), node('b'), sm('sm_1'), node('sm_1~x', 'sm_1')]
+    const nodeById = new Map(nodes.map((n) => [n.id, n]))
+    const edge = (source, target, type) => ({ id: 'e', source, target, ...(type && { type }) })
+    expect(edgeScopeProblem(edge('a', 'b'), nodeById)).toBeNull()
+    expect(edgeScopeProblem(edge('sm_1~x', 'sm_1', EXPOSURE_EDGE_TYPE), nodeById)).toBeNull()
+    expect(edgeScopeProblem(edge('a', 'gone'), nodeById)).toBeNull()
+    expect(edgeScopeProblem(edge('a', 'sm_1~x'), nodeById)).toMatch(/different scopes/)
+    expect(edgeScopeProblem(edge('sm_1~x', 'sm_1'), nodeById)).toMatch(/interface node/)
+  })
+
+  it('leaves exposure edges out of the model', () => {
+    expect(isModelEdge({ type: EXPOSURE_EDGE_TYPE })).toBe(false)
+    expect(isModelEdge({ type: 'smoothstep' })).toBe(true)
+    expect(isModelEdge({})).toBe(true)
+  })
+})
+
+describe('super-module dependencies', () => {
+  // sm_a uses sm_b, which uses sm_c.
+  const nodes = [sm('sm_a'), sm('sm_b'), sm('sm_c'), instance('sm_a~i', 'sm_b', 'sm_a'), instance('sm_b~j', 'sm_c', 'sm_b'), instance('top', 'sm_a')]
+  const graph = supermoduleDependencies(nodes)
+
+  it('lists the super-modules each one uses', () => {
+    expect(graph).toEqual(new Map([['sm_a', new Set(['sm_b'])], ['sm_b', new Set(['sm_c'])], ['sm_c', new Set()]]))
+    expect(supermoduleUses(graph, 'sm_a', 'sm_c')).toBe(true)
+    expect(supermoduleUses(graph, 'sm_c', 'sm_a')).toBe(false)
+    expect(supermoduleDepth(graph, 'sm_a')).toBe(3)
+    expect(findSupermoduleCycle(graph)).toBeNull()
+  })
+
+  it('refuses a placement that would make a cycle', () => {
+    expect(canPlaceSubsystem(graph, null, 'sm_a')).toBe(true)
+    expect(canPlaceSubsystem(graph, 'sm_a', 'sm_c')).toBe(true)
+    expect(canPlaceSubsystem(graph, 'sm_c', 'sm_a')).toBe(false)
+    expect(canPlaceSubsystem(graph, 'sm_b', 'sm_b')).toBe(false)
+  })
+
+  it('finds a cycle', () => {
+    const cyclic = supermoduleDependencies([...nodes, instance('sm_c~k', 'sm_a', 'sm_c')])
+    expect(findSupermoduleCycle(cyclic)).toEqual(['sm_a', 'sm_b', 'sm_c'])
+    expect(supermoduleDepth(cyclic, 'sm_a')).toBe(Infinity)
+  })
+
+  it('caps nesting at CA’s depth', () => {
+    const ids = Array.from({ length: MAX_NESTING_DEPTH + 1 }, (_, i) => `sm_${i}`)
+    const deep = supermoduleDependencies([...ids.map((id) => sm(id)), ...ids.slice(1).map((id, i) => instance(`${ids[i]}~x`, id, ids[i]))])
+    expect(supermoduleDepth(deep, 'sm_1')).toBe(MAX_NESTING_DEPTH)
+    expect(supermoduleDepth(deep, 'sm_0')).toBe(Infinity)
+  })
+})
