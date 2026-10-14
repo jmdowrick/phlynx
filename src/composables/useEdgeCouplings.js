@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { TARGET_COMPATIBLE } from '../utils/constants'
 import { detachReactivity } from '../utils/reactivity'
-import { isSingleConnection } from '../utils/edges'
+import { isSingleConnection, slotOf } from '../utils/edges'
 import { isCompatible, findPort } from '../utils/ports'
 import { isMultiport } from '../utils/multiport'
 
@@ -109,6 +109,7 @@ export function useEdgeCouplings(props, askSwapIntent) {
     })
 
     const partnerPortLabel = side === 'source' ? coupling?.targetPort : coupling?.sourcePort
+    const partnerSlot = side === 'source' ? coupling?.targetSlot : coupling?.sourceSlot
     const partnerPort = side === 'source'
       ? findPort(localTgtPorts.value, partnerPortLabel)
       : findPort(localSrcPorts.value, partnerPortLabel)
@@ -119,7 +120,7 @@ export function useEdgeCouplings(props, askSwapIntent) {
     }
     portUsage.delete(port._uid)
 
-    return { partnerUid: partnerPort?._uid ?? null, partnerPort, edgeId }
+    return { partnerUid: partnerPort?._uid ?? null, partnerPort, partnerSlot, edgeId }
   }
 
   async function evictHandle(port, nodeUid, side, newCouplings) {
@@ -148,9 +149,9 @@ export function useEdgeCouplings(props, askSwapIntent) {
         const result = evictForeignHandle(port, side)
         takenElsewhereUids.value = new Set(portUsage.keys())
         if (result && intent === 'swap') {
-          const { partnerPort, edgeId } = result
+          const { partnerPort, partnerSlot, edgeId } = result
           const oldPort = side === 'target' ? tgtByUid(oldUid) : srcByUid(oldUid)
-          if (oldPort) rehomeForeignHandle(oldPort, partnerPort, edgeId, side)
+          if (oldPort) rehomeForeignHandle(oldPort, partnerPort, partnerSlot, edgeId, side)
           takenElsewhereUids.value = new Set(portUsage.keys())
         }
       }
@@ -173,7 +174,7 @@ export function useEdgeCouplings(props, askSwapIntent) {
     return connectPorts(swapSrcUid, swapTgtUid, next)
   }
 
-  function rehomeForeignHandle(oldPort, partnerPort, edgeId, side) {
+  function rehomeForeignHandle(oldPort, partnerPort, partnerSlot, edgeId, side) {
     const sibling = localSubgraph.value.get(edgeId)
     if (!sibling) return
 
@@ -185,9 +186,10 @@ export function useEdgeCouplings(props, askSwapIntent) {
       multiplyFactor: oldPort.multiplyFactor,
     }
 
+    const slot = slotOf(side === 'source' ? localSrcPorts.value : localTgtPorts.value, oldPort)
     const newCoupling = side === 'source'
-      ? { sourcePort: newPort, targetPort: partnerPort }
-      : { sourcePort: partnerPort, targetPort: newPort }
+      ? { sourcePort: newPort, targetPort: partnerPort, sourceSlot: slot, targetSlot: partnerSlot }
+      : { sourcePort: partnerPort, targetPort: newPort, sourceSlot: partnerSlot, targetSlot: slot }
 
     sibling.data = {
       ...sibling.data,

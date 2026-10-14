@@ -10,6 +10,9 @@ const nodes = ref([])
 const edges = ref([])
 let connectHandler = null
 
+const notified = vi.hoisted(() => ({ error: vi.fn(), warning: vi.fn() }))
+vi.mock('../../../src/utils/notify', () => ({ notify: notified }))
+
 const toIds = (ids) => (Array.isArray(ids) ? ids : [ids])
 
 vi.mock('@vue-flow/core', async (importOriginal) => ({
@@ -50,6 +53,7 @@ describe('useConnect', () => {
   const connect = (connection) => connectHandler(connection)
 
   beforeEach(() => {
+    vi.clearAllMocks()
     setActivePinia(createPinia())
     useLibraryStore()
     history = useFlowHistoryStore()
@@ -101,6 +105,8 @@ describe('useConnect', () => {
         {
           sourcePort: nodes.value[0].data.ports[0],
           targetPort: nodes.value[1].data.ports[0],
+          sourceSlot: 0,
+          targetSlot: 0,
         },
       ])
     })
@@ -342,6 +348,81 @@ describe('useConnect', () => {
       expect(deps.reactivateEdgeHandles).toHaveBeenLastCalledWith(expect.objectContaining(second), {
         trackHistory: false,
       })
+    })
+  })
+
+  describe('repeated port slots', () => {
+    const link = (source, target) => ({ source, target, sourceHandle: `handle_${source}${target}`, targetHandle: `handle_${target}${source}` })
+
+    beforeEach(() => {
+      nodes.value = [
+        createNode('s', [port('exit_ports', 'flow', ['x']), port('exit_ports', 'flow', ['y'])]),
+        ...['a', 'b', 'c', 'd'].map((id) => createNode(id, [port('entrance_ports', 'flow', [id])])),
+      ]
+    })
+
+    const slotOfEdge = (id) => edges.value.find((edge) => edge.id === id).data.couplings[0].sourceSlot
+
+    it('gives a new edge the first slot no other edge holds, so it never takes a held slot', async () => {
+      await connect(link('s', 'a'))
+      await connect(link('s', 'b'))
+      edges.value = edges.value.filter((edge) => edge.id !== 's--a')
+      await connect(link('s', 'c'))
+
+      expect(slotOfEdge('s--b')).toBe(1)
+      expect(slotOfEdge('s--c')).toBe(0)
+      expect(edges.value.find((edge) => edge.id === 's--c').data.couplings[0].sourcePort.variables).toEqual(['x'])
+    })
+
+    it('picks the same slot whatever the order of the existing edges', async () => {
+      nodes.value[0].data.ports.push(port('exit_ports', 'flow', ['z']))
+      await connect(link('s', 'a'))
+      await connect(link('s', 'b'))
+      await connect(link('s', 'd'))
+      const existing = edges.value.filter((edge) => edge.id !== 's--b')
+
+      edges.value = [...existing]
+      await connect(link('s', 'c'))
+      const slot = slotOfEdge('s--c')
+      edges.value = [...existing].reverse()
+      await connect(link('s', 'c'))
+
+      expect(slot).toBe(1)
+      expect(slotOfEdge('s--c')).toBe(slot)
+    })
+
+    it('refuses a connection whose port has no free slot, and says why', async () => {
+      await connect(link('s', 'a'))
+      await connect(link('s', 'b'))
+      deps.activateHandle.mockClear()
+      deps.confirmActivation.mockClear()
+
+      await connect(link('s', 'c'))
+
+      expect(edges.value.map((edge) => edge.id)).toEqual(['s--a', 's--b'])
+      expect(deps.confirmActivation).not.toHaveBeenCalled()
+      expect(deps.activateHandle).not.toHaveBeenCalled()
+      expect(notified.error).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining('"s" has no free "flow" slot') })
+      )
+    })
+
+    it('shares a multiport slot between edges', async () => {
+      nodes.value[0].data.ports = [{ ...port('exit_ports', 'flow', ['x']), multiportType: 'True' }]
+      await connect(link('s', 'a'))
+      await connect(link('s', 'b'))
+
+      expect(edges.value.map((edge) => edge.data.couplings[0].sourceSlot)).toEqual([0, 0])
+      expect(notified.error).not.toHaveBeenCalled()
+    })
+
+    it('frees the slot of the edge a replacement replaces', async () => {
+      await connect(link('s', 'a'))
+      await connect(link('s', 'b'))
+      await connect({ ...link('s', 'b'), sourceHandle: 'handle_other' })
+
+      expect(notified.error).not.toHaveBeenCalled()
+      expect(slotOfEdge('s--b')).toBe(1)
     })
   })
 })

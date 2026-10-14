@@ -116,6 +116,10 @@ export function useLoadFromCellML({ fitViewParams } = {}) {
         store.getMathDefaults
       )
 
+      if (result.conflicts.length) {
+        notify.warning({ title: 'Connections Not Made', message: result.conflicts.join(' ') })
+      }
+
       const layoutPromise = prepareLayout(result.pendingEdges)
       const history = useFlowHistoryStore()
       history.startBatch()

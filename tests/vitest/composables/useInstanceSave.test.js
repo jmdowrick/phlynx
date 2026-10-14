@@ -15,6 +15,9 @@ import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
 const nodes = ref([])
 const edges = ref([])
+const notified = vi.hoisted(() => ({ warning: vi.fn(), error: vi.fn(), info: vi.fn(), success: vi.fn() }))
+
+vi.mock('../../../src/utils/notify', () => ({ notify: notified }))
 
 vi.mock('@vue-flow/core', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -117,6 +120,7 @@ describe('useInstanceSave', () => {
   })
 
   beforeEach(() => {
+    vi.clearAllMocks()
     setActivePinia(createPinia())
     history = useFlowHistoryStore()
     library = useLibraryStore()
@@ -201,6 +205,30 @@ describe('useInstanceSave', () => {
     await saveInstanceEdit(buildSave({ ports }))
     expect(detachReactivity(edges.value.map((edge) => edge.data.couplings))).toEqual([preview.get('e'), preview.get('f')])
     expect(preview.get('e')).toHaveLength(1)
+  })
+
+  it('drops and reports only the coupling an edit leaves without a free slot', async () => {
+    const [p0, p1] = [
+      { label: 'p', portType: 'general_ports', variables: ['x', 'k'] },
+      { label: 'p', portType: 'general_ports', variables: ['k'] },
+    ]
+    nodes.value = [createNode('a'), createNode('b'), createNode('c')]
+    findNode('a').data = { ...findNode('a').data, ports: [p0, p1] }
+    const holding = (sourcePort, sourceSlot, target) => [
+      { sourcePort, targetPort: findNode(target).data.ports[0], sourceSlot, targetSlot: 0 },
+    ]
+    edges.value = [
+      { id: 'e', source: 'a', target: 'b', data: { couplings: holding(p0, 0, 'b') } },
+      { id: 'f', source: 'a', target: 'c', data: { couplings: holding(p1, 1, 'c') } },
+    ]
+
+    await saveInstanceEdit(buildSave({ ports: [p0] }))
+    expect(edges.value.map((edge) => edge.data.couplings.map((c) => c.sourcePort.variables))).toEqual([[['x', 'k']], []])
+    expect(notified.warning).toHaveBeenCalledWith({
+      title: 'Couplings Removed',
+      message: expect.stringMatching(/^a2 → c: "a2" has no free "p" slot/),
+    })
+    expect(notified.warning).toHaveBeenCalledTimes(1)
   })
 
   it('undoes a save on an instance that was deleted and restored', async () => {

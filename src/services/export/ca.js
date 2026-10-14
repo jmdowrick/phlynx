@@ -8,6 +8,7 @@ import { normaliseMultiport, VOLUME_PORT } from '../../utils/multiport'
 import { isBlank } from '../../utils/variables'
 import { resolveBoundaryValues } from './boundaryValues'
 import { buildCaCellmlFiles, isHeart, listNamed } from './caCellml'
+import { orderForCa } from './caOrder'
 
 // CA's placeholder for a value still to be given; it reads an empty cell as NaN.
 const EMPTY_VALUE = 'EMPTY_MUST_BE_FILLED'
@@ -30,40 +31,24 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
   try {
     const zip = new JSZip()
 
-    // Create maps for quick lookup of node names and objects
+    // Create a map for quick lookup of node names
     const nodeNameMap = new Map()
-    const nodeNameObjMap = new Map()
     for (const node of nodes) {
       nodeNameMap.set(node.id, node.data.name)
-      nodeNameObjMap.set(node.data.name, node)
     }
 
     const uniqueModuleConfigs = new Map()
     const instance_array = []
     const allParameters = new Set()
 
+    // Rows and their out/inp lists in the order that has CA give each connection the port slots it holds here.
+    const { rows, outEdges, inpEdges, unmatched } = orderForCa(nodes, edges)
+    warnUnmatchedSlots(unmatched, nodeNameMap)
+
     // --- 1. PROCESS NODES FOR CONFIG AND TOPOLOGY ---
-    for (const node of nodes) {
-      const inp_instances = []
-      const out_instances = []
-
-      // Identify incoming and outgoing connections
-      for (const edge of edges) {
-        if (edge.target === node.id) {
-          const sourceNodeName = nodeNameMap.get(edge.source)
-          if (sourceNodeName) inp_instances.push(sourceNodeName)
-        }
-        if (edge.source === node.id) {
-          const targetNodeName = nodeNameMap.get(edge.target)
-          if (targetNodeName) out_instances.push(targetNodeName)
-        }
-      }
-
-      // Process Ports
-      const allConnectedInstanceNames = new Set([...inp_instances, ...out_instances])
-      const connectedNodeObjects = Array.from(allConnectedInstanceNames)
-        .map((name) => nodeNameObjMap.get(name))
-        .filter(Boolean)
+    for (const node of rows) {
+      const inp_instances = inpEdges.get(node.id).map((edge) => nodeNameMap.get(edge.source))
+      const out_instances = outEdges.get(node.id).map((edge) => nodeNameMap.get(edge.target))
 
       const { moduleType, moduleSubtype } = parseModuleRef(node.data.moduleRef)
 
@@ -154,6 +139,23 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
     notify.error({ message: `Failed to export config files: ${error.message}` })
     throw error
   }
+}
+
+/**
+ * Warns about connections CA couples to other port slots than they hold here, as no module order reproduces them: a
+ * pairing made by hand, or a connection left on a later slot when the one on an earlier slot was deleted.
+ *
+ * @param {Array} unmatched - The edges, from orderForCa.
+ * @param {Map<string, string>} nodeNames - Each node id to its name.
+ */
+function warnUnmatchedSlots(unmatched, nodeNames) {
+  if (!unmatched.length) return
+  const names = unmatched.map((edge) => `${nodeNames.get(edge.source)} → ${nodeNames.get(edge.target)}`)
+  const isOne = unmatched.length === 1
+  notify.warning({
+    title: 'Connections Paired Differently',
+    message: `CA gives each connection the first free slot of a repeated port, and no module order gives ${listNamed(names)} the port slots ${isOne ? 'it holds' : 'they hold'} here, so CA will couple ${isOne ? 'it' : 'them'} differently. This follows a pairing made by hand, or deleting a connection on an earlier slot; redrawing ${isOne ? 'it' : 'them'} takes the first free slot.`,
+  })
 }
 
 /**

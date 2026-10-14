@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   prepareLayout: vi.fn(),
   useWorkflowLayout: vi.fn(),
   buildWorkflowGraph: vi.fn(),
-  notify: { info: vi.fn(), error: vi.fn() },
+  notify: { info: vi.fn(), error: vi.fn(), warning: vi.fn() },
   store: {
     assignGlobalConstant: vi.fn(),
     addModule: vi.fn(),
@@ -49,7 +49,7 @@ describe('useLoadFromCellML', () => {
     mocks.order.length = 0
     mocks.clearWorkspace.mockResolvedValue(undefined)
     mocks.prepareLayout.mockResolvedValue(undefined)
-    mocks.buildWorkflowGraph.mockReturnValue({ pendingInstances: [{ id: 'n1' }], pendingEdges: [{ id: 'e1' }] })
+    mocks.buildWorkflowGraph.mockReturnValue({ pendingInstances: [{ id: 'n1' }], pendingEdges: [{ id: 'e1' }], conflicts: [] })
   })
 
   it('clears the workspace without recording history, then notifies and stops when there are no edges', async () => {
@@ -144,6 +144,15 @@ describe('useLoadFromCellML', () => {
     resolveLayout()
     await p
     expect(mocks.trackEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('warns about the connections left out for want of a free port slot', async () => {
+    const { loadFromCellML } = useLoadFromCellML()
+    mocks.buildWorkflowGraph.mockReturnValue({ pendingInstances: [], pendingEdges: [], conflicts: ['a → b: no slot.'] })
+
+    await loadFromCellML({ components: ['a', 'b'], modules: [mod('a'), mod('b')], edges: [{ source: 'a', target: 'b' }] }, 'f')
+
+    expect(mocks.notify.warning).toHaveBeenCalledWith({ title: 'Connections Not Made', message: 'a → b: no slot.' })
   })
 
   it('drops parameter components, edges touching them, and components left without edges', async () => {

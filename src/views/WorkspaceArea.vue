@@ -672,7 +672,7 @@ import {
   NUM_GHOST_HANDLES_LEFT_RIGHT,
   PHLYNX_PROJECT_VERSION,
 } from '../utils/constants'
-import { resolvePortCouplings } from '../utils/edges'
+import { resolveEdgeCouplings } from '../utils/edges'
 import { parseParametersFile } from '../utils/import'
 import { applyParameterValues, applyParametersToNodes, skippedParametersMessage } from '../utils/parameters'
 import { detachReactivity } from '../utils/reactivity'
@@ -1938,12 +1938,10 @@ async function onExportConfirm(fileName, handle) {
 /**
  * Recomputes port-label couplings for edges that have none — e.g. files saved
  * before couplings were introduced, or where edge data was lost on serialisation.
- * Uses the same ordinal-index logic as the live onConnect handler so results
- * are identical to a freshly drawn connection. Might not need in future.
+ * Each takes the first slot no other edge holds, as a freshly drawn connection
+ * does; a coupling with no free slot is left out and reported. Might not need in future.
  */
 function recomputeMissingCouplings() {
-  const nodeMap = new Map(nodes.value.map((n) => [n.id, n]))
-
   // Normalise ports on every node: migrate legacy field names.
   for (const node of nodes.value) {
     if (!node.data?.ports) continue
@@ -1953,34 +1951,13 @@ function recomputeMissingCouplings() {
     }))
   }
 
-  // Track inbound/outbound ordinal counts per node, matching buildEdges semantics.
-  const sourceOutCount = new Map()
-  const targetInCount = new Map()
-
+  const conflicts = []
+  const isMissing = (edge) => !edge.data?.couplings?.length
+  const couplings = resolveEdgeCouplings(nodes.value, edges.value, isMissing, { conflicts })
   for (const edge of edges.value) {
-    if (edge.data?.couplings?.length) continue // already has valid couplings
-
-    const sourceNode = nodeMap.get(edge.source)
-    const targetNode = nodeMap.get(edge.target)
-    if (!sourceNode || !targetNode) continue
-
-    const sourceIndex = sourceOutCount.get(edge.source) ?? 0
-    const targetIndex = targetInCount.get(edge.target) ?? 0
-
-    const couplings = resolvePortCouplings(
-      sourceNode.data.ports ?? [],
-      targetNode.data.ports ?? [],
-      sourceIndex,
-      targetIndex
-    )
-
-    if (couplings.length) {
-      edge.data = { ...edge.data, couplings }
-    }
-
-    sourceOutCount.set(edge.source, sourceIndex + 1)
-    targetInCount.set(edge.target, targetIndex + 1)
+    if (couplings.get(edge.id)?.length) edge.data = { ...edge.data, couplings: couplings.get(edge.id) }
   }
+  if (conflicts.length) notify.warning({ title: 'Connections Missing Couplings', message: conflicts.join(' ') })
 }
 
 /**

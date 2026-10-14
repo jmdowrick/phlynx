@@ -1,14 +1,15 @@
 import { useVueFlow } from '@vue-flow/core'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { FLOW_IDS } from '../utils/constants'
-import { resolvePortCouplings } from '../utils/edges'
+import { buildUsedPortKeys, checkAndClaimCouplings, resolvePortCouplings } from '../utils/edges'
 import { getHandleUidFromHandleId } from '../utils/handles'
+import { notify } from '../utils/notify'
 import { detachReactivity } from '../utils/reactivity'
 
 /**
  * Registers the Vue Flow connect handler: validates a new connection, activates its handles,
  * asks before replacing an existing connection between the same instances, and adds the edge
- * with its resolved port couplings.
+ * with its resolved port couplings. A connection needing a port with no free slot is refused.
  *
  * @param {Object} options
  * @param {Set<string>} options.suppressedEdgeIds - Edge ids whose add/remove changes are not recorded.
@@ -50,6 +51,27 @@ export function useConnect({
     const duplicate = edges.value.find((e) => e.source === connection.source && e.target === connection.target)
 
     const duplicateSnapshot = duplicate ? detachReactivity(duplicate) : null
+
+    // Each repeated label takes its first slot no other edge holds; the edge this replaces holds none.
+    const portsOf = (id) => findNode(id)?.data.ports ?? []
+    const usedPortKeys = buildUsedPortKeys(edges.value.filter((e) => e !== duplicate), portsOf)
+    const couplings = resolvePortCouplings(sourceNode.data.ports ?? [], targetNode.data.ports ?? [], {
+      sourceId: connection.source,
+      targetId: connection.target,
+      usedPortKeys,
+    })
+    const nameOf = (id) => findNode(id)?.data.name ?? id
+    const { valid, conflicts } = checkAndClaimCouplings(
+      connection.source,
+      connection.target,
+      couplings,
+      usedPortKeys,
+      nameOf,
+    )
+    if (!valid) {
+      notify.error({ title: 'Connection Not Made', message: conflicts.join(' ') })
+      return
+    }
 
     const sourceHandleUid = connection.sourceHandle ? getHandleUidFromHandleId(connection.sourceHandle) : null
     const targetHandleUid = connection.targetHandle ? getHandleUidFromHandleId(connection.targetHandle) : null
@@ -109,24 +131,6 @@ export function useConnect({
       removeEdges(pendingEdge.id)
       suppressedEdgeIds.delete(pendingEdge.id)
     }
-
-    // Derive ordinal indices from the existing edge graph:
-    //   sourceIndex = how many edges already leave from this source node
-    //                 (i.e. this is the Nth output being connected)
-    //   targetIndex = how many edges already arrive at this target node
-    //                 (i.e. this is the Nth input being connected)
-    // These mirror the positional semantics of out_modules / inp_modules.
-    const sourceIndex = edges.value.filter((e) => e.source === connection.source).length
-    const targetIndex = edges.value.filter((e) => e.target === connection.target).length
-
-    // Resolve which port labels are coupled across this conduit, using ordinal
-    // indices to select the correct slot when a label appears multiple times.
-    const couplings = resolvePortCouplings(
-      sourceNode.data.ports ?? [],
-      targetNode.data.ports ?? [],
-      sourceIndex,
-      targetIndex,
-    )
 
     const newEdge = {
       ...connection,
