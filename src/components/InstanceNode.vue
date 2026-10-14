@@ -587,6 +587,7 @@ function openContextMenu(event) {
 .status-indicator {
   background-color: color-mix(in srgb, var(--p-orange-500) 20%, var(--p-content-background));
   border-radius: 50%;
+  flex-shrink: 0;
   width: 1.6rem;
   height: 1.6rem;
   display: flex;
