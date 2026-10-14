@@ -4,6 +4,7 @@ import { useFlowHistoryStore } from '../stores/historyStore'
 import { useGtm } from './useGtm'
 import { useClearWorkspace } from '../composables/useClearWorkspace'
 import { buildWorkflowGraph } from '../services/import/buildWorkflow'
+import { warnDeprecatedJunctions } from '../services/caRules'
 import { notify } from '../utils/notify'
 import { useWorkflowLayout } from './useWorkflowLayout'
 
@@ -18,6 +19,14 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
   const { clearWorkspace } = useClearWorkspace()
   const { prepareLayout } = useWorkflowLayout({ fitViewParams })
 
+  /**
+   * Replaces the workspace with a CA module array's modules and connections.
+   *
+   * @param {{instances: Array}} instanceArray - The module array rows.
+   * @param {Function|null} [progressCallback]
+   * @returns {Promise<{ivcZeroedHearts: string[]}>} The hearts whose ivc flow CA's rule set to 0, which the module
+   *   array's parameters file must not set (see withoutZeroedIvcRows).
+   */
   const loadFromInstanceArray = async (instanceArray, progressCallback = null) => {
     try {
       await clearWorkspace({ recordHistory: false })
@@ -32,7 +41,8 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
         store.getMathAnalysis,
         nodes.value,
         progressCallback,
-        store.getMathDefaults
+        store.getMathDefaults,
+        { caRules: true }
       )
 
       if (progressCallback) {
@@ -46,6 +56,7 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
       if (result.conflicts.length) {
         notify.warning({ title: 'Connections Not Made', message: result.conflicts.join(' ') })
       }
+      warnDeprecatedJunctions(instanceArray.instances.map((instance) => instance.module_type ?? ''))
 
       // 1. Prepare the layout promise chain
       const layoutPromise = prepareLayout(result.pendingEdges, progressCallback)
@@ -68,6 +79,7 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
         label: `Modules: ${instanceArray.instances.length}`,
         file_type: 'instance_array',
       })
+      return { ivcZeroedHearts: result.ivcZeroedHearts ?? [] }
     } catch (error) {
       trackEvent('workflow_load_action', {
         category: 'Workflow',

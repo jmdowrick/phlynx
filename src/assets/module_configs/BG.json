@@ -6179,7 +6179,10 @@
                     "v_in",
                     "u"
                 ],
-                "multi_port": "True"
+                "multi_port": [
+                    "sum",
+                    "True"
+                ]
             }
         ],
         "exit_ports": [
@@ -6322,7 +6325,10 @@
                     "v_in",
                     "u"
                 ],
-                "multi_port": "True"
+                "multi_port": [
+                    "sum",
+                    "True"
+                ]
             }
         ],
         "exit_ports": [
@@ -6465,7 +6471,10 @@
                     "v_in",
                     "u"
                 ],
-                "multi_port": "True"
+                "multi_port": [
+                    "sum",
+                    "True"
+                ]
             },
             {
                 "port_type": "venous_us_volume_delta_port",

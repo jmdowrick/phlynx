@@ -243,6 +243,28 @@ describe('ImportDialog repeat drops', () => {
     expect(importButton().attributes('disabled')).toBeUndefined()
   })
 
+  it('warns about the legacy flow ports only of the config entries the library takes, leaving junctions to the module array', async () => {
+    const { useLibraryStore } = await import('../../../src/stores/libraryStore')
+    const libraryStore = useLibraryStore()
+    libraryStore.availableModules.set('venous:vp', { moduleRef: 'venous:vp', mathRef: 'heart.cellml:heart_simple' })
+    const [heart] = JSON.parse(CONFIG_JSON)
+    const flowPort = { port_type: 'vessel_port', variables: ['v', 'u'], multi_port: 'True' }
+    const legacy = (module_type, module_subtype) => ({ ...heart, module_type, module_subtype, entrance_ports: [flowPort] })
+    const config = JSON.stringify([heart, legacy('venous', 'vp'), legacy('terminal', 'pp'), legacy('Min_junction', 'vp')])
+    // Without its CellML, as adding math needs libcellml.
+    const { 'heart.cellml': _math, ...files } = FOLDER_FILES
+    mountDialog()
+    await drop(dropEvent(folderEntry('model', { ...files, 'config.json': config })))
+    expect(wrapper.vm.stagedFiles.configFiles.map((f) => f.filename)).toEqual(['config.json'])
+    vi.clearAllMocks()
+
+    wrapper.vm.commitStagedFiles()
+
+    expect(toasts()).toEqual([
+      expect.objectContaining({ type: 'warning', title: 'Legacy Flow Ports', message: expect.stringMatching(/^terminal:pp links/) }),
+    ])
+  })
+
   it('ignores XML and JSON files that are not import files', async () => {
     mountDialog()
     const files = { ...FOLDER_FILES, 'manifest.xml': '<omexManifest/>', 'settings.json': '{"a":1}' }

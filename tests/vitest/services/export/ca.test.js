@@ -288,10 +288,20 @@ describe('generateExportZip', () => {
     expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('mystery') }))
   })
 
-  it('adds the zero_flow component CA uses with a heart', async () => {
+  /**
+   * Makes a heart fed by venous_svc, the least CA accepts.
+   *
+   * @returns {{ nodes: Array, edges: Array }}
+   */
+  function heartWithSvc() {
     library.addModule({ moduleRef: 'heart:simple', mathRef: BG_MATH_REF, ports: [], variables: [] })
-    const node = { id: 'h', data: { name: 'heart', moduleRef: 'heart:simple', mathRef: BG_MATH_REF, ports: [], variables: [] } }
-    const files = await readZip(await generateExportZip('heart', [node], [], library))
+    const heart = { id: 'h', data: { name: 'heart', moduleRef: 'heart:simple', mathRef: BG_MATH_REF, ports: [], variables: [] } }
+    return { nodes: [heart, nodeWith('venous_svc', [])], edges: [{ id: 'svc', source: 'venous_svc', target: 'h', data: { couplings: [] } }] }
+  }
+
+  it('adds the zero_flow component CA uses with a heart', async () => {
+    const { nodes, edges } = heartWithSvc()
+    const files = await readZip(await generateExportZip('heart', nodes, edges, library))
     expect(files['modules/BG_modules.cellml']).toContain('<component name="zero_flow">')
   })
 
@@ -338,9 +348,8 @@ describe('generateExportZip', () => {
   })
 
   it('adds the module CA uses for the pulmonary circuit of a heart with one output, and warns', async () => {
-    library.addModule({ moduleRef: 'heart:simple', mathRef: BG_MATH_REF, ports: [], variables: [] })
-    const node = { id: 'h', data: { name: 'heart', moduleRef: 'heart:simple', mathRef: BG_MATH_REF, ports: [], variables: [] } }
-    const files = await readZip(await generateExportZip('heart', [node], [], library))
+    const { nodes, edges } = heartWithSvc()
+    const files = await readZip(await generateExportZip('heart', nodes, edges, library))
     const entries = JSON.parse(files['modules/heart_module_config.json']).map((entry) => `${entry.module_type}:${entry.module_subtype}`)
     expect(entries).toEqual(['heart:simple', 'arterial_simple:vp'])
     expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('par, pvn') }))
@@ -460,6 +469,102 @@ describe('generateExportZip', () => {
       expect((await rowsOf([split, b, c], edges)).s).toBe(' | c b')
       expect(notified.warning).not.toHaveBeenCalledWith(pairedDifferently)
     })
+  })
+
+  describe('heart', () => {
+    const vesselPort = (portType, variables) => ({ label: 'vessel_port', portType, variables, multiportType: 'None' })
+    const HEART_PORTS = [
+      vesselPort('entrance_ports', ['v_ivc', 'u_ra']),
+      vesselPort('entrance_ports', ['v_svc', 'u_ra']),
+      vesselPort('entrance_ports', ['v_pvn', 'u_la']),
+      vesselPort('exit_ports', ['v_aov', 'u_root']),
+      vesselPort('exit_ports', ['v_puv', 'u_par']),
+    ]
+    const OUT_PORT = vesselPort('exit_ports', ['v', 'u_out'])
+    const IN_PORT = vesselPort('entrance_ports', ['v_in', 'u'])
+    const pairedDifferently = expect.objectContaining({ title: 'Connections Paired Differently' })
+
+    /**
+     * Makes a heart and the vessels around it, each input on the heart slot given, with the two outputs CA needs to
+     * add no pulmonary circuit.
+     *
+     * @param {Object<string, number>} inputs - Each input's name to its heart slot, in workspace order.
+     * @param {string} [name] - The heart's name.
+     * @returns {{ nodes: Array, edges: Array }}
+     */
+    function heartWith(inputs, name = 'heart') {
+      library.addModule({ moduleRef: 'heart:vp', mathRef: BG_MATH_REF, ports: HEART_PORTS, variables: [] })
+      const heart = { id: name, data: { name, moduleRef: 'heart:vp', mathRef: BG_MATH_REF, ports: HEART_PORTS, variables: [] } }
+      const vessel = (vesselName, ports) => ({ ...nodeWith(vesselName, []), data: { ...nodeWith(vesselName, []).data, ports } })
+      const nodes = [heart]
+      const edges = []
+      for (const [input, slot] of Object.entries(inputs)) {
+        nodes.push(vessel(input, [OUT_PORT]))
+        edges.push({
+          id: `${input}--${name}`,
+          source: input,
+          target: name,
+          data: { couplings: [{ sourcePort: OUT_PORT, targetPort: HEART_PORTS[slot], sourceSlot: 0, targetSlot: slot }] },
+        })
+      }
+      ;['aorta', 'par'].forEach((output, slot) => {
+        nodes.push(vessel(output, [IN_PORT]))
+        edges.push({
+          id: `${name}--${output}`,
+          source: name,
+          target: output,
+          data: { couplings: [{ sourcePort: HEART_PORTS[3 + slot], targetPort: IN_PORT, sourceSlot: slot, targetSlot: 0 }] },
+        })
+      })
+      return { nodes, edges }
+    }
+    const heartRow = async ({ nodes, edges }) =>
+      moduleArrayOf(await readZip(await generateExportZip('heart', nodes, edges, library))).find((row) => row.name === 'heart')
+
+    it('orders the inputs ivc, svc, pulmonary by their slots, as CA reads them', async () => {
+      const row = await heartRow(heartWith({ pvn: 2, venous_svc: 1, venous_ivc: 0 }))
+      expect(row.inp_instances).toBe('venous_ivc venous_svc pvn')
+      expect(notified.warning).not.toHaveBeenCalledWith(pairedDifferently)
+    })
+
+    it('writes two inputs on the svc and pulmonary slots as CA expects them, svc first', async () => {
+      const row = await heartRow(heartWith({ pvn: 2, venous_svc: 1 }))
+      expect(row.inp_instances).toBe('venous_svc pvn')
+      expect(notified.warning).not.toHaveBeenCalledWith(pairedDifferently)
+    })
+
+    it('warns about two inputs CA would put on other slots', async () => {
+      await heartRow(heartWith({ venous_ivc: 0, pvn: 2 }))
+      expect(notified.warning).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Connections Paired Differently', message: expect.stringContaining("a heart's inputs") })
+      )
+    })
+
+    it('fails on more than one heart, as CA does', async () => {
+      const first = heartWith({ venous_ivc: 0 })
+      const second = heartWith({}, 'heart2')
+      const nodes = [...first.nodes, ...second.nodes.filter((node) => !first.nodes.some((other) => other.id === node.id))]
+      await expect(generateExportZip('heart', nodes, [...first.edges, ...second.edges], library)).rejects.toThrow(
+        'CA allows one heart module, but heart, heart2 are hearts.'
+      )
+      expect(notified.error).toHaveBeenCalled()
+    })
+
+    it('fails on a heart with no venous_ivc or venous_svc input, as CA does', async () => {
+      const { nodes, edges } = heartWith({ vena_cava: 0, pvn: 2 })
+      await expect(generateExportZip('heart', nodes, edges, library)).rejects.toThrow(
+        'CA needs venous_ivc, venous_svc or both, by those names, as inputs to the heart "heart".'
+      )
+    })
+  })
+
+  it('warns that Min_/Nout_ junction types are deprecated', async () => {
+    library.addModule({ moduleRef: 'Min_junction:vp', mathRef: BG_MATH_REF, ports: [], variables: [] })
+    const junction = { id: 'j', data: { name: 'j', moduleRef: 'Min_junction:vp', mathRef: BG_MATH_REF, ports: [], variables: [] } }
+    await generateExportZip('heart', [junction, nodeWith('vp', [])], [], library)
+    expect(notified.warning).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Deprecated Junction Types', message: expect.stringMatching(/^Min_junction is .*multiport Sum/) })
+    )
   })
 
   it('fails when a component has no math in the library', async () => {
