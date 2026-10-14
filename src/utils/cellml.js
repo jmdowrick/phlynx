@@ -634,6 +634,23 @@ function createInspectionModuleComponent(model, module, nodeComponentMap) {
   inspectionComp.delete()
 }
 
+/**
+ * Finds an element's attribute in the CellML namespace, such as a <cn>'s `cellml:units`. happy-dom
+ * leaves prefixed attributes un-namespaced, so there it falls back to the `cellml:`-prefixed name;
+ * a browser always namespaces them, so the fallback never applies.
+ *
+ * @param {Element} element
+ * @param {string} localName - E.g. `units`.
+ * @returns {Attr|null} Read or set its `value`.
+ */
+export function getCellmlAttributeNode(element, localName) {
+  return (
+    element.getAttributeNodeNS(CELLML_NS, localName) ??
+    [...element.attributes].find((attr) => attr.namespaceURI === null && attr.name === `cellml:${localName}`) ??
+    null
+  )
+}
+
 function extractUnitsFromMath(multiBlockMathString) {
   const wrappedString = `<root>${multiBlockMathString}</root>`
 
@@ -657,7 +674,7 @@ function extractUnitsFromMath(multiBlockMathString) {
   const foundUnits = new Set()
 
   for (const cn of cnElements) {
-    const unitName = cn.getAttributeNS(CELLML_NS, 'units')
+    const unitName = getCellmlAttributeNode(cn, 'units')?.value
 
     if (unitName) {
       foundUnits.add(unitName)
@@ -870,9 +887,8 @@ function stripCelsiusToArbitraryUnit(xmlString) {
   // Replace cellml:units="celsius" on <cn> MathML literals with "dimensionless".
   const cnElements = Array.from(doc.getElementsByTagNameNS(MATHML_NS, 'cn'))
   for (const el of cnElements) {
-    if (el.getAttributeNS(CELLML_NS, 'units') === CELSIUS_UNIT_NAME) {
-      el.setAttributeNS(CELLML_NS, 'cellml:units', 'dimensionless')
-    }
+    const units = getCellmlAttributeNode(el, 'units')
+    if (units?.value === CELSIUS_UNIT_NAME) units.value = 'dimensionless'
   }
 
   const serializer = new XMLSerializer()
