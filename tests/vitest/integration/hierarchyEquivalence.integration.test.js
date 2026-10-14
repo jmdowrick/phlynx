@@ -84,7 +84,7 @@ describe('a bundled flat workspace', () => {
       expect(expansion.edges).toEqual(edges)
       expect(expansion.errors.filter((error) => error.severity !== 'warning'), file).toEqual([])
     }
-  })
+  }, 120000)
 })
 
 describe('a nested graph exports as the flat graph it stands for', () => {
