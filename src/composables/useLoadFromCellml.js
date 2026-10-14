@@ -1,6 +1,6 @@
 import { useVueFlow } from '@vue-flow/core'
 import { useLibraryStore } from '../stores/libraryStore'
-import { useFlowHistoryStore } from '../stores/historyStore'
+import { useFlowHistoryFor } from './useFlowHistoryFor'
 import { notify } from '../utils/notify'
 import { useGtm } from './useGtm'
 import { useClearWorkspace } from '../composables/useClearWorkspace'
@@ -48,6 +48,7 @@ export function useLoadFromCellML({ fitViewParams } = {}) {
   const { trackEvent } = useGtm()
   const { clearWorkspace } = useClearWorkspace()
   const { prepareLayout } = useWorkflowLayout({ fitViewParams })
+  const history = useFlowHistoryFor()
 
   const loadFromCellML = async (parsedCellmlPayload, componentFile, parameterData = null) => {
     try {
@@ -121,7 +122,6 @@ export function useLoadFromCellML({ fitViewParams } = {}) {
       }
 
       const layoutPromise = prepareLayout(result.pendingEdges)
-      const history = useFlowHistoryStore()
       history.startBatch()
       try {
         addNodes(result.pendingInstances)

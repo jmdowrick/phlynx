@@ -1,7 +1,7 @@
 import { useVueFlow } from '@vue-flow/core'
 import { nextTick, ref, toValue } from 'vue'
 
-import { useFlowHistoryStore } from '../stores/historyStore'
+import { useFlowHistoryFor } from './useFlowHistoryFor'
 import { runFcoseLayout } from '../services/layouts/cytoscape'
 import { runRescaleLayout } from '../services/layouts/rescale'
 import { notify } from '../utils/notify'
@@ -14,7 +14,7 @@ import { reorganiseHandles } from '../utils/handles'
  */
 export function useWorkflowLayout({ fitViewParams } = {}) {
   const { onNodesInitialized, addEdges, updateNodeInternals, fitView } = useVueFlow()
-  const historyStore = useFlowHistoryStore()
+  const historyStore = useFlowHistoryFor()
   
   const layoutPending = ref(false)
   let pendingEdges = []

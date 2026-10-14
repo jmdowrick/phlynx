@@ -113,7 +113,7 @@ import Button from 'primevue/button'
 
 import SanitisedInput from './SanitisedInput.vue'
 import { useLibraryStore } from '../stores/libraryStore'
-import { useFlowHistoryStore } from '../stores/historyStore'
+import { useFlowHistoryFor } from '../composables/useFlowHistoryFor'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useNodeThemeStore } from '../stores/nodeThemeStore'
 import { getHandleId, getHandleStyle, handlePosition, isCornerHandle } from '../utils/handles'
@@ -132,7 +132,7 @@ import '../assets/vueflownode.css'
 const { id: flowId, addEdges, edges, removeEdges, updateNodeData, updateNodeInternals, nodes, viewport } = useVueFlow()
 const { beginGhostActivation, revertPendingGhostIfUnused } = useHandleManagement()
 const { recordEdit } = useNodeDataHistory(flowId)
-const historyStore = useFlowHistoryStore()
+const historyStore = useFlowHistoryFor()
 const libraryStore = useLibraryStore()
 const nodeThemeStore = useNodeThemeStore()
 

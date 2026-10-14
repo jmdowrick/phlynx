@@ -1,5 +1,5 @@
 import { useVueFlow } from '@vue-flow/core'
-import { useFlowHistoryStore } from '../stores/historyStore'
+import { useFlowHistoryFor } from './useFlowHistoryFor'
 import { FLOW_IDS } from '../utils/constants'
 import { buildUsedPortKeys, checkAndClaimCouplings, resolvePortCouplings } from '../utils/edges'
 import { getHandleUidFromHandleId } from '../utils/handles'
@@ -34,7 +34,7 @@ export function useConnect({
   flowId = FLOW_IDS.MAIN,
 }) {
   const { addEdges, edges, findNode, onConnect, removeEdges } = useVueFlow(flowId)
-  const historyStore = useFlowHistoryStore()
+  const historyStore = useFlowHistoryFor()
 
   onConnect(async (connection) => {
     const sourceNode = findNode(connection.source)

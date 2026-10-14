@@ -175,6 +175,7 @@ const emit = defineEmits(['select'])
 
 const view = useLibraryProxyStore()
 const store = useLibraryStore()
+// The library is app-wide, so its edits stay on the workspace stack even inside the macro builder.
 const history = useFlowHistoryStore()
 
 const { onDragStart } = useDragAndDrop()
