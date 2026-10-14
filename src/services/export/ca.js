@@ -4,6 +4,7 @@ import Papa from 'papaparse'
 import { notify } from '../../utils/notify'
 import { parseMathRef, parseModuleRef, restorePorts, restoreVariables } from '../../utils/config'
 import { PORT_TYPE_OPTIONS } from '../../utils/constants'
+import { normaliseMultiport, VOLUME_PORT } from '../../utils/multiport'
 import { isBlank } from '../../utils/variables'
 import { resolveBoundaryValues } from './boundaryValues'
 import { buildCaCellmlFiles, isHeart, listNamed } from './caCellml'
@@ -109,6 +110,7 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
 
     // Convert Map to array
     const module_config = Array.from(uniqueModuleConfigs.values());
+    checkMultiports(module_config)
 
     // The config's CellML, edits included; may rename component files so CA finds them.
     const { files: cellmlFiles, missingUnits } = await buildCaCellmlFiles(fileName, module_config, libraryStore)
@@ -172,6 +174,44 @@ function warnMissingBoundaryValues(nodes, edges) {
     title: 'Missing Boundary Values',
     message: `${count} no value and nothing connected, so CA will ask for ${missing.length === 1 ? 'it' : 'them'}: ${listNamed(missing)}.`,
   })
+}
+
+/**
+ * Fails on a multi_port CA would reject, such as a Multiply on a port with several variables, which PhLynx's
+ * own CellML allows; warns about a volume_port's whole-port Sum, which CA sums over the inp_vessels only.
+ *
+ * @param {Object[]} moduleConfig - The config entries.
+ * @throws {Error} naming each port CA would reject.
+ */
+function checkMultiports(moduleConfig) {
+  const rejected = []
+  const volumeSums = new Set()
+  for (const entry of moduleConfig) {
+    const description = `Module "${entry.module_type}:${entry.module_subtype}"`
+    for (const port of PORT_TYPE_OPTIONS.flatMap(({ value }) => entry[value] ?? [])) {
+      const value = port.multi_port
+      const multiplies = Array.isArray(value) && value.some((type) => typeof type === 'string' && type.toLowerCase() === 'multiply')
+      if (multiplies && port.variables.length > 1) {
+        rejected.push(`${description}: port "${port.port_type}" multiplies variables ${JSON.stringify(port.variables)}; CA multiplies only a port with one variable.`)
+        continue
+      }
+      try {
+        normaliseMultiport(port, description)
+      } catch (error) {
+        rejected.push(error.message)
+      }
+      if (port.port_type === VOLUME_PORT && typeof value === 'string' && value.toLowerCase() === 'sum') {
+        volumeSums.add(`${entry.module_type}:${entry.module_subtype}`)
+      }
+    }
+  }
+  if (rejected.length) throw new Error(`CA can't read ${rejected.length === 1 ? 'a port' : `${rejected.length} ports`}. ${rejected.join(' ')}`)
+  if (volumeSums.size) {
+    notify.warning({
+      title: 'Volume Port Sum',
+      message: `CA sums a volume_port's whole-port Sum over its inp_vessels only, the legacy blood-volume sum, where PhLynx sums every connection: ${listNamed([...volumeSums])}.`,
+    })
+  }
 }
 
 /**
