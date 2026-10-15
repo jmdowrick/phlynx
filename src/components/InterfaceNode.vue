@@ -13,15 +13,7 @@
     </ol>
     <div v-else class="interface-ports">No exposed ports yet</div>
 
-    <template v-for="handle in data.handles ?? []" :key="handle.uid">
-      <Handle
-        :id="getHandleId(handle)"
-        :position="handlePosition(handle.side)"
-        :class="['handle', `handle--${handle.variant || 'default'}`]"
-        :style="getHandleStyle(handle, data.handles)"
-        @pointerdown="handle.variant === HANDLE_VARIANT.GHOST && beginGhostActivation(id, handle.uid)"
-      />
-    </template>
+    <NodeHandles :id="id" :handles="data.handles" :selected="selected" />
   </div>
 </template>
 
@@ -32,12 +24,9 @@
  * attach, as on any node; it can't be deleted from the canvas.
  */
 import { computed } from 'vue'
-import { Handle } from '@vue-flow/core'
 
-import { useHandleManagement } from '../composables/useHandleManagement'
+import NodeHandles from './NodeHandles.vue'
 import { useSupermodules } from '../composables/useSupermodules'
-import { HANDLE_VARIANT } from '../utils/constants'
-import { getHandleId, getHandleStyle, handlePosition } from '../utils/handles'
 
 const props = defineProps({
   id: {
@@ -55,14 +44,12 @@ const props = defineProps({
 })
 
 const { portsOf } = useSupermodules()
-const { beginGhostActivation } = useHandleManagement()
 
 const supermoduleName = computed(() => props.data.supermodule?.name ?? props.id)
 const ports = computed(() => portsOf(props.id))
 </script>
 
 <style lang="scss" scoped>
-@use '../assets/nodechrome.scss';
 @import '../assets/vueflowhandle.css';
 
 .interface-node {

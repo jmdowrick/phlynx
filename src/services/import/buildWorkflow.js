@@ -79,7 +79,7 @@ export function buildInstance(
  * @param {string|null} [options.scope=null] - The super-module it is a child of; null at the root.
  * @param {Array} [options.ports=[]] - Its ports, each a copy of the child port an exposed port aliases with its
  *   exposedPortId and label (see subsystemPorts), kept in step with its super-module (see useSubsystemSync).
- * @param {Array} [options.handles=[]]
+ * @param {Array} [options.handles] - Where its edges attach; a fresh set of ghosts by default.
  * @param {Object} [options.overrides={}] - Values set on this instance: `{ <localId path>: { <variable>: { value } } }`,
  *   paths of local ids below it joined with '/'. Local constants (H13) are kept under '@' for its own super-module's
  *   and `<localId path>/@` for a nested subsystem's.
@@ -87,7 +87,7 @@ export function buildInstance(
  * @returns {Object}
  * @throws {Error} When nodeId is not in scope (see assertNodeId).
  */
-export function buildSubsystem(nodeId, name, smId, { scope = null, ports = [], handles = [], overrides = {}, position = null } = {}) {
+export function buildSubsystem(nodeId, name, smId, { scope = null, ports = [], handles = buildGhostHandles(), overrides = {}, position = null } = {}) {
   const node = {
     id: nodeId,
     type: SUBSYSTEM_NODE_TYPE,
@@ -124,7 +124,8 @@ export function buildSubsystem(nodeId, name, smId, { scope = null, ports = [], h
  * @param {Object|null} [supermodule.source=null] - Where it came from, for CA or CellML import.
  * @param {Object|null} [position=null]
  * @param {Object} [options]
- * @param {Array} [options.handles=[]] - Where exposure edges attach; they carry no port.
+ * @param {Array} [options.handles] - Where exposure edges attach; they carry no port. A fresh set of ghosts by
+ *   default.
  * @returns {Object}
  * @throws {Error} When smId breaks the id rules (see assertNodeId).
  */
@@ -132,7 +133,7 @@ export function buildSupermoduleInterface(
   smId,
   { name, ca = null, submoduleOrder = [], localConstants = [], naming = 'prefixed', source = null },
   position = null,
-  { handles = [] } = {}
+  { handles = buildGhostHandles() } = {}
 ) {
   const node = {
     id: smId,

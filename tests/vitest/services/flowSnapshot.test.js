@@ -146,6 +146,22 @@ describe('restoreFlowSnapshot', () => {
     expect(snapshotOf(restoreFlowSnapshot(JSON.parse(second)))).toBe(second)
   })
 
+  it('gives a subsystem or interface node without handles ghost handles, as a load does', () => {
+    const snapshot = roundTrip(nestedGraph())
+    for (const node of snapshot.nodeData) {
+      if (node.type === 'subsystemNode') delete node.data.handles
+      if (node.type === 'subsystemInterface') node.data.handles = []
+    }
+    const restored = restoreFlowSnapshot(snapshot)
+    const hierarchy = restored.nodes.filter((node) => ['subsystemNode', 'subsystemInterface'].includes(node.type))
+
+    expect(hierarchy.length).toBeGreaterThan(1)
+    for (const node of hierarchy) {
+      expect(node.data.handles.length).toBeGreaterThan(0)
+      expect(node.data.handles.every((handle) => handle.variant === 'ghost')).toBe(true)
+    }
+  })
+
   it('restores a hierarchical snapshot to the same model, subsystem and interface data kept verbatim', () => {
     const flow = nestedGraph()
     const restored = restoreFlowSnapshot(roundTrip(flow))

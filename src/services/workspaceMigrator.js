@@ -6,7 +6,7 @@ import {
   PHLYNX_PROJECT_IDENTIFIER,
 } from '../utils/constants'
 import { normalisePorts, normaliseVariables, uniqueModuleRef } from '../utils/config'
-import { buildGhostHandles, findMostCentralGhostHandle } from '../utils/handles'
+import { buildGhostHandles, findMostCentralGhostHandle, withHierarchyHandles } from '../utils/handles'
 import { rewriteUnsafeIds } from '../utils/hierarchy'
 import { isBlank, isNumericLiteral } from '../utils/variables'
 import { analyzeMathXml } from './math/analyzeMath'
@@ -534,13 +534,28 @@ function normaliseEnvelope(doc, version) {
 export function migrateWorkspace(doc, { notes = [] } = {}) {
   const version = detectVersion(doc)
   const current = version === LEGACY_VERSION ? doc : normaliseEnvelope(doc, version)
-  if (version === PHLYNX_PROJECT_VERSION) return current
+  if (version === PHLYNX_PROJECT_VERSION) return withLoadedHandles(current)
 
   const start = MIGRATIONS.findIndex((step) => step.from === version)
   if (start === -1) {
     throw new Error(`Unsupported workspace version '${version}'. It may have been saved by a newer version of PhLynx.`)
   }
-  return MIGRATIONS.slice(start).reduce((migrated, step) => ({ ...step.migrate(migrated, notes), version: step.to }), current)
+  return withLoadedHandles(
+    MIGRATIONS.slice(start).reduce((migrated, step) => ({ ...step.migrate(migrated, notes), version: step.to }), current)
+  )
+}
+
+/**
+ * Gives subsystem and interface nodes saved without handles their ghosts (see withHierarchyHandles).
+ *
+ * @param {Object} doc - A workspace at the current version.
+ * @returns {Object} The workspace, copied when any node changed.
+ */
+function withLoadedHandles(doc) {
+  const nodes = doc.flow?.nodes
+  if (!Array.isArray(nodes)) return doc
+  const repaired = nodes.map(withHierarchyHandles)
+  return repaired.some((node, index) => node !== nodes[index]) ? { ...doc, flow: { ...doc.flow, nodes: repaired } } : doc
 }
 
 /**

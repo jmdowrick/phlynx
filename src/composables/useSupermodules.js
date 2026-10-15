@@ -11,7 +11,6 @@ import { useFlowHistoryFor } from './useFlowHistoryFor'
 import { indexExposures, portResolver, subsystemPorts } from '../services/hierarchy/exposure'
 import { buildSubsystem, buildSupermoduleInterface } from '../services/import/buildWorkflow'
 import { FLOW_IDS } from '../utils/constants'
-import { buildGhostHandles } from '../utils/handles'
 import {
   canPlaceSubsystem,
   isSubsystem,
@@ -229,8 +228,8 @@ function createCatalogue(flow, flowId) {
     const smId = nextSupermoduleId(allNodes())
     const subsystemId = canvas.nextNodeId()
     const nodes = [
-      buildSupermoduleInterface(smId, { name: trimmed }, null, { handles: buildGhostHandles() }),
-      buildSubsystem(subsystemId, trimmed, smId, { scope: canvas.scope.value, position, handles: buildGhostHandles() }),
+      buildSupermoduleInterface(smId, { name: trimmed }),
+      buildSubsystem(subsystemId, trimmed, smId, { scope: canvas.scope.value, position }),
     ]
     history.startBatch()
     try {
@@ -251,7 +250,7 @@ function createCatalogue(flow, flowId) {
   function addSubsystem(smId, position) {
     if (!canPlace(canvas.scope.value, smId)) return null
     const id = canvas.nextNodeId()
-    const options = { scope: canvas.scope.value, ports: portsOf(smId), handles: buildGhostHandles(), position }
+    const options = { scope: canvas.scope.value, ports: portsOf(smId), position }
     flow.addNodes(buildSubsystem(id, freeName(find(smId).name), smId, options))
     return id
   }

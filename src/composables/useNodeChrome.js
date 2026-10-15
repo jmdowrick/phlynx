@@ -1,37 +1,30 @@
 /**
- * What InstanceNode and SubsystemNode share: in-place renaming unique on the canvas, removable port handles, theme
- * colour, simulated outline and context menu.
+ * What InstanceNode and SubsystemNode share: in-place renaming unique on the canvas, theme colour, simulated outline
+ * and context menu. Their handles, shared with InterfaceNode too, are NodeHandles.
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
 import { useActiveCanvas } from './useActiveCanvas'
 import { useCanvasLevel } from './useCanvasLevel'
-import { useFlowHistoryFor } from './useFlowHistoryFor'
 import { useHandleManagement } from './useHandleManagement'
 import { useNodeDataHistory } from './useNodeDataHistory'
 import { useNodeThemeStore } from '../stores/nodeThemeStore'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
-import { HANDLE_VARIANT } from '../utils/constants'
-import { getHandleId } from '../utils/handles'
 import { localNameProblem } from '../utils/hierarchy'
 import { sanitiseName } from '../utils/identifiers'
 import { categoryStyle as themeCategoryStyle } from '../utils/nodeThemes'
 import { notify } from '../utils/notify'
-import { detachReactivity } from '../utils/reactivity'
 
 // Short enough to feel immediate; a slower double-click is caught by DOUBLE_CLICK_WINDOW_MS instead.
 const RENAME_CLICK_DELAY_MS = 250
 // Covers the default OS double-click interval (500ms on Windows and macOS).
 const DOUBLE_CLICK_WINDOW_MS = 500
-// How long a pointer rests on a handle before its remove button shows, and the grace to reach the button.
-const HANDLE_HOVER_DELAY_MS = 1000
-const HANDLE_LEAVE_DELAY_MS = 150
 
 /**
  * Gives a node card its shared behaviour. Call it in the card's setup.
  *
- * @param {Object} props - The card's props: `id`, `data` (`name`, `handles`, `domainType`).
+ * @param {Object} props - The card's props: `id`, `data` (`name`, `domainType`).
  * @param {Function} emit - The card's emit; `open-context-menu` is emitted with `{clientX, clientY, id}`.
  * @param {Object} options
  * @param {Function} options.onDoubleClick - What a double-click on the card does, a pending rename dropped first.
@@ -44,12 +37,11 @@ export function useNodeChrome(
   emit,
   { onDoubleClick, isSubsystem = false, nameTakenMessage = 'An instance with this name already exists.' }
 ) {
-  const { id: flowId, addEdges, edges, removeEdges, updateNodeData, updateNodeInternals, viewport } = useVueFlow()
+  const { id: flowId, updateNodeData, viewport } = useVueFlow()
   const { scope, nodes: canvasNodes } = useActiveCanvas(flowId)
   const canvasLevel = useCanvasLevel(flowId)
-  const { beginGhostActivation, revertPendingGhostIfUnused } = useHandleManagement()
+  const { revertPendingGhostIfUnused } = useHandleManagement()
   const { recordEdit } = useNodeDataHistory(flowId)
-  const historyStore = useFlowHistoryFor()
   const nodeThemeStore = useNodeThemeStore()
   const simulationResultsStore = useSimulationResultsStore()
 
@@ -174,81 +166,6 @@ export function useNodeChrome(
 
   onBeforeUnmount(() => clearTimeout(renameClickTimeout))
 
-  // ─── Handles ───────────────────────────────────────────────────────────────────
-
-  const hoveredHandleUid = ref(null)
-  let enterTimeout = null
-  let leaveTimeout = null
-
-  /** Shows a handle's remove button once the pointer rests on it. */
-  function onHandleEnter(uid) {
-    // Cancel the hide timer if the pointer came back quickly.
-    clearTimeout(leaveTimeout)
-    if (hoveredHandleUid.value !== uid) {
-      enterTimeout = setTimeout(() => {
-        hoveredHandleUid.value = uid
-      }, HANDLE_HOVER_DELAY_MS)
-    }
-  }
-
-  /** Hides the remove button, after a grace period to reach it. */
-  function onHandleLeave() {
-    clearTimeout(enterTimeout)
-    leaveTimeout = setTimeout(() => {
-      hoveredHandleUid.value = null
-    }, HANDLE_LEAVE_DELAY_MS)
-  }
-
-  const applyHandles = async (handlesToSet) => {
-    updateNodeData(props.id, { handles: handlesToSet })
-    await nextTick()
-    updateNodeInternals(props.id)
-  }
-
-  /**
-   * Turns a handle back into a ghost and removes the edges on it, as one undo step.
-   *
-   * @param {string} handleIdToRemove - The handle's uid.
-   */
-  async function removeHandle(handleIdToRemove) {
-    const oldHandles = detachReactivity(props.data.handles)
-
-    const handle = oldHandles.find((h) => h.uid === handleIdToRemove)
-    if (!handle) return
-
-    const handleId = getHandleId(handle)
-
-    // The edges on this handle, copied so undo can put them back.
-    const connectedEdges = edges.value.filter(
-      (edge) =>
-        (edge.source === props.id && edge.sourceHandle === handleId) ||
-        (edge.target === props.id && edge.targetHandle === handleId)
-    )
-
-    const edgesSnapshot = connectedEdges.map((edge) => detachReactivity(edge))
-
-    const newHandles = props.data.handles.map((h) =>
-      h.uid === handleIdToRemove ? { ...h, variant: HANDLE_VARIANT.GHOST } : h
-    )
-
-    historyStore.executeAndAddCommand({
-      type: 'remove-handle',
-      undo: async () => {
-        // Restore the handle first, so it exists in the DOM, then its edges.
-        await applyHandles(oldHandles)
-        if (edgesSnapshot.length > 0) {
-          addEdges(edgesSnapshot)
-        }
-      },
-      redo: async () => {
-        if (edgesSnapshot.length > 0) {
-          removeEdges(edgesSnapshot.map((e) => e.id))
-        }
-        await applyHandles(newHandles)
-      },
-    })
-  }
-
   /** @param {MouseEvent} event - A right-click on the card. */
   function openContextMenu(event) {
     emit('open-context-menu', {
@@ -272,11 +189,6 @@ export function useNodeChrome(
     stopDragWhileEditing,
     saveEdit,
     cancelEdit,
-    hoveredHandleUid,
-    onHandleEnter,
-    onHandleLeave,
-    removeHandle,
-    beginGhostActivation,
     openContextMenu,
   }
 }

@@ -70,53 +70,21 @@
       </div>
     </div>
 
-    <template v-for="handle in data.handles" :key="handle.uid">
-      <Handle
-        :id="getHandleId(handle)"
-        :ref="'handle_' + handle.side + '_' + handle.uid"
-        :position="handlePosition(handle.side)"
-        :class="['handle',
-        `handle--${handle.variant|| 'default'}`,
-        { 'handle--inert': handle.variant === HANDLE_VARIANT.GHOST && selected && isCornerHandle(handle, data.handles)},
-        ]"
-        :style="getHandleStyle(handle, data.handles)"
-        v-tooltip.bottom="{ value: handle.name, showDelay: 1000 }"
-        @mouseenter="onHandleEnter(handle.uid)"
-        @mouseleave="onHandleLeave"
-        @pointerdown="!isEditing && !(selected && isCornerHandle(handle, data.handles)) && handle.variant === HANDLE_VARIANT.GHOST && beginGhostActivation(props.id, handle.uid)"
-      >
-        <Button
-          v-show="hoveredHandleUid === handle.uid && handle.variant !== HANDLE_VARIANT.GHOST"
-          :class="['delete-handle-popover-btn', 'popover-' + handle.side]"
-          icon="pi pi-trash"
-          severity="danger"
-          rounded
-          text
-          size="small"
-          @mouseenter="onHandleEnter(handle.uid)"
-          @mouseleave="onHandleLeave"
-          @mousedown.stop
-          @dblclick.stop
-          @click.stop="removeHandle(handle.uid)"
-        />
-      </Handle>
-    </template>
+    <NodeHandles :id="id" :handles="data.handles" :selected="selected" :disabled="isEditing" />
   </div>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue'
-import { Handle } from '@vue-flow/core'
 import { NodeResizer } from '@vue-flow/node-resizer'
 import Button from 'primevue/button'
 
+import NodeHandles from './NodeHandles.vue'
 import SanitisedInput from './SanitisedInput.vue'
 import { useLibraryStore } from '../stores/libraryStore'
-import { getHandleId, getHandleStyle, handlePosition, isCornerHandle } from '../utils/handles'
 import { sanitiseName } from '../utils/identifiers'
 import { isEditableVariableType, isEmpty } from '../utils/variables'
 import { isUnitKnown } from '../utils/parameterRows'
-import { HANDLE_VARIANT } from '../utils/constants'
 import { useNodeChrome } from '../composables/useNodeChrome'
 
 import '../assets/vueflownode.css'
@@ -143,7 +111,7 @@ const emit = defineEmits([
   'open-context-menu',
 ])
 
-// Name editing, handles, theme, simulated outline and context menu, shared with SubsystemNode.
+// Name editing, theme, simulated outline and context menu, shared with SubsystemNode.
 const {
   isSimulated,
   categoryStyle,
@@ -157,11 +125,6 @@ const {
   stopDragWhileEditing,
   saveEdit,
   cancelEdit,
-  hoveredHandleUid,
-  onHandleEnter,
-  onHandleLeave,
-  removeHandle,
-  beginGhostActivation,
   openContextMenu,
 } = useNodeChrome(props, emit, { onDoubleClick: () => openInstanceEditor('parameters') })
 

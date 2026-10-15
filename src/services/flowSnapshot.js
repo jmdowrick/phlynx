@@ -22,7 +22,13 @@ import {
   SUPERMODULE_INTERFACE_NODE_TYPE,
   TARGET_HANDLE_TYPE,
 } from '../utils/constants'
-import { buildGhostHandles, findMostCentralGhostHandle, getHandleId, normaliseHandleSlots } from '../utils/handles'
+import {
+  buildGhostHandles,
+  findMostCentralGhostHandle,
+  getHandleId,
+  normaliseHandleSlots,
+  withHierarchyHandles,
+} from '../utils/handles'
 import { hasHierarchy, rewriteUnsafeIds, scopeOf } from '../utils/hierarchy'
 import { cyrb53 } from '../utils/misc'
 import { applyParameterValues } from '../utils/parameters'
@@ -212,7 +218,8 @@ function markHandles(nodes, edges) {
 
 /**
  * Rebuilds a snapshot's nodes and edges for the workspace. A module is rebuilt as a dropped one is, keeping its scope
- * and local id, with ghost handles filled in; a subsystem or interface node keeps its data as it is. A parameter the
+ * and local id, with ghost handles filled in; a subsystem or interface node keeps its data as it is, given ghost
+ * handles when it has none. A parameter the
  * archive's CellML gives a root module is set on its row; one it gives a module inside a subsystem, where it differs,
  * becomes an override on the outermost subsystem, so the super-module's other subsystems keep theirs.
  *
@@ -232,7 +239,7 @@ export function restoreFlowSnapshot(snapshot, { parameterData = {}, prepareNode 
 
   const nodes = snapshotNodes.map((snapshotNode) => {
     if (VERBATIM_TYPES.has(snapshotNode.type)) {
-      const { id, type, position, data } = snapshotNode
+      const { id, type, position, data } = withHierarchyHandles(snapshotNode)
       return { id, type, position, data: { ...data }, ...(type === SUPERMODULE_INTERFACE_NODE_TYPE && { deletable: false }) }
     }
     let node = { ...snapshotNode, data: { ...snapshotNode.data } }
