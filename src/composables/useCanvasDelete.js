@@ -1,12 +1,17 @@
 /**
- * Deletes canvas nodes as one undo step, first asking about what the deletion would break: a node an exposed port
- * aliases, or a super-module left without subsystems.
+ * Deletes canvas nodes as one undo step, first asking about what the deletion would break: ports a super-module
+ * exposes from a node, or through an exposure edge, and the connections to them in every subsystem, or a super-module
+ * left without subsystems. What it breaks goes in the same step: the couplings to the ports un-exposed (an edge left
+ * with none too), the overrides of what is removed, and the sliders, plots, sweeps and inspection variables of every
+ * copy of a node removed from a super-module.
  */
 import { computed } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
 import { useActiveCanvas } from './useActiveCanvas'
+import { describeUnexposeImpact, useExposure } from './useExposure'
 import { useFlowHistoryFor } from './useFlowHistoryFor'
+import { useHandleManagement } from './useHandleManagement'
 import { useSupermodules } from './useSupermodules'
 import { FLOW_IDS } from '../utils/constants'
 
@@ -25,30 +30,36 @@ export function useCanvasDelete({ confirm, history = useFlowHistoryFor(), flowId
   const { removeNodes, removeEdges, findNode, findEdge } = useVueFlow(flowId)
   const { selectedNodes, selectedEdges } = useActiveCanvas(flowId)
   const { orphanedBy, exposedBy, find, deleteSupermodule } = useSupermodules(flowId)
+  // A connection the cascade removes gives its handles back, as one deleted by hand does.
+  const exposure = useExposure({ flowId, history, handles: useHandleManagement({ history }) })
 
-  // Whether deleting the canvas selection needs asking first, so the workspace turns Vue Flow's Delete key off.
+  // Whether deleting the canvas selection needs asking first, or breaks what Vue Flow's Delete key would leave behind,
+  // so the workspace turns that key off.
   const selectionNeedsAsking = computed(() => {
     const ids = selectedNodes.value.map((node) => node.id)
-    return orphanedBy(ids).length > 0 || exposedBy(ids).length > 0
+    const edgeIds = selectedEdges.value.map((edge) => edge.id)
+    return orphanedBy(ids).length > 0 || exposedBy(ids, edgeIds).length > 0 || exposure.planRemoval(ids, edgeIds).deadModelIds.size > 0
   })
 
   const nameOf = (smId) => `'${find(smId)?.name ?? smId}'`
 
   /**
-   * Asks whether to delete nodes that exposed ports alias, which leaves those ports aliasing nothing.
+   * Asks whether to delete what un-exposes ports, and with them the connections to them.
    *
    * @param {ReturnType<typeof exposedBy>} exposures
+   * @param {ReturnType<typeof exposure.planRemoval>} plan
    * @returns {Promise<boolean|null>}
    */
-  function askToBreakExposures(exposures) {
+  function askToBreakExposures(exposures, plan) {
     const lines = exposures.map(
       ({ smId, nodeName, portLabel }) => `• '${nodeName}' (port '${portLabel}' of ${nameOf(smId)})`
     )
+    const impact = describeUnexposeImpact(plan)
     return confirm({
       header: 'Delete Exposed Nodes?',
       message:
-        `Exposed ports of a super-module alias these nodes:\n${lines.join('\n')}\n` +
-        'Deleting them leaves those ports, and connections to them, without a module behind them.',
+        `Deleting this un-exposes ports of a super-module:\n${lines.join('\n')}\n` +
+        (impact ? `${impact} Their couplings to those ports are removed, and a connection left with none goes too.` : 'No connection uses them.'),
       severity: 'warning',
       acceptLabel: 'Delete anyway',
       rejectLabel: 'Cancel',
@@ -84,8 +95,8 @@ export function useCanvasDelete({ confirm, history = useFlowHistoryFor(), flowId
    * @param {string[]} [edgeIds=[]]
    */
   async function deleteNodes(nodeIds, edgeIds = []) {
-    const exposures = exposedBy(nodeIds)
-    if (exposures.length && !(await askToBreakExposures(exposures))) return
+    const exposures = exposedBy(nodeIds, edgeIds)
+    if (exposures.length && !(await askToBreakExposures(exposures, exposure.planRemoval(nodeIds, edgeIds)))) return
     const orphaned = orphanedBy(nodeIds)
     const answer = orphaned.length > 0 ? await askToDeleteSupermodules(orphaned) : false
     if (answer == null) return
@@ -96,6 +107,7 @@ export function useCanvasDelete({ confirm, history = useFlowHistoryFor(), flowId
     if (!nodesLeft.length && !edgesLeft.length) return
     history.startBatch()
     try {
+      await exposure.applyRemoval(exposure.planRemoval(nodesLeft, edgesLeft))
       if (nodesLeft.length) removeNodes(nodesLeft)
       if (edgesLeft.length) removeEdges(edgesLeft)
       stillOrphaned.forEach(deleteSupermodule)

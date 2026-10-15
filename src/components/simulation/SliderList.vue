@@ -136,7 +136,6 @@ import Menu from 'primevue/menu'
 import Popover from 'primevue/popover'
 import Slider from 'primevue/slider'
 
-import { useModelGraph } from '../../composables/useModelGraph'
 import { useModelWriter } from '../../composables/useModelWriter'
 import { useNodeDataHistory } from '../../composables/useNodeDataHistory'
 import VariablePathPicker from './VariablePathPicker.vue'
@@ -173,9 +172,8 @@ const libraryStore = useLibraryStore()
 const protocolStore = useProtocolStore()
 const resultsStore = useSimulationResultsStore()
 const settingsStore = useSimulationSettingsStore()
-const { writeValue } = useModelWriter()
+const { writeValue, recordTargetOf } = useModelWriter()
 const { recordEdit } = useNodeDataHistory(FLOW_IDS.MAIN)
-const { graph: modelGraph } = useModelGraph()
 const rangeId = useId()
 
 const definitions = computed(() => settingsStore.parameterScanConfig?.selections ?? [])
@@ -421,23 +419,13 @@ function updateRange(slider, range) {
 }
 
 /**
- * Tells whether a slider's value can't be written into the model yet: its module is inside a subsystem, so the value
- * belongs to the super-module's definition, which isn't written from here.
- *
- * @param {Object} slider
- * @returns {boolean}
- */
-const isInSubsystem = (slider) =>
-  slider.type !== 'global_constant' && (modelGraph.value.origin.get(slider.node?.id)?.instanceChain.length ?? 0) > 0
-
-/**
- * Writes a slider's value into the model as one undoable edit, so it becomes the model's value. The
- * slider's exported default follows it.
+ * Writes a slider's value into the model as one undoable edit, so it becomes the model's value: inside a subsystem, as
+ * that subsystem's override. The slider's exported default follows it.
  *
  * @param {Object} slider
  */
 function applyToModel(slider) {
-  if (protocolStore.areSlidersOff || isInSubsystem(slider)) return
+  if (protocolStore.areSlidersOff) return
   const value = String(slider.value)
   props.keepCurrent(() => {
     if (slider.type === 'global_constant') {
@@ -451,8 +439,7 @@ function applyToModel(slider) {
     } else {
       recordEdit({
         type: 'apply-slider',
-        nodeIds: [slider.node.id],
-        keys: ['variables'],
+        ...recordTargetOf(slider.node.id),
         apply: () => writeValue(slider.node.id, slider.parameterName, { value }),
       })
     }
@@ -480,7 +467,7 @@ const menuItems = computed(() => {
     {
       label: 'Apply this value to the model',
       icon: 'pi pi-check',
-      disabled: !slider.isChanged || protocolStore.areSlidersOff || isInSubsystem(slider),
+      disabled: !slider.isChanged || protocolStore.areSlidersOff,
       command: () => applyToModel(slider),
     },
     { label: 'Edit range…', icon: 'pi pi-arrows-h', command: () => openRange(slider) },

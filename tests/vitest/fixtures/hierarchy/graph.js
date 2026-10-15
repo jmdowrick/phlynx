@@ -2,9 +2,9 @@
  * Builders for nested test graphs: modules, super-modules, subsystems and edges, as the store holds them.
  */
 import { buildSubsystem, buildSupermoduleInterface } from '../../../../src/services/import/buildWorkflow.js'
-import { subsystemPorts } from '../../../../src/services/hierarchy/expand.js'
+import { subsystemPorts } from '../../../../src/services/hierarchy/exposure.js'
 import { checkAndClaimCouplings, resolvePortCouplings } from '../../../../src/utils/edges.js'
-import { MAIN_NODE_TYPE } from '../../../../src/utils/constants.js'
+import { EXPOSURE_EDGE_TYPE, MAIN_NODE_TYPE } from '../../../../src/utils/constants.js'
 import { nodeIdOf } from '../../../../src/utils/hierarchy.js'
 
 /** A port. */
@@ -35,43 +35,68 @@ export function module(localId, name, { scope = null, ports = [], variables = []
 }
 
 /**
- * A super-module's interface node.
+ * A super-module's interface node. What it exposes is drawn as exposure edges (see exposures).
  *
  * @param {string} smId
  * @param {string} name
  * @param {Object} [definition] - As buildSupermoduleInterface's.
  * @returns {Object}
  */
-export const supermodule = (smId, name, definition = {}) => buildSupermoduleInterface(smId, { name, ...definition })
+export function supermodule(smId, name, definition = {}) {
+  if ('exposedPorts' in definition) throw new Error('Exposed ports are exposure edges: use exposures().')
+  return buildSupermoduleInterface(smId, { name, ...definition })
+}
 
 /**
- * An exposed port aliasing a child's port.
+ * An exposed port aliasing a child's port, as exposures takes it.
  *
  * @param {string} id
  * @param {string} child - The child's local id.
  * @param {string} portType
  * @param {string} label
- * @param {Object} [options] - slot, via and label.
+ * @param {Object} [options] - slot, via (then only via is kept) and label.
  * @returns {Object}
  */
 export const exposed = (id, child, portType, label, { slot = 0, via, label: own } = {}) => ({
   id,
-  alias: { child, portType, label, slot, ...(via && { via }) },
+  alias: { child, ...(via ? { via } : { portType, label, slot }) },
   ...(own && { label: own }),
 })
 
 /**
+ * The exposure edges exposing a super-module's ports: one from each child to its interface, as the canvas draws them,
+ * each port's order its place in the list.
+ *
+ * @param {string} smId
+ * @param {Array} ports - From exposed.
+ * @returns {Array} The edges, in the order their children first appear.
+ */
+export function exposures(smId, ports) {
+  const byChild = new Map()
+  ports.forEach(({ id, alias: { child, ...alias }, label }, order) => {
+    if (!byChild.has(child)) byChild.set(child, [])
+    byChild.get(child).push({ id, alias, ...(label && { label }), order })
+  })
+  return [...byChild].map(([child, exposed]) => {
+    const source = nodeIdOf(smId, child)
+    return { id: `${source}--${smId}`, type: EXPOSURE_EDGE_TYPE, source, target: smId, data: { exposed } }
+  })
+}
+
+/**
  * A subsystem, its ports built from its super-module as the store holds it.
  *
- * @param {Array} nodes - The store's nodes so far, its super-module's included.
+ * @param {Array|{nodes: Array, edges: Array}} store - The store's nodes so far, its super-module's included, and its
+ *   edges, its exposure edges included; nodes alone for a super-module exposing nothing.
  * @param {string} localId
  * @param {string} name
  * @param {string} smId
  * @param {Object} [options] - scope and overrides.
  * @returns {Object}
  */
-export function subsystem(nodes, localId, name, smId, { scope = null, overrides = {} } = {}) {
-  return buildSubsystem(nodeIdOf(scope, localId), name, smId, { scope, overrides, ports: subsystemPorts(nodes, smId) })
+export function subsystem(store, localId, name, smId, { scope = null, overrides = {} } = {}) {
+  const { nodes, edges = [] } = Array.isArray(store) ? { nodes: store } : store
+  return buildSubsystem(nodeIdOf(scope, localId), name, smId, { scope, overrides, ports: subsystemPorts(nodes, edges, smId) })
 }
 
 /**

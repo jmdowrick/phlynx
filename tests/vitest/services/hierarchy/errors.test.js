@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { errorsConcerning, summariseExpansionErrors } from '../../../../src/services/hierarchy/errors.js'
 import { expandHierarchy } from '../../../../src/services/hierarchy/expand.js'
 import { checkScope, resolveScope, summariseScopeReport } from '../../../../src/services/simulation/scopedModel.js'
-import { connect, constant, exposed, module, port, subsystem, supermodule } from '../../fixtures/hierarchy/graph.js'
+import { connect, constant, exposed, exposures, module, port, subsystem, supermodule } from '../../fixtures/hierarchy/graph.js'
 
 const error = (message, ids = [], kind = 'unresolvedAlias') => ({ kind, severity: 'error', message, ids, origins: [] })
 const warning = (message, ids = [], kind = 'orphanedOverride') => ({ kind, severity: 'warning', message, ids, origins: [] })
@@ -19,16 +19,15 @@ const vessel = (localId, name, options = {}) =>
 /** Root a → seg (sm_1: x), seg exposing x's input only; with its output exposure dropped, seg → b doesn't expand. */
 function brokenGraph() {
   const x = vessel('x', 'x', { scope: 'sm_1' })
-  const sm = supermodule('sm_1', 'segment', {
-    submoduleOrder: ['x'],
-    exposedPorts: [exposed('xp_in', 'x', 'entrance_ports', 'vessel'), exposed('xp_out', 'x', 'exit_ports', 'vessel')],
-  })
-  const seg = subsystem([sm, x], 'dndnode_1', 'seg', 'sm_1', { overrides: { x: { gone: { value: '1' } } } })
+  const sm = supermodule('sm_1', 'segment', { submoduleOrder: ['x'] })
+  const [exposure] = exposures('sm_1', [exposed('xp_in', 'x', 'entrance_ports', 'vessel'), exposed('xp_out', 'x', 'exit_ports', 'vessel')])
+  const seg = subsystem({ nodes: [sm, x], edges: [exposure] }, 'dndnode_1', 'seg', 'sm_1', { overrides: { x: { gone: { value: '1' } } } })
   const [a, b] = [vessel('dndnode_0', 'a'), vessel('dndnode_2', 'b')]
   const used = new Set()
   const edges = [connect(a, seg, { used, id: 'e0' }), connect(seg, b, { used, id: 'e1' })]
-  sm.data.supermodule.exposedPorts = sm.data.supermodule.exposedPorts.filter((exposedPort) => exposedPort.id !== 'xp_out')
-  return expandHierarchy([a, seg, b, sm, x], edges)
+  // xp_out un-exposed.
+  const kept = { ...exposure, data: { exposed: exposure.data.exposed.filter((entry) => entry.id !== 'xp_out') } }
+  return expandHierarchy([a, seg, b, sm, x], [...edges, kept])
 }
 
 describe('errorsConcerning', () => {

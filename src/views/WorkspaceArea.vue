@@ -453,6 +453,9 @@
             <template #edge-smoothstep="edgeProps">
               <CouplingEdge v-bind="edgeProps" />
             </template>
+            <template #edge-exposure="edgeProps">
+              <ExposureEdge v-bind="edgeProps" />
+            </template>
             <template #node-instanceNode="props">
               <InstanceNode
                 :id="props.id"
@@ -560,6 +563,13 @@
     :subgraph="edgeDialogSubgraph"
     @confirm="onEdgeConnectionConfirm"
   />
+
+  <ExposePortsDialog
+    v-model="exposeDialog.visible"
+    :dialog="exposeDialog.data"
+    :problems="exposeDialog.problems"
+    @save="onExposeSave"
+  />
 </template>
 
 <script>
@@ -631,6 +641,10 @@ import LibraryArea from '../components/LibraryArea.vue'
 import ResizableLibraryPanel from '../components/ResizableLibraryPanel.vue'
 import Workbench from '../components/WorkbenchArea.vue'
 import CouplingEdge from '../components/CouplingEdge.vue'
+import ExposureEdge from '../components/ExposureEdge.vue'
+import ExposePortsDialog from '../components/ExposePortsDialog.vue'
+import { useExposure } from '../composables/useExposure'
+import { isExposureEdge } from '../services/hierarchy/exposure'
 import InstanceNode from '../components/InstanceNode.vue'
 import SubsystemNode from '../components/SubsystemNode.vue'
 import InterfaceNode from '../components/InterfaceNode.vue'
@@ -695,7 +709,6 @@ import { resolveEdgeCouplings } from '../utils/edges'
 import { parseParametersFile } from '../utils/import'
 import {
   applyParametersToModel,
-  nestedParametersMessage,
   skippedParametersMessage,
 } from '../utils/parameters'
 import { detachReactivity } from '../utils/reactivity'
@@ -1079,9 +1092,30 @@ const { onNodeChange, onEdgeChange } = useFlowHistory({
   reactivateEdgeHandles,
 })
 
+const exposure = useExposure({ history: historyStore, handles: { revertHandlesForEdge, reactivateEdgeHandles } })
+const exposeDialog = ref({ visible: false, edgeId: null, data: null, problems: [] })
+
+/**
+ * Opens the Expose Ports dialog on an exposure edge.
+ *
+ * @param {string} edgeId
+ */
+function openExposeDialog(edgeId) {
+  const data = exposure.exposureDialogOf(edgeId)
+  if (data) exposeDialog.value = { visible: true, edgeId, data, problems: [] }
+}
+
+/** Saves what the dialog's edge exposes; it closes once saved, and stays open on a problem or a declined un-expose. */
+async function onExposeSave(rows) {
+  const { saved, problems } = await exposure.saveExposure(exposeDialog.value.edgeId, rows, { confirm })
+  if (problems.length) exposeDialog.value.problems = problems
+  else if (saved) exposeDialog.value.visible = false
+}
+
 useConnect({
   suppressedEdgeIds,
   confirm,
+  onExposureEdge: (edgeId) => openExposeDialog(edgeId),
   edgeLineOptions,
   confirmActivation,
   activateHandle,
@@ -1185,10 +1219,10 @@ const loadParametersData = async (content, filename, { notify: shouldNotify = tr
   try {
     const variableCatalogue = new Set(modelNodes.value.flatMap((node) => node.data.variables.map((v) => v.name.trim())))
 
-    // Matched by the model's names; only root modules take values, by their own ids. A loaded value never changes a
-    // row's type; a computed row's value isn't applied.
+    // Matched by the model's names, by model id: a module inside a subsystem takes its values as that subsystem's
+    // overrides. A loaded value never changes a row's type; a computed row's value isn't applied.
     const loaded = applyParametersToModel(modelGraph.value, Array.from(content))
-    const { variablesById, updated: totalLocal, skipped, nested } = loaded
+    const { variablesById, updated: totalLocal, skipped } = loaded
     for (const [id, variables] of variablesById) writeVariables(id, variables)
 
     const globalConstants = Array.from(content)
@@ -1209,9 +1243,6 @@ const loadParametersData = async (content, filename, { notify: shouldNotify = tr
     // Told even when a batch load quiets its other messages, as these values are dropped.
     if (skipped.length) {
       notify.warning({ title: 'Some Parameters Not Applied', message: skippedParametersMessage(skipped) })
-    }
-    if (nested.updated) {
-      notify.warning({ title: 'Some Parameters Not Applied', message: nestedParametersMessage(nested.updated, nested.paths) })
     }
 
     if (shouldNotify && totalUpdated > 0) {
@@ -1732,6 +1763,7 @@ function buildEdgeSubgraph(activeEdge) {
 }
 
 function onEdgeDoubleClick({ edge }) {
+  if (isExposureEdge(edge)) return openExposeDialog(edge.id)
   const sourceNode = findNode(edge.source)
   const targetNode = findNode(edge.target)
 

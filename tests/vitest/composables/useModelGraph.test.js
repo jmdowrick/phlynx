@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useModelGraph } from '../../../src/composables/useModelGraph.js'
 import { FLOW_IDS } from '../../../src/utils/constants.js'
-import { connect, constant, exposed, module, port, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
+import { connect, constant, exposed, exposures, module, port, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
 
 const IN = port('entrance_ports', 'vessel', ['v_in', 'u'])
 const OUT = port('exit_ports', 'vessel', ['v', 'u_out'])
@@ -25,17 +25,16 @@ function flatGraph() {
 function heartGraph({ spare = false } = {}) {
   const ra = vessel('ra', 'ra', { scope: 'sm_1' })
   const lv = vessel('lv', 'lv', { scope: 'sm_1' })
-  const sm = supermodule('sm_1', 'heart', {
-    submoduleOrder: ['ra', 'lv'],
-    exposedPorts: [exposed('xp_in', 'ra', 'entrance_ports', 'vessel'), exposed('xp_out', 'lv', 'exit_ports', 'vessel')],
-  })
+  const sm = supermodule('sm_1', 'heart', { submoduleOrder: ['ra', 'lv'] })
+  const exposure = exposures('sm_1', [exposed('xp_in', 'ra', 'entrance_ports', 'vessel'), exposed('xp_out', 'lv', 'exit_ports', 'vessel')])
   const inner = [sm, ra, lv]
-  const heart = subsystem(inner, 'dndnode_1', 'heart', 'sm_1')
+  const store = { nodes: inner, edges: exposure }
+  const heart = subsystem(store, 'dndnode_1', 'heart', 'sm_1')
   const a = vessel('dndnode_0', 'a')
   const b = vessel('dndnode_2', 'b')
   const used = new Set()
-  const edges = [connect(a, heart, { used, id: 'e_in' }), connect(heart, b, { used, id: 'e_out' }), connect(ra, lv, { id: 'e_int' })]
-  const spares = spare ? [subsystem(inner, 'dndnode_3', 'spare', 'sm_1')] : []
+  const edges = [connect(a, heart, { used, id: 'e_in' }), connect(heart, b, { used, id: 'e_out' }), connect(ra, lv, { id: 'e_int' }), ...exposure]
+  const spares = spare ? [subsystem(store, 'dndnode_3', 'spare', 'sm_1')] : []
   return { nodes: [a, heart, b, ...spares, ...inner], edges }
 }
 
@@ -113,9 +112,7 @@ describe('useModelGraph', () => {
 
   it('reports what the expansion finds wrong once there are subsystems', () => {
     const { nodes, edges } = heartGraph()
-    const sm = nodes.find((node) => node.id === 'sm_1')
-    sm.data.supermodule.exposedPorts = sm.data.supermodule.exposedPorts.filter((port) => port.id !== 'xp_out')
-    show({ nodes, edges })
+    show({ nodes, edges: edges.filter((edge) => edge.id !== 'sm_1~lv--sm_1') })
     expect(errors.value.map((error) => [error.kind, error.severity])).toEqual([['unresolvedAlias', 'error']])
     expect(errors.value[0].message).toMatch(/port "xp_out" of "heart", which its super-module no longer exposes/)
   })

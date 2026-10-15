@@ -104,7 +104,8 @@ describe('builders', () => {
       data: {
         scope: 'sm_1',
         localId: 'sm_1',
-        supermodule: { name: 'heart', ca: null, submoduleOrder: ['ra'], exposedPorts: [], localConstants: [], naming: 'prefixed', source: null },
+        supermodule: { name: 'heart', ca: null, submoduleOrder: ['ra'], localConstants: [], naming: 'prefixed', source: null },
+        handles: [],
       },
     })
   })

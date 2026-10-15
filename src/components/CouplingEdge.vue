@@ -40,7 +40,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath } from '@vue-flow/core'
+import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, useVueFlow } from '@vue-flow/core'
 import { couplingConflicts } from '../utils/multiport'
 
 defineOptions({ inheritAttrs: false })
@@ -65,9 +65,25 @@ const props = defineProps({
 // [path, labelX, labelY, ...], drawn as the default smoothstep edge is.
 const path = computed(() => getSmoothStepPath(props))
 
-const conflicts = computed(() =>
-  (props.data?.couplings ?? []).flatMap(({ sourcePort, targetPort }) => couplingConflicts(sourcePort, targetPort))
+const { findNode } = useVueFlow()
+
+// A coupling to a port its subsystem no longer exposes (useSubsystemSync keeps it, in the subsystem's `broken`).
+const broken = computed(() =>
+  (props.data?.couplings ?? []).flatMap((coupling) =>
+    ['source', 'target'].flatMap((side) => {
+      const node = findNode(props[side])
+      const id = coupling[`${side}Port`]?.exposedPortId
+      return id && node?.data?.broken?.includes(id)
+        ? [`${node.data.name} no longer exposes "${coupling[`${side}Port`].label}"; edit or remove this coupling.`]
+        : []
+    })
+  )
 )
+
+const conflicts = computed(() => [
+  ...(props.data?.couplings ?? []).flatMap(({ sourcePort, targetPort }) => couplingConflicts(sourcePort, targetPort)),
+  ...broken.value,
+])
 
 const ownMarker = computed(() => props.selected || conflicts.value.length > 0)
 const markerId = `coupling-edge-arrow-${props.id}`

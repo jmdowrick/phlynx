@@ -1284,24 +1284,6 @@
               "dndnode_0",
               "dndnode_1"
             ],
-            "exposedPorts": [
-              {
-                "id": "xp_v",
-                "alias": {
-                  "child": "dndnode_1",
-                  "portType": "exit_ports",
-                  "label": "membrane_voltage",
-                  "slot": 0
-                }
-              },
-              {
-                "id": "xp_stim",
-                "alias": {
-                  "child": "dndnode_0",
-                  "via": "xp_stim"
-                }
-              }
-            ],
             "localConstants": [
               {
                 "name": "g_scale",
@@ -1312,7 +1294,24 @@
             ],
             "naming": "prefixed",
             "source": null
-          }
+          },
+          "handles": [
+            {
+              "uid": "sm_0-iface-left",
+              "side": "left",
+              "name": "",
+              "slotIndex": 0,
+              "variant": "default",
+              "type": "target"
+            },
+            {
+              "uid": "sm_0-iface-right",
+              "side": "right",
+              "name": "",
+              "slotIndex": 0,
+              "variant": "ghost"
+            }
+          ]
         }
       },
       {
@@ -1775,27 +1774,6 @@
             "submoduleOrder": [
               "dndnode_0"
             ],
-            "exposedPorts": [
-              {
-                "id": "xp_vi",
-                "alias": {
-                  "child": "dndnode_0",
-                  "portType": "exit_ports",
-                  "label": "VI_port",
-                  "slot": 0
-                }
-              },
-              {
-                "id": "xp_stim",
-                "alias": {
-                  "child": "dndnode_0",
-                  "portType": "entrance_ports",
-                  "label": "i_stim",
-                  "slot": 0
-                },
-                "label": "stimulus"
-              }
-            ],
             "localConstants": [],
             "naming": "prefixed",
             "source": {
@@ -1803,7 +1781,24 @@
               "file": "cell_modules.cellml",
               "component": "SN_soma"
             }
-          }
+          },
+          "handles": [
+            {
+              "uid": "sm_1-iface-left",
+              "side": "left",
+              "name": "",
+              "slotIndex": 0,
+              "variant": "default",
+              "type": "target"
+            },
+            {
+              "uid": "sm_1-iface-right",
+              "side": "right",
+              "name": "",
+              "slotIndex": 0,
+              "variant": "ghost"
+            }
+          ]
         }
       },
       {
@@ -4148,25 +4143,73 @@
         "targetY": -3.0293857399499302e-05
       },
       {
-        "id": "sm_0~dndnode_1--sm_0--xp_v",
+        "id": "sm_0~dndnode_1--sm_0",
         "type": "exposure",
         "source": "sm_0~dndnode_1",
-        "sourceHandle": "handle_82574214-2652-4314-891f-51819fd03c98",
         "target": "sm_0",
-        "targetHandle": null,
+        "sourceHandle": "handle_82574214-2652-4314-891f-51819fd03c98",
+        "targetHandle": "handle_sm_0-iface-left",
         "data": {
-          "exposedPortId": "xp_v"
+          "exposed": [
+            {
+              "id": "xp_v",
+              "alias": {
+                "portType": "exit_ports",
+                "label": "membrane_voltage",
+                "slot": 0
+              },
+              "order": 0
+            }
+          ]
         }
       },
       {
-        "id": "sm_1~dndnode_0--sm_1--xp_vi",
+        "id": "sm_0~dndnode_0--sm_0",
+        "type": "exposure",
+        "source": "sm_0~dndnode_0",
+        "target": "sm_0",
+        "targetHandle": "handle_sm_0-iface-left",
+        "data": {
+          "exposed": [
+            {
+              "id": "xp_stim",
+              "alias": {
+                "via": "xp_stim"
+              },
+              "order": 1
+            }
+          ]
+        }
+      },
+      {
+        "id": "sm_1~dndnode_0--sm_1",
         "type": "exposure",
         "source": "sm_1~dndnode_0",
-        "sourceHandle": "handle_823b238c-01e4-4880-8288-fda9ef302fe9",
         "target": "sm_1",
-        "targetHandle": null,
+        "sourceHandle": "handle_823b238c-01e4-4880-8288-fda9ef302fe9",
+        "targetHandle": "handle_sm_1-iface-left",
         "data": {
-          "exposedPortId": "xp_vi"
+          "exposed": [
+            {
+              "id": "xp_vi",
+              "alias": {
+                "portType": "exit_ports",
+                "label": "VI_port",
+                "slot": 0
+              },
+              "order": 0
+            },
+            {
+              "id": "xp_stim",
+              "alias": {
+                "portType": "entrance_ports",
+                "label": "i_stim",
+                "slot": 0
+              },
+              "label": "stimulus",
+              "order": 1
+            }
+          ]
         }
       }
     ],

@@ -9,24 +9,25 @@ import { useCanvasLevel } from '../../../src/composables/useCanvasLevel.js'
 import { useFlowHistory } from '../../../src/composables/useFlowHistory.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { FLOW_IDS } from '../../../src/utils/constants.js'
-import { exposed, module, port, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
+import { exposed, exposures, module, port, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
 
 /** Root: a module, one subsystem of lung (sm_1, holding a wall module it exposes a port of) and two of heart (sm_2). */
 function graph() {
-  const lung = supermodule('sm_1', 'lung', { exposedPorts: [exposed('xp_in', 'dndnode_0', 'entrance_ports', 'vessel')] })
+  const lung = supermodule('sm_1', 'lung')
+  const exposure = exposures('sm_1', [exposed('xp_in', 'dndnode_0', 'entrance_ports', 'vessel')])
   const wall = module('dndnode_0', 'wall', { scope: 'sm_1', ports: [port('entrance_ports', 'vessel', ['v'])] })
   const heart = supermodule('sm_2', 'heart')
   return {
     nodes: [
       module('dndnode_0', 'a'),
-      subsystem([lung, wall], 'dndnode_1', 'lung', 'sm_1'),
+      subsystem({ nodes: [lung, wall], edges: exposure }, 'dndnode_1', 'lung', 'sm_1'),
       subsystem([heart], 'dndnode_2', 'left', 'sm_2'),
       subsystem([heart], 'dndnode_3', 'right', 'sm_2'),
       lung,
       wall,
       heart,
     ],
-    edges: [],
+    edges: exposure,
   }
 }
 

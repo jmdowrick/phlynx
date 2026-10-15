@@ -364,11 +364,18 @@ function convertStore(oldStore, globalConstantNames, newAvailableModules) {
  *   A nested node's id is `<smId>~<localId>`; no id holds `/` or `::`, nor `~` at the root, and an
  *   older file's ids that do are rewritten, with the edges and saved selections that name them.
  *   A super-module is its interface node, type 'subsystemInterface' (deletable: false), whose
- *   data.supermodule is `{name, ca, submoduleOrder, exposedPorts, localConstants, naming, source}`
- *   (see buildSupermoduleInterface). A subsystem, type 'subsystemNode', is one instance of it, with
- *   data `{smId, overrides, ports, handles, broken?}` (see buildSubsystem): overrides are
- *   `{<localId path>: {<variable>: {value}}}`, and local constant values (H13) sit under '@'. An
- *   edge of type 'exposure', data.exposedPortId, draws an exposed port and is never in the model.
+ *   data.supermodule is `{name, ca, submoduleOrder, localConstants, naming, source}` and data.handles
+ *   its handles (see buildSupermoduleInterface). What it exposes lives on exposure edges, type
+ *   'exposure', each joining one child and the interface node, either way round: data.exposed is
+ *   `[{id, alias, label?, order}]`, each a whole port of the child, alias `{portType, label, slot}`
+ *   on a module or `{via}` (an exposed port id) on a subsystem; `order` orders the super-module's
+ *   exposed ports, which are derived from these edges and never stored on their own (see
+ *   services/hierarchy/exposure.js). Exposure edges are never in the model. A subsystem, type
+ *   'subsystemNode', is one instance of a super-module, with data `{smId, overrides, ports, handles,
+ *   broken?}` (see buildSubsystem): ports are materialised from the exposed ports, each with its
+ *   exposedPortId, as are the couplings to them; broken lists the exposed port ids couplings still
+ *   name that are gone. Overrides are `{<localId path>: {<variable>: {value}}}`, and local constant
+ *   values (H13) sit under '@'.
  *   A selection's nodeId and key may name a module inside a subsystem by its expanded id, the
  *   local ids down to it joined with '/' (`dndnode_3/dndnode_1::V`). store.availableSupermodules
  *   is reserved for circulatory_autogen super-module templates (H9), and empty until then. No node

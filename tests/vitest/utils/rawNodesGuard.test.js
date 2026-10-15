@@ -40,7 +40,25 @@ const ALLOWED = [
     file: 'src/composables/useModelWriter.js',
     line: 'useVueFlow(FLOW_IDS.MAIN)',
     use: 'model-safe',
-    reason: 'Writes a root module’s values to its node, whose id is its model id; a module inside a subsystem isn’t written.',
+    reason: 'Writes a module’s values to its node, or as an override on the subsystem it is inside, found through the model.',
+  },
+  {
+    file: 'src/composables/useModelWriter.js',
+    line: 'listOverrides(subsystemId, nodes.value)',
+    use: 'model-safe',
+    reason: 'A subsystem’s own overrides, resolved against the super-modules’ nodes, each once.',
+  },
+  {
+    file: 'src/composables/useSubsystemSync.js',
+    line: 'useVueFlow(flowId)',
+    use: 'model-safe',
+    reason: 'Materialises every subsystem’s ports from its super-module’s exposure edges, each store node once.',
+  },
+  {
+    file: 'src/composables/useExposure.js',
+    line: 'useVueFlow(flowId)',
+    use: 'model-safe',
+    reason: 'Reads and writes exposure edges and the couplings to subsystems, each store edge once, in every scope.',
   },
 
   // The canvas: what it shows, selects, lays out and edits as nodes. What reads only what is shown reads
@@ -70,6 +88,10 @@ const ALLOWED = [
 
   // The canvas's edges and the flow by default or by parameter, the workspace's in it.
   { file: 'src/views/WorkspaceArea.vue', line: 'for (const edge of edges.value)', count: 2, use: 'canvas', reason: 'Indexes the canvas edges by node, and repairs loaded edges without couplings.' },
+  { file: 'src/components/CouplingEdge.vue', line: '= useVueFlow()', use: 'canvas', reason: 'Finds its end nodes, to flag couplings to ports a subsystem no longer exposes.' },
+  { file: 'src/components/ExposureEdge.vue', line: '= useVueFlow()', use: 'canvas', reason: 'The ends of its drawn exposure edge, whose child names the ports it exposes.' },
+  { file: 'src/components/SubsystemPanel.vue', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'The canvas edges into the selected subsystem, for its broken couplings.' },
+  { file: 'src/components/SubsystemPanel.vue', line: 'return edges.value.flatMap', use: 'canvas', reason: 'The canvas edges into the selected subsystem, for its broken couplings.' },
   { file: 'src/components/HelperLines.vue', line: '= useVueFlow()', use: 'canvas', reason: 'The viewport the helper lines are drawn over.' },
   { file: 'src/components/InstanceEditorDialog.vue', line: '= useVueFlow()', use: 'canvas', reason: 'The flow the edited node is in.' },
   { file: 'src/components/InstanceEditorDialog.vue', line: 'const names = edges.value', use: 'canvas', reason: 'Names the canvas neighbours a port connects to.' },
@@ -86,6 +108,7 @@ const ALLOWED = [
   { file: 'src/composables/useConnect.js', line: 'useVueFlow(flowId)', use: 'canvas', reason: 'The flow connections are drawn in.' },
   { file: 'src/composables/useConnect.js', line: 'edges.value.find', count: 2, use: 'canvas', reason: 'Whether a drawn connection repeats one.' },
   { file: 'src/composables/useConnect.js', line: 'buildUsedPortKeys(edges.value', use: 'canvas', reason: 'The slots the canvas edges hold.' },
+  { file: 'src/composables/useConnect.js', line: 'exposedSlotKeys(nodes.value', use: 'canvas', reason: 'The slots exposed ports take inside the super-module shown.' },
   { file: 'src/composables/useDnD.js', line: 'useVueFlow(flowId)', use: 'canvas', reason: 'The flow modules are dropped on.' },
   { file: 'src/composables/useFlowHistory.js', line: 'useVueFlow(flowId)', use: 'canvas', reason: 'The flow whose changes are undone.' },
   { file: 'src/composables/useFlowHistory.js', line: '// excludeEdgeIds', use: 'canvas', reason: 'A comment.' },

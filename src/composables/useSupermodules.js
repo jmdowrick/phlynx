@@ -8,14 +8,14 @@ import { useVueFlow } from '@vue-flow/core'
 
 import { useActiveCanvas } from './useActiveCanvas'
 import { useFlowHistoryFor } from './useFlowHistoryFor'
-import { subsystemPorts } from '../services/hierarchy/expand'
+import { indexExposures, portResolver, subsystemPorts } from '../services/hierarchy/exposure'
 import { buildSubsystem, buildSupermoduleInterface } from '../services/import/buildWorkflow'
 import { FLOW_IDS } from '../utils/constants'
+import { buildGhostHandles } from '../utils/handles'
 import {
   canPlaceSubsystem,
   isSubsystem,
   isSupermoduleInterface,
-  localIdOf,
   localNameProblem,
   nextSupermoduleId,
   scopeOf,
@@ -60,6 +60,7 @@ export function useSupermodules(flowId = FLOW_IDS.MAIN) {
 function createCatalogue(flow, flowId) {
   // Read when used, so a flow's nodes are found however it holds them.
   const allNodes = () => (flow.nodes ?? flow.getNodes ?? NONE).value
+  const allEdges = () => (flow.edges ?? flow.getEdges ?? NONE).value
   const canvas = useActiveCanvas(flowId)
 
   const supermodules = computed(() => {
@@ -80,6 +81,8 @@ function createCatalogue(flow, flowId) {
   })
   const byId = computed(() => new Map(supermodules.value.map((entry) => [entry.id, entry])))
   const dependencies = computed(() => supermoduleDependencies(allNodes()))
+  // Every super-module's exposed ports, from its exposure edges.
+  const exposures = computed(() => indexExposures(allNodes(), allEdges()))
 
   /** @returns {Object|undefined} A super-module's entry. */
   const find = (smId) => byId.value.get(smId)
@@ -98,7 +101,15 @@ function createCatalogue(flow, flowId) {
   const canPlace = (scope, smId) => !!find(smId) && canPlaceSubsystem(dependencies.value, scope, smId)
 
   /** @returns {Array} The ports a new subsystem of a super-module has (see subsystemPorts). */
-  const portsOf = (smId) => subsystemPorts(allNodes(), smId)
+  const portsOf = (smId) => subsystemPorts(allNodes(), allEdges(), smId, exposures.value)
+
+  /**
+   * Gets a super-module's exposed ports, in order, as its exposure edges give them (see exposure.js indexExposures).
+   *
+   * @param {string} smId
+   * @returns {Array<Object>} ExposedPorts: `{id, alias, label?, order, edgeId, childId}`.
+   */
+  const exposedPortsOf = (smId) => exposures.value.get(smId) ?? []
 
   /** @returns {string[]} The ids of a super-module's nodes: its interface node and every node in its scope. */
   const memberIdsOf = (smId) =>
@@ -122,27 +133,28 @@ function createCatalogue(flow, flowId) {
   }
 
   /**
-   * Gets the exposed ports a removal leaves aliasing a missing node: each removed node inside a super-module that one
-   * of its exposed ports aliases.
+   * Gets the exposed ports a removal un-exposes: those of each removed node inside a super-module, and those of each
+   * removed exposure edge.
    *
-   * @param {Iterable<string>} removedIds
-   * @returns {{smId: string, nodeName: string, portLabel: string}[]}
+   * @param {Iterable<string>} removedIds - Node ids.
+   * @param {Iterable<string>} [removedEdgeIds=[]]
+   * @returns {{smId: string, exposedPortId: string, nodeName: string, portLabel: string}[]}
    */
-  const exposedBy = (removedIds) => {
+  const exposedBy = (removedIds, removedEdgeIds = []) => {
     const removed = new Set(removedIds)
-    const nodes = allNodes()
-    return nodes
-      .filter((node) => removed.has(node.id) && scopeOf(node) !== null && !isSupermoduleInterface(node))
-      .flatMap((node) => {
-        const exposedPorts = nodes.find((sm) => sm.id === scopeOf(node))?.data?.supermodule?.exposedPorts ?? []
-        return exposedPorts
-          .filter((port) => port.alias?.child === localIdOf(node))
-          .map((port) => ({
-            smId: scopeOf(node),
-            nodeName: node.data?.name ?? node.id,
-            portLabel: port.label ?? port.alias.label,
-          }))
-      })
+    const removedEdges = new Set(removedEdgeIds)
+    const nodeById = new Map(allNodes().map((node) => [node.id, node]))
+    const resolve = portResolver(allNodes(), exposures.value)
+    return [...exposures.value].flatMap(([smId, exposed]) =>
+      exposed
+        .filter((port) => removed.has(port.childId) || removedEdges.has(port.edgeId))
+        .map((port) => ({
+          smId,
+          exposedPortId: port.id,
+          nodeName: nodeById.get(port.childId)?.data?.name ?? port.childId,
+          portLabel: resolve(smId, port.id)?.label ?? port.label ?? port.alias.label ?? port.id,
+        }))
+    )
   }
 
   /**
@@ -199,7 +211,8 @@ function createCatalogue(flow, flowId) {
   }
 
   /**
-   * Makes a new, empty super-module and one subsystem of it on the canvas, both named `name`, as one undo step.
+   * Makes a new, empty super-module and one subsystem of it on the canvas, both named `name`, as one undo step. Both
+   * get the usual ghost handles, where edges attach.
    *
    * @param {string} name - Checked by subsystemNameProblem and supermoduleNameProblem.
    * @param {{x: number, y: number}} position - Where the subsystem goes, in flow coordinates.
@@ -216,8 +229,8 @@ function createCatalogue(flow, flowId) {
     const smId = nextSupermoduleId(allNodes())
     const subsystemId = canvas.nextNodeId()
     const nodes = [
-      buildSupermoduleInterface(smId, { name: trimmed }),
-      buildSubsystem(subsystemId, trimmed, smId, { scope: canvas.scope.value, position }),
+      buildSupermoduleInterface(smId, { name: trimmed }, null, { handles: buildGhostHandles() }),
+      buildSubsystem(subsystemId, trimmed, smId, { scope: canvas.scope.value, position, handles: buildGhostHandles() }),
     ]
     history.startBatch()
     try {
@@ -238,7 +251,7 @@ function createCatalogue(flow, flowId) {
   function addSubsystem(smId, position) {
     if (!canPlace(canvas.scope.value, smId)) return null
     const id = canvas.nextNodeId()
-    const options = { scope: canvas.scope.value, ports: portsOf(smId), position }
+    const options = { scope: canvas.scope.value, ports: portsOf(smId), handles: buildGhostHandles(), position }
     flow.addNodes(buildSubsystem(id, freeName(find(smId).name), smId, options))
     return id
   }
@@ -249,6 +262,7 @@ function createCatalogue(flow, flowId) {
     countOf,
     canPlace,
     portsOf,
+    exposedPortsOf,
     memberIdsOf,
     orphanedBy,
     exposedBy,

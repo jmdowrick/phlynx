@@ -7,7 +7,8 @@
  * itself.
  *
  * A coupling to a subsystem's port is rewritten to the live port of the child that port aliases, following `via`
- * through nested subsystems, with that child's slot. Couplings are never recomputed, so pairings and slots chosen by
+ * through nested subsystems, with that child's slot. A super-module's exposed ports are read from its exposure edges
+ * (see exposure.js), which are otherwise never part of the model. Couplings are never recomputed, so pairings and slots chosen by
  * hand survive. Each edge to a subsystem becomes one edge per pair of modules it couples, `<edge id>#<k>`.
  *
  * Nested leaves and rewritten edges carry their model fields only (id, type, ends, handles, data), never canvas state
@@ -35,7 +36,10 @@ import {
   supermodulesById,
 } from '../../utils/hierarchy'
 import { resolveBoundaryValues } from '../export/boundaryValues'
+import { indexExposures } from './exposure'
 import { LEVEL_SEPARATOR, pathOfNames } from './names'
+
+export { subsystemPorts } from './exposure'
 
 /** Joins the local ids of an expanded model id. */
 export const EXPANDED_ID_SEPARATOR = '/'
@@ -84,6 +88,9 @@ export function expandHierarchy(nodes, edges) {
   const byScope = indexByScope(nodes)
   const supermodules = supermodulesById(nodes)
   const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  // Each super-module's exposed ports, from its exposure edges.
+  const exposures = indexExposures(nodes, edges)
+  const exposedPortsOf = (smId) => exposures.get(smId) ?? []
 
   const outNodes = []
   const edgeEntries = [] // { edge, depth }, in a parent-first order the CA rule then refines (see orderEdges)
@@ -217,15 +224,14 @@ export function expandHierarchy(nodes, edges) {
   const aliasedPortType = (smId, exposed, depth = 0) => {
     const child = childByLocalId(smId, exposed?.alias?.child)
     if (!isSubsystem(child)) return exposed?.alias?.portType
-    const inner = supermodules.get(child.data?.smId)?.data.supermodule.exposedPorts?.find((port) => port.id === exposed.alias.via)
+    const inner = exposedPortsOf(child.data?.smId).find((port) => port.id === exposed.alias.via)
     return depth < MAX_NESTING_DEPTH ? aliasedPortType(child.data.smId, inner, depth + 1) : undefined
   }
 
   /** Where a subsystem port's child sits in CA's host lists: its first exposed port facing that way. */
   const spliceIndex = (smId, child, side) => {
     const types = side === 'target' ? INPUT_TYPES : OUTPUT_TYPES
-    const exposedPorts = supermodules.get(smId).data.supermodule.exposedPorts
-    const index = exposedPorts.findIndex((port) => port.alias?.child === child && types.has(aliasedPortType(smId, port)))
+    const index = exposedPortsOf(smId).findIndex((port) => port.alias?.child === child && types.has(aliasedPortType(smId, port)))
     return index < 0 ? Infinity : index
   }
 
@@ -246,8 +252,7 @@ export function expandHierarchy(nodes, edges) {
     }
     const inner = contextOf(context, instance)
     if (!inner) return unresolved('can not be expanded')
-    const record = inner.supermodule.data.supermodule
-    const exposed = (record.exposedPorts ?? []).find((port) => port.id === exposedPortId)
+    const exposed = exposedPortsOf(inner.supermodule.id).find((port) => port.id === exposedPortId)
     if (!exposed) return unresolved('its super-module no longer exposes')
     const child = childByLocalId(inner.supermodule.id, exposed.alias?.child)
     if (!child) return unresolved(`aliases a missing child "${exposed.alias?.child}"`)
@@ -668,33 +673,3 @@ function groupIds(pairs) {
 
 /** @returns {string} The modules' paths, quoted and joined. */
 const listPaths = (ids, nameOf) => ids.map((id) => `"${nameOf(id)}"`).join(', ')
-
-/**
- * Builds a subsystem's ports from its super-module's exposed ports: each a copy of the module port it aliases
- * (through `via`), with the exposed port's id and label. An exposed port that no longer resolves is left out.
- *
- * @param {Array} nodes - Every node in the store.
- * @param {string} smId
- * @returns {Array}
- */
-export function subsystemPorts(nodes, smId) {
-  const supermodules = supermodulesById(nodes)
-  const byScope = indexByScope(nodes)
-  const resolve = (id, exposedPortId, depth = 0) => {
-    const exposed = supermodules.get(id)?.data.supermodule.exposedPorts?.find((port) => port.id === exposedPortId)
-    if (!exposed || depth > MAX_NESTING_DEPTH) return null
-    const child = (byScope.get(id) ?? []).find((node) => !isSupermoduleInterface(node) && localIdOf(node) === exposed.alias.child)
-    if (!child) return null
-    if (isSubsystem(child)) {
-      const inner = exposed.alias.via && resolve(child.data.smId, exposed.alias.via, depth + 1)
-      return inner && { ...inner, label: exposed.label ?? inner.label }
-    }
-    const group = (child.data?.ports ?? []).filter((port) => port.portType === exposed.alias.portType && port.label === exposed.alias.label)
-    const port = group[exposed.alias.slot ?? 0]
-    return port ? { ...port, label: exposed.label ?? port.label } : null
-  }
-  return (supermodules.get(smId)?.data.supermodule.exposedPorts ?? []).flatMap((exposed) => {
-    const port = resolve(smId, exposed.id)
-    return port ? [{ ...port, exposedPortId: exposed.id }] : []
-  })
-}

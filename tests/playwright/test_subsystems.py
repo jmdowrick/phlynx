@@ -4,10 +4,14 @@ from playwright.sync_api import sync_playwright, expect
 
 try:
     from .config import BASE_URL, HEADLESS_MODE
-    from .test_workspace import EDGE, FIXTURE_NODE_COUNT, NODE, read_resource, undo, wait_for_settled_transform
+    from .test_workspace import (
+        EDGE, FIXTURE_NODE_COUNT, NODE, centre, drag, node_by_name, read_resource, undo, wait_for_settled_transform,
+    )
 except ImportError:
     from config import BASE_URL, HEADLESS_MODE
-    from test_workspace import EDGE, FIXTURE_NODE_COUNT, NODE, read_resource, undo, wait_for_settled_transform
+    from test_workspace import (
+        EDGE, FIXTURE_NODE_COUNT, NODE, centre, drag, node_by_name, read_resource, undo, wait_for_settled_transform,
+    )
 
 
 SUBSYSTEM = ".vue-flow__node:has(.subsystem-node)"
@@ -15,6 +19,26 @@ INTERFACE = ".vue-flow__node:has(.interface-node)"
 BREADCRUMB = ".flow-breadcrumb"
 CRUMB = ".flow-breadcrumb .crumb"
 SUPERMODULE_CARD = ".mlc__card--supermodule"
+EXPOSURE_LABEL = ".exposure-edge-label"
+
+# An edge's couplings, read from the app's store (dev server only): each port's label, and the exposed port the
+# source's port stands for, when the source is a subsystem.
+EDGE_COUPLINGS = """async (edgeId) => {
+  const vueFlowUrl = performance.getEntriesByType('resource').map((entry) => entry.name).find((name) => name.includes('@vue-flow_core.js'))
+  const { useVueFlow } = await import(vueFlowUrl)
+  const edge = useVueFlow('main-flow-editor').findEdge(edgeId)
+  return (edge?.data?.couplings ?? []).map(({ sourcePort, targetPort }) => ({
+    source: sourcePort.label,
+    target: targetPort.label,
+    exposedPortId: sourcePort.exposedPortId ?? null,
+  }))
+}"""
+
+
+def ghost_on(node, side):
+    """The middle free (ghost) handle on one side of a node."""
+    handles = node.locator(f".vue-flow__handle.handle--ghost.vue-flow__handle-{side}")
+    return handles.nth(handles.count() // 2)
 
 
 class TestSubsystems(unittest.TestCase):
@@ -133,6 +157,68 @@ class TestSubsystems(unittest.TestCase):
         expect(lv).to_have_count(0)
         expect(page.locator(SUPERMODULE_CARD).locator(".mlc__card-name")).to_have_text(["heart"])
         expect(page.locator(CRUMB)).to_have_text(["Model", "heart"])
+
+
+    # ---------- exposing ports -----------
+
+    def test_expose_and_connect(self):
+        page = self.page
+        self.open_workspace()
+        self.new_empty_subsystem("heart")
+        page.locator(SUBSYSTEM).get_by_role("button", name="Open subsystem").click()
+        interface = page.locator(INTERFACE)
+        expect(interface).to_contain_text("No exposed ports yet")
+        wait_for_settled_transform(page)
+
+        # Two modules inside, connected to each other.
+        canvas = page.locator(".vue-flow")
+        page.get_by_role("button", name="Cell modules").click()
+        cards = page.locator(".mlc .mlc__card--draggable")
+        cards.filter(has_text="SN_soma").first.drag_to(canvas, target_position={"x": 650, "y": 230})
+        cards.filter(has_text="SN_axon").first.drag_to(canvas, target_position={"x": 1150, "y": 230})
+        expect(page.locator(NODE)).to_have_count(3)
+        soma, axon = node_by_name(page, "soma_SN"), node_by_name(page, "axon_SN")
+        drag(page, centre(ghost_on(soma, "right")), centre(ghost_on(axon, "left")))
+        expect(page.locator(EDGE)).to_have_count(1)
+
+        # Connecting one to the interface draws an exposure edge, exposing nothing until its ports are picked.
+        drag(page, centre(ghost_on(axon, "bottom")), centre(ghost_on(interface, "top")))
+        expect(page.locator(EDGE)).to_have_count(2)
+        dialog = page.get_by_role("dialog", name="Expose ports of axon_SN")
+        expect(dialog).to_be_visible()
+        dialog.get_by_role("button", name="Cancel").click()
+        expect(dialog).to_be_hidden()
+        label = page.locator(EXPOSURE_LABEL)
+        expect(label).to_have_text("Nothing exposed")
+
+        # Double-clicking the exposure edge picks its ports: whole ports, a single-connection one used inside refused.
+        page.mouse.dblclick(*centre(label))
+        expect(dialog).to_be_visible()
+        expect(dialog.get_by_label("Expose VI_port")).to_be_disabled()
+        dialog.get_by_label("Expose membrane_voltage").check()
+        dialog.get_by_role("button", name="Save").click()
+        expect(dialog).to_be_hidden()
+        expect(label).to_have_text("membrane_voltage")
+        expect(interface.locator(".interface-port-list li")).to_have_count(1)
+        expect(interface).to_contain_text("membrane_voltage")
+
+        # Up a level, the subsystem has the port, and a new module connected to it couples to the exposed port.
+        page.keyboard.press("Escape")
+        expect(page.locator(BREADCRUMB)).to_have_count(0)
+        wait_for_settled_transform(page)
+        subsystem = page.locator(SUBSYSTEM)
+        expect(subsystem).to_contain_text("1 port")
+        cards.filter(has_text="SN_varicosity").first.drag_to(canvas, target_position={"x": 650, "y": 750})
+        expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT + 2)
+        varicosity = page.locator(NODE).last
+        drag(page, centre(ghost_on(subsystem, "bottom")), centre(ghost_on(varicosity, "top")))
+        expect(page.locator(EDGE)).to_have_count(3)
+        edge = page.locator(f'{EDGE}[data-id*="{subsystem.get_attribute("data-id")}"]')
+        expect(edge).to_have_count(1)
+        couplings = page.evaluate(EDGE_COUPLINGS, edge.get_attribute("data-id"))
+        self.assertEqual(len(couplings), 1)
+        self.assertEqual(couplings[0]["source"], "membrane_voltage")
+        self.assertTrue(couplings[0]["exposedPortId"].startswith("xp_"))
 
 
 if __name__ == "__main__":

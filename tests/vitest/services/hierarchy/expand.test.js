@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { orderForCa } from '../../fixtures/ca/order.js'
 import { expandHierarchy, subsystemPorts } from '../../../../src/services/hierarchy/expand.js'
 import { EXPOSURE_EDGE_TYPE } from '../../../../src/utils/constants.js'
-import { connect, constant, exposed, module, port, shuffled, subsystem, supermodule } from '../../fixtures/hierarchy/graph.js'
+import { connect, constant, exposed, exposures, module, port, shuffled, subsystem, supermodule } from '../../fixtures/hierarchy/graph.js'
 
 const IN = port('entrance_ports', 'vessel', ['v_in', 'u'])
 const OUT = port('exit_ports', 'vessel', ['v', 'u_out'])
@@ -14,20 +14,18 @@ const vessel = (localId, name, options = {}) =>
 function heartGraph({ overrides = {}, order = ['ra', 'lv'], naming } = {}) {
   const ra = vessel('ra', 'ra', { scope: 'sm_1' })
   const lv = vessel('lv', 'lv', { scope: 'sm_1' })
-  const sm = supermodule('sm_1', 'heart', {
-    submoduleOrder: order,
-    exposedPorts: [exposed('xp_in', 'ra', 'entrance_ports', 'vessel'), exposed('xp_out', 'lv', 'exit_ports', 'vessel')],
-    ...(naming && { naming }),
-  })
+  const sm = supermodule('sm_1', 'heart', { submoduleOrder: order, ...(naming && { naming }) })
+  const exposure = exposures('sm_1', [exposed('xp_in', 'ra', 'entrance_ports', 'vessel'), exposed('xp_out', 'lv', 'exit_ports', 'vessel')])
   const inner = [sm, ra, lv]
-  const heart = subsystem(inner, 'dndnode_1', 'heart', 'sm_1', { overrides })
+  const heart = subsystem({ nodes: inner, edges: exposure }, 'dndnode_1', 'heart', 'sm_1', { overrides })
   const a = vessel('dndnode_0', 'a')
   const b = vessel('dndnode_2', 'b')
   const used = new Set()
   const edges = [
-    { ...connect(a, heart, { used, id: 'e_in' }), sourceHandle: 'handle_a', targetHandle: 'handle_xp_in' },
+    { ...connect(a, heart, { used, id: 'e_in' }), sourceHandle: 'handle_a', targetHandle: 'handle_h1' },
     connect(heart, b, { used, id: 'e_out' }),
     connect(ra, lv, { id: 'e_int' }),
+    ...exposure,
   ]
   return { nodes: [a, heart, b, ...inner], edges, ra, lv, a, b, heart }
 }
@@ -35,19 +33,16 @@ function heartGraph({ overrides = {}, order = ['ra', 'lv'], naming } = {}) {
 /** Root leg (limb: art, bed) where bed (bedsm: cap) holds cap with k. */
 function twoLevel({ outer = {}, inner = {} } = {}) {
   const cap = vessel('cap', 'cap', { scope: 'sm_2', variables: [constant('k', '1'), constant('R', '1')] })
-  const bedsm = supermodule('sm_2', 'bedsm', {
-    submoduleOrder: ['cap'],
-    exposedPorts: [exposed('xp_in', 'cap', 'entrance_ports', 'vessel'), exposed('xp_out', 'cap', 'exit_ports', 'vessel')],
-  })
+  const bedsm = supermodule('sm_2', 'bedsm', { submoduleOrder: ['cap'] })
+  const bedExposure = exposures('sm_2', [exposed('xp_in', 'cap', 'entrance_ports', 'vessel'), exposed('xp_out', 'cap', 'exit_ports', 'vessel')])
   const art = vessel('art', 'art', { scope: 'sm_1' })
   const limbParts = [bedsm, cap]
-  const bed = subsystem(limbParts, 'bed', 'bed', 'sm_2', { scope: 'sm_1', overrides: inner })
-  const limb = supermodule('sm_1', 'limb', {
-    submoduleOrder: ['art', 'bed'],
-    exposedPorts: [exposed('xp_a', 'art', 'entrance_ports', 'vessel'), exposed('xp_b', 'bed', 'exit_ports', 'vessel', { via: 'xp_out' })],
-  })
+  const bed = subsystem({ nodes: limbParts, edges: bedExposure }, 'bed', 'bed', 'sm_2', { scope: 'sm_1', overrides: inner })
+  const limb = supermodule('sm_1', 'limb', { submoduleOrder: ['art', 'bed'] })
+  const limbExposure = exposures('sm_1', [exposed('xp_a', 'art', 'entrance_ports', 'vessel'), exposed('xp_b', 'bed', 'exit_ports', 'vessel', { via: 'xp_out' })])
   const store = [limb, art, bed, ...limbParts]
-  const leg = subsystem(store, 'dndnode_1', 'leg', 'sm_1', { overrides: outer })
+  const exposure = [...limbExposure, ...bedExposure]
+  const leg = subsystem({ nodes: store, edges: exposure }, 'dndnode_1', 'leg', 'sm_1', { overrides: outer })
   const aorta = vessel('dndnode_0', 'aorta')
   const vc = vessel('dndnode_2', 'vc')
   const used = new Set()
@@ -55,6 +50,7 @@ function twoLevel({ outer = {}, inner = {} } = {}) {
     connect(aorta, leg, { used, id: 'e1' }),
     connect(leg, vc, { used, id: 'e2' }),
     connect(art, bed, { id: 'e3' }),
+    ...exposure,
   ]
   return { nodes: [aorta, leg, vc, ...store], edges, cap, art }
 }
@@ -133,7 +129,7 @@ describe('expandHierarchy on subsystems', () => {
     const { nodes, edges, a, b } = heartGraph()
     const expansion = expandHierarchy(
       nodes.filter((node) => node.id !== 'dndnode_1'),
-      edges.filter((edge) => edge.id === 'e_int')
+      edges.filter((edge) => !edge.id.startsWith('e_') || edge.id === 'e_int')
     )
     expect(expansion.nodes).toEqual([a, b])
     expect(expansion.edges).toEqual([])
@@ -202,9 +198,11 @@ describe('expandHierarchy on subsystems', () => {
 
   it('ignores exposure edges', () => {
     const { nodes, edges } = heartGraph()
-    const exposure = { id: 'x1', type: EXPOSURE_EDGE_TYPE, source: 'sm_1~ra', target: 'sm_1', data: { exposedPortId: 'xp_in' } }
+    // A second exposure edge, exposing nothing.
+    const exposure = { id: 'x1', type: EXPOSURE_EDGE_TYPE, source: 'sm_1', target: 'sm_1~lv', data: { exposed: [] } }
     const { nodes: n1, edges: e1, errors } = expandHierarchy(nodes, [...edges, exposure])
     const plain = expandHierarchy(nodes, edges)
+    expect(e1.some((edge) => edge.type === EXPOSURE_EDGE_TYPE)).toBe(false)
     expect({ n1, e1, errors }).toEqual({ n1: plain.nodes, e1: plain.edges, errors: plain.errors })
   })
 })
@@ -241,7 +239,7 @@ describe('expandHierarchy values', () => {
   it('gives each subsystem of one super-module its own values', () => {
     const { nodes, edges } = heartGraph()
     const sm = nodes.filter((node) => node.data.scope === 'sm_1')
-    const second = subsystem(sm, 'dndnode_3', 'heart2', 'sm_1', { overrides: { ra: { R: { value: '5' } } } })
+    const second = subsystem({ nodes: sm, edges }, 'dndnode_3', 'heart2', 'sm_1', { overrides: { ra: { R: { value: '5' } } } })
     const expansion = expandHierarchy([...nodes, second], edges)
     expect(valueOf(expansion, 'dndnode_1/ra', 'R')).toBe('1')
     expect(valueOf(expansion, 'dndnode_3/ra', 'R')).toBe('5')
@@ -263,7 +261,7 @@ describe('expandHierarchy values', () => {
 
   it('places an orphaned override of a nested subsystem at each place it expands', () => {
     const { nodes, edges } = twoLevel({ inner: { cap: { gone: { value: '1' } } } })
-    const second = subsystem(nodes, 'dndnode_3', 'arm', 'sm_1')
+    const second = subsystem({ nodes, edges }, 'dndnode_3', 'arm', 'sm_1')
     expect(expandHierarchy([...nodes, second], edges).errors).toEqual([
       expect.objectContaining({
         kind: 'orphanedOverride',
@@ -282,14 +280,16 @@ describe('expandHierarchy edge order', () => {
     const general = port('general_ports', 'link', ['x'], 'True')
     const c = module('c', 'c', { scope: 'sm_1', ports: [general] })
     const s = module('s', 's', { scope: 'sm_1', ports: [{ ...general }] })
-    const sm = supermodule('sm_1', 'sub', { submoduleOrder: ['c', 's'], exposedPorts: [exposed('xp', 'c', 'general_ports', 'link')] })
-    const sub = subsystem([sm, c, s], 'dndnode_1', 'sub', 'sm_1')
+    const sm = supermodule('sm_1', 'sub', { submoduleOrder: ['c', 's'] })
+    const exposure = exposures('sm_1', [exposed('xp', 'c', 'general_ports', 'link')])
+    const sub = subsystem({ nodes: [sm, c, s], edges: exposure }, 'dndnode_1', 'sub', 'sm_1')
     const host = module('dndnode_0', 'host', { ports: [{ ...general }] })
     const edges = [
       connect(sub, host, { id: 'out' }),
       connect(host, sub, { id: 'in' }),
       connect(c, s, { id: 'cs' }),
       connect(s, c, { id: 'sc' }),
+      ...exposure,
     ]
     const ids = expandHierarchy([host, sub, sm, c, s], edges).edges.map((edge) => edge.id)
     const before = (a, b) => expect(ids.indexOf(a)).toBeLessThan(ids.indexOf(b))
@@ -301,10 +301,11 @@ describe('expandHierarchy edge order', () => {
     const general = port('general_ports', 'link', ['x'], 'True')
     const c = module('c', 'c', { scope: 'sm_1', ports: [general] })
     const s = module('s', 's', { scope: 'sm_1', ports: [{ ...general }] })
-    const sm = supermodule('sm_1', 'sub', { submoduleOrder: ['c', 's'], exposedPorts: [exposed('xp', 'c', 'general_ports', 'link')] })
-    const sub = subsystem([sm, c, s], 'dndnode_1', 'sub', 'sm_1')
+    const sm = supermodule('sm_1', 'sub', { submoduleOrder: ['c', 's'] })
+    const exposure = exposures('sm_1', [exposed('xp', 'c', 'general_ports', 'link')])
+    const sub = subsystem({ nodes: [sm, c, s], edges: exposure }, 'dndnode_1', 'sub', 'sm_1')
     const host = module('dndnode_0', 'host', { ports: [{ ...general }] })
-    const edges = [connect(host, sub, { id: 'in' }), connect(s, c, { id: 'sc' }), connect(c, s, { id: 'cs' }), connect(sub, host, { id: 'out' })]
+    const edges = [connect(host, sub, { id: 'in' }), connect(s, c, { id: 'sc' }), connect(c, s, { id: 'cs' }), connect(sub, host, { id: 'out' }), ...exposure]
     const expansion = expandHierarchy([sub, host, sm, c, s], edges)
     expect(expansion.edges.map((edge) => edge.id)).toEqual(['in#0', 'dndnode_1/sc', 'dndnode_1/cs', 'out#0'])
     const { rows, inpEdges, outEdges, unmatched } = orderForCa(expansion.nodes, expansion.edges)
@@ -317,18 +318,17 @@ describe('expandHierarchy edge order', () => {
 
   it('places a child reached through via by the port via resolves to, not the alias’s own fields', () => {
     const x = module('x', 'x', { scope: 'sm_2', ports: [port('exit_ports', 'q', ['b'], 'True')] })
-    const inner = supermodule('sm_2', 'inner', { submoduleOrder: ['x'], exposedPorts: [exposed('xq', 'x', 'exit_ports', 'q')] })
+    const inner = supermodule('sm_2', 'inner', { submoduleOrder: ['x'] })
+    const innerExposure = exposures('sm_2', [exposed('xq', 'x', 'exit_ports', 'q')])
     const a = module('a', 'a', { scope: 'sm_1', ports: [port('exit_ports', 'p', ['a'], 'True')] })
-    const b = subsystem([inner, x], 'b', 'b', 'sm_2', { scope: 'sm_1' })
-    const sm = supermodule('sm_1', 'sub', {
-      submoduleOrder: ['a', 'b'],
-      // xp_q's alias names its child and via only.
-      exposedPorts: [{ id: 'xp_q', alias: { child: 'b', via: 'xq' } }, exposed('xp_p', 'a', 'exit_ports', 'p')],
-    })
+    const b = subsystem({ nodes: [inner, x], edges: innerExposure }, 'b', 'b', 'sm_2', { scope: 'sm_1' })
+    const sm = supermodule('sm_1', 'sub', { submoduleOrder: ['a', 'b'] })
+    // xp_q's alias names its via only.
+    const exposure = [...exposures('sm_1', [{ id: 'xp_q', alias: { child: 'b', via: 'xq' } }, exposed('xp_p', 'a', 'exit_ports', 'p')]), ...innerExposure]
     const store = [sm, a, b, inner, x]
-    const sub = subsystem(store, 'dndnode_1', 'sub', 'sm_1')
+    const sub = subsystem({ nodes: store, edges: exposure }, 'dndnode_1', 'sub', 'sm_1')
     const host = module('dndnode_0', 'host', { ports: [port('entrance_ports', 'p', ['a'], 'True'), port('entrance_ports', 'q', ['b'], 'True')] })
-    const expansion = expandHierarchy([sub, host, ...store], [connect(sub, host, { id: 'e' })])
+    const expansion = expandHierarchy([sub, host, ...store], [connect(sub, host, { id: 'e' }), ...exposure])
     expect(expansion.errors).toEqual([])
     expect(expansion.edges.map((edge) => [edge.id, edge.source])).toEqual([
       ['e#0', 'dndnode_1/b/x'],
@@ -341,13 +341,11 @@ describe('expandHierarchy edge order', () => {
     const q = port('entrance_ports', 'q', ['y'], 'True')
     const first = module('first', 'first', { scope: 'sm_1', ports: [{ ...q }] })
     const second = module('second', 'second', { scope: 'sm_1', ports: [{ ...p }] })
-    const sm = supermodule('sm_1', 'sub', {
-      submoduleOrder: ['first', 'second'],
-      exposedPorts: [exposed('xp_p', 'second', 'entrance_ports', 'p'), exposed('xp_q', 'first', 'entrance_ports', 'q')],
-    })
-    const sub = subsystem([sm, first, second], 'dndnode_1', 'sub', 'sm_1')
+    const sm = supermodule('sm_1', 'sub', { submoduleOrder: ['first', 'second'] })
+    const exposure = exposures('sm_1', [exposed('xp_p', 'second', 'entrance_ports', 'p'), exposed('xp_q', 'first', 'entrance_ports', 'q')])
+    const sub = subsystem({ nodes: [sm, first, second], edges: exposure }, 'dndnode_1', 'sub', 'sm_1')
     const host = module('dndnode_0', 'host', { ports: [port('exit_ports', 'q', ['b'], 'True'), port('exit_ports', 'p', ['a'], 'True')] })
-    const edges = expandHierarchy([host, sub, sm, first, second], [connect(host, sub, { id: 'e' })]).edges
+    const edges = expandHierarchy([host, sub, sm, first, second], [connect(host, sub, { id: 'e' }), ...exposure]).edges
     expect(edges.map((edge) => [edge.id, edge.target])).toEqual([
       ['e#0', 'dndnode_1/second'],
       ['e#1', 'dndnode_1/first'],
@@ -358,9 +356,7 @@ describe('expandHierarchy edge order', () => {
 describe('expandHierarchy errors', () => {
   it('reports a coupling to a port the super-module no longer exposes, and keeps the rest', () => {
     const { nodes, edges } = heartGraph()
-    const sm = nodes.find((node) => node.id === 'sm_1')
-    sm.data.supermodule.exposedPorts = sm.data.supermodule.exposedPorts.filter((p) => p.id !== 'xp_out')
-    const expansion = expandHierarchy(nodes, edges)
+    const expansion = expandHierarchy(nodes, edges.filter((edge) => edge.id !== 'sm_1~lv--sm_1'))
     expect(expansion.errors).toEqual([
       expect.objectContaining({
         kind: 'unresolvedAlias',
@@ -390,9 +386,9 @@ describe('expandHierarchy errors', () => {
 
   it('calls a coupling to a port the subsystem flags broken broken', () => {
     const { nodes, edges, heart } = heartGraph()
-    nodes.find((node) => node.id === 'sm_1').data.supermodule.exposedPorts.pop()
     heart.data.broken = ['xp_out']
-    expect(expandHierarchy(nodes, edges).errors.map((error) => error.kind)).toEqual(['brokenCoupling'])
+    const unexposed = edges.filter((edge) => edge.id !== 'sm_1~lv--sm_1')
+    expect(expandHierarchy(nodes, unexposed).errors.map((error) => error.kind)).toEqual(['brokenCoupling'])
   })
 
   it('reports a subsystem whose super-module is missing', () => {
@@ -430,10 +426,11 @@ describe('expandHierarchy errors', () => {
     const single = port('general_ports', 'link', ['x'])
     const c = module('c', 'c', { scope: 'sm_1', ports: [single] })
     const s = module('s', 's', { scope: 'sm_1', ports: [{ ...single }] })
-    const sm = supermodule('sm_1', 'sub', { submoduleOrder: ['c', 's'], exposedPorts: [exposed('xp', 'c', 'general_ports', 'link')] })
-    const sub = subsystem([sm, c, s], 'dndnode_1', 'sub', 'sm_1')
+    const sm = supermodule('sm_1', 'sub', { submoduleOrder: ['c', 's'] })
+    const exposure = exposures('sm_1', [exposed('xp', 'c', 'general_ports', 'link')])
+    const sub = subsystem({ nodes: [sm, c, s], edges: exposure }, 'dndnode_1', 'sub', 'sm_1')
     const host = module('dndnode_0', 'host', { ports: [{ ...single }] })
-    const errors = expandHierarchy([host, sub, sm, c, s], [connect(host, sub, { id: 'in' }), connect(s, c, { id: 'sc' })]).errors
+    const errors = expandHierarchy([host, sub, sm, c, s], [connect(host, sub, { id: 'in' }), connect(s, c, { id: 'sc' }), ...exposure]).errors
     expect(errors).toEqual([
       expect.objectContaining({
         kind: 'overSubscribed',
@@ -452,10 +449,11 @@ describe('expandHierarchy errors', () => {
     const sumB = port('entrance_ports', 'b', ['v'], 'Sum')
     const c = module('c', 'c', { scope: 'sm_1', ports: [sumA, sumB] })
     const s = module('s', 's', { scope: 'sm_1', ports: [port('exit_ports', 'b', ['w'], 'True')] })
-    const sm = supermodule('sm_1', 'sub', { submoduleOrder: ['c', 's'], exposedPorts: [exposed('xp', 'c', 'entrance_ports', 'a')] })
-    const sub = subsystem([sm, c, s], 'dndnode_1', 'sub', 'sm_1')
+    const sm = supermodule('sm_1', 'sub', { submoduleOrder: ['c', 's'] })
+    const exposure = exposures('sm_1', [exposed('xp', 'c', 'entrance_ports', 'a')])
+    const sub = subsystem({ nodes: [sm, c, s], edges: exposure }, 'dndnode_1', 'sub', 'sm_1')
     const host = module('dndnode_0', 'host', { ports: [port('exit_ports', 'a', ['w'], 'True')] })
-    const errors = expandHierarchy([host, sub, sm, c, s], [connect(host, sub, { id: 'in' }), connect(s, c, { id: 'sc' })]).errors
+    const errors = expandHierarchy([host, sub, sm, c, s], [connect(host, sub, { id: 'in' }), connect(s, c, { id: 'sc' }), ...exposure]).errors
     expect(errors.map((error) => error.kind)).not.toContain('sharedSum')
   })
 
@@ -494,25 +492,32 @@ describe('expandHierarchy errors', () => {
 })
 
 describe('subsystemPorts', () => {
+  const entry = (edges, edgeId, id) => edges.find((edge) => edge.id === edgeId).data.exposed.find((exposed) => exposed.id === id)
+
   it('copies each aliased port with its exposed port id and label', () => {
-    const { nodes, ra } = heartGraph()
-    const sm = nodes.find((node) => node.id === 'sm_1')
-    sm.data.supermodule.exposedPorts[0].label = 'venous_in'
-    expect(subsystemPorts(nodes, 'sm_1')).toEqual([
+    const { nodes, edges, ra } = heartGraph()
+    entry(edges, 'sm_1~ra--sm_1', 'xp_in').label = 'venous_in'
+    expect(subsystemPorts(nodes, edges, 'sm_1')).toEqual([
       { ...ra.data.ports[0], label: 'venous_in', exposedPortId: 'xp_in' },
       { ...OUT, exposedPortId: 'xp_out' },
     ])
   })
 
   it('follows via to the grandchild’s port, the outer label first and then the inner', () => {
-    const { nodes, cap, art } = twoLevel()
-    expect(subsystemPorts(nodes, 'sm_1')).toEqual([
+    const { nodes, edges, cap, art } = twoLevel()
+    expect(subsystemPorts(nodes, edges, 'sm_1')).toEqual([
       { ...art.data.ports[0], exposedPortId: 'xp_a' },
       { ...cap.data.ports[1], exposedPortId: 'xp_b' },
     ])
-    nodes.find((node) => node.id === 'sm_2').data.supermodule.exposedPorts[1].label = 'drain'
-    expect(subsystemPorts(nodes, 'sm_1')[1]).toEqual({ ...cap.data.ports[1], label: 'drain', exposedPortId: 'xp_b' })
-    nodes.find((node) => node.id === 'sm_1').data.supermodule.exposedPorts[1].label = 'outflow'
-    expect(subsystemPorts(nodes, 'sm_1')[1]).toEqual({ ...cap.data.ports[1], label: 'outflow', exposedPortId: 'xp_b' })
+    entry(edges, 'sm_2~cap--sm_2', 'xp_out').label = 'drain'
+    expect(subsystemPorts(nodes, edges, 'sm_1')[1]).toEqual({ ...cap.data.ports[1], label: 'drain', exposedPortId: 'xp_b' })
+    entry(edges, 'sm_1~bed--sm_1', 'xp_b').label = 'outflow'
+    expect(subsystemPorts(nodes, edges, 'sm_1')[1]).toEqual({ ...cap.data.ports[1], label: 'outflow', exposedPortId: 'xp_b' })
+  })
+
+  it('puts the ports in the exposed ports’ order, wherever their edges are', () => {
+    const { nodes, edges } = heartGraph()
+    entry(edges, 'sm_1~ra--sm_1', 'xp_in').order = 5
+    expect(subsystemPorts(nodes, edges, 'sm_1').map((p) => p.exposedPortId)).toEqual(['xp_out', 'xp_in'])
   })
 })

@@ -72,22 +72,25 @@ export function applyParametersToNodes(nodes, rows) {
 }
 
 /**
- * Matches a parameters file's rows to the model's modules by their model names (see applyParametersToNodes). A root
- * module, whose model id is its node's id, takes its values; one inside a subsystem would need an override on the
- * subsystem, which loading parameters doesn't write, so its values are only counted.
+ * Matches a parameters file's rows to the model's modules by their model names (see applyParametersToNodes), each
+ * module's rows by its model id: a root module's is its node's id; one inside a subsystem takes its values as
+ * overrides on its outermost subsystem, as useModelWriter writes them for that subsystem.
  *
  * @param {{nodes: Array, origin: Map<string, {instanceChain: string[]}>, pathOf: Function}} model - From
  *   expandHierarchy (see useModelGraph); not changed.
  * @param {Array<{variable_name: string, units: string, value: string, data_reference: string}>} rows
  * @returns {{variablesById: Map<string, Array>, updated: number, skipped: Array<{nodeName: string, name: string}>,
- *   nested: {updated: number, paths: string[]}}} As applyParametersToNodes for the root modules, by their nodes' ids;
- *   `nested`, how many values name modules inside subsystems, and their paths.
+ *   overridden: {updated: number, paths: string[]}}} As applyParametersToNodes, by model id; `overridden`, how many
+ *   values name modules inside subsystems, and their paths.
  */
 export function applyParametersToModel({ nodes, origin, pathOf }, rows) {
   const isNested = (node) => origin.get(node.id)?.instanceChain.length > 0
-  const applied = applyParametersToNodes(nodes.filter((node) => !isNested(node)), rows)
+  const applied = applyParametersToNodes(nodes, rows)
   const nested = applyParametersToNodes(nodes.filter(isNested), rows)
-  return { ...applied, nested: { updated: nested.updated, paths: [...nested.variablesById.keys()].map(pathOf) } }
+  return {
+    ...applied,
+    overridden: { updated: nested.updated, paths: [...nested.variablesById.keys()].map(pathOf) },
+  }
 }
 
 /**
@@ -102,20 +105,4 @@ export function skippedParametersMessage(skipped) {
   const list = more > 0 ? `${named.join(', ')} and ${more} more` : named.join(', ')
   if (skipped.length === 1) return `1 value wasn't applied, as its variable is computed by its module's math: ${list}.`
   return `${skipped.length} values weren't applied, as their variables are computed by their modules' math: ${list}.`
-}
-
-/**
- * Describes the loaded values that name modules inside subsystems, which loading parameters doesn't set, naming at
- * most three of the modules.
- *
- * @param {number} count - How many values.
- * @param {string[]} paths - The modules' paths, such as `heart/lv`.
- * @returns {string}
- */
-export function nestedParametersMessage(count, paths) {
-  const named = paths.slice(0, MAX_NAMED_SKIPPED)
-  const more = paths.length - named.length
-  const list = more > 0 ? `${named.join(', ')} and ${more} more` : named.join(', ')
-  const values = count === 1 ? "1 value wasn't" : `${count} values weren't`
-  return `${values} applied, as loading parameters doesn't set modules inside subsystems yet: ${list}.`
 }
