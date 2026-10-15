@@ -127,4 +127,12 @@ describe('SimulationControls constants', () => {
     await wrapper.setProps({ plotConfig })
     expect(findPicker().props('describe')(global)).toBe('On Plot 1')
   })
+
+  it('sets a plot against a global constant as the plot’s own instance’s', () => {
+    mountControls({ nodes: withConstants, plotNodeId: 'b', plotConfig: createSinglePlotConfig() })
+    const list = wrapper.findComponent({ name: 'PlotListEditor' })
+    const global = findPicker().props('index').find((entry) => entry.key === 'global::R')
+    expect(list.props('isPlottable')(global)).toBe(true)
+    expect(list.props('resolveEntry')(global).node.id).toBe('b')
+  })
 })

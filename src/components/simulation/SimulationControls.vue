@@ -48,6 +48,7 @@
         :plot-config="shownPlotConfig"
         :is-single-plot="isSinglePlot"
         :is-plottable="isPlottable"
+        :resolve-entry="resolveEntry"
         :nodes="nodes"
         :index="index"
         :scope-node-ids="scopeNodeIds"
