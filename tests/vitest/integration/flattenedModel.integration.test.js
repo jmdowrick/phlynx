@@ -379,7 +379,7 @@ describe('generateFlattenedModel multiport couplings', () => {
     expect(() => generateFlattenedModel([hub, leaf], [connect(hub, leaf)], store)).toThrow(/same number of variables/)
   })
 
-  it('rejects a variable summed through two ports', () => {
+  it('sums a variable through two separate ports of the same instance', async () => {
     const hub = buildNode('hub', 'file:hub', [
       { portType: 'exit_ports', label: 'flow', variables: ['v_sum'], multiportType: 'Sum' },
       { portType: 'exit_ports', label: 'drain', variables: ['v_sum'], multiportType: 'Sum' },
@@ -391,9 +391,10 @@ describe('generateFlattenedModel multiport couplings', () => {
       target: leaf.id,
       data: { couplings: [{ sourcePort: hub.data.ports[i], targetPort: leaf.data.ports[0] }] },
     }))
-    expect(() => generateFlattenedModel([hub, ...leaves], edges, store)).toThrow(
-      '"hub" sums "v_sum" through ports "flow" and "drain"; a variable can be summed through one port only.'
-    )
+
+    const math = await summationMath([hub, ...leaves], edges)
+    expect(math).toMatch(/<plus\/>/)
+    expect(math.match(/<ci>op_v[^<]*<\/ci>/g)).toHaveLength(2)
   })
 })
 
