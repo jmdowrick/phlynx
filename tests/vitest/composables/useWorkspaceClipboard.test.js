@@ -4,7 +4,9 @@ import { createPinia, setActivePinia } from 'pinia'
 import ToastEventBus from 'primevue/toasteventbus'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { useActiveCanvas } from '../../../src/composables/useActiveCanvas.js'
 import { shouldIgnoreShortcut, useWorkspaceClipboard } from '../../../src/composables/useWorkspaceClipboard.js'
+import { buildSubsystem, buildSupermoduleInterface } from '../../../src/services/import/buildWorkflow.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
@@ -217,6 +219,72 @@ describe('useWorkspaceClipboard', () => {
       const payload = JSON.parse(systemClipboard.text)
       expect(payload.nodes.map((node) => node.id)).toEqual(['dndnode_0'])
       expect(payload.edges).toEqual([])
+    })
+
+    describe('shown', () => {
+      const { scope } = useActiveCanvas()
+      const pasted = () => nodes.value.filter((node) => node.selected)
+
+      beforeEach(() => nodes.value.push(buildSupermoduleInterface('sm_1', { name: 'heart' })))
+      afterEach(() => (scope.value = null))
+
+      it('never copies its interface node', async () => {
+        scope.value = 'sm_1'
+        select(['sm_1', 'sm_1~dndnode_0'])
+        await clipboard.copySelection()
+        expect(JSON.parse(systemClipboard.text).nodes.map((node) => node.id)).toEqual(['sm_1~dndnode_0'])
+      })
+
+      it('pastes into it, with its ids and names its rules allow', async () => {
+        nodes.value[0].data.name = '_A__x'
+        select(['dndnode_0'])
+        await clipboard.copySelection()
+        scope.value = 'sm_1'
+        await clipboard.pasteSelection()
+        expect(pasted().map(({ id, data }) => [id, data.scope, data.localId, data.name])).toEqual([
+          ['sm_1~dndnode_2', 'sm_1', 'dndnode_2', 'A_x'],
+        ])
+      })
+
+      it('refuses to paste a subsystem whose super-module would then contain itself', async () => {
+        nodes.value.push(buildSubsystem('dndnode_9', 'heart', 'sm_1'))
+        select(['dndnode_9'])
+        await clipboard.copySelection()
+        const before = nodes.value.length
+
+        scope.value = 'sm_1'
+        await clipboard.pasteSelection()
+        expect(nodes.value).toHaveLength(before)
+        expect(emit).toHaveBeenCalledWith('add', expect.objectContaining({ severity: 'warn', summary: 'Not Pasted' }))
+
+        scope.value = null
+        await clipboard.pasteSelection()
+        expect(pasted().map(({ id, data }) => [id, data.smId, data.name])).toEqual([['dndnode_10', 'sm_1', 'heart_1']])
+      })
+
+      it('pastes nothing when one subsystem is blocked, though the modules with it could go', async () => {
+        nodes.value.push(buildSubsystem('dndnode_9', 'heart', 'sm_1'))
+        select(['dndnode_0', 'dndnode_9'])
+        await clipboard.copySelection()
+        const before = nodes.value.map((node) => node.id)
+
+        scope.value = 'sm_1'
+        await clipboard.pasteSelection()
+        expect(nodes.value.map((node) => node.id)).toEqual(before)
+        expect(emit).toHaveBeenCalledWith('add', expect.objectContaining({ severity: 'warn', summary: 'Not Pasted' }))
+      })
+
+      it('refuses to paste a subsystem whose super-module is gone, as in another window', async () => {
+        nodes.value.push(buildSubsystem('dndnode_9', 'heart', 'sm_1'))
+        select(['dndnode_9'])
+        await clipboard.copySelection()
+        nodes.value = nodes.value.filter((node) => node.id !== 'sm_1')
+        const before = nodes.value.map((node) => node.id)
+
+        await clipboard.pasteSelection()
+        expect(nodes.value.map((node) => node.id)).toEqual(before)
+        expect(emit).toHaveBeenCalledWith('add', expect.objectContaining({ severity: 'warn', summary: 'Not Pasted' }))
+      })
     })
   })
 
@@ -435,6 +503,22 @@ describe('useWorkspaceClipboard', () => {
 
     it('lets other shortcuts through', () => {
       expect(shouldIgnoreShortcut(eventOn('DIV'), false)).toBe(false)
+    })
+
+    it('ignores shortcuts while a confirm or another modal is open, wherever focus is', () => {
+      for (const attributes of [{ role: 'alertdialog' }, { role: 'dialog', 'aria-modal': 'true' }, { class: 'p-overlay-mask' }]) {
+        const modal = document.createElement('div')
+        Object.entries(attributes).forEach(([name, value]) => modal.setAttribute(name, value))
+        document.body.appendChild(modal)
+        expect(shouldIgnoreShortcut(eventOn('DIV'), false)).toBe(true)
+        modal.remove()
+      }
+      const floating = document.createElement('div')
+      floating.setAttribute('role', 'dialog')
+      floating.setAttribute('aria-modal', 'false')
+      document.body.appendChild(floating)
+      expect(shouldIgnoreShortcut(eventOn('DIV'), false)).toBe(false)
+      floating.remove()
     })
 
     it('decides on the tag and the dialog before looking for an editor', () => {

@@ -236,7 +236,6 @@
  * Simulation tab, and track the shown run to keep its lines on the plot.
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { useVueFlow } from '@vue-flow/core'
 
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
@@ -252,7 +251,7 @@ import SimulationPlot from './SimulationPlot.vue'
 import SliderList from './SliderList.vue'
 import VariablePathPicker from './VariablePathPicker.vue'
 import { useFloatingViewer } from '../../composables/useFloatingViewer'
-import { useModelGraph } from '../../composables/useModelGraph'
+import { useCanvasLevel } from '../../composables/useCanvasLevel'
 import { useSimulation } from '../../composables/useSimulation'
 import { INSPECTION_PLOT, PROTOCOL_INPUTS_PLOT, useSimulationCharts } from '../../composables/useSimulationCharts'
 import { OBS_DATA_PLOT } from '../../services/simulation/protocolPlotGroups'
@@ -266,7 +265,6 @@ import { INSPECTION_COMPONENT, buildVariableIndex, isInspectionNodeId, resolvePl
 import { useInspectionModuleStore } from '../../stores/inspectionModuleStore'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../../stores/simulationSettingsStore'
-import { FLOW_IDS } from '../../utils/constants'
 
 const props = defineProps({
   // The model's nodes (see useModelGraph).
@@ -277,8 +275,7 @@ const props = defineProps({
 })
 
 const { state, returnToTab } = useFloatingViewer()
-const { getSelectedNodes } = useVueFlow(FLOW_IDS.MAIN)
-const { expandSelection } = useModelGraph()
+const { selectedModelIds } = useCanvasLevel()
 const store = useSimulationResultsStore()
 const { trackBlocker, track } = useTrackRun()
 const settingsStore = useSimulationSettingsStore()
@@ -293,7 +290,7 @@ const isRunning = computed(() => store.status === 'running')
 
 // Play here works as in the Simulation tab, sharing its choice of the selection or the whole model: the model nodes the
 // canvas selection stands for.
-const selectedIds = computed(() => expandSelection(getSelectedNodes.value.map((node) => node.id)).sort())
+const selectedIds = computed(() => [...selectedModelIds.value].sort())
 const isWholeModel = computed({
   get: () => store.scopeMode === 'model',
   set: (value) => {

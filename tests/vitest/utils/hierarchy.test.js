@@ -18,7 +18,10 @@ import {
   splitNodeId,
   supermoduleDependencies,
   supermoduleDepth,
+  supermoduleOccurrences,
   supermoduleUses,
+  toLocalName,
+  withScopeFields,
 } from '../../../src/utils/hierarchy.js'
 import { getId } from '../../../src/utils/nodes.js'
 
@@ -215,5 +218,40 @@ describe('rewriteUnsafeIds', () => {
     const rewritten = rewriteUnsafeIds(nodes, edges)
     expect(rewritten.nodes).toBe(nodes)
     expect(rewritten.edges).toBe(edges)
+  })
+})
+
+describe('stamping an added node', () => {
+  it('fills in the scope it is added to and the local id its id gives', () => {
+    expect(withScopeFields({ id: 'sm_1~dndnode_3', data: { name: 'x' } }, 'sm_1')).toEqual({ name: 'x', scope: 'sm_1', localId: 'dndnode_3' })
+    expect(withScopeFields({ id: 'dndnode_3', data: {} }, null)).toEqual({ scope: null, localId: 'dndnode_3' })
+    expect(withScopeFields({ id: 'sm_2', type: SUPERMODULE_INTERFACE_NODE_TYPE, data: {} }, 'sm_1')).toEqual({ scope: 'sm_2', localId: 'sm_2' })
+  })
+
+  it('keeps the fields a node has, so a root id added inside a super-module still fails the id check', () => {
+    const data = { scope: null, localId: 'dndnode_3' }
+    expect(withScopeFields({ id: 'dndnode_3', data }, 'sm_1')).toBe(data)
+    const stamped = { id: 'dndnode_3', data: withScopeFields({ id: 'dndnode_3', data: {} }, 'sm_1') }
+    expect(() => assertNodeId(stamped)).toThrow('does not start with its scope')
+  })
+})
+
+describe('local names made up', () => {
+  it('keeps the rules for names inside super-modules', () => {
+    expect(toLocalName('_a__b_')).toBe('a_b')
+    expect(toLocalName('___')).toBe('module')
+    expect(toLocalName('lv')).toBe('lv')
+  })
+})
+
+describe('super-module occurrences', () => {
+  it('counts the copies the root expands to, through super-modules holding others', () => {
+    const nodes = [sm('sm_1'), sm('sm_2'), sm('sm_3'), instance('a', 'sm_1'), instance('b', 'sm_1'), instance('sm_1~c', 'sm_2', 'sm_1')]
+    expect(Object.fromEntries(supermoduleOccurrences(nodes))).toEqual({ sm_1: 2, sm_2: 2, sm_3: 0 })
+  })
+
+  it('counts nothing through a cycle', () => {
+    const nodes = [sm('sm_1'), sm('sm_2'), instance('sm_1~a', 'sm_2', 'sm_1'), instance('sm_2~b', 'sm_1', 'sm_2')]
+    expect(Object.fromEntries(supermoduleOccurrences(nodes))).toEqual({ sm_1: 0, sm_2: 0 })
   })
 })

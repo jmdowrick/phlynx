@@ -4,6 +4,7 @@ import { prepareCellmlImport, prepareCellmlImports } from '../services/import/pr
 import { parseCellMLConnections } from '../services/import/parseCellmlConnections'
 import { loadParametersFromCellML } from '../utils/cellml'
 import { FLOW_IDS } from '../utils/constants'
+import { isSupermoduleInterface, scopeOf } from '../utils/hierarchy'
 import { readFileAsText } from '../utils/misc'
 import { notify } from '../utils/notify'
 
@@ -63,6 +64,8 @@ export function useCellmlDrop({
             acceptLabel: 'Overwrite',
             rejectLabel: 'Add to Workspace',
           })
+          // Closed without an answer: neither.
+          if (overwrite == null) return []
 
           if (!overwrite) {
             // Snapshot current workspace before wiping it
@@ -73,11 +76,14 @@ export function useCellmlDrop({
             const parameters = loadParametersFromCellML(content)
             await loadFromCellML(parsedCellmlPayload, entry.name, parameters)
 
-            // Remap snapshotted node IDs to avoid clashes with newly loaded nodes
+            // Remap snapshotted node IDs to avoid clashes with newly loaded nodes, which are all at the root (the
+            // load starts the canvas there). Super-modules' ids, and their nodes', can't clash, so they keep theirs.
             const existingIds = new Set(nodes.value.map((n) => n.id))
             const idRemap = new Map()
+            const isRootNode = (n) => scopeOf(n) === null && !isSupermoduleInterface(n)
 
-            const restoredNodes = snapshot.nodes.map((n) => {
+            const restoredNodes = snapshot.nodes.map(({ hidden: _hidden, ...n }) => {
+              if (!isRootNode(n)) return { ...n, data: { ...n.data } }
               let newId = n.id
               let counter = 1
               while (existingIds.has(newId)) {
@@ -90,7 +96,7 @@ export function useCellmlDrop({
                 ...n,
                 id: newId,
                 position: { x: n.position.x + 1500, y: n.position.y },
-                data: { ...n.data },
+                data: { ...n.data, ...(n.data?.localId != null && { localId: newId }) },
               }
             })
 

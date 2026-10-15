@@ -17,6 +17,71 @@
 
     <!-- Collections -->
     <div ref="scrollEl" class="mlc__scroll">
+      <!-- The workspace's super-modules: drag one to place another subsystem of it, or edit it on its own. -->
+      <div v-if="filteredSupermodules.length > 0" class="mlc__group mlc__group--supermodules">
+        <button
+          class="mlc__group-header"
+          :class="{ 'is-open': activeCollapseNames.includes(SUPERMODULE_GROUP) }"
+          @click="toggleGroup(SUPERMODULE_GROUP)"
+        >
+          <i class="pi pi-chevron-right mlc__group-chevron" />
+          <span class="mlc__group-name"><span class="mlc__group-name-text">Super-modules</span></span>
+          <Tag severity="secondary" rounded class="mlc__group-count" :value="filteredSupermodules.length" />
+        </button>
+
+        <transition name="slide">
+          <div v-show="activeCollapseNames.includes(SUPERMODULE_GROUP)" class="mlc__group-body">
+            <div
+              v-for="entry in filteredSupermodules"
+              :key="entry.id"
+              class="mlc__card mlc__card--supermodule"
+              :class="{
+                'mlc__card--draggable': canPlaceHere(entry.id),
+                'mlc__card--blocked': !canPlaceHere(entry.id),
+              }"
+              :data-supermodule="entry.id"
+              :draggable="canPlaceHere(entry.id)"
+              v-tooltip.right="
+                canPlaceHere(entry.id)
+                  ? undefined
+                  : { value: 'Can’t be placed here: the super-module shown would then contain itself.', showDelay: 300 }
+              "
+              @dragstart="handleSupermoduleDragStart($event, entry)"
+              @dragend="handleDragEnd"
+            >
+              <div class="mlc__card-inner">
+                <div class="mlc__card-body">
+                  <div class="mlc__card-header">
+                    <i class="pi pi-sitemap mlc__supermodule-icon" aria-hidden="true" />
+                    <span class="mlc__card-name" :title="entry.label">{{ entry.name }}</span>
+                    <div class="mlc__card-actions">
+                      <Tag
+                        severity="info"
+                        rounded
+                        class="mlc__badge"
+                        :value="`${entry.count} subsystem${entry.count !== 1 ? 's' : ''}`"
+                      />
+                      <Button
+                        icon="pi pi-pencil"
+                        severity="secondary"
+                        text
+                        rounded
+                        size="small"
+                        class="mlc__preview-btn"
+                        :aria-label="`Edit super-module ${entry.name}`"
+                        v-tooltip.top="'Edit super-module'"
+                        @click.stop="canvasLevel.editSupermodule(entry.id)"
+                      />
+                    </div>
+                  </div>
+                  <div v-if="entry.label !== entry.name" class="mlc__supermodule-label">{{ entry.label }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </transition>
+      </div>
+
       <template v-if="filteredCollections.length > 0">
         <div
           v-for="collection in filteredCollections"
@@ -136,7 +201,7 @@
       </template>
 
       <!-- Empty state -->
-      <div v-else class="mlc__empty">
+      <div v-if="filteredCollections.length === 0 && filteredSupermodules.length === 0" class="mlc__empty">
         <i class="pi pi-inbox mlc__empty-icon" />
         <p class="mlc__empty-text">
           {{ filterText ? `No modules match '${filterText}'` : 'No modules found' }}
@@ -164,12 +229,20 @@ import { useLibraryProxyStore } from '../stores/libraryProxyStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useFlowHistoryStore } from '../stores/historyStore.js'
 import useDragAndDrop from '../composables/useDnD'
+import { useActiveCanvas } from '../composables/useActiveCanvas'
+import { useCanvasLevel } from '../composables/useCanvasLevel'
+import { useSupermodules } from '../composables/useSupermodules'
 import ModulePreviewDialog from './ModulePreviewDialog.vue'
 import { GHOST_MODULE_REF, NEW_MODULE_REF } from '../utils/constants.js'
 
 const props = defineProps({
   selectable: { type: Boolean, default: false },
+  // Whether the workspace's super-modules are listed, as only the workspace's own palette places them.
+  showSupermodules: { type: Boolean, default: false },
 })
+
+// The super-module group's key among the open groups; no component file has it.
+const SUPERMODULE_GROUP = '#supermodules'
 
 const emit = defineEmits(['select'])
 
@@ -181,7 +254,7 @@ const history = useFlowHistoryStore()
 const { onDragStart } = useDragAndDrop()
 
 const filterText = ref('')
-const activeCollapseNames = ref([])
+const activeCollapseNames = ref([SUPERMODULE_GROUP])
 const selectedModuleIndex = reactive({})
 const selectedConfigs = reactive({})
 const showPreview = ref(false)
@@ -222,6 +295,21 @@ function cardMatches(card, q) {
       (module.moduleSubtype ?? '').toLowerCase().includes(q) || module.moduleRef.toLowerCase().includes(q)
   )
 }
+
+// The super-modules listed, matching the filter, and whether each can be placed on the canvas shown.
+const { supermodules, canPlace } = useSupermodules()
+const { scope: canvasScope } = useActiveCanvas()
+const canvasLevel = useCanvasLevel()
+
+const filteredSupermodules = computed(() => {
+  if (!props.showSupermodules || props.selectable) return []
+  const q = filterText.value.toLowerCase().trim()
+  if (!q) return supermodules.value
+  return supermodules.value.filter((entry) => `${entry.name} ${entry.label}`.toLowerCase().includes(q))
+})
+
+/** @returns {boolean} Whether a subsystem of a super-module can go on the canvas shown, without a cycle. */
+const canPlaceHere = (smId) => canPlace(canvasScope.value, smId)
 
 // ─── Accordion ───────────────────────────────────────────────────────────────
 
@@ -268,6 +356,22 @@ function handleDragStart(event, module) {
   event.dataTransfer.effectAllowed = 'copy'
   const configIndex = selectedConfigs[module.moduleRef] ?? 0
   onDragStart(event, { ...module, configIndex })
+}
+
+/**
+ * Starts dragging a super-module, to place another subsystem of it; one that can't go here doesn't drag.
+ *
+ * @param {DragEvent} event
+ * @param {{id: string}} entry
+ */
+function handleSupermoduleDragStart(event, entry) {
+  if (!canPlaceHere(entry.id)) {
+    event.preventDefault()
+    return
+  }
+  isDragging.value = true
+  event.dataTransfer.effectAllowed = 'copy'
+  onDragStart(event, { smId: entry.id })
 }
 
 function handleDragEnd() {
@@ -498,6 +602,27 @@ function handleSelect(module) {
 .mlc__preview-btn {
   width: 24px !important;
   height: 24px !important;
+}
+
+/* ── Super-module card ───────────────────────────────────────────────────────── */
+/* One that would contain the super-module shown can't be dragged here. */
+.mlc__card--blocked { cursor: not-allowed; }
+.mlc__card--blocked .mlc__card-name,
+.mlc__card--blocked .mlc__supermodule-icon,
+.mlc__card--blocked .mlc__badge { opacity: 0.45; }
+
+.mlc__supermodule-icon {
+  font-size: 12px;
+  color: var(--mlc-text-muted);
+}
+
+.mlc__supermodule-label {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--mlc-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── Config row ──────────────────────────────────────────────────────────────── */

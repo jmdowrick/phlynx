@@ -1,0 +1,230 @@
+<template>
+  <div
+    class="instance-node subsystem-node"
+    :id="id"
+    :class="{ selected: selected, 'instance-node--simulated': isSimulated }"
+    @contextmenu.stop.prevent="openContextMenu"
+    @mousedown.capture="stopDragWhileEditing"
+    @dblclick="onNodeDoubleClick"
+  >
+    <NodeResizer min-width="200" min-height="120" :is-visible="selected" />
+
+    <div :class="['instance-card', 'subsystem-card', { 'has-category': categoryStyle }]" :style="categoryStyle">
+      <div class="card-header-actions">
+        <div class="instance-details">
+          <div class="detail-item">
+            <i class="pi pi-sitemap detail-icon"></i>
+            <span v-if="supermodule" class="detail-value subsystem-supermodule" :title="`Super-module ${supermodule.label}`">
+              {{ supermodule.label }}
+            </span>
+            <span v-else class="detail-value subsystem-supermodule subsystem-supermodule--missing">
+              Missing super-module
+            </span>
+          </div>
+          <div class="detail-item">
+            <i class="pi pi-arrows-h detail-icon"></i>
+            <span class="detail-value">{{ portCount }} port{{ portCount === 1 ? '' : 's' }}</span>
+          </div>
+        </div>
+        <div style="flex-grow: 1; min-width: 1.5em"></div>
+        <span
+          v-if="supermodule"
+          class="subsystem-count"
+          role="img"
+          :aria-label="countLabel"
+          v-tooltip.top="{ value: countLabel, showDelay: 300 }"
+        >×{{ supermodule.count }}</span>
+        <Button
+          rounded
+          iconOnly
+          size="small"
+          severity="secondary"
+          class="instance-button subsystem-open"
+          icon="pi pi-sign-in"
+          aria-label="Open subsystem"
+          :disabled="!supermodule"
+          @click="open"
+          @dblclick.stop
+          v-tooltip.bottom="{ value: 'Open subsystem', showDelay: 300 }"
+        />
+      </div>
+
+      <div class="instance-name">
+        <!-- Not a <button>: the SVG export leaves buttons out, and the name must be drawn. -->
+        <span
+          v-if="!isEditing"
+          role="button"
+          tabindex="0"
+          class="name-text"
+          :aria-label="`Rename ${data.name}`"
+          @click="onNameClick"
+          @keydown.enter.prevent="startEditing"
+          @keydown.space.prevent="startEditing"
+        >{{ data.name }}</span>
+        <SanitisedInput
+          v-else
+          ref="nameInputRef"
+          v-model="editingName"
+          :sanitise="sanitiseName"
+          floating
+          class="nodrag"
+          @dblclick.stop="onNameInputDoubleClick"
+          @commit="saveEdit"
+          @revert="cancelEdit"
+        />
+      </div>
+    </div>
+
+    <template v-for="handle in data.handles" :key="handle.uid">
+      <Handle
+        :id="getHandleId(handle)"
+        :position="handlePosition(handle.side)"
+        :class="[
+          'handle',
+          `handle--${handle.variant || 'default'}`,
+          { 'handle--inert': handle.variant === HANDLE_VARIANT.GHOST && selected && isCornerHandle(handle, data.handles) },
+        ]"
+        :style="getHandleStyle(handle, data.handles)"
+        v-tooltip.bottom="{ value: handle.name, showDelay: 1000 }"
+        @mouseenter="onHandleEnter(handle.uid)"
+        @mouseleave="onHandleLeave"
+        @pointerdown="
+          !isEditing &&
+            !(selected && isCornerHandle(handle, data.handles)) &&
+            handle.variant === HANDLE_VARIANT.GHOST &&
+            beginGhostActivation(props.id, handle.uid)
+        "
+      >
+        <Button
+          v-show="hoveredHandleUid === handle.uid && handle.variant !== HANDLE_VARIANT.GHOST"
+          :class="['delete-handle-popover-btn', 'popover-' + handle.side]"
+          icon="pi pi-trash"
+          severity="danger"
+          rounded
+          text
+          size="small"
+          @mouseenter="onHandleEnter(handle.uid)"
+          @mouseleave="onHandleLeave"
+          @mousedown.stop
+          @dblclick.stop
+          @click.stop="removeHandle(handle.uid)"
+        />
+      </Handle>
+    </template>
+  </div>
+</template>
+
+<script setup>
+/**
+ * A subsystem on the canvas: one instance of a super-module. Shows its name, its super-module and how many subsystems
+ * that has, and its ports; double-click or Open shows the super-module's nodes, as this subsystem's.
+ */
+import { computed } from 'vue'
+import { Handle } from '@vue-flow/core'
+import { NodeResizer } from '@vue-flow/node-resizer'
+import Button from 'primevue/button'
+
+import SanitisedInput from './SanitisedInput.vue'
+import { useCanvasLevel } from '../composables/useCanvasLevel'
+import { useNodeChrome } from '../composables/useNodeChrome'
+import { useSupermodules } from '../composables/useSupermodules'
+import { HANDLE_VARIANT } from '../utils/constants'
+import { getHandleId, getHandleStyle, handlePosition, isCornerHandle } from '../utils/handles'
+import { sanitiseName } from '../utils/identifiers'
+
+import '../assets/vueflownode.css'
+
+const props = defineProps({
+  id: {
+    type: String,
+    required: true,
+  },
+  selected: {
+    type: Boolean,
+    default: false,
+  },
+  data: {
+    type: Object,
+    required: true,
+  }, // { name, smId, ports, handles, overrides }
+})
+
+const emit = defineEmits(['open-context-menu'])
+
+const {
+  flowId,
+  isSimulated,
+  categoryStyle,
+  isEditing,
+  editingName,
+  nameInputRef,
+  onNameClick,
+  onNodeDoubleClick,
+  onNameInputDoubleClick,
+  startEditing,
+  stopDragWhileEditing,
+  saveEdit,
+  cancelEdit,
+  hoveredHandleUid,
+  onHandleEnter,
+  onHandleLeave,
+  removeHandle,
+  beginGhostActivation,
+  openContextMenu,
+} = useNodeChrome(props, emit, {
+  onDoubleClick: () => open(),
+  isSubsystem: true,
+  nameTakenMessage: 'A node here already has this name.',
+})
+const canvasLevel = useCanvasLevel(flowId)
+const { find } = useSupermodules(flowId)
+
+// Its super-module's entry: name, label and subsystem count; undefined when missing.
+const supermodule = computed(() => find(props.data.smId))
+const portCount = computed(() => props.data.ports?.length ?? 0)
+const countLabel = computed(() => {
+  const count = supermodule.value?.count ?? 0
+  return `${count} subsystem${count === 1 ? '' : 's'} of ${supermodule.value?.name ?? 'this super-module'}`
+})
+
+/** Shows the super-module's nodes, as this subsystem's. */
+function open() {
+  canvasLevel.enter(props.id)
+}
+</script>
+
+<style lang="scss" scoped>
+@use '../assets/nodechrome.scss';
+@import '../assets/vueflowhandle.css';
+
+/* Stacked behind, as one of several copies of its super-module. */
+.subsystem-card {
+  border-style: double;
+  border-color: color-mix(in srgb, var(--p-text-color) 22%, transparent);
+  box-shadow:
+    4px 4px 0 -1px var(--p-content-background),
+    4px 4px 0 0 color-mix(in srgb, var(--p-text-color) 22%, transparent);
+}
+
+.subsystem-card:hover {
+  box-shadow:
+    4px 4px 0 -1px var(--p-content-background),
+    4px 4px 0 0 color-mix(in srgb, var(--p-text-color) 22%, transparent),
+    0 4px 10px color-mix(in srgb, var(--p-text-color) 12%, transparent);
+}
+
+.subsystem-supermodule--missing {
+  color: var(--p-orange-500);
+}
+
+.subsystem-count {
+  flex-shrink: 0;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--p-text-color) 8%, transparent);
+  color: color-mix(in srgb, var(--p-text-color) 75%, transparent);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.4rem;
+}
+</style>

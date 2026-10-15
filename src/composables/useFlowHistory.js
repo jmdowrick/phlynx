@@ -1,7 +1,10 @@
 import { useVueFlow } from '@vue-flow/core'
+import { useActiveCanvas } from './useActiveCanvas'
+import { useCanvasLevel } from './useCanvasLevel'
 import { useFlowHistoryFor } from './useFlowHistoryFor'
 import { useLibraryStore } from '../stores/libraryStore'
 import { FLOW_IDS } from '../utils/constants'
+import { assertNodeId, edgeScopeProblem, isSupermoduleInterface, withScopeFields } from '../utils/hierarchy'
 import { detachReactivity } from '../utils/reactivity'
 
 /**
@@ -23,7 +26,8 @@ export function getUndoRedoAction(event) {
 }
 
 /**
- * Turns Vue Flow node and edge changes into undo/redo commands on the history store.
+ * Turns Vue Flow node and edge changes into undo/redo commands on the history store, which go back to the canvas level
+ * they were made at (see useCanvasLevel). Added nodes are stamped with the scope shown, their ids checked against it.
  *
  * @param {Object} options
  * @param {Set<string>} options.suppressedEdgeIds - Edge ids whose add/remove changes are not recorded.
@@ -48,6 +52,9 @@ export function useFlowHistory({
     useVueFlow(flowId)
   const historyStore = useFlowHistoryFor()
   const libraryStore = useLibraryStore()
+  const { nodes: canvasNodes } = useActiveCanvas(flowId)
+  const canvasLevel = useCanvasLevel(flowId)
+  canvasLevel.bindHistory(historyStore)
 
   const activeInteractionBuffer = new Map()
   const undoRedoSelection = false
@@ -82,6 +89,36 @@ export function useFlowHistory({
 
     // Create a deep copy to break reactivity references
     return detachReactivity(edge)
+  }
+
+  /**
+   * Stamps an added node with the scope shown and its local id where it lacks them, and checks its id is theirs: ids
+   * are made by nextNodeId in the scope a node goes to, never rewritten here. An interface node can't be deleted.
+   *
+   * @param {Object} change - An add change; its node's data is replaced where a field is filled in.
+   * @throws {Error} When the node's id breaks the id rules or isn't its scope's and local id's.
+   */
+  const stampScope = (change) => {
+    const node = change.item
+    const data = withScopeFields(node, canvasLevel.scope.value)
+    if (data !== node.data) node.data = data
+    if (isSupermoduleInterface(node)) node.deletable = false
+    assertNodeId(node)
+  }
+
+  /**
+   * Removes nodes as undo and redo replay a change, a super-module's interface node (deletable: false) included,
+   * which Vue Flow's removeNodes would keep.
+   *
+   * @param {string[]} ids
+   */
+  const removeNodesById = (ids) => {
+    removeNodes(
+      ids.map((id) => {
+        const node = findNode(id)
+        return node?.deletable === false ? { ...node, deletable: true } : id
+      })
+    )
   }
 
   const snapshotNode = (change) => {
@@ -177,9 +214,14 @@ export function useFlowHistory({
    * @param {Array<Object>} changes - Vue Flow node changes.
    */
   const onNodeChange = (changes) => {
+    const hasAdds = changes.some((c) => c.type === 'add')
+    changes.forEach((c) => c.type === 'add' && stampScope(c))
+
     if (historyStore.isUndoRedoing) {
       // If we are currently undoing/redoing, bypass history tracking
-      return applyNodeChanges(changes)
+      const applied = applyNodeChanges(changes)
+      if (hasAdds) canvasLevel.syncVisibility()
+      return applied
     }
 
     // Add node and dimension changes are single node events.
@@ -234,10 +276,11 @@ export function useFlowHistory({
       const command = {
         type: 'add',
         offset: 'not-applied',
-        undo: () => removeNodes(idsToRemove),
+        undo: () => removeNodesById(idsToRemove),
         redo: () => addNodes(nodesToAdd),
       }
-      const visibleIds = new Set(nodesToAdd.filter((n) => !n.hidden).map((n) => n.id))
+      // Nodes of another scope, such as a new super-module's interface, are never drawn, so never measured.
+      const visibleIds = new Set(nodesToAdd.filter((n) => !n.hidden && canvasLevel.isShown(n)).map((n) => n.id))
 
       if (visibleIds.size) {
         lastAdd = { command, nodes: nodesToAdd, visibleIds }
@@ -261,7 +304,7 @@ export function useFlowHistory({
           })
         },
         redo: () => {
-          removeNodes(Array.from(idsToRemove))
+          removeNodesById(Array.from(idsToRemove))
           removedConstants.forEach((c) => {
             libraryStore.removeGlobalConstant(c.name)
           })
@@ -272,10 +315,11 @@ export function useFlowHistory({
       historyStore.addCommand(createSelectCommand(selectChanges, findNode))
     }
 
-    updateHelperLines(changes, nodes.value)
+    updateHelperLines(changes, canvasNodes.value)
 
     // Have Vue Flow update the graph
     applyNodeChanges(changes)
+    if (hasAdds) canvasLevel.syncVisibility()
   }
 
   /**
@@ -284,9 +328,14 @@ export function useFlowHistory({
    * @param {Array<Object>} changes - Vue Flow edge changes.
    */
   const onEdgeChange = (changes) => {
+    const hasAdds = changes.some((c) => c.type === 'add')
+    if (import.meta.env.DEV && hasAdds) assertEdgeScopes(changes)
+
     if (historyStore.isUndoRedoing) {
       // If we are currently undoing/redoing, bypass history tracking
-      return applyEdgeChanges(changes)
+      const applied = applyEdgeChanges(changes)
+      if (hasAdds) canvasLevel.syncVisibility()
+      return applied
     }
 
     const removeChanges = []
@@ -350,6 +399,21 @@ export function useFlowHistory({
     }
 
     applyEdgeChanges(changes)
+    if (hasAdds) canvasLevel.syncVisibility()
+  }
+
+  /**
+   * Checks, in development, that no edge added joins two scopes.
+   *
+   * @param {Array<Object>} changes - Edge changes.
+   * @throws {Error}
+   */
+  const assertEdgeScopes = (changes) => {
+    const nodeById = { get: (id) => findNode(id) }
+    for (const change of changes) {
+      const problem = change.type === 'add' && edgeScopeProblem(change.item, nodeById)
+      if (problem) throw new Error(problem)
+    }
   }
 
   return { onNodeChange, onEdgeChange }

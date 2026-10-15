@@ -11,6 +11,12 @@ import { useConfirm } from 'primevue/useconfirm'
 export function useConfirmDialog() {
   const confirm = useConfirm()
 
+  /**
+   * Shows the app's confirm dialog.
+   *
+   * @param {Object} options
+   * @returns {Promise<boolean|null>} True on accept, false on reject, null when closed without an answer (Escape).
+   */
   function showConfirm(options) {
     return new Promise((resolve) => {
       confirm.require({
@@ -25,6 +31,8 @@ export function useConfirmDialog() {
 
         accept: () => resolve(true),
         reject: () => resolve(false),
+        // Accept and reject resolve first, so this only settles a dialog closed without an answer.
+        onHide: () => resolve(null),
       })
     })
   }

@@ -2,12 +2,18 @@ import { ref } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 import { parseLayout } from 'cellml-text-editor'
 import { useActiveCanvas } from './useActiveCanvas'
+import { useSupermodules } from './useSupermodules'
 import { useLibraryStore } from '../stores/libraryStore'
 import { separateNodeParameters } from '../services/workspaceMigrator'
 import { FLOW_IDS } from '../utils/constants'
 import { getId as getNextEdgeId } from '../utils/edges'
-import { getId as getNextNodeId, generateUniqueInstanceName } from '../utils/nodes'
+import { isModelEdge, isSubsystem, isSupermoduleInterface, splitNodeId, toLocalName } from '../utils/hierarchy'
+import { generateUniqueInstanceName } from '../utils/nodes'
+import { notify } from '../utils/notify'
 import { detachReactivity } from '../utils/reactivity'
+
+// A modal open anywhere, such as a confirm, which leaves focus on the canvas behind it.
+const MODAL_SELECTOR = '.p-overlay-mask, [role="alertdialog"], [role="dialog"][aria-modal="true"]'
 
 /**
  * Whether a workspace keyboard shortcut should be left alone: the user is typing in an input, a dialog is
@@ -21,6 +27,7 @@ import { detachReactivity } from '../utils/reactivity'
 export function shouldIgnoreShortcut(event, dialogOpen) {
   if (['INPUT', 'TEXTAREA'].includes(event.target.tagName)) return true
   if (dialogOpen) return true
+  if (typeof document !== 'undefined' && document.querySelector(MODAL_SELECTOR)) return true
   if (event.target.closest('.cm-editor')) return true
   return false
 }
@@ -58,7 +65,9 @@ const getBoundingCenter = (nodes) => {
 
 /**
  * Copy, paste and select-all for the workspace. Copy keeps the selection in memory and on the system
- * clipboard together with the modules and maths it needs, so paste also works in another window.
+ * clipboard together with the modules and maths it needs, so paste also works in another window. Each acts on
+ * the canvas: paste puts nodes in the scope shown, with that scope's ids. A super-module's interface node is
+ * never copied; a subsystem pastes only where its super-module can go (see useSupermodules canPlace).
  *
  * @param {Object} options
  * @param {import('vue').Ref<{x: number, y: number}>} options.mousePosition - Mouse position in screen pixels.
@@ -67,9 +76,9 @@ const getBoundingCenter = (nodes) => {
  * @returns {{ copySelection: Function, pasteSelection: Function, selectAllNodes: Function }}
  */
 export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FLOW_IDS.MAIN }) {
-  const { addEdges, addNodes, edges, getSelectedEdges, getSelectedNodes, nodes, screenToFlowCoordinate } =
-    useVueFlow(flowId)
-  const { nodes: canvasNodes, selectedNodes, selectedEdges } = useActiveCanvas(flowId)
+  const { addEdges, addNodes, edges, getSelectedEdges, getSelectedNodes, screenToFlowCoordinate } = useVueFlow(flowId)
+  const { scope, nodes: canvasNodes, selectedNodes, selectedEdges, nextNodeId } = useActiveCanvas(flowId)
+  const { canPlace } = useSupermodules(flowId)
   const libraryStore = useLibraryStore()
 
   const clipboard = ref({ nodes: [], edges: [] })
@@ -82,8 +91,9 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
   }
 
   const copySelection = async () => {
-    const nodes = selectedNodes.value
-    const edges = selectedEdges.value
+    const nodes = selectedNodes.value.filter((node) => !isSupermoduleInterface(node))
+    const ids = new Set(nodes.map((node) => node.id))
+    const edges = selectedEdges.value.filter((edge) => isModelEdge(edge) && ids.has(edge.source) && ids.has(edge.target))
 
     if (nodes.length === 0) return
 
@@ -142,6 +152,20 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
 
     if (!sourceClipboard.nodes || sourceClipboard.nodes.length === 0) return
 
+    // A subsystem goes only where its super-module is, and where it makes no cycle.
+    const into = scope.value
+    const unplaceable = sourceClipboard.nodes.filter((node) => isSubsystem(node) && !canPlace(into, node.data?.smId))
+    if (unplaceable.length) {
+      const names = unplaceable.map((node) => `"${node.data?.name ?? node.id}"`).join(', ')
+      notify.warning({
+        title: 'Not Pasted',
+        message: into
+          ? `${names} can't go here: its super-module is missing, or would then contain itself.`
+          : `${names} can't be pasted: its super-module is missing.`,
+      })
+      return
+    }
+
     // Nodes copied from an older version keep values in their math; they move into the rows here.
     const clipboardMath = Object.values(sourceClipboard.storeSnapshot ?? {}).map((entry) => [
       entry.mathRef,
@@ -179,19 +203,21 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
     }
 
     const idMap = {}
-    // Ids are unique across the whole store, not just the canvas.
-    const nodeIdSet = nodes.value.map((n) => n.id)
+    // Edge ids are unique across the whole store, not just the canvas.
     const edgeIdSet = edges.value.map((e) => e.id)
 
     const namesSet = new Set()
     allNodeNames.value.forEach((name) => namesSet.add(name))
 
     clipboardNodes.forEach((node) => {
-      const newId = getNextNodeId(nodeIdSet)
+      if (isSupermoduleInterface(node)) return
+      // The scope shown's next id, past those of the nodes pasted so far.
+      const newId = nextNodeId(undefined, newNodes)
       idMap[node.id] = newId
-      nodeIdSet.push(newId)
 
-      const finalName = generateUniqueInstanceName(node.data.name, namesSet)
+      // Inside a super-module, names keep its rules (see utils/hierarchy localNameProblem).
+      const name = into ? toLocalName(node.data.name) : node.data.name
+      const finalName = generateUniqueInstanceName(name, namesSet)
       namesSet.add(finalName)
 
       // Create the new node with offset position.
@@ -201,6 +227,8 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
         data: {
           ...node.data,
           name: finalName,
+          scope: into,
+          localId: into ? splitNodeId(newId).localId : newId,
         },
         position: {
           x: node.position.x + dx,
@@ -212,6 +240,7 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
     })
 
     sourceClipboard.edges.forEach((edge) => {
+      if (!isModelEdge(edge)) return
       const newSource = idMap[edge.source]
       const newTarget = idMap[edge.target]
 
