@@ -1,7 +1,7 @@
 import { findVoiNames, inferType, isEmpty, isNumericLiteral } from './variables.js'
 import { analyzeMathXml } from '../services/math/analyzeMath.js'
 import { resolveBoundaryValues } from '../services/export/boundaryValues.js'
-import { couplingConflicts, multiplyFactor, sharedSumConflicts, variableTypes } from './multiport.js'
+import { couplingConflicts, multiplyFactor, variableTypes } from './multiport.js'
 import {
   STANDARD_UNITS,
   AFFINE_UNIT_CONVERSIONS,
@@ -1234,12 +1234,9 @@ export function generateFlattenedModel(
     // Process Edges (Create Connections)
     // ----------------------------------
 
-    const [[sharedSum] = []] = sharedSumConflicts(edges, (id) => nodeComponentMap.get(id)?.name() ?? id).values()
-    if (sharedSum) throw new Error(`Cannot connect: ${sharedSum}`)
-
     const componentTrashCan = new Set()
-    // The terms of each Sum variable, keyed `component::variable`: a variable sums through one port
-    // (checked above), so this is one equation per Sum port variable.
+    // The terms of each Sum variable, keyed `component::variable`: every connected Sum port on the
+    // node contributes its terms here, so this is one equation per Sum variable, however many ports.
     const multiPortSums = new Map()
     const addSumTerm = (component, varName, term) => {
       const key = `${component.name()}::${varName}`
