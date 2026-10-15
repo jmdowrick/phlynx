@@ -1,6 +1,6 @@
 import { computed } from 'vue'
-import { useVueFlow } from '@vue-flow/core'
 
+import { useModelGraph } from './useModelGraph'
 import { resolveBoundaryValues } from '../services/export/boundaryValues'
 import { SimulationError } from '../services/simulation/engine'
 import { libopencor, whenLibOpenCORReady } from '../services/simulation/libopencorLoader'
@@ -25,7 +25,6 @@ import { useProtocolStore } from '../stores/protocolStore'
 import { selectExperiment, useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { whenLibCellMLReady } from '../utils/cellml'
-import { FLOW_IDS } from '../utils/constants'
 
 // One run at a time, shared by every caller; a newer run makes an older one's results irrelevant.
 let currentRun = null
@@ -80,14 +79,15 @@ export function forgetSimulationSession() {
 }
 
 /**
- * Runs scoped simulations of the workspace and keeps their results in simulationResultsStore.
+ * Runs scoped simulations of the model (see useModelGraph) and keeps their results in simulationResultsStore. A scope
+ * is model ids: a canvas selection is expanded first (expandSelection).
  *
  * @returns {{run: Function, stop: Function, keepCurrent: Function, prepareProtocolExport: Function,
  *   prepareRunExport: Function,
  *   isStale: import('vue').ComputedRef<boolean>}}
  */
 export function useSimulation() {
-  const { nodes, edges } = useVueFlow(FLOW_IDS.MAIN)
+  const { modelNodes, modelEdges, errors: modelErrors } = useModelGraph()
   const libraryStore = useLibraryStore()
   const inspectionModuleStore = useInspectionModuleStore()
   const simulationSettingsStore = useSimulationSettingsStore()
@@ -95,12 +95,17 @@ export function useSimulation() {
   const protocolStore = useProtocolStore()
 
   /**
-   * Resolves the scope of some nodes, or of every node.
+   * Resolves the scope of some model nodes, or of every one, with the model's problems that concern it.
    *
    * @param {string[]|null} nodeIds
+   * @param {{withErrors?: boolean}} [options] - `withErrors: false` leaves the model's problems out, so signing a scope
+   *   to tell whether results are current doesn't check the expanded model on every change.
    * @returns {ReturnType<typeof resolveScope>}
    */
-  const resolveCurrentScope = (nodeIds) => resolveScope(nodeIds, nodes.value, edges.value, inspectionModuleStore.modules)
+  const resolveCurrentScope = (nodeIds, { withErrors = true } = {}) =>
+    resolveScope(nodeIds, modelNodes.value, modelEdges.value, inspectionModuleStore.modules, {
+      modelErrors: withErrors ? modelErrors.value : [],
+    })
 
   /**
    * Signs a run's inputs: its scope, the simulation settings, the slider values, any protocol it runs, and whether it
@@ -146,7 +151,7 @@ export function useSimulation() {
    * runProtocolOn). A pre-flight with errors stops it before it runs. In sweep mode, the model is instead solved
    * once per value of the swept parameter, or with ODEs, its time course run once per value.
    *
-   * @param {string[]|null} [nodeIds] - The nodes to simulate, or null for every node.
+   * @param {string[]|null} [nodeIds] - The model nodes to simulate, or null for every node.
    * @returns {Promise<void>}
    */
   async function run(nodeIds = null) {
@@ -594,13 +599,13 @@ export function useSimulation() {
   function keepCurrent(change) {
     const wasCurrent = !!store.results && !isStale.value
     change()
-    if (wasCurrent) store.signature = signRun(resolveCurrentScope(store.scopeNodeIds), selectRunOverrides())
+    if (wasCurrent) store.signature = signRun(resolveCurrentScope(store.scopeNodeIds, { withErrors: false }), selectRunOverrides())
   }
 
   /** Whether the scope or the settings have changed since the shown results were computed. */
   const isStale = computed(() => {
     if (!store.signature || !store.results) return false
-    return signRun(resolveCurrentScope(store.scopeNodeIds), selectRunOverrides()) !== store.signature
+    return signRun(resolveCurrentScope(store.scopeNodeIds, { withErrors: false }), selectRunOverrides()) !== store.signature
   })
 
   return { run, stop, keepCurrent, prepareProtocolExport, prepareRunExport, isStale }

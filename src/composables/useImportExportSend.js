@@ -24,6 +24,8 @@ import { useProtocolStore } from '../stores/protocolStore'
 
 import { createCellMLDataFragment, generateOmexArchive, createOmexDataFragment } from '../services/compress'
 import { generateExportZip } from '../services/export/ca'
+import { summariseExpansionErrors } from '../services/hierarchy/errors'
+import { isNestedModelId } from '../services/hierarchy/expand'
 import { resolvePlotConfig } from '../services/simulation/plotSelections'
 import { buildScopedModel, checkScope, resolveScope, summariseScopeReport } from '../services/simulation/scopedModel'
 import { useConfirmDialog } from './useConfirmDialog'
@@ -33,10 +35,22 @@ import { readFileAsText } from '../utils/misc'
 import { getFileHandle } from '../utils/save'
 import { getImportConfig } from '../utils/import'
 
+/**
+ * Gives the workspace's import, export and send menus and actions. Exports build the model (see useModelGraph).
+ *
+ * @param {Object} options
+ * @param {import('vue').Ref<Array>} options.nodes - The model's nodes.
+ * @param {import('vue').Ref<Array>} options.edges - The model's edges.
+ * @param {import('vue').Ref<string[]>} options.selectedNodeIds - The model nodes the canvas selection stands for.
+ * @param {import('vue').Ref<Array>} [options.modelErrors] - The problems expanding subsystems found (useModelGraph's
+ *   `errors`): errors stop an export, warnings are shown with it.
+ * @param {import('vue').Ref<boolean>} [options.isHierarchical] - Whether the workspace has subsystems (useModelGraph's).
+ * @returns {Object} The menus, the current modes and their triggers.
+ */
 export function useImportExportSend({
   libcellml,
-  nodes,
-  edges,
+  nodes: modelNodes,
+  edges: modelEdges,
   importDialogVisible,
   exportDialogVisible,
   currentImportConfig,
@@ -44,6 +58,8 @@ export function useImportExportSend({
   hasModelChanged,
   snapshotFlowState,
   selectedNodeIds,
+  modelErrors = { value: [] },
+  isHierarchical = { value: false },
 }) {
   const simulationSettingsStore = useSimulationSettingsStore()
   const libraryStore = useLibraryStore()
@@ -97,7 +113,41 @@ export function useImportExportSend({
   )
 
   /** Resolves the selected nodes into a scope, to export on their own. */
-  const resolveSelectionScope = () => resolveScope(selectedNodeIds.value, nodes.value, edges.value, inspectionModuleStore.modules)
+  const resolveSelectionScope = () =>
+    resolveScope(selectedNodeIds.value, modelNodes.value, modelEdges.value, inspectionModuleStore.modules, {
+      modelErrors: modelErrors.value,
+    })
+
+  /**
+   * Gets the whole model to export. Problems expanding its subsystems stop the export, and their warnings are shown
+   * once, as it starts.
+   *
+   * @returns {{nodes: Array, edges: Array}}
+   * @throws {Error} Listing the errors.
+   */
+  const buildWholeModel = () => {
+    const { errors, warnings } = summariseExpansionErrors(modelErrors.value)
+    if (errors.length) throw new Error(errors.join('\n'))
+    if (warnings.length) notify.warning({ title: 'Model Warnings', message: warnings.join('\n') })
+    return { nodes: modelNodes.value, edges: modelEdges.value }
+  }
+
+  /**
+   * Names slider selections as the model exports their modules: a module inside a subsystem is renamed with any
+   * subsystem it is in, which its stored name doesn't follow. A root module's selection, and any in a workspace without
+   * subsystems, is kept as stored, as before.
+   *
+   * @param {Array<Object>} selections - parameterScanConfig.selections.
+   * @returns {Array<Object>}
+   */
+  const withModelNames = (selections) => {
+    if (!isHierarchical.value) return selections
+    const nameById = new Map(modelNodes.value.map((node) => [node.id, node.data?.name]))
+    return selections.map((selection) => {
+      const name = isNestedModelId(selection.nodeId) && nameById.get(selection.nodeId)
+      return name ? { ...selection, nodeName: name } : selection
+    })
+  }
 
   /**
    * Checks the selection before it is exported: errors stop the export, and warnings ask to go on.
@@ -129,11 +179,13 @@ export function useImportExportSend({
    * @returns {Promise<Blob>}
    */
   const generateOmexArchiveAction = async (finalName, scope = null) => {
+    const model = scope ? null : buildWholeModel()
     const blob = scope
       ? await buildScopedModel(scope, libraryStore)
-      : await generateFlattenedModel(nodes.value, edges.value, libraryStore, inspectionModuleStore.modules)
+      : await generateFlattenedModel(model.nodes, model.edges, libraryStore, inspectionModuleStore.modules)
     const inScope = (selection) => !scope || scope.nodeIds.includes(selection.nodeId)
-    const scanConfig = { ...parameterScanConfig.value, selections: (parameterScanConfig.value?.selections ?? []).filter(inScope) }
+    const selections = withModelNames((parameterScanConfig.value?.selections ?? []).filter(inScope))
+    const scanConfig = { ...parameterScanConfig.value, selections }
     const rehydratedModel = await readFileAsText(blob)
     const extractedData = extractVoiAndParametersFromModel(rehydratedModel, scanConfig)
     const snapshot = snapshotFlowState(scope?.nodeIds ?? null)
@@ -144,7 +196,7 @@ export function useImportExportSend({
       snapshot,
       {
         simulationSettings: simulationSettings.value,
-        plotConfig: resolvePlotConfig(plotConfig.value, scope?.nodes ?? nodes.value),
+        plotConfig: resolvePlotConfig(plotConfig.value, scope?.nodes ?? modelNodes.value),
         parameterScanConfig: scanConfig,
       },
       // A selection is never the model as imported.
@@ -176,7 +228,10 @@ export function useImportExportSend({
       suffix: '.cellml',
       fileTypes: CELLML_FILE_TYPES,
       message: 'Generating flattened CellML model.',
-      action: () => generateFlattenedModel(nodes.value, edges.value, libraryStore, inspectionModuleStore.modules),
+      action: () => {
+        const model = buildWholeModel()
+        return generateFlattenedModel(model.nodes, model.edges, libraryStore, inspectionModuleStore.modules)
+      },
       successMessage: async (blob, finalName) => {
         const dataUri = await createCellMLDataFragment(blob, finalName)
         return h('div', null, [
@@ -202,7 +257,11 @@ export function useImportExportSend({
       suffix: '.zip',
       fileTypes: ZIP_FILE_TYPES,
       message: 'Generating and zipping CA files.',
-      action: (finalName) => generateExportZip(finalName, nodes.value, edges.value, libraryStore, protocolStore.source?.entry.payload ?? null),
+      // CA's own checks, such as its one heart, run on the model's rows.
+      action: (finalName) => {
+        const model = buildWholeModel()
+        return generateExportZip(finalName, model.nodes, model.edges, libraryStore, protocolStore.source?.entry.payload ?? null)
+      },
       successMessage: () => 'Circulatory Autogen export zip generated.',
     },
     {

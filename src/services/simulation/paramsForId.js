@@ -63,11 +63,12 @@ export function parseParamsForId(payload) {
 }
 
 /**
- * Resolves params_for_id rows against the workspace's nodes, building a slider definition for each row that
- * names a slidable variable, and carrying over the file's range and display label.
+ * Resolves params_for_id rows against the model's nodes, building a slider definition for each row that names a
+ * slidable variable, and carrying over the file's range and display label. A module inside a subsystem goes by its flat
+ * name, as the model exports it (`heart__lv`).
  *
  * @param {Array<Object>} rows - From parseParamsForId.
- * @param {Array<Object>} nodes - Workspace nodes.
+ * @param {Array<Object>} nodes - The model's nodes (see useModelGraph).
  * @param {Function} getGlobalConstant - libraryStore.getGlobalConstant.
  * @returns {{selections: Array<Object>, warnings: Array<string>}}
  */

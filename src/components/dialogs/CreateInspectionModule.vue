@@ -229,6 +229,7 @@ import SanitisedInput from '../SanitisedInput.vue'
 
 const props = defineProps({
   modelValue: Boolean,
+  // The model's nodes (see useModelGraph).
   nodes: {
     type: Array,
     default: () => [],

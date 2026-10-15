@@ -29,6 +29,18 @@ export const isSupermoduleInterface = (node) => node?.type === SUPERMODULE_INTER
 export const isModelEdge = (edge) => edge?.type !== EXPOSURE_EDGE_TYPE
 
 /**
+ * Whether the store holds any hierarchy: a subsystem, a super-module's node or an exposure edge. Without one, its
+ * nodes and edges are the model as they are.
+ *
+ * @param {Array} nodes
+ * @param {Array} [edges=[]]
+ * @returns {boolean}
+ */
+export function hasHierarchy(nodes, edges = []) {
+  return nodes.some((node) => scopeOf(node) !== null || isSubsystem(node)) || edges.some((edge) => !isModelEdge(edge))
+}
+
+/**
  * Why an edge breaks the scope rule, or null when it doesn't: an edge joins two nodes of one scope, and only an
  * exposure edge ends at an interface node. An end missing from the store is left to the edge's other checks.
  *

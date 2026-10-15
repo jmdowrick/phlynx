@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const history = vi.hoisted(() => ({ updateNodeData: vi.fn(), recordEdit: vi.fn((edit) => edit.apply()) }))
 vi.mock('@vue-flow/core', async (importOriginal) => ({ ...(await importOriginal()), useVueFlow: () => ({ updateNodeData: history.updateNodeData }) }))
+// Where each model node comes from; a test puts one inside a subsystem.
+const modelOrigin = vi.hoisted(() => new Map())
+vi.mock('../../../src/composables/useModelGraph', () => ({ useModelGraph: () => ({ graph: { value: { origin: modelOrigin } } }) }))
 vi.mock('../../../src/composables/useNodeDataHistory', () => ({ useNodeDataHistory: () => ({ recordEdit: history.recordEdit }) }))
 vi.mock('../../../src/stores/protocolStore', async () => {
   const { reactive: makeReactive } = await import('vue')
@@ -39,6 +42,7 @@ describe('SliderList', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     useProtocolStore().areSlidersOff = false
+    modelOrigin.clear()
     vi.clearAllMocks()
   })
 
@@ -128,6 +132,21 @@ describe('SliderList', () => {
     useProtocolStore().areSlidersOff = false
     await wrapper.vm.$nextTick()
     expect(wrapper.find('.slider-value').classes()).toContain('slider-value--changed')
+  })
+
+  it('doesn’t apply the value of a module inside a subsystem to the model, or move its default', async () => {
+    modelOrigin.set('a', { mainId: 'a', instanceChain: ['sm_1'] })
+    useSimulationResultsStore().setSliderValue('a::k', 1.5)
+    mountList()
+
+    await wrapper.find('[aria-label="More for k"]').trigger('click')
+    const item = wrapper.vm.menuItems.find((candidate) => candidate.label === 'Apply this value to the model')
+    expect(item.disabled).toBe(true)
+
+    wrapper.vm.applyToModel(wrapper.vm.menuSlider)
+    expect(history.recordEdit).not.toHaveBeenCalled()
+    expect(useSimulationSettingsStore().parameterScanConfig.selections[0].default).toBe(1)
+    expect(useSimulationResultsStore().sliderValues.get('a::k')).toBe(1.5)
   })
 
   it('doesn’t ask for a waiting run on leaving once the sliders are off', async () => {

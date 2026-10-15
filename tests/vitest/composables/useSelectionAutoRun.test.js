@@ -11,6 +11,10 @@ vi.mock('@vue-flow/core', async (importOriginal) => {
     useVueFlow: () => ({ getSelectedNodes: computed(() => selected.value.map((id) => ({ id }))), userSelectionActive: ref(false) }),
   }
 })
+// Subsystem sm expands to its modules in the model; any other node is its own.
+vi.mock('../../../src/composables/useModelGraph', () => ({
+  useModelGraph: () => ({ expandSelection: (ids) => [...ids].flatMap((id) => (id === 'sm' ? ['sm/ra', 'sm/lv'] : [id])) }),
+}))
 const run = vi.hoisted(() => vi.fn())
 vi.mock('../../../src/composables/useSimulation', () => ({ useSimulation: () => ({ run }) }))
 vi.mock('../../../src/services/simulation/libopencorLoader', () => ({ libopencor: { status: 'ready' } }))
@@ -50,6 +54,11 @@ describe('useSelectionAutoRun', () => {
   it('runs a new selection once it is chosen', async () => {
     await select(['b'])
     expect(run).toHaveBeenCalledWith(['b'])
+  })
+
+  it('runs a selected subsystem as the modules it expands to', async () => {
+    await select(['sm', 'b'])
+    expect(run).toHaveBeenCalledWith(['b', 'sm/lv', 'sm/ra'])
   })
 
   it('leaves a sweep of a model with ODEs for play, as a time course per point is too slow to follow', async () => {

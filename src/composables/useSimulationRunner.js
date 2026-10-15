@@ -6,6 +6,7 @@
 import { computed, ref, unref } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
+import { useModelGraph } from './useModelGraph'
 import { useSimulation } from './useSimulation'
 import { libopencor } from '../services/simulation/libopencorLoader'
 import { READOUTS } from '../services/simulation/sweepReadouts'
@@ -14,7 +15,8 @@ import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { FLOW_IDS } from '../utils/constants'
 
 /**
- * Gives what playing simulations from a view needs.
+ * Gives what playing simulations from a view needs. The nodes are the model's (see useModelGraph): a selected subsystem
+ * plays as the modules it expands to.
  *
  * @param {{instanceId?: import('vue').Ref<string|null>|string|null, isWholeModelOnly?: boolean}} [options] - The
  *   instance an instance editor runs on its own, or none for the canvas selection; and whether the view only runs the
@@ -23,7 +25,9 @@ import { FLOW_IDS } from '../utils/constants'
  *   simulates) and `statusLine`; `isOtherRun` says an instance editor shows another scope's results.
  */
 export function useSimulationRunner({ instanceId = null, isWholeModelOnly = false } = {}) {
-  const { nodes, getSelectedNodes } = useVueFlow(FLOW_IDS.MAIN)
+  // The canvas selection; what it runs is expanded into the model.
+  const { getSelectedNodes } = useVueFlow(FLOW_IDS.MAIN)
+  const { modelNodes, expandSelection } = useModelGraph()
   const store = useSimulationResultsStore()
   const simulationSettingsStore = useSimulationSettingsStore()
   const { run, stop, keepCurrent, isStale } = useSimulation()
@@ -34,10 +38,10 @@ export function useSimulationRunner({ instanceId = null, isWholeModelOnly = fals
   const hasScope = computed(() => store.status !== 'idle')
   const isLoading = computed(() => libopencor.status === 'loading')
   const isSimulatorMissing = computed(() => ['unavailable', 'error'].includes(libopencor.status))
-  const selectedNodeIds = computed(() => getSelectedNodes.value.map((node) => node.id))
+  const selectedNodeIds = computed(() => expandSelection(getSelectedNodes.value.map((node) => node.id)))
 
   const scopeNodes = computed(() =>
-    store.scopeNodeIds ? nodes.value.filter((node) => store.scopeNodeIds.includes(node.id)) : nodes.value
+    store.scopeNodeIds ? modelNodes.value.filter((node) => store.scopeNodeIds.includes(node.id)) : modelNodes.value
   )
   // Without ODEs there is no time course: the model is solved once, or once per value of a sweep. With them, a sweep
   // runs a time course per value, and reads each one.
@@ -112,7 +116,7 @@ export function useSimulationRunner({ instanceId = null, isWholeModelOnly = fals
   // Why play can't run, if it can't.
   const blockedReason = computed(() => {
     if (isSimulatorMissing.value) return libopencor.reason ?? 'The simulator isn’t available.'
-    if (!nodes.value.length) return 'Add instances to simulate'
+    if (!modelNodes.value.length) return 'Add instances to simulate'
     if (!getInstanceId() && scopeMode.value === 'selection' && !selectedNodeIds.value.length) return 'Select instances on the canvas'
     return null
   })
@@ -132,7 +136,7 @@ export function useSimulationRunner({ instanceId = null, isWholeModelOnly = fals
     if (!store.results) return false
     if (isWholeModelOnly) return store.scopeNodeIds !== null
     if (!getInstanceId()) return false
-    const expected = scopeMode.value === 'model' ? null : [getInstanceId()]
+    const expected = scopeMode.value === 'model' ? null : expandSelection([getInstanceId()])
     return JSON.stringify(store.scopeNodeIds) !== JSON.stringify(expected)
   })
   const isOutdated = computed(() => !!store.results && (isStale.value || isSelectionChanged.value || isOtherRun.value))
@@ -140,7 +144,7 @@ export function useSimulationRunner({ instanceId = null, isWholeModelOnly = fals
   // The instances play simulates, as the switch says: the edited instance or the selection, or null for the whole model.
   const playScopeNodeIds = computed(() => {
     if (scopeMode.value === 'model') return null
-    return getInstanceId() ? [getInstanceId()] : sortedSelectedIds.value
+    return getInstanceId() ? expandSelection([getInstanceId()]) : sortedSelectedIds.value
   })
 
   /** Simulates the whole model or the part, as the switch says. */
@@ -185,7 +189,7 @@ export function useSimulationRunner({ instanceId = null, isWholeModelOnly = fals
   })
 
   return {
-    nodes,
+    nodes: modelNodes,
     store,
     scopeNodes,
     selectedNodeIds,

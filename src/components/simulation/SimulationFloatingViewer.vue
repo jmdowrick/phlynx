@@ -252,6 +252,7 @@ import SimulationPlot from './SimulationPlot.vue'
 import SliderList from './SliderList.vue'
 import VariablePathPicker from './VariablePathPicker.vue'
 import { useFloatingViewer } from '../../composables/useFloatingViewer'
+import { useModelGraph } from '../../composables/useModelGraph'
 import { useSimulation } from '../../composables/useSimulation'
 import { INSPECTION_PLOT, PROTOCOL_INPUTS_PLOT, useSimulationCharts } from '../../composables/useSimulationCharts'
 import { OBS_DATA_PLOT } from '../../services/simulation/protocolPlotGroups'
@@ -268,6 +269,7 @@ import { useSimulationSettingsStore } from '../../stores/simulationSettingsStore
 import { FLOW_IDS } from '../../utils/constants'
 
 const props = defineProps({
+  // The model's nodes (see useModelGraph).
   nodes: { type: Array, default: () => [] },
   // Whether the canvas it floats over is shown; on another page it waits, hidden but kept where it was and at its
   // size, for the canvas to return.
@@ -276,6 +278,7 @@ const props = defineProps({
 
 const { state, returnToTab } = useFloatingViewer()
 const { getSelectedNodes } = useVueFlow(FLOW_IDS.MAIN)
+const { expandSelection } = useModelGraph()
 const store = useSimulationResultsStore()
 const { trackBlocker, track } = useTrackRun()
 const settingsStore = useSimulationSettingsStore()
@@ -288,8 +291,9 @@ useSelectionAutoRun({ isActive: () => state.visible && props.isCanvasShown })
 const showSliders = ref(false)
 const isRunning = computed(() => store.status === 'running')
 
-// Play here works as in the Simulation tab, sharing its choice of the selection or the whole model.
-const selectedIds = computed(() => getSelectedNodes.value.map((node) => node.id).sort())
+// Play here works as in the Simulation tab, sharing its choice of the selection or the whole model: the model nodes the
+// canvas selection stands for.
+const selectedIds = computed(() => expandSelection(getSelectedNodes.value.map((node) => node.id)).sort())
 const isWholeModel = computed({
   get: () => store.scopeMode === 'model',
   set: (value) => {

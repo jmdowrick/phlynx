@@ -18,7 +18,8 @@
  * ids where there are any and its origins where in the store the problem is. severity is 'error' for what the model
  * can't be built or exported right with, and 'warning' for what today's flat export already tolerates (a CA parameter
  * name given twice, an override that sets nothing, a root module's name or single-connection slot given twice), so
- * flat models that export today aren't blocked.
+ * flat models that export today aren't blocked. The checks of the expanded model (checkExpansion) run when `errors` is
+ * first read, so a caller that only reads the model doesn't pay for them.
  */
 import { isEmpty } from '../../utils/variables'
 import { checkAndClaimCouplings, slotOf } from '../../utils/edges'
@@ -48,6 +49,9 @@ export const LOCAL_CONSTANTS_KEY = '@'
 
 /** @returns {boolean} Whether an override key holds local constant values (see LOCAL_CONSTANTS_KEY). */
 export const isLocalConstantsKey = (key) => key.split(EXPANDED_ID_SEPARATOR).at(-1) === LOCAL_CONSTANTS_KEY
+
+/** @returns {boolean} Whether an expanded id is a module's inside a subsystem: a root module's id has no '/'. */
+export const isNestedModelId = (id) => typeof id === 'string' && id.includes(EXPANDED_ID_SEPARATOR)
 
 // The port types through which a module receives from (inputs), or gives to (outputs), its neighbours.
 const INPUT_TYPES = new Set(['entrance_ports', 'general_ports'])
@@ -349,9 +353,20 @@ export function expandHierarchy(nodes, edges) {
   const idOf = (name) => idByName.get(name)
 
   const at = (ids) => ({ ids, origins: ids.map((id) => origin.get(id)).filter(Boolean) })
-  for (const error of checkExpansion(outNodes, outEdges, pathOf)) errors.push({ ...error, ...at(error.ids) })
+  let checked = null
 
-  return { nodes: outNodes, edges: outEdges, origin, nameOf, idOf, pathOf, errors }
+  return {
+    nodes: outNodes,
+    edges: outEdges,
+    origin,
+    nameOf,
+    idOf,
+    pathOf,
+    get errors() {
+      checked ??= [...errors, ...checkExpansion(outNodes, outEdges, pathOf).map((error) => ({ ...error, ...at(error.ids) }))]
+      return checked
+    },
+  }
 }
 
 /**

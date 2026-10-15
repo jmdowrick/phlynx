@@ -1,8 +1,10 @@
 /**
  * Scoped models: a selection of instances, the couplings between them, and the inspection modules that
- * reach them, flattened on their own. The whole model is the scope of every node.
+ * reach them, flattened on their own. The whole model is the scope of every node. The nodes and edges are the model's
+ * (see useModelGraph), subsystems expanded.
  */
 import { resolveBoundaryValues } from '../export/boundaryValues'
+import { errorsConcerning, summariseExpansionErrors } from '../hierarchy/errors'
 import { generateFlattenedModel } from '../../utils/cellml'
 import { cyrb53 } from '../../utils/misc'
 import { couplingConflicts, variableTypes } from '../../utils/multiport'
@@ -16,13 +18,16 @@ import { isEmpty } from '../../utils/variables'
  * none remain.
  *
  * @param {string[]|null} nodeIds - The selected node ids, or null for every node.
- * @param {Array<Object>} nodes - Workspace nodes.
- * @param {Array<Object>} edges - Workspace edges.
+ * @param {Array<Object>} nodes - The model's nodes.
+ * @param {Array<Object>} edges - The model's edges.
  * @param {Array<Object>} [inspectionModules] - Records from inspectionModuleStore.
+ * @param {{modelErrors?: Array<Object>}} [options] - `modelErrors`: the problems expanding subsystems found (see
+ *   useModelGraph), of which the scope keeps those concerning it.
  * @returns {{nodeIds: string[], nodes: Array, internalEdges: Array, cutEdges: Array, inspectionModules: Array,
- *   trimmedModules: Array<{name: string, removed: number, isLeftOut: boolean}>, allNodes: Array, allEdges: Array}}
+ *   trimmedModules: Array<{name: string, removed: number, isLeftOut: boolean}>, allNodes: Array, allEdges: Array,
+ *   modelErrors: Array<Object>}}
  */
-export function resolveScope(nodeIds, nodes, edges, inspectionModules = []) {
+export function resolveScope(nodeIds, nodes, edges, inspectionModules = [], { modelErrors = [] } = {}) {
   const selected = new Set(nodeIds ?? nodes.map((node) => node.id))
   const scopeNodes = nodes.filter((node) => selected.has(node.id))
   const inScope = (id) => selected.has(id)
@@ -39,8 +44,9 @@ export function resolveScope(nodeIds, nodes, edges, inspectionModules = []) {
     if (variables.length) scopedModules.push({ ...module, variables })
   }
 
+  const scopeNodeIds = scopeNodes.map((node) => node.id).sort()
   return {
-    nodeIds: scopeNodes.map((node) => node.id).sort(),
+    nodeIds: scopeNodeIds,
     nodes: scopeNodes,
     internalEdges,
     cutEdges,
@@ -48,6 +54,7 @@ export function resolveScope(nodeIds, nodes, edges, inspectionModules = []) {
     trimmedModules,
     allNodes: nodes,
     allEdges: edges,
+    modelErrors: errorsConcerning(modelErrors, scopeNodeIds),
   }
 }
 
@@ -152,17 +159,20 @@ function resolveWholeBoundaryValues(scope) {
  * coupled only to each other in the whole model stop the build; lost Sum terms, trimmed inspection modules,
  * boundary conditions falling back to their own value and boundary conditions set to 0 for want of one are
  * warnings, since the scope still builds. A boundary condition the run itself supplies, as a sweep does, isn't set to 0
- * for long, so it isn't warned about.
+ * for long, so it isn't warned about. The problems expanding subsystems found in the scope stop it or warn
+ * (`modelWarnings`), as their severity says.
  *
  * @param {ReturnType<typeof resolveScope>} scope
  * @param {Object} libraryStore - Provides availableMath and getGlobalConstant(name).
  * @param {{suppliedKeys?: Set<string>}} [options] - `suppliedKeys`: the `nodeId::name` of the boundary conditions the
  *   run gives values of its own.
  * @returns {{canBuild: boolean, errors: string[], incompleteNodes: Array, missingValues: Array, conflicts: string[],
- *   lostSumTerms: Array, trimmedModules: Array, usesOwnValue: Array, zeroedBoundaries: Array, usesCelsius: Array}}
+ *   lostSumTerms: Array, trimmedModules: Array, usesOwnValue: Array, zeroedBoundaries: Array, usesCelsius: Array,
+ *   modelWarnings: string[]}}
  */
 export function checkScope(scope, libraryStore, { suppliedKeys = new Set() } = {}) {
-  const errors = []
+  const fromModel = summariseExpansionErrors(scope.modelErrors ?? [])
+  const errors = [...fromModel.errors]
   const incompleteNodes = []
   const missingValues = []
   let conflicts = []
@@ -229,6 +239,7 @@ export function checkScope(scope, libraryStore, { suppliedKeys = new Set() } = {
     usesOwnValue,
     zeroedBoundaries,
     usesCelsius,
+    modelWarnings: fromModel.warnings,
   }
 }
 
@@ -360,6 +371,7 @@ export function summariseScopeReport(report) {
     ...(report.usesCelsius ?? []).map(
       (entry) => `${variable(entry)} is in celsius, which is simulated without its 273.15 K offset: absolute temperatures will be wrong.`
     ),
+    ...(report.modelWarnings ?? []),
   ]
 
   // One note for every boundary condition falling back to its own value, rather than a line each.

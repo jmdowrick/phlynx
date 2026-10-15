@@ -7,6 +7,7 @@ import { FLOW_IDS, PROTECTED_MATH_REFS } from '../utils/constants'
 import { previewCouplings } from '../utils/edges'
 import { notify } from '../utils/notify'
 import { detachReactivity } from '../utils/reactivity'
+import { useModelGraph } from './useModelGraph'
 import { useNodeDataHistory } from './useNodeDataHistory'
 
 const NODE_KEYS = ['name', 'variables', 'ports', 'mathRef', 'moduleRef']
@@ -46,6 +47,7 @@ function combineLibraries(libraries) {
  */
 export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   const { nodes, edges, findNode, updateNodeData } = useVueFlow(flowId)
+  const { expandSelection } = useModelGraph(flowId)
   const libraryStore = useLibraryStore()
   const simulationSettingsStore = useSimulationSettingsStore()
   const { recordEdit, findIncidentEdgeIds } = useNodeDataHistory(flowId)
@@ -218,7 +220,8 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    * what the save wrote, and keeps math a save created while any node still uses it.
    *
    * @param {Object} save - The instance editor's `confirm` payload.
-   * @returns {Promise<number>} How many nodes now use the saved math reference.
+   * @returns {Promise<number>} How many instances of the model now use the saved math reference: a module inside a
+   *   super-module counts once for each subsystem of it.
    */
   async function saveInstanceEdit(save) {
     const { id, mathRef, previousMathRef, math, isLayoutChanged, updateAll, siblings } = save
@@ -267,7 +270,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
       ]),
     })
 
-    return 1 + (updateAll ? siblings.length : 0)
+    return expandSelection([id, ...(updateAll ? siblings : [])]).length
   }
 
   return { saveInstanceEdit }

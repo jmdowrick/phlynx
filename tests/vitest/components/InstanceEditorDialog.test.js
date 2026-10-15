@@ -36,6 +36,7 @@ const { default: InstanceEditorDialog } = await import('../../../src/components/
 const { default: ComponentSaveAsDialog } = await import('../../../src/components/dialogs/ComponentSaveAsDialog.vue')
 const { NEW_MODULE_MATH_REF } = await import('../../../src/utils/constants.js')
 const { cycleMultiportType } = await import('../../../src/utils/multiport.js')
+const { module, subsystem, supermodule } = await import('../fixtures/hierarchy/graph.js')
 
 const MATH_REF = 'file:decay'
 const XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
@@ -721,5 +722,51 @@ describe('InstanceEditorDialog connection status', () => {
     await report(editor, 'init', XML)
 
     expect(wrapper.vm.ignoredNotices.get('k')).toBe('Set by Src.k_src: this value is ignored on export')
+  })
+})
+
+describe('InstanceEditorDialog other instances', () => {
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  })
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    useLibraryStore().addMath(MATH_REF, XML)
+  })
+
+  afterEach(() => {
+    flowNodes.value = []
+  })
+
+  /**
+   * Root module a and super-module sm_1, whose module ra shares a's math, with some subsystems of sm_1.
+   *
+   * @param {string[]} subsystemIds
+   * @returns {Array} The store's nodes.
+   */
+  function workspace(subsystemIds) {
+    const inner = [supermodule('sm_1', 'heart', { submoduleOrder: ['ra'] }), module('ra', 'ra', { scope: 'sm_1', data: { mathRef: MATH_REF } })]
+    return [module('a', 'a', { data: { mathRef: MATH_REF } }), ...subsystemIds.map((id) => subsystem(inner, id, id, 'sm_1')), ...inner]
+  }
+
+  it.each([
+    { label: 'once in each of its subsystems', subsystemIds: ['dndnode_1', 'dndnode_3'], all: 3 },
+    { label: 'once without subsystems', subsystemIds: [], all: 2 },
+  ])('counts a super-module’s module $label, and switches its node on a save to all', async ({ subsystemIds, all }) => {
+    flowNodes.value = workspace(subsystemIds)
+    mountDialog()
+    const editor = await open()
+    await report(editor, 'init', XML)
+    await report(editor, 'edit', EDITED_XML)
+
+    expect(wrapper.find('.apply-all-checkbox').text()).toContain(`Apply math changes to all ${all} instances`)
+    wrapper.find('.apply-all-checkbox').findComponent({ name: 'Checkbox' }).vm.$emit('update:modelValue', true)
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await flushPromises()
+
+    const [save] = wrapper.emitted('confirm')[0]
+    expect(save).toMatchObject({ updateAll: true, siblings: ['sm_1~ra'] })
   })
 })
