@@ -65,6 +65,13 @@ describe('PortVariableSelect', () => {
     expect(wrapper.findComponent(MultiSelect).props('invalid')).toBe(true)
   })
 
+  it('leaves a flagged port with variables, or an unflagged empty one, valid', async () => {
+    mountSelect({ flagged: true, port: reactive({ variables: ['v'], multiportType: 'None' }) })
+    expect(wrapper.findComponent(MultiSelect).props('invalid')).toBe(false)
+    await wrapper.setProps({ flagged: false, port: reactive({ variables: [], multiportType: 'None' }) })
+    expect(wrapper.findComponent(MultiSelect).props('invalid')).toBe(false)
+  })
+
   it('sizes the panel down when compact', async () => {
     mountSelect({ compact: true })
     const panel = await open()
