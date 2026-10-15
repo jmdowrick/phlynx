@@ -209,7 +209,7 @@ export function twoLevel(make) {
   const used = new Set()
   const nested = {
     nodes: [aorta, leg, vc, ...store],
-    edges: [connect(aorta, leg, { used, id: 'e0' }), connect(leg, vc, { used, id: 'e1' }), connect(art, bed, { id: 'e2' })],
+    edges: [connect(aorta, leg, { used, id: 'e0' }), connect(leg, vc, { used, id: 'e1' }), connect(art, bed)],
   }
 
   const fAorta = make('f0', 'aorta', 'arterial_simple:pv')

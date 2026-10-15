@@ -7,6 +7,7 @@ import {
 } from '../utils/constants'
 import { normalisePorts, normaliseVariables, uniqueModuleRef } from '../utils/config'
 import { buildGhostHandles, findMostCentralGhostHandle } from '../utils/handles'
+import { rewriteUnsafeIds } from '../utils/hierarchy'
 import { isBlank, isNumericLiteral } from '../utils/variables'
 import { analyzeMathXml } from './math/analyzeMath'
 import { getPortVariables, reconcileRows } from './math/reconcileRows'
@@ -358,6 +359,22 @@ function convertStore(oldStore, globalConstantNames, newAvailableModules) {
  *   'max' or 'peak'; missing means 'end'). Its `family`, when it has one, is a second parameter
  *   `{key, nodeId, nodeName, parameterName, units, type}` and the `values` it takes, a curve each.
  *   Older files have none. Whether play sweeps is the session's choice, not saved.
+ * - 1.3.0: nested subsystems. Every node has data.scope, null at the root or the id of the
+ *   super-module it is a child of, and data.localId, its id within that scope (a root node's id).
+ *   A nested node's id is `<smId>~<localId>`; no id holds `/` or `::`, nor `~` at the root, and an
+ *   older file's ids that do are rewritten, with the edges and saved selections that name them.
+ *   A super-module is its interface node, type 'subsystemInterface' (deletable: false), whose
+ *   data.supermodule is `{name, ca, submoduleOrder, exposedPorts, localConstants, naming, source}`
+ *   (see buildSupermoduleInterface). A subsystem, type 'subsystemNode', is one instance of it, with
+ *   data `{smId, overrides, ports, handles, broken?}` (see buildSubsystem): overrides are
+ *   `{<localId path>: {<variable>: {value}}}`, and local constant values (H13) sit under '@'. An
+ *   edge of type 'exposure', data.exposedPortId, draws an exposed port and is never in the model.
+ *   A selection's nodeId and key may name a module inside a subsystem by its expanded id, the
+ *   local ids down to it joined with '/' (`dndnode_3/dndnode_1::V`). store.availableSupermodules
+ *   is reserved for circulatory_autogen super-module templates (H9), and empty until then. No node
+ *   or edge is saved `hidden`. User-defined units (#714) stay in store.availableUnits, so units
+ *   need no field of their own. The OMEX flow snapshot (services/flowSnapshot.js) has a
+ *   snapshotKind from 1.3.0.
  */
 const LEGACY_VERSION = 'legacy'
 
@@ -368,6 +385,7 @@ const MIGRATIONS = [
   { from: LEGACY_VERSION, to: '1.0.0', migrate: migrateLegacyTo1_0_0 },
   { from: '1.0.0', to: '1.1.0', migrate: migrate1_0_0To1_1_0 },
   { from: '1.1.0', to: '1.2.0', migrate: migrate1_1_0To1_2_0 },
+  { from: '1.2.0', to: '1.3.0', migrate: migrate1_2_0To1_3_0 },
 ]
 
 /**
@@ -500,10 +518,13 @@ function normaliseEnvelope(doc, version) {
  * Brings a saved workspace from any version up to the current one.
  *
  * @param {Object} doc - A parsed workspace file.
+ * @param {Object} [options]
+ * @param {string[]} [options.notes] - Collects what the steps changed that the user should hear of, such as
+ *   rewritten ids.
  * @returns {Object} The workspace at PHLYNX_PROJECT_VERSION.
  * @throws {Error} If the version is unknown, e.g. saved by a newer PhLynx.
  */
-export function migrateWorkspace(doc) {
+export function migrateWorkspace(doc, { notes = [] } = {}) {
   const version = detectVersion(doc)
   const current = version === LEGACY_VERSION ? doc : normaliseEnvelope(doc, version)
   if (version === PHLYNX_PROJECT_VERSION) return current
@@ -512,7 +533,69 @@ export function migrateWorkspace(doc) {
   if (start === -1) {
     throw new Error(`Unsupported workspace version '${version}'. It may have been saved by a newer version of PhLynx.`)
   }
-  return MIGRATIONS.slice(start).reduce((migrated, step) => ({ ...step.migrate(migrated), version: step.to }), current)
+  return MIGRATIONS.slice(start).reduce((migrated, step) => ({ ...step.migrate(migrated, notes), version: step.to }), current)
+}
+
+/**
+ * 1.2.0 -> 1.3.0: puts every node at the root (data.scope null, data.localId its id), and rewrites ids
+ * that break the id rules (see utils/hierarchy.js rewriteUnsafeIds), with the edges and the saved
+ * selections that name them. Nothing else changes.
+ *
+ * @param {Object} doc - A 1.2.0 workspace.
+ * @param {string[]} notes - Collects a note of each rewritten id.
+ * @returns {Object}
+ */
+function migrate1_2_0To1_3_0(doc, notes) {
+  const flow = doc.flow ?? {}
+  const { nodes, edges, idMap } = rewriteUnsafeIds(flow.nodes ?? [], flow.edges ?? [])
+  for (const [from, to] of idMap) notes.push(`Node id "${from}" is now "${to}": ids can't hold "/", "::" or "~".`)
+  return {
+    ...doc,
+    flow: {
+      ...flow,
+      nodes: nodes.map((node) => ({
+        ...node,
+        data: { ...node.data, scope: node.data?.scope ?? null, localId: node.data?.localId ?? node.id },
+      })),
+      edges,
+    },
+    ...(doc.simulation && { simulation: remapNodeIds(doc.simulation, idMap) }),
+    ...(doc.inspectionModules && { inspectionModules: remapNodeIds(doc.inspectionModules, idMap) }),
+  }
+}
+
+// Fields that hold names, never ids, so a name that reads as an old id is kept.
+const NAME_FIELDS = new Set(['name', 'nodeName', 'variableName', 'label', 'title'])
+
+/**
+ * Renames node ids wherever saved settings name them: a string that is an old id, or a `<id>::<variable>`
+ * key, as a value or an object key (plot, slider and sweep selections, inspection module variables). A
+ * name field's value is left alone.
+ *
+ * @param {*} value
+ * @param {Map<string, string>} idMap - Each old id's new id.
+ * @returns {*} The value, copied where anything was renamed.
+ */
+function remapNodeIds(value, idMap) {
+  if (!idMap.size) return value
+  // Longest first, so an id that starts another (`a` and `a::b`) never takes the other's keys.
+  const oldIds = [...idMap.keys()].sort((a, b) => b.length - a.length)
+  const renameText = (text) => {
+    for (const oldId of oldIds) {
+      if (text === oldId) return idMap.get(oldId)
+      if (text.startsWith(`${oldId}::`)) return `${idMap.get(oldId)}${text.slice(oldId.length)}`
+    }
+    return text
+  }
+  const visit = (item) => {
+    if (typeof item === 'string') return renameText(item)
+    if (Array.isArray(item)) return item.map(visit)
+    if (!item || typeof item !== 'object') return item
+    return Object.fromEntries(
+      Object.entries(item).map(([key, child]) => [renameText(key), NAME_FIELDS.has(key) && typeof child === 'string' ? child : visit(child)])
+    )
+  }
+  return visit(value)
 }
 
 /**
