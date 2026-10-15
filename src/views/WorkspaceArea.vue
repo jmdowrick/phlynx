@@ -2445,7 +2445,6 @@ watch(
 
 .vue-flow__edge.selected .vue-flow__edge-path {
   stroke: var(--p-primary-color);
-  stroke-width: 7px;
 }
 
 .flow-loading-overlay {
