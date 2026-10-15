@@ -8,6 +8,9 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
+// Exporting and re-importing through libcellml takes seconds per test on CI.
+vi.setConfig({ testTimeout: 120000 })
+
 const notified = vi.hoisted(() => ({ error: vi.fn(), info: vi.fn(), success: vi.fn(), warning: vi.fn() }))
 vi.mock('../../../src/utils/notify', () => ({ notify: notified }))
 
