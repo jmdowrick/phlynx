@@ -2,7 +2,7 @@
   <Dialog
     v-model:visible="dialogVisible"
     modal
-    header="New Empty Subsystem"
+    :header="text.header"
     :style="{ width: '400px' }"
     @mousedown.stop
     @wheel.stop
@@ -19,14 +19,14 @@
       <small id="new-subsystem-hint" :class="['new-subsystem-hint', { 'new-subsystem-hint--error': problem }]">
         <template v-if="problem">{{ problem }}</template>
         <template v-else-if="cleaned !== name.trim()">Will be named <strong>{{ cleaned }}</strong>.</template>
-        <template v-else>Makes a super-module and one subsystem of it, both with this name.</template>
+        <template v-else>{{ text.hint }}</template>
       </small>
     </form>
 
     <template #footer>
       <div class="dialog-footer">
         <Button label="Cancel" text @click="closeDialog" />
-        <Button label="Create" :disabled="!!problem" @click="handleConfirm" />
+        <Button :label="text.confirm" :disabled="!!problem" @click="handleConfirm" />
       </div>
     </template>
   </Dialog>
@@ -34,9 +34,10 @@
 
 <script setup>
 /**
- * Asks for the name of a new, empty super-module and the subsystem of it placed on the canvas. Emits `confirm` with
- * the name, which the rules for names inside super-modules accept and nothing on the canvas or among super-modules
- * has (see useSupermodules).
+ * Asks for a super-module's name: a new, empty one's and its subsystem's ('new'), the one a selection is nested into
+ * and its subsystem's ('nest'), or a new name for one ('rename'). Emits `confirm` with the name, which the rules for
+ * names inside super-modules accept and nothing on the canvas (but a super-module renamed) or among the other
+ * super-modules has (see useSupermodules).
  */
 import { computed, ref, watch } from 'vue'
 
@@ -52,7 +53,29 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  mode: {
+    type: String,
+    default: 'new',
+    validator: (value) => ['new', 'nest', 'rename'].includes(value),
+  },
+  // The super-module renamed, in 'rename' mode.
+  smId: {
+    type: String,
+    default: null,
+  },
+  // The name offered, in 'rename' mode.
+  initialName: {
+    type: String,
+    default: '',
+  },
 })
+
+const TEXT = {
+  new: { header: 'New Empty Subsystem', confirm: 'Create', hint: 'Makes a super-module and one subsystem of it, both with this name.' },
+  nest: { header: 'Nest Selection', confirm: 'Nest', hint: 'Moves the selection into a new super-module, with one subsystem of it in its place, both with this name.' },
+  rename: { header: 'Rename Super-module', confirm: 'Rename', hint: 'Its subsystems keep their own names.' },
+}
+const text = computed(() => TEXT[props.mode])
 
 const emit = defineEmits(['update:modelValue', 'confirm'])
 
@@ -68,6 +91,7 @@ const dialogVisible = computed({
 const cleaned = computed(() => sanitiseName(name.value))
 const problem = computed(() => {
   if (!cleaned.value) return 'A name is needed.'
+  if (props.mode === 'rename') return supermoduleNameProblem(cleaned.value, { except: props.smId })
   return subsystemNameProblem(cleaned.value) ?? supermoduleNameProblem(cleaned.value)
 })
 
@@ -92,7 +116,7 @@ function handleConfirm() {
 watch(
   () => props.modelValue,
   (isVisible) => {
-    if (isVisible) name.value = freeDefaultName()
+    if (isVisible) name.value = props.mode === 'rename' ? props.initialName : freeDefaultName()
   },
   { immediate: true }
 )

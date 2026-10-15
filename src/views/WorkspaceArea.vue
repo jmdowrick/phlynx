@@ -434,6 +434,7 @@
             @edges-change="onEdgeChange"
             @edge-double-click="onEdgeDoubleClick"
             @pane-context-menu="onPaneContextMenu"
+            @selection-context-menu="onSelectionContextMenu"
             @pane-click="onPaneClick"
             class="main-flow"
             :max-zoom="1.5"
@@ -537,7 +538,7 @@
 
   <MacroBuilderDialog v-model="macroBuilderDialogVisible" @generate="onMacroBuilderGenerate" />
 
-  <NewSubsystemDialog v-model="newSubsystemDialogVisible" @confirm="onNewSubsystemConfirm" />
+  <NewSubsystemDialog v-model="newSubsystemDialogVisible" :mode="newSubsystemMode" @confirm="onNewSubsystemConfirm" />
 
   <SimulationFloatingViewer :nodes="modelNodes" :is-canvas-shown="route.name === 'workspace'" />
   <SimSettingsDialog v-model="simSettingsDialog.visible" :section="simSettingsDialog.section" :nodes="modelNodes" />
@@ -636,6 +637,7 @@ import { useRevealModelNode } from '../composables/useRevealModelNode'
 import { useModelWriter } from '../composables/useModelWriter'
 import { useSupermodules } from '../composables/useSupermodules'
 import { useCanvasDelete } from '../composables/useCanvasDelete'
+import { useHierarchyOperations } from '../composables/useHierarchyOperations'
 
 import LibraryArea from '../components/LibraryArea.vue'
 import ResizableLibraryPanel from '../components/ResizableLibraryPanel.vue'
@@ -878,8 +880,12 @@ const exportDialogVisible = ref(false)
 const replacementDialogVisible = ref(false)
 const macroBuilderDialogVisible = ref(false)
 const newSubsystemDialogVisible = ref(false)
+// Whether the subsystem dialog makes a new, empty subsystem ('new') or nests nodes ('nest').
+const newSubsystemMode = ref('new')
 // Where the pane menu that opened the new subsystem dialog was, in flow coordinates.
 const newSubsystemPosition = ref({ x: 0, y: 0 })
+// The canvas nodes the subsystem dialog nests.
+const nestIds = ref([])
 const { state: simSettingsDialog, open: openSimSettingsDialog } = useSimSettingsDialog()
 const { state: protocolDialog } = useProtocolDialog()
 const settingsDialogVisible = ref(false)
@@ -1862,7 +1868,8 @@ floatingViewer.setSidebarCollapser(() => contextSidebarRef.value?.collapse())
 const { run: runSimulation } = useSimulation()
 const simulationResultsStore = useSimulationResultsStore()
 
-const paneContextMenuItems = [
+/** @returns {Array} The pane menu's items: Nest Selection only while nodes are selected. */
+const paneContextMenuItems = () => [
   {
     label: 'Create Module',
     action: () => createNewInstanceAtPosition(mousePosition.value.x, mousePosition.value.y),
@@ -1871,6 +1878,9 @@ const paneContextMenuItems = [
     label: 'New Empty Subsystem',
     action: () => openNewSubsystemDialog(mousePosition.value.x, mousePosition.value.y),
   },
+  ...(canvasSelectedNodes.value.length
+    ? [{ label: `Nest Selection (${canvasSelectedNodes.value.length})`, action: () => openNestDialog(canvasSelectedNodes.value.map((node) => node.id)) }]
+    : []),
   {
     label: 'Select All',
     action: () => selectAllNodes(),
@@ -1885,24 +1895,44 @@ const paneContextMenuItems = [
   },
 ]
 
-const contextMenuItems = ref(paneContextMenuItems)
+const contextMenuItems = ref(paneContextMenuItems())
 
 function onPaneContextMenu(event) {
   event.preventDefault()
-  contextMenuItems.value = paneContextMenuItems
+  contextMenuItems.value = paneContextMenuItems()
+  contextMenuRef.value.open(event.clientX, event.clientY)
+}
+
+/** Opens the menu of a box selection, right-clicked over the rectangle around it: what acts on all of it. */
+function onSelectionContextMenu({ event }) {
+  event.preventDefault()
+  // The menu closes on a right-click that reaches the document.
+  event.stopPropagation()
+  const ids = canvasSelectedNodes.value.map((node) => node.id)
+  if (!ids.length) return
+  contextMenuItems.value = [
+    { label: `Nest Selection (${ids.length})`, action: () => openNestDialog(ids) },
+    ...(canvasLevel.isEditingSupermodule.value ? [] : [{ label: simulateLabelFor(ids[0]), action: () => simulateFromNode(ids[0]) }]),
+  ]
   contextMenuRef.value.open(event.clientX, event.clientY)
 }
 
 function onNodeContextMenu({ clientX, clientY, id }) {
   const node = findNode(id)
   if (!node) return
+  const toNest = simulationScopeFor(id)
   contextMenuItems.value = nodeContextMenuItems({
     node,
     isEditingSupermodule: canvasLevel.isEditingSupermodule.value,
     simulateLabel: simulateLabelFor(id),
+    nestLabel: toNest.length > 1 ? `Nest Selection (${toNest.length})` : 'Nest in Subsystem',
+    canMakeUnique: hierarchy.canMakeUnique(node),
     actions: {
       open: () => canvasLevel.enter(id),
       editSupermodule: () => canvasLevel.editSupermodule(node.data.smId),
+      makeUnique: () => reportProblems('Not Made Unique', hierarchy.makeUniqueSubsystem(id)),
+      unnest: () => reportProblems('Not Un-nested', hierarchy.unnestSubsystem(id)),
+      nest: () => openNestDialog(toNest),
       remove: () => deleteNodes([id]),
       replace: () => onOpenReplacementDialog(node),
       simulate: () => simulateFromNode(id),
@@ -1919,16 +1949,52 @@ function onNodeContextMenu({ clientX, clientY, id }) {
  */
 function openNewSubsystemDialog(clientX, clientY) {
   newSubsystemPosition.value = screenToFlowCoordinate({ x: clientX, y: clientY })
+  newSubsystemMode.value = 'new'
+  newSubsystemDialogVisible.value = true
+}
+
+/**
+ * Asks for a name, then nests canvas nodes into a new super-module, with one subsystem of it in their place. Nodes
+ * that can't be nested say why at once.
+ *
+ * @param {string[]} ids
+ */
+function openNestDialog(ids) {
+  const problem = hierarchy.nestProblemOf(ids)
+  if (problem) {
+    notify.warning({ title: 'Not Nested', message: problem })
+    return
+  }
+  nestIds.value = ids
+  newSubsystemMode.value = 'nest'
   newSubsystemDialogVisible.value = true
 }
 
 /** @param {string} name - Checked by the dialog. */
 function onNewSubsystemConfirm(name) {
+  if (newSubsystemMode.value === 'nest') {
+    reportProblems('Not Nested', hierarchy.nest(nestIds.value, name))
+    return
+  }
   try {
     supermoduleCatalogue.createEmptySubsystem(name, newSubsystemPosition.value)
   } catch (error) {
     notify.error({ title: 'Subsystem Not Created', message: error.message })
   }
+}
+
+// Make unique, nest and un-nest, each one undo step.
+const hierarchy = useHierarchyOperations({ history: historyStore })
+
+/**
+ * Says why a structural edit wasn't made, when it wasn't.
+ *
+ * @param {string} title
+ * @param {Promise<{problems: string[]}>} outcome
+ */
+async function reportProblems(title, outcome) {
+  const { problems } = await outcome
+  if (problems.length) notify.warning({ title, message: problems.join(' ') })
 }
 
 // Deleting asks first when it would break an exposed port or leave a super-module unused.

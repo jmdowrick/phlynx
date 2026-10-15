@@ -188,17 +188,48 @@ function createCatalogue(flow, flowId) {
   }
 
   /**
-   * Why a name can't be a new super-module's, or null when it can: a subsystem's rules, and unique among super-modules.
+   * Why a name can't be a super-module's, or null when it can: a subsystem's rules, and unique among super-modules.
    *
    * @param {string} name
+   * @param {Object} [options]
+   * @param {string} [options.except] - The super-module being renamed, whose own name doesn't count.
    * @returns {string|null}
    */
-  const supermoduleNameProblem = (name) => {
+  const supermoduleNameProblem = (name, { except } = {}) => {
     const trimmed = (name ?? '').trim()
     const problem = localNameProblem(trimmed, { subsystem: true })
     if (problem) return problem
-    const taken = supermodules.value.some((entry) => entry.name === trimmed)
+    const taken = supermodules.value.some((entry) => entry.name === trimmed && entry.id !== except)
     return taken ? `A super-module is already called "${trimmed}".` : null
+  }
+
+  /**
+   * Renames a super-module, as one undo step. Its subsystems keep their own names.
+   *
+   * @param {string} smId
+   * @param {string} name - Checked by supermoduleNameProblem.
+   * @param {Object} [options]
+   * @param {Object} [options.history] - The undo stack to record into; the workspace's by default.
+   * @returns {Promise<boolean>} Whether the name changed.
+   * @throws {Error} When the name can't be used.
+   */
+  async function renameSupermodule(smId, name, { history = useFlowHistoryFor() } = {}) {
+    const trimmed = (name ?? '').trim()
+    const node = flow.findNode(smId)
+    if (!isSupermoduleInterface(node) || node.data?.supermodule?.name === trimmed) return false
+    const problem = supermoduleNameProblem(trimmed, { except: smId })
+    if (problem) throw new Error(problem)
+    const before = JSON.parse(JSON.stringify(node.data.supermodule))
+    const write = (supermodule) => {
+      const target = flow.findNode(smId)
+      if (target) target.data = { ...target.data, supermodule: { ...supermodule } }
+    }
+    await history.executeAndAddCommand({
+      type: 'rename-supermodule',
+      redo: () => write({ ...before, name: trimmed }),
+      undo: () => write(before),
+    })
+    return true
   }
 
   /** @returns {string} A name not yet used on the canvas: `base`, else `base_2`, `base_3`, … */
@@ -266,6 +297,7 @@ function createCatalogue(flow, flowId) {
     orphanedBy,
     exposedBy,
     deleteSupermodule,
+    renameSupermodule,
     subsystemNameProblem,
     supermoduleNameProblem,
     createEmptySubsystem,

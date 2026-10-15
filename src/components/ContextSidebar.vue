@@ -105,8 +105,26 @@
               <template v-if="selectedNode && !isMultipleSelected && isSupermoduleInterface(selectedNode)">
                 <h4 class="context-section-title">
                   Exposed ports of {{ selectedNode.data?.supermodule?.name ?? selectedNode.id }}
+                  <Button
+                    icon="pi pi-tag"
+                    severity="secondary"
+                    text
+                    rounded
+                    size="small"
+                    class="rename-supermodule-btn"
+                    :aria-label="`Rename super-module ${selectedNode.data?.supermodule?.name ?? selectedNode.id}`"
+                    v-tooltip.top="'Rename super-module'"
+                    @click="renameDialogVisible = true"
+                  />
                 </h4>
                 <ExposedPortList :sm-id="selectedNode.id" />
+                <NewSubsystemDialog
+                  v-model="renameDialogVisible"
+                  mode="rename"
+                  :sm-id="selectedNode.id"
+                  :initial-name="selectedNode.data?.supermodule?.name ?? ''"
+                  @confirm="(name) => onRenameSupermodule(selectedNode.id, name)"
+                />
               </template>
               <template v-else-if="selectedNode && !isMultipleSelected && isSubsystem(selectedNode)">
                 <h4 class="context-section-title">{{ selectedNode.data?.name }}</h4>
@@ -350,6 +368,27 @@ import ExposedPortList from './ExposedPortList.vue'
 import SubsystemPanel from './SubsystemPanel.vue'
 import { useParameterContext } from '../composables/useParameterContext'
 import { isSubsystem, isSupermoduleInterface } from '../utils/hierarchy'
+import { notify } from '../utils/notify'
+import NewSubsystemDialog from './dialogs/NewSubsystemDialog.vue'
+import { useSupermodules } from '../composables/useSupermodules'
+
+// Renaming the super-module whose interface node is selected.
+const renameDialogVisible = ref(false)
+const { renameSupermodule } = useSupermodules()
+
+/**
+ * Renames a super-module, as one undo step.
+ *
+ * @param {string} smId
+ * @param {string} name - Checked by the dialog.
+ */
+async function onRenameSupermodule(smId, name) {
+  try {
+    await renameSupermodule(smId, name)
+  } catch (error) {
+    notify.error({ title: 'Not Renamed', message: error.message })
+  }
+}
 
 const props = defineProps({
   initialWidth: {
@@ -862,6 +901,11 @@ function handleParameterTypeChange(row) {
   flex-direction: column;
   min-height: 0;
   flex: 1 1 auto;
+}
+
+.rename-supermodule-btn {
+  margin-left: auto;
+  align-self: center;
 }
 
 .context-section-title {

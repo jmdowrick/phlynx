@@ -55,6 +55,12 @@ const ALLOWED = [
     reason: 'Materialises every subsystem’s ports from its super-module’s exposure edges, each store node once.',
   },
   {
+    file: 'src/composables/useHierarchyOperations.js',
+    line: 'useVueFlow(flowId)',
+    use: 'model-safe',
+    reason: 'Nests, un-nests and makes unique across every scope, each store node and edge once, keeping the model it expands to.',
+  },
+  {
     file: 'src/composables/useExposure.js',
     line: 'useVueFlow(flowId)',
     use: 'model-safe',
@@ -124,8 +130,7 @@ const ALLOWED = [
   { file: 'src/composables/useNodeDataHistory.js', line: 'useVueFlow(flowId)', use: 'canvas', reason: 'The flow whose node edits are undone.' },
   { file: 'src/composables/useNodeDataHistory.js', line: 'return edges.value.filter', use: 'canvas', reason: 'The edges an edit to some nodes may recouple.' },
   { file: 'src/composables/useWorkflowLayout.js', line: '= useVueFlow()', use: 'canvas', reason: 'Lays out the canvas.' },
-  { file: 'src/composables/useWorkspaceClipboard.js', line: 'useVueFlow(flowId)', use: 'canvas', reason: 'The flow it copies from and pastes to.' },
-  { file: 'src/composables/useWorkspaceClipboard.js', line: 'const edgeIdSet', use: 'canvas', reason: 'Ids pasted edges must not take.' },
+  { file: 'src/composables/useWorkspaceClipboard.js', line: 'useVueFlow(flowId)', use: 'canvas', reason: 'The flow it copies from and pastes to, with the super-modules copied subsystems depend on.' },
 
   // Safe for the model as they are: each store node once, as stored, which is what they need.
   {

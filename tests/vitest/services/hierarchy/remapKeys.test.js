@@ -4,7 +4,7 @@ import path from 'node:path'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { dropKeys, KEYED_STORES, UNKEYED_STORES } from '../../../../src/services/hierarchy/remapKeys.js'
+import { dropKeys, KEYED_STORES, remapNodeKeys, UNKEYED_STORES } from '../../../../src/services/hierarchy/remapKeys.js'
 import { useInspectionModuleStore } from '../../../../src/stores/inspectionModuleStore.js'
 import { useSimulationResultsStore } from '../../../../src/stores/simulationResultsStore.js'
 import { useSimulationSettingsStore } from '../../../../src/stores/simulationSettingsStore.js'
@@ -74,5 +74,53 @@ describe('dropKeys', () => {
   it('changes nothing when no key names a module gone', () => {
     expect(dropKeys(() => false).changed).toBe(false)
     expect(settings.plotConfig.selections).toHaveLength(2)
+  })
+})
+
+describe('remapNodeKeys', () => {
+  const selection = (nodeId, nodeName = nodeId) => ({ key: `${nodeId}::v`, nodeId, nodeName, variableName: 'v', units: '', type: 'variable', plot: true, groupId: 'plot-1' })
+  const idMap = new Map([['b', 'dndnode_4/b']])
+  const nameOf = (id) => ({ 'dndnode_4/b': 'mid__b' })[id]
+  let settings, inspection, results
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    settings = useSimulationSettingsStore()
+    inspection = useInspectionModuleStore()
+    results = useSimulationResultsStore()
+    settings.setPlotConfig({
+      groups: [{ id: 'plot-1', name: 'Plot 1', xAxis: { key: 'b::x', nodeId: 'b', variableName: 'x' } }],
+      selections: [selection('b'), selection('a')],
+    })
+    settings.setParameterScanConfig({ selections: [{ key: 'b::k', nodeId: 'b' }, { key: 'a::k', nodeId: 'a' }] })
+    settings.setSimulationSettings({ ...settings.simulationSettings, sweep: { key: 'a::k', nodeId: 'a', family: { key: 'b::k', nodeId: 'b', values: [1] } } })
+    inspection.addModule({ id: 'i1', name: 'm', units: '', variables: [{ key: 'b::v', nodeId: 'b', nodeName: 'b' }] })
+    results.setSliderValue('b::k', 2)
+    results.setSliderValue('global::g', 3)
+    results.startRun(['a', 'b'])
+  })
+
+  it('moves every key of a module to its new model id and name, and puts them back', () => {
+    const before = JSON.stringify([settings.getState(), inspection.modules, [...results.sliderValues], results.scopeNodeIds])
+    const { changed, restore } = remapNodeKeys(idMap, nameOf)
+    expect(changed).toBe(true)
+    expect(settings.plotConfig.selections.map((s) => [s.key, s.nodeId, s.nodeName])).toEqual([
+      ['dndnode_4/b::v', 'dndnode_4/b', 'mid__b'],
+      ['a::v', 'a', 'a'],
+    ])
+    expect(settings.plotConfig.groups[0].xAxis).toEqual({ key: 'dndnode_4/b::x', nodeId: 'dndnode_4/b', variableName: 'x' })
+    expect(settings.parameterScanConfig.selections.map((s) => s.key)).toEqual(['dndnode_4/b::k', 'a::k'])
+    expect(settings.simulationSettings.sweep.family).toEqual({ key: 'dndnode_4/b::k', nodeId: 'dndnode_4/b', values: [1] })
+    expect(inspection.modules[0].variables[0]).toMatchObject({ key: 'dndnode_4/b::v', nodeId: 'dndnode_4/b', nodeName: 'mid__b' })
+    expect([...results.sliderValues.keys()]).toEqual(['dndnode_4/b::k', 'global::g'])
+    expect(results.scopeNodeIds).toEqual(['a', 'dndnode_4/b'])
+
+    restore('before')
+    expect(JSON.stringify([settings.getState(), inspection.modules, [...results.sliderValues], results.scopeNodeIds])).toBe(before)
+  })
+
+  it('changes nothing when no key names a module moved', () => {
+    expect(remapNodeKeys(new Map([['z', 'y/z']])).changed).toBe(false)
+    expect(remapNodeKeys(new Map()).changed).toBe(false)
   })
 })

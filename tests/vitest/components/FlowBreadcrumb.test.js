@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
 import { useVueFlow } from '@vue-flow/core'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import FlowBreadcrumb from '../../../src/components/FlowBreadcrumb.vue'
 import { useCanvasLevel } from '../../../src/composables/useCanvasLevel.js'
+import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { FLOW_IDS } from '../../../src/utils/constants.js'
 import { module, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
 
@@ -133,7 +134,7 @@ describe('FlowBreadcrumb', () => {
     mountCrumbs()
     level.enter('dndnode_1')
     await wrapper.vm.$nextTick()
-    expect(wrapper.find('.supermodule-banner').text()).toBe(
+    expect(wrapper.find('.supermodule-banner span').text()).toBe(
       "Editing super-module 'heart' — changes apply to 3 subsystems"
     )
 
@@ -141,6 +142,38 @@ describe('FlowBreadcrumb', () => {
     level.enter('sm_1~dndnode_0')
     await wrapper.vm.$nextTick()
     expect(wrapper.find('.supermodule-banner').text()).toContain("'chamber' — changes apply to 3 subsystems")
+  })
+
+  it('makes the subsystem entered unique from the banner, the canvas following it to the copy and back on undo', async () => {
+    mountCrumbs()
+    level.enter('dndnode_1')
+    await wrapper.vm.$nextTick()
+    await wrapper.find('.supermodule-banner button').trigger('click')
+    // The edit is one undo step once it has settled.
+    await vi.waitFor(() => expect(useFlowHistoryStore().canUndo).toBe(true))
+    await flushPromises()
+    expect(flow.findNode('dndnode_1').data.smId).toBe('sm_3')
+    expect(level.scope.value).toBe('sm_3')
+    expect(crumbTexts()).toEqual(['Model', 'heart (heart_2)'])
+    expect(wrapper.find('.supermodule-banner').exists()).toBe(false)
+    expect(flow.findNode('sm_3~dndnode_0').hidden).toBeFalsy()
+    expect(flow.findNode('sm_1~dndnode_0').hidden).toBe(true)
+
+    await useFlowHistoryStore().undo()
+    await flushPromises()
+    // Without the canvas's change listeners only the subsystem's own change is recorded; the copy's undo is the
+    // integration test's.
+    expect(flow.findNode('dndnode_1').data.smId).toBe('sm_1')
+    expect(level.scope.value).toBe('sm_1')
+    expect(wrapper.find('.supermodule-banner').exists()).toBe(true)
+  })
+
+  it('offers no Make unique for a super-module edited on its own', async () => {
+    mountCrumbs()
+    level.editSupermodule('sm_1')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.supermodule-banner').exists()).toBe(true)
+    expect(wrapper.find('.supermodule-banner button').exists()).toBe(false)
   })
 
   it('has no banner for a super-module with one copy, and marks one edited on its own', async () => {
