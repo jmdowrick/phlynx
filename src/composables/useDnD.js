@@ -8,10 +8,10 @@ import {
   NUM_GHOST_HANDLES_LEFT_RIGHT,
   NUM_GHOST_HANDLES_TOP_BOT
 } from '../utils/constants'
-import { getId as getNextNodeId } from '../utils/nodes'
 import { attachNewNodeToFrame, findAnyNode, generateUniqueInstanceName } from '../utils/nodes'
 import { buildInstance } from '../services/import/buildWorkflow'
 import { buildGhostHandles } from '../utils/handles'
+import { useActiveCanvas } from './useActiveCanvas'
 import { useLibraryStore } from '../stores/libraryStore'
 import { extractGlobalConstants } from '../utils/variables'
 
@@ -31,7 +31,8 @@ const state = {
 export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MAIN) {
   const { draggedType, isDragOver, isDragging } = state
 
-  const { addNodes, getNodes, onNodesInitialized, screenToFlowCoordinate, updateNode } = useVueFlow(flowId)
+  const { addNodes, onNodesInitialized, screenToFlowCoordinate, updateNode } = useVueFlow(flowId)
+  const { nodes: canvasNodes, nextNodeId } = useActiveCanvas(flowId)
   const store = useLibraryStore()
 
   const isGhostSetupOpen = ref(false)
@@ -91,10 +92,10 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
    * @returns {{ nodeId: string, nodeType: string }}
    */
   function createInstanceNode(moduleData, position, handles = []) {
-    const nodeId = getNextNodeId(getNodes.value.map((n) => n.id))
+    const nodeId = nextNodeId()
     pendingHistoryNodes.add(nodeId)
 
-    const existingNames = new Set(getNodes.value.map((n) => n.data.name))
+    const existingNames = new Set(canvasNodes.value.map((n) => n.data.name))
     const instanceName = moduleData.moduleRef.includes(":") ? moduleData.moduleRef.split(":")[0] : moduleData.moduleRef
     const finalName = generateUniqueInstanceName(instanceName, existingNames)
 

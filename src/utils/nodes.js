@@ -1,8 +1,6 @@
-import { useVueFlow } from "@vue-flow/core"
+import { useActiveCanvas } from "../composables/useActiveCanvas"
 import { FLOW_IDS } from "./constants"
 import { nextSequentialId } from "./hierarchy"
-
-const { getNodes } = useVueFlow(FLOW_IDS.MAIN)
 
 /**
  * Generates a unique instance name based on the instance data and existing names.
@@ -32,8 +30,14 @@ export function getId(nodeIds, prefix = 'dndnode_') {
   return nextSequentialId(nodeIds, prefix)
 }
 
+/**
+ * Finds a node on the workspace's canvas with a layout frame.
+ *
+ * @returns {Object|undefined}
+ */
 export function findAnyNode() {
-  return getNodes.value.find(n => n.data?.layoutFrame)
+  const { nodes: canvasNodes } = useActiveCanvas(FLOW_IDS.MAIN)
+  return canvasNodes.value.find(n => n.data?.layoutFrame)
 }
 
 /**

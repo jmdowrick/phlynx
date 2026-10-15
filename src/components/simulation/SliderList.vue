@@ -130,8 +130,6 @@
  * course; adding, removing and changing ranges still work, as they run nothing.
  */
 import { computed, nextTick, onBeforeUnmount, ref, useId } from 'vue'
-import { useVueFlow } from '@vue-flow/core'
-
 import Button from 'primevue/button'
 import InputNumber from 'primevue/inputnumber'
 import Menu from 'primevue/menu'
@@ -139,6 +137,7 @@ import Popover from 'primevue/popover'
 import Slider from 'primevue/slider'
 
 import { useModelGraph } from '../../composables/useModelGraph'
+import { useModelWriter } from '../../composables/useModelWriter'
 import { useNodeDataHistory } from '../../composables/useNodeDataHistory'
 import VariablePathPicker from './VariablePathPicker.vue'
 import {
@@ -174,7 +173,7 @@ const libraryStore = useLibraryStore()
 const protocolStore = useProtocolStore()
 const resultsStore = useSimulationResultsStore()
 const settingsStore = useSimulationSettingsStore()
-const { updateNodeData } = useVueFlow(FLOW_IDS.MAIN)
+const { writeValue } = useModelWriter()
 const { recordEdit } = useNodeDataHistory(FLOW_IDS.MAIN)
 const { graph: modelGraph } = useModelGraph()
 const rangeId = useId()
@@ -450,12 +449,11 @@ function applyToModel(slider) {
         apply: () => libraryStore.assignGlobalConstant(slider.parameterName, value, shared?.units ?? slider.units, shared?.data_reference ?? null, true),
       })
     } else {
-      const variables = slider.node.data.variables.map((row) => (row.name === slider.parameterName ? { ...row, value } : row))
       recordEdit({
         type: 'apply-slider',
         nodeIds: [slider.node.id],
         keys: ['variables'],
-        apply: () => updateNodeData(slider.node.id, { variables }),
+        apply: () => writeValue(slider.node.id, slider.parameterName, { value }),
       })
     }
     const config = slider.definitions.reduce(

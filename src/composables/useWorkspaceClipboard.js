@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 import { parseLayout } from 'cellml-text-editor'
+import { useActiveCanvas } from './useActiveCanvas'
 import { useLibraryStore } from '../stores/libraryStore'
 import { separateNodeParameters } from '../services/workspaceMigrator'
 import { FLOW_IDS } from '../utils/constants'
@@ -68,19 +69,21 @@ const getBoundingCenter = (nodes) => {
 export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FLOW_IDS.MAIN }) {
   const { addEdges, addNodes, edges, getSelectedEdges, getSelectedNodes, nodes, screenToFlowCoordinate } =
     useVueFlow(flowId)
+  const { nodes: canvasNodes, selectedNodes, selectedEdges } = useActiveCanvas(flowId)
   const libraryStore = useLibraryStore()
 
   const clipboard = ref({ nodes: [], edges: [] })
 
+  // Selects the nodes on the canvas, none off it.
   function selectAllNodes() {
-    nodes.value.forEach((node) => {
+    canvasNodes.value.forEach((node) => {
       node.selected = true
     })
   }
 
   const copySelection = async () => {
-    const nodes = getSelectedNodes.value
-    const edges = getSelectedEdges.value
+    const nodes = selectedNodes.value
+    const edges = selectedEdges.value
 
     if (nodes.length === 0) return
 
@@ -176,6 +179,7 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
     }
 
     const idMap = {}
+    // Ids are unique across the whole store, not just the canvas.
     const nodeIdSet = nodes.value.map((n) => n.id)
     const edgeIdSet = edges.value.map((e) => e.id)
 
@@ -226,6 +230,7 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
       }
     })
 
+    // Clears the whole selection, off the canvas too.
     getSelectedNodes.value.forEach((n) => (n.selected = false))
     getSelectedEdges.value.forEach((e) => (e.selected = false))
 

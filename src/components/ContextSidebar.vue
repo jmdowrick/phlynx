@@ -285,6 +285,8 @@ import { isTypeFixed, typeOptionsFor } from '../utils/parameterRows'
 import { detachReactivity } from '../utils/reactivity'
 import { hasValueCell, valuePlaceholder } from '../utils/variables'
 
+import { useActiveCanvas } from '../composables/useActiveCanvas'
+import { useModelWriter } from '../composables/useModelWriter'
 import { useNodeDataHistory } from '../composables/useNodeDataHistory'
 import { useResizableAside } from '../composables/useResizableAside'
 import { useVirtualScrollerOptions } from '../composables/useVirtualScrollerOptions'
@@ -340,12 +342,14 @@ const activeTabId = ref('global')
 const libraryStore = useLibraryStore()
 const inspectionModuleStore = useInspectionModuleStore()
 
-const { getSelectedNodes, updateNodeData, userSelectionActive } = useVueFlow(FLOW_IDS.MAIN)
+const { userSelectionActive } = useVueFlow(FLOW_IDS.MAIN)
+const { selectedNodes } = useActiveCanvas()
+const { writeValue } = useModelWriter()
 const { recordEdit } = useNodeDataHistory(FLOW_IDS.MAIN)
 
-const selectedNode = computed(() => getSelectedNodes.value[0] || null)
+const selectedNode = computed(() => selectedNodes.value[0] || null)
 
-const isMultipleSelected = computed(() => getSelectedNodes.value.length > 1)
+const isMultipleSelected = computed(() => selectedNodes.value.length > 1)
 
 const isParamsVisible = computed(() => !isCollapsed.value && activeTabId.value === 'params')
 const isSimulationVisible = computed(() => !isCollapsed.value && activeTabId.value === 'sim')
@@ -539,11 +543,6 @@ function persistParameterRow(row, { isValueEdit }) {
   const node = parameterRowsNode.value
   if (!node) return
 
-  // Merge only what the sidebar edits, so saved fields it doesn't show (e.g. stateRole, initialiser) survive.
-  const variables = (node.data?.variables || []).map((variable) =>
-    variable.name === row.name ? { ...variable, value: row.value, type: row.type } : variable
-  )
-
   recordEdit({
     type: 'edit-parameters',
     nodeIds: [node.id],
@@ -560,8 +559,8 @@ function persistParameterRow(row, { isValueEdit }) {
           isValueEdit
         )
       }
-      lastWrittenVariables = detachReactivity(variables)
-      updateNodeData(node.id, { variables: lastWrittenVariables })
+      // Merge only what the sidebar edits, so saved fields it doesn't show (e.g. stateRole, initialiser) survive.
+      lastWrittenVariables = writeValue(node.id, row.name, { value: row.value, type: row.type })
     },
   })
 }

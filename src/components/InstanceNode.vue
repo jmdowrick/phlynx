@@ -124,12 +124,14 @@ import { detachReactivity } from '../utils/reactivity'
 import { HANDLE_VARIANT } from '../utils/constants'
 import { isUnitKnown } from '../utils/parameterRows'
 import { categoryStyle as themeCategoryStyle } from '../utils/nodeThemes'
+import { useActiveCanvas } from '../composables/useActiveCanvas'
 import { useHandleManagement } from '../composables/useHandleManagement'
 import { useNodeDataHistory } from '../composables/useNodeDataHistory'
 
 import '../assets/vueflownode.css'
 
-const { id: flowId, addEdges, edges, removeEdges, updateNodeData, updateNodeInternals, nodes, viewport } = useVueFlow()
+const { id: flowId, addEdges, edges, removeEdges, updateNodeData, updateNodeInternals, viewport } = useVueFlow()
+const { nodes: canvasNodes } = useActiveCanvas(flowId)
 const { beginGhostActivation, revertPendingGhostIfUnused } = useHandleManagement()
 const { recordEdit } = useNodeDataHistory(flowId)
 const historyStore = useFlowHistoryFor()
@@ -382,7 +384,7 @@ function saveEdit() {
     return
   }
 
-  const nameExists = nodes.value.some((node) => node.id !== props.id && node.data && node.data.name === sanitisedName)
+  const nameExists = canvasNodes.value.some((node) => node.id !== props.id && node.data && node.data.name === sanitisedName)
 
   if (nameExists) {
     notify.error({ message: 'An instance with this name already exists.' })

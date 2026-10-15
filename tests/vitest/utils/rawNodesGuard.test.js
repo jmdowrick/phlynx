@@ -19,6 +19,8 @@ const PATTERNS = [
   /(?<![\w$])(?:nodes|edges|getNodes|getEdges)\s*:\s*[A-Za-z_$][\w$]*[^{}]*\}\s*=\s*useVueFlow\(/g,
 ]
 
+// Vue Flow's selection takes in nodes off screen, so these move to useActiveCanvas().selectedNodes when navigation (H6)
+// hides them, as does WorkspaceArea's (somethingSelected, copy, selectedNodeIds).
 const SELECTION = 'The canvas selection, expanded into the model (expandSelection) before it runs.'
 const MACRO = 'The macro builder’s own flow (FLOW_IDS.MACRO), not the workspace.'
 
@@ -30,18 +32,23 @@ const MACRO = 'The macro builder’s own flow (FLOW_IDS.MACRO), not the workspac
  */
 const ALLOWED = [
   { file: 'src/composables/useModelGraph.js', use: 'model-safe', reason: 'The model graph expands the store.' },
+  { file: 'src/composables/useActiveCanvas.js', use: 'canvas', reason: 'The canvas filters the store to the scope shown.' },
+  {
+    file: 'src/composables/useModelWriter.js',
+    line: 'useVueFlow(FLOW_IDS.MAIN)',
+    use: 'model-safe',
+    reason: 'Writes a root module’s values to its node, whose id is its model id; a module inside a subsystem isn’t written.',
+  },
 
-  // The canvas: what it shows, selects, lays out and edits as nodes (scoped to the level shown from H6).
+  // The canvas: what it shows, selects, lays out and edits as nodes. What reads only what is shown reads
+  // useActiveCanvas() instead; these read the whole store, or the flow's actions.
   { file: 'src/views/WorkspaceArea.vue', line: '} = useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'The workspace’s own flow.' },
-  { file: 'src/views/WorkspaceArea.vue', line: 'const allNodeNames', use: 'canvas', reason: 'Names a pasted or renamed node must not take.' },
+  { file: 'src/main.js', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'Creates the workspace’s flow outside any component, so it lasts as long as the app.' },
   { file: 'src/views/WorkspaceArea.vue', line: 'const somethingAvailable', use: 'canvas', reason: 'Whether there is anything to save, clear or lay out.' },
-  { file: 'src/views/WorkspaceArea.vue', line: 'const screenshotDisabled', use: 'canvas', reason: 'Whether the canvas has anything to picture.' },
-  { file: 'src/views/WorkspaceArea.vue', line: 'relayoutNodes(nodes.value', use: 'canvas', reason: 'Lays out the canvas.' },
   { file: 'src/views/WorkspaceArea.vue', line: 'for (const node of nodes.value)', use: 'canvas', reason: 'Normalises the ports of loaded nodes.' },
   { file: 'src/views/WorkspaceArea.vue', line: 'resolveEdgeCouplings(nodes.value', use: 'canvas', reason: 'Repairs loaded edges without couplings.' },
-  { file: 'src/components/ContextSidebar.vue', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'The selected canvas node, and edits to its rows.' },
-  { file: 'src/components/NodeColourPanel.vue', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'Colours the selected canvas nodes.' },
-  { file: 'src/components/InstanceNode.vue', line: 'const nameExists', use: 'canvas', reason: 'A rename must not take another node’s name.' },
+  { file: 'src/components/ContextSidebar.vue', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'Whether a box selection is under way.' },
+  { file: 'src/components/NodeColourPanel.vue', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'Colours the canvas nodes selected (useActiveCanvas).' },
   { file: 'src/components/InstanceEditorDialog.vue', line: 'const nameOf', use: 'canvas', reason: 'Names the canvas neighbours a port connects to.' },
   { file: 'src/components/simulation/SimulationFloatingViewer.vue', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: SELECTION },
   { file: 'src/composables/useSimulationRunner.js', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: SELECTION },
@@ -51,20 +58,14 @@ const ALLOWED = [
   { file: 'src/composables/useClearWorkspace.js', line: 'const oldNodes = nodes.value', use: 'canvas', reason: 'Keeps the whole store to undo a clear.' },
   { file: 'src/composables/useClearWorkspace.js', line: 'nodes.value = oldNodes', use: 'canvas', reason: 'Restores the whole store.' },
   { file: 'src/composables/useClearWorkspace.js', line: 'nodes.value = []', use: 'canvas', reason: 'Clears the whole store.' },
-  { file: 'src/composables/useDnD.js', line: 'getNextNodeId(getNodes.value', use: 'canvas', reason: 'A dropped node’s id.' },
-  { file: 'src/composables/useDnD.js', line: 'const existingNames', use: 'canvas', reason: 'A dropped node’s name.' },
   { file: 'src/composables/useFlowHistory.js', line: 'updateHelperLines(changes, nodes.value)', use: 'canvas', reason: 'Helper lines while dragging.' },
   { file: 'src/composables/useHandleManagement.js', line: 'getNodes.value.find', count: 3, use: 'canvas', reason: 'The handles of canvas nodes.' },
   { file: 'src/composables/useInstanceSave.js', line: 'previewCouplings(nodeId', use: 'canvas', reason: 'Recouples a node’s own edges when its ports change.' },
   { file: 'src/composables/useLoadFromInstanceArray.js', line: 'nodes.value,', use: 'canvas', reason: 'Ids the imported nodes must not take.' },
-  { file: 'src/composables/useWorkspaceClipboard.js', line: 'nodes.value.forEach', use: 'canvas', reason: 'Selects all.' },
   { file: 'src/composables/useWorkspaceClipboard.js', line: 'const nodeIdSet', use: 'canvas', reason: 'Ids pasted nodes must not take.' },
   { file: 'src/composables/useWorkspaceSaveLoad.js', line: 'label: `Nodes:', use: 'canvas', reason: 'Counts what a save holds, for tracking.' },
   { file: 'src/services/generate/generateWorkflow.js', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'Adds a generated macro to the canvas.' },
-  { file: 'src/services/generate/generateWorkflow.js', line: 'getNodes.value.forEach', use: 'canvas', reason: 'Ids the generated nodes must not take.' },
-  { file: 'src/utils/nodes.js', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'The canvas’s layout frame.' },
-  { file: 'src/utils/nodes.js', line: 'getNodes.value.find', use: 'canvas', reason: 'The canvas’s layout frame.' },
-  { file: 'src/components/GhostSetupDialog.vue', line: 'getNodes.value', use: 'canvas', reason: MACRO },
+  { file: 'src/services/generate/generateWorkflow.js', line: 'getNodes.value.forEach', use: 'canvas', reason: 'Ids the generated nodes must not take, unique across the store.' },
   { file: 'src/components/MacroBuilderDialog.vue', line: 'nodes.value', count: 4, use: 'canvas', reason: MACRO },
   { file: 'src/components/MacroBuilderDialog.vue', line: 'edges.value', count: 2, use: 'canvas', reason: MACRO },
 
@@ -125,12 +126,6 @@ const ALLOWED = [
     line: 'return nodes.value.filter',
     use: 'model-safe',
     reason: 'The nodes a save switches to the new math, each written once; the count shown is the model’s.',
-  },
-  {
-    file: 'src/components/simulation/SliderList.vue',
-    line: 'useVueFlow(FLOW_IDS.MAIN)',
-    use: 'model-safe',
-    reason: 'Applies a slider’s value to its module, root modules only, whose model id is their own; a module inside a subsystem isn’t applied (isInSubsystem).',
   },
   {
     file: 'src/composables/useInstanceSave.js',

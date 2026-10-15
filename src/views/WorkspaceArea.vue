@@ -604,7 +604,9 @@ import { prepareCellmlImport } from '../services/import/prepareCellml'
 import { useGtm } from '../composables/useGtm'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useImportExportSend } from '../composables/useImportExportSend'
+import { useActiveCanvas } from '../composables/useActiveCanvas'
 import { useModelGraph } from '../composables/useModelGraph'
+import { useModelWriter } from '../composables/useModelWriter'
 
 import LibraryArea from '../components/LibraryArea.vue'
 import ResizableLibraryPanel from '../components/ResizableLibraryPanel.vue'
@@ -745,6 +747,9 @@ const {
   findModelNode,
   rootIdOf,
 } = useModelGraph()
+// What the canvas shows: the store's nodes and edges in the scope shown.
+const { nodes: canvasNodes, edges: canvasEdges } = useActiveCanvas()
+const { writeVariables } = useModelWriter()
 const { processMacroGeneration } = useMacroGenerator()
 const { confirm } = useConfirmDialog()
 const toast = useToast()
@@ -910,7 +915,7 @@ watch(currentMatchIndex, async () => {
   matchListRef.value?.querySelector('.search-match-item.active')?.scrollIntoView?.({ block: 'nearest' })
 })
 
-const allNodeNames = computed(() => nodes.value.map((n) => n.data.name))
+const allNodeNames = computed(() => canvasNodes.value.map((n) => n.data.name))
 const somethingAvailable = computed(() => nodes.value.length > 0)
 const somethingSelected = computed(() => getSelectedNodes.value.length > 0)
 const hasModelChanged = computed(() => cyrb53(snapshotFlowState()) !== omexStore.archiveHash)
@@ -1048,7 +1053,7 @@ useConnect({
   reactivateEdgeHandles,
 })
 
-const screenshotDisabled = computed(() => nodes.value.length === 0 && vueFlowRef.value !== null)
+const screenshotDisabled = computed(() => canvasNodes.value.length === 0 && vueFlowRef.value !== null)
 
 const loadCellMLData = (content, filename, { notify: shouldNotify = true, trackEvents = true } = {}) => {
   return new Promise((resolve) => {
@@ -1147,7 +1152,7 @@ const loadParametersData = async (content, filename, { notify: shouldNotify = tr
     // row's type; a computed row's value isn't applied.
     const loaded = applyParametersToModel(modelGraph.value, Array.from(content))
     const { variablesById, updated: totalLocal, skipped, nested } = loaded
-    for (const [id, variables] of variablesById) findNode(id).data.variables = variables
+    for (const [id, variables] of variablesById) writeVariables(id, variables)
 
     const globalConstants = Array.from(content)
       .filter((entry) => variableCatalogue.has(entry.variable_name.trimEnd()))
@@ -1902,7 +1907,7 @@ function createNewInstanceAtPosition(clientX, clientY) {
 }
 
 function handleAutoLayout() {
-  relayoutNodes(nodes.value, edges.value)
+  relayoutNodes(canvasNodes.value, canvasEdges.value)
 }
 
 /**

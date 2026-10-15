@@ -14,8 +14,8 @@ const edges = ref([])
 // Flow coordinates are the screen ones shifted, so a test can tell the conversion was applied.
 const screenToFlowCoordinate = vi.fn(({ x, y }) => ({ x: x - 10, y: y - 20 }))
 
-// utils/nodes.js calls useVueFlow when it is imported, before the refs above exist, so the mock
-// hands out an object that is filled in afterwards.
+// The mock is hoisted above the refs, so it hands out one object, filled in below, that every useVueFlow
+// caller shares.
 const flow = vi.hoisted(() => ({}))
 vi.mock('@vue-flow/core', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -193,6 +193,30 @@ describe('useWorkspaceClipboard', () => {
       expect(warn).toHaveBeenCalled()
       expect(nodes.value).toHaveLength(4)
       warn.mockRestore()
+    })
+  })
+
+  describe('with a super-module, whose nodes are off the canvas', () => {
+    beforeEach(() => {
+      const inside = (id, name) => {
+        const node = createNode(id, name, 0, 0)
+        return { ...node, data: { ...node.data, scope: 'sm_1' } }
+      }
+      nodes.value.push(inside('sm_1~dndnode_0', 'D'), inside('sm_1~dndnode_1', 'E'))
+      edges.value.push(createEdge('edge_2', 'sm_1~dndnode_0', 'sm_1~dndnode_1'))
+    })
+
+    it('selects all of the canvas, nothing inside the super-module', () => {
+      clipboard.selectAllNodes()
+      expect(nodes.value.filter((node) => node.selected).map((node) => node.id)).toEqual(['dndnode_0', 'dndnode_1', 'dndnode_2'])
+    })
+
+    it('copies only what is selected on the canvas', async () => {
+      select(['dndnode_0', 'sm_1~dndnode_0', 'sm_1~dndnode_1'], ['edge_2'])
+      await clipboard.copySelection()
+      const payload = JSON.parse(systemClipboard.text)
+      expect(payload.nodes.map((node) => node.id)).toEqual(['dndnode_0'])
+      expect(payload.edges).toEqual([])
     })
   })
 
