@@ -7,7 +7,7 @@ import { detachReactivity } from '../utils/reactivity'
 const isSame = (value, otherValue) => JSON.stringify(value) === JSON.stringify(otherValue)
 
 /**
- * Records edits to node data, edge couplings and global constants as canvas undo steps. Nodes and
+ * Records edits to node data, edge data and global constants as canvas undo steps. Nodes and
  * edges are found by id on every undo and redo, so a step still applies after they are re-created.
  *
  * @param {string} [flowId=FLOW_IDS.MAIN] - Only the main flow records history.
