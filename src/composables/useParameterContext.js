@@ -91,7 +91,7 @@ export function useParameterContext(flowId = FLOW_IDS.MAIN) {
     let rows = null
     recordEdit({
       type: isOverride ? 'edit-override' : 'edit-parameters',
-      ...writer.recordTargetOf(modelId, { target: chosen }),
+      ...writer.recordTargetOf(modelId, { target: chosen, variable, patch: written }),
       apply: () => {
         alsoApply?.()
         rows = writer.writeValue(modelId, variable, written, { target: chosen })
@@ -111,7 +111,7 @@ export function useParameterContext(flowId = FLOW_IDS.MAIN) {
     if (mode !== 'instance') return
     recordEdit({
       type: 'reset-override',
-      ...writer.recordTargetOf(modelId),
+      ...writer.recordTargetOf(modelId, { variable }),
       apply: () => writer.resetOverride(modelId, variable),
     })
   }

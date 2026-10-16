@@ -168,3 +168,44 @@ describe('useModelWriter', () => {
     expect(() => writeValue('a', 'R', { value: '5' }, { target: 'elsewhere' })).toThrow('Unknown write target')
   })
 })
+
+describe('useModelWriter on rows bound to local constants', () => {
+  const flow = useVueFlow(FLOW_IDS.MAIN)
+  const { graph } = useModelGraph()
+  const { writeValue, resetOverride, recordTargetOf, provenanceOf } = useModelWriter()
+  const local = { name: 'k', type: 'local_constant', value: '', units: 'dimensionless' }
+  const valueOf = (modelId) => graph.value.nodes.find((node) => node.id === modelId).data.variables.find((row) => row.name === 'k').value
+
+  beforeEach(() => {
+    const p = vessel('p', 'p', { scope: 'sm_1', variables: [{ ...local }] })
+    const sm = supermodule('sm_1', 'segment', { submoduleOrder: ['p'], localConstants: [{ name: 'k', units: 'dimensionless', value: '3' }] })
+    const seg = superInstance([sm, p], 'dndnode_1', 'seg', 'sm_1')
+    flow.edges.value = []
+    flow.nodes.value = []
+    flow.addNodes([seg, sm, p])
+  })
+
+  it('writes this super instance’s value as its override under @, and resets it', () => {
+    expect(recordTargetOf('dndnode_1/p', { variable: 'k', patch: { value: '5' } })).toEqual({ nodeIds: ['dndnode_1'], keys: ['overrides'] })
+    writeValue('dndnode_1/p', 'k', { value: '5', type: 'local_constant' })
+    expect(flow.findNode('dndnode_1').data.overrides).toEqual({ '@': { k: { value: '5' } } })
+    expect(valueOf('dndnode_1/p')).toBe('5')
+    expect(provenanceOf('dndnode_1/p').get('k')).toMatchObject({ chip: 'overridden', inherited: '3' })
+    // The super-module's own value clears it.
+    writeValue('dndnode_1/p', 'k', { value: '3' })
+    expect(flow.findNode('dndnode_1').data.overrides).toEqual({})
+    writeValue('dndnode_1/p', 'k', { value: '5' })
+    resetOverride('dndnode_1/p', 'k')
+    expect(valueOf('dndnode_1/p')).toBe('3')
+    expect(flow.findNode('sm_1~p').data.variables[0]).toEqual(local)
+  })
+
+  it('writes the super-module’s default to the declaration, and a change of type to the row', () => {
+    expect(recordTargetOf('dndnode_1/p', { target: 'supermodule', variable: 'k' })).toEqual({ nodeIds: ['sm_1'], keys: ['supermodule'] })
+    writeValue('dndnode_1/p', 'k', { value: '7' }, { target: 'supermodule' })
+    expect(flow.findNode('sm_1').data.supermodule.localConstants[0].value).toBe('7')
+    expect(valueOf('dndnode_1/p')).toBe('7')
+    writeValue('dndnode_1/p', 'k', { value: '7', type: 'constant' }, { target: 'supermodule' })
+    expect(flow.findNode('sm_1~p').data.variables[0]).toMatchObject({ type: 'constant', value: '7' })
+  })
+})

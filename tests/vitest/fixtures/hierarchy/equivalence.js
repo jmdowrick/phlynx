@@ -354,3 +354,76 @@ export function hubBranches(store) {
   const flatBranches = k.map((value, i) => buildNode(`f${i + 1}`, `b${i + 1}__leaf`, 'file:branch', branchPort(), { values: { k: value } }))
   return { nested, flat: { nodes: [flatHub, ...flatBranches], edges: flatBranches.map((branch) => connect(flatHub, branch)) } }
 }
+
+/**
+ * A hub draining through a Sum port into two super instances of a super-module of two branches (l1, l2) whose k is
+ * its local constant (#445), declared 0.5: b1 overrides it as 0.25 and b2 as 0.125. The flat graph sets each branch's k.
+ *
+ * @param {Object} store - A libraryStore; the hub and branch math are added to it.
+ */
+export function localConstantBranches(store) {
+  const buildNode = (localId, name, mathRef, ports, { scope = null, values = {}, local = [] } = {}) => {
+    const portVariables = new Set(ports.flatMap((port) => port.variables))
+    const rows = reconcileRows(analyzeMathXml(store.availableMath.get(mathRef)), [], { defaults: store.getMathDefaults(mathRef) }).map((row) => ({
+      ...row,
+      type: local.includes(row.name) ? 'local_constant' : row.type === 'constant' && portVariables.has(row.name) ? 'boundary_condition' : row.type,
+      ...(row.name in values && { value: values[row.name] }),
+    }))
+    return { id: nodeIdOf(scope, localId), type: MAIN_NODE_TYPE, data: { scope, localId, name, mathRef, variables: rows, ports } }
+  }
+  store.addUnitsFile({ componentFile: 'per_second.cellml', model: PER_SECOND })
+  store.addMath('file:hub', HUB_XML)
+  store.addMath('file:branch', BRANCH_XML)
+  const hubPort = () => [{ portType: 'exit_ports', label: 'vessel', variables: ['v_sum', 'u'], multiportType: ['sum', 'True'] }]
+  const branchPort = () => [{ portType: 'entrance_ports', label: 'vessel', variables: ['v', 'u'], multiportType: 'None' }]
+  const k = ['0.25', '0.125']
+
+  const leaves = ['l1', 'l2'].map((localId) => buildNode(localId, localId, 'file:branch', branchPort(), { scope: 'sm_1', local: ['k'] }))
+  const sm = supermodule('sm_1', 'pair', { submoduleOrder: ['l1', 'l2'], localConstants: [{ name: 'k', units: 'per_second', value: '0.5' }] })
+  const exposure = exposures('sm_1', [exposed('xp1', 'l1', 'entrance_ports', 'vessel'), exposed('xp2', 'l2', 'entrance_ports', 'vessel')])
+  const hub = buildNode('dndnode_0', 'hub', 'file:hub', hubPort())
+  const inner = { nodes: [sm, ...leaves], edges: exposure }
+  const pairs = k.map((value, i) => superInstance(inner, `dndnode_${i + 1}`, `b${i + 1}`, 'sm_1', { overrides: { '@': { k: { value } } } }))
+  // The hub's Sum port feeds both of a pair's exposed ports, the second in its label's slot 1.
+  const feed = (pair, i) => {
+    const edge = connect(hub, pair, { id: `e${i}` })
+    const [first] = edge.data.couplings
+    edge.data.couplings.push({ ...first, targetPort: pair.data.ports.find((p) => p.exposedPortId === 'xp2'), targetSlot: 1 })
+    return edge
+  }
+  const nested = { nodes: [hub, ...pairs, sm, ...leaves], edges: [...pairs.map(feed), ...exposure] }
+
+  const flatHub = buildNode('f0', 'hub', 'file:hub', hubPort())
+  const flatLeaves = k.flatMap((value, i) =>
+    ['l1', 'l2'].map((leaf, j) => buildNode(`f${2 * i + j + 1}`, `b${i + 1}__${leaf}`, 'file:branch', branchPort(), { values: { k: value } }))
+  )
+  return { nested, flat: { nodes: [flatHub, ...flatLeaves], edges: flatLeaves.map((leaf) => connect(flatHub, leaf)) } }
+}
+
+/**
+ * A segment super-module (a → b, bundled arteries) whose R is its local constant, declared 3, used twice in series:
+ * seg1 overrides it as 2 and seg2 keeps it. The flat graph sets each artery's R.
+ *
+ * @param {Function} make
+ */
+export function localConstantSegments(make) {
+  const bindR = (node) => {
+    node.data.variables = node.data.variables.map((row) => (row.name === 'R' ? { ...row, type: 'local_constant', value: '3' } : row))
+    return node
+  }
+  const a = bindR(make('a', 'a', 'arterial_simple:vp', { scope: 'sm_1' }))
+  const b = bindR(make('b', 'b', 'arterial_simple:vp', { scope: 'sm_1' }))
+  const units = a.data.variables.find((row) => row.name === 'R').units
+  const sm = supermodule('sm_1', 'segment', { submoduleOrder: ['a', 'b'], localConstants: [{ name: 'R', units, value: '3' }] })
+  const exposure = exposures('sm_1', [exposed('xp_in', 'a', 'entrance_ports', 'vessel_port'), exposed('xp_out', 'b', 'exit_ports', 'vessel_port')])
+  const internal = connect(a, b, { id: 'e_int' })
+  const inner = { nodes: [sm, a, b], edges: exposure }
+  const seg1 = superInstance(inner, 'dndnode_0', 'seg1', 'sm_1', { overrides: { '@': { R: { value: '2' } } } })
+  const seg2 = superInstance(inner, 'dndnode_1', 'seg2', 'sm_1')
+  const nested = { nodes: [seg1, seg2, sm, a, b], edges: [connect(seg1, seg2, { id: 'e0' }), internal, ...exposure] }
+
+  const flat = ['2', '3'].flatMap((value, i) => ['a', 'b'].map((leaf) => make(`f${i}${leaf}`, `seg${i + 1}__${leaf}`, 'arterial_simple:vp', { values: { R: value } })))
+  const used = new Set()
+  const flatEdges = [connect(flat[0], flat[1], { used }), connect(flat[1], flat[2], { used }), connect(flat[2], flat[3], { used })]
+  return { nested, flat: { nodes: flat, edges: flatEdges } }
+}

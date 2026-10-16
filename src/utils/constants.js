@@ -44,6 +44,8 @@ export const PARAMETER_TYPE_OPTIONS = [
   { value: 'variable', label: 'variable' },
   { value: 'boundary_condition', label: 'boundary' },
 ]
+/** The type of a row bound to its super-module's local constant, offered only where one can be (see typeOptionsFor). */
+export const LOCAL_CONSTANT_TYPE_OPTION = { value: 'local_constant', label: 'local' }
 
 
 export const PHLYNX_GLOBAL_PARAMETERS_COMPONENT_NAME = 'global_parameters'
@@ -127,7 +129,7 @@ export const TIME_NAMES = new Set(['time', 't'])
 export const ACCESS = 'access'
 export const NO_ACCESS = 'no_access'
 
-export const VALUE_REQUIRED_TYPES = new Set(['constant', 'global_constant'])
+export const VALUE_REQUIRED_TYPES = new Set(['constant', 'global_constant', 'local_constant'])
 
 export const MAX_VISIBLE_TAGS = 1
 

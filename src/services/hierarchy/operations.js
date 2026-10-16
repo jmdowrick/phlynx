@@ -38,6 +38,7 @@ import {
 import { sanitiseName } from '../../utils/identifiers'
 import { expandHierarchy, EXPANDED_ID_SEPARATOR, LOCAL_CONSTANTS_KEY } from './expand'
 import { EXPOSED_PORT_ID_PREFIX, exposureEnds, exposureEntriesOf, indexExposures, nextExposedPortId, superInstancePorts } from './exposure'
+import { asConstants, isLocalConstantRow, localConstantsOf, localConstantValue } from './localConstants'
 import { LEVEL_SEPARATOR } from './names'
 
 const NODE_ID_PREFIX = 'dndnode_'
@@ -211,11 +212,12 @@ function ghostUnusedHandles(copies, oldEdges, newEdges) {
 
 /**
  * Rewrites the override keys of every super instance whose keys pass through a scope: where a key's path of local ids
- * reaches it, `rewriteAt` gives the rest of the path as it becomes, or null when the key goes.
+ * reaches it, `rewriteAt` gives the rest of the path as it becomes, null when the key goes, or `{entries}` when it
+ * becomes several keys, each with its own patches.
  *
  * @param {Array} nodes - The store before the edit.
  * @param {string} scope - A super-module's id.
- * @param {(segments: string[]) => string[]|null} rewriteAt
+ * @param {(segments: string[], patches: Object) => string[]|null|{entries: Array<[string[], Object]>}} rewriteAt
  * @param {Set<string>} [skip] - Super instances left alone.
  * @returns {Map<string, Object>} Each super instance whose overrides change, to its new overrides.
  */
@@ -233,8 +235,9 @@ function rewriteOverrideKeys(nodes, scope, rewriteAt, skip = new Set()) {
       let within = node.data.smId
       for (let i = 0; i < segments.length && segments[i] !== LOCAL_CONSTANTS_KEY; i++) {
         if (within === scope) {
-          const rest = rewriteAt(segments.slice(i))
-          result = rest && [...segments.slice(0, i), ...rest]
+          const rest = rewriteAt(segments.slice(i), patches)
+          const prefix = segments.slice(0, i)
+          result = !rest || Array.isArray(rest) ? rest && [...prefix, ...rest] : { entries: rest.entries.map(([part, set]) => [[...prefix, ...part], set]) }
           break
         }
         const child = childOf(within, segments[i])
@@ -245,9 +248,14 @@ function rewriteOverrideKeys(nodes, scope, rewriteAt, skip = new Set()) {
         isChanged = true
         continue
       }
-      const newKey = result.join(EXPANDED_ID_SEPARATOR)
-      if (newKey !== key) isChanged = true
-      next[newKey] = { ...next[newKey], ...clone(patches) }
+      // A key may become several, each with patches of its own.
+      const entries = Array.isArray(result) ? [[result, patches]] : result.entries
+      if (entries.length !== 1) isChanged = true
+      for (const [segmentsOut, patchesOut] of entries) {
+        const newKey = segmentsOut.join(EXPANDED_ID_SEPARATOR)
+        if (newKey !== key) isChanged = true
+        next[newKey] = { ...next[newKey], ...clone(patchesOut) }
+      }
     }
     if (isChanged) changed.set(node.id, next)
   }
@@ -435,6 +443,9 @@ export function nestProblem(nodes, ids) {
   if (!selected.length || selected.some((node) => !node)) return 'Select the nodes to nest.'
   if (selected.some(isSupermoduleInterface)) return 'A super-module’s interface node can’t be nested.'
   if (new Set(selected.map(scopeOf)).size > 1) return 'The nodes to nest must all be in one scope.'
+  // Its super-module's local constants bind only its own children.
+  const bound = selected.find((node) => !isSuperInstance(node) && (node.data?.variables ?? []).some(isLocalConstantRow))
+  if (bound) return `"${bound.data.name}" uses a local constant of its super-module, which binds only the super-module’s own modules: make it a constant first.`
   return null
 }
 
@@ -677,9 +688,6 @@ export function unnestProblem(nodes, superInstanceId) {
   if (!isSuperInstance(superInstance)) return 'That is not a super instance.'
   const supermodule = supermodulesById(nodes).get(superInstance.data.smId)
   if (!supermodule) return `Super instance "${superInstance.data.name}" has no super-module.`
-  if (supermodule.data?.supermodule?.localConstants?.length) {
-    return `Super-module "${supermodule.data.supermodule.name}" has local constants, which un-nesting can’t keep yet.`
-  }
   return null
 }
 
@@ -690,7 +698,8 @@ export function unnestProblem(nodes, superInstanceId) {
  * - Each child gets a new id in the super instance's scope, and its name prefixed with the super instance's (`heart__lv` at the
  *   root, so its flat name is kept; `heart_lv` inside a super-module, whose names can't hold `__`), unique there.
  * - The super instance's overrides are baked in: into a module's rows, or a nested super instance's own overrides, which they win
- *   over.
+ *   over. Its super-module's local constants are baked into the rows bound to them, as constants with the values they
+ *   have for it; an outer super instance's override of them becomes an override of each of those rows.
  * - The edges inside move up with them. An edge to the super instance becomes one edge to each child its couplings reach
  *   through the exposed ports, the couplings naming the child's own ports in the same slots. A coupling to a port its
  *   super-module no longer exposes goes (it couples nothing).
@@ -715,6 +724,9 @@ export function unnest(nodes, edges, superInstanceId) {
   const isShared = nodes.some((node) => isSuperInstance(node) && node.id !== superInstanceId && node.data.smId === smId)
   const children = childrenInOrder(nodes, smId)
   const overrides = superInstance.data.overrides ?? {}
+  // Its local constants, with the values they have for it.
+  const declared = new Map(localConstantsOf(supermodule).map((declaration) => [declaration.name, declaration]))
+  const localValue = (name) => localConstantValue([superInstance], [localIdOf(superInstance)], name, declared.get(name).value)
 
   // The children, copied up into the super instance's scope.
   const nextId = nodeIdAllocator(nodes, scope)
@@ -742,8 +754,11 @@ export function unnest(nodes, edges, superInstanceId) {
         for (const [variable, patch] of Object.entries(patches)) inner[rest][variable] = { ...inner[rest][variable], ...clone(patch) }
       }
       data.overrides = inner
-    } else if (overrides[localId]) {
-      data.variables = (data.variables ?? []).map((row) => (overrides[localId][row.name] ? { ...row, ...clone(overrides[localId][row.name]) } : row))
+    } else {
+      if (overrides[localId]) {
+        data.variables = (data.variables ?? []).map((row) => (overrides[localId][row.name] ? { ...row, ...clone(overrides[localId][row.name]) } : row))
+      }
+      data.variables = asConstants(data.variables, (row) => (declared.has(row.name) ? localValue(row.name) : undefined))
     }
     const position = { x: (child.position?.x ?? 0) + offset.x, y: (child.position?.y ?? 0) + offset.y }
     copies.set(child.id, copyItem(child, { id, position, data }))
@@ -847,8 +862,25 @@ export function unnest(nodes, edges, superInstanceId) {
       ? order.flatMap((localId) => (localId === superInstance.data.localId ? [...newLocalIds.values()] : [localId]))
       : order
     changes.set(scope, { supermodule: { ...definition, submoduleOrder } })
-    const rewriteAt = (rest) => {
+    // An outer override of its local constants sets each row bound to them.
+    const bound = children.filter((child) => !isSuperInstance(child) && (child.data?.variables ?? []).some((row) => isLocalConstantRow(row) && declared.has(row.name)))
+    const rewriteAt = (rest, patches) => {
       if (rest[0] !== superInstance.data.localId) return rest
+      if (rest.length === 2 && rest[1] === LOCAL_CONSTANTS_KEY) {
+        const entries = bound.flatMap((child) => {
+          const set = Object.fromEntries(
+            Object.entries(patches ?? {}).filter(([name]) => declared.has(name) && child.data.variables.some((row) => isLocalConstantRow(row) && row.name === name))
+          )
+          return Object.keys(set).length ? [[[newLocalIds.get(localIdOf(child))], set]] : []
+        })
+        return { entries }
+      }
+      // An outer override of a row bound to a local constant set nothing (the local constant won): it goes.
+      const child = rest.length === 2 && bound.find((candidate) => localIdOf(candidate) === rest[1])
+      if (child) {
+        const kept = Object.fromEntries(Object.entries(patches ?? {}).filter(([name]) => !(declared.has(name) && child.data.variables.some((row) => isLocalConstantRow(row) && row.name === name))))
+        return { entries: Object.keys(kept).length ? [[[newLocalIds.get(rest[1])], kept]] : [] }
+      }
       return newLocalIds.has(rest[1]) ? [newLocalIds.get(rest[1]), ...rest.slice(2)] : null
     }
     for (const [id, next] of rewriteOverrideKeys(nodes, scope, rewriteAt, new Set([superInstanceId]))) changes.set(id, { overrides: next })

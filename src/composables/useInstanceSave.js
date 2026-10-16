@@ -1,12 +1,14 @@
 import { useVueFlow } from '@vue-flow/core'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
+import { planRetypeBinding } from '../services/hierarchy/localConstants'
 import { getPortVariables, reconcileRows } from '../services/math/reconcileRows'
 import { getNodeSelections, replaceNodeSelections, setNodePlotVariables } from '../services/simulation/plotSelections'
 import { FLOW_IDS, PROTECTED_MATH_REFS } from '../utils/constants'
 import { previewCouplings } from '../utils/edges'
 import { notify } from '../utils/notify'
 import { detachReactivity } from '../utils/reactivity'
+import { applyShadowedOverrideRemoval } from './useLocalConstants'
 import { useModelGraph } from './useModelGraph'
 import { useNodeDataHistory } from './useNodeDataHistory'
 
@@ -239,14 +241,18 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     const isUsed = (ref) => nodes.value.some((node) => node.data?.mathRef === ref)
     const plotChange = preparePlotChange(save)
     const moduleChange = prepareModuleChange(save)
+    // Rows retyped to a local constant leave their super instances' overrides inert, so those go too.
+    const edited = findNode(id)
+    const shadowed = edited ? planRetypeBinding(nodes.value, edited, save.variables) : { changes: new Map(), count: 0 }
 
     await recordEdit({
       type: 'edit-instance',
-      nodeIds: affectedIds,
-      keys: NODE_KEYS,
+      nodeIds: [...affectedIds, ...shadowed.changes.keys()],
+      keys: shadowed.changes.size ? [...NODE_KEYS, 'overrides'] : NODE_KEYS,
       edgeIds: findIncidentEdgeIds(affectedIds),
       apply: () => {
         const moduleRef = applySave(save)
+        applyShadowedOverrideRemoval(shadowed, updateNodeData)
         moduleChange?.created(moduleRef)
         mathAfter = writtenMathRef && libraryStore.getMathEntry(writtenMathRef)
         plotChange?.apply()

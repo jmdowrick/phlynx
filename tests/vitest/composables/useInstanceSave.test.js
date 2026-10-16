@@ -11,6 +11,7 @@ import { useSimulationSettingsStore } from '../../../src/stores/simulationSettin
 import { NEW_MODULE_FILENAME, NEW_MODULE_REF } from '../../../src/utils/constants.js'
 import { previewCouplings } from '../../../src/utils/edges.js'
 import { detachReactivity } from '../../../src/utils/reactivity.js'
+import { superInstance, supermodule } from '../fixtures/hierarchy/graph.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
 const nodes = ref([])
@@ -149,6 +150,23 @@ describe('useInstanceSave', () => {
     expect(snapshot()).toEqual(after)
     expect(library.availableMath.has(GROWTH_REF)).toBe(true)
     expect(library.getGlobalConstant('g')).toMatchObject({ value: '2' })
+  })
+
+  it('drops the overrides of a row retyped to a local constant in the save’s step, and says so', async () => {
+    const a = findNode('a')
+    a.data.scope = 'sm_1'
+    a.data.localId = 'a'
+    const sm = supermodule('sm_1', 'segment', { submoduleOrder: ['a'], localConstants: [{ name: 'k', units: 'per_second', value: '3' }] })
+    const seg = superInstance([sm, a], 'dndnode_1', 'seg', 'sm_1', { overrides: { a: { k: { value: '9' } } } })
+    nodes.value = [...nodes.value, sm, seg]
+    const variables = a.data.variables.map((row) => (row.name === 'k' ? { ...row, type: 'local_constant' } : row))
+    await saveInstanceEdit(buildSave({ name: 'a', variables }))
+    expect(findNode('dndnode_1').data.overrides).toEqual({})
+    expect(notified.info).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('replaced 1 per-instance value,') }))
+
+    await history.undo()
+    expect(findNode('a').data.variables.find((row) => row.name === 'k').type).toBe('constant')
+    expect(findNode('dndnode_1').data.overrides).toEqual({ a: { k: { value: '9' } } })
   })
 
   it('undoes an overwrite in place, including the unticked instances it rebuilt', async () => {

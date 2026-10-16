@@ -251,12 +251,16 @@ describe('expandHierarchy values', () => {
     expect(kinds).toEqual([
       ['orphanedOverride', 'warning', expect.stringContaining('"ra" variable "gone"')],
       ['orphanedOverride', 'warning', expect.stringContaining('"nobody" variable "R"')],
+      ['orphanedOverride', 'warning', expect.stringContaining('"@" local constant "c"')],
     ])
   })
 
-  it('keeps local constant keys of nested super instances for H13', () => {
+  it('warns of local constant overrides of nested super instances whose super-module declares none of them', () => {
     const { nodes, edges } = twoLevel({ outer: { 'bed/@': { c: { value: '1' } }, '@': { d: { value: '2' } } } })
-    expect(expandHierarchy(nodes, edges).errors).toEqual([])
+    expect(expandHierarchy(nodes, edges).errors.map((error) => error.message)).toEqual([
+      'Super instance "leg" sets "bed/@" local constant "c", which no longer exists.',
+      'Super instance "leg" sets "@" local constant "d", which no longer exists.',
+    ])
   })
 
   it('places an orphaned override of a nested super instance at each place it expands', () => {

@@ -209,6 +209,7 @@
                 :connection-status="connectionStatus"
                 :math-references="mathReferences"
                 :suggest-units="suggestUnitsFor"
+                :local-constant-names="localConstantNames"
               />
             </TabPanel>
 
@@ -538,6 +539,8 @@ import { useModelGraph } from '../composables/useModelGraph'
 import { isInitialisable } from '../services/math/variableKinds'
 import { resolveBoundaryValues } from '../services/export/boundaryValues'
 import { expandHierarchy } from '../services/hierarchy/expand'
+import { localConstantsOf } from '../services/hierarchy/localConstants'
+import { scopeOf } from '../utils/hierarchy'
 import {
   createSinglePlotConfig,
   getNodePlotEntries,
@@ -588,6 +591,14 @@ const { trackEvent } = useGtm()
 // The canvas, which the edit previews and saves into, and the model, which plots and counts read.
 const { nodes, edges } = useVueFlow()
 const { modelNodes, mainIdOf } = useModelGraph()
+
+// The local constants of the super-module the module is in: a row of one of their names can be bound to them.
+const localConstants = computed(() => {
+  const byId = (id) => nodes.value.find((node) => node.id === id)
+  const scope = scopeOf(byId(props.id))
+  return new Map(localConstantsOf(scope ? byId(scope) : null).map((declaration) => [declaration.name, declaration]))
+})
+const localConstantNames = computed(() => new Set(localConstants.value.keys()))
 const { confirm } = useConfirmDialog()
 const { settings: appSettings } = useAppSettings()
 
@@ -1275,7 +1286,12 @@ async function loadEditor({ keepTab = false } = {}) {
   // Saved stateRole/initialiser keep pairings the math alone can't reveal, such as shared initialisers.
   const savedRows = props.variables.map((row) => ({
     name: row.name,
-    value: row.type === 'global_constant' ? store.getGlobalConstant(row.name)?.value : row.value,
+    value:
+      row.type === 'global_constant'
+        ? store.getGlobalConstant(row.name)?.value
+        : row.type === 'local_constant'
+          ? (localConstants.value.get(row.name)?.value ?? row.value)
+          : row.value,
     units: row.units,
     type: row.type,
     access: row.access,

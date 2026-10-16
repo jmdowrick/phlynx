@@ -6,7 +6,8 @@
  * - A super-module's submodules are its children in submoduleOrder, by their local names, with sibling-only lists in
  *   the order the flat export gives them; a nested super instance is a record with its own per_submodule_* naming its
  *   siblings. Its children's values are its `default` parameterisation (`lv/E` rows); a nested super instance's
- *   overrides are rows below it (`soma/membrane/C`).
+ *   overrides are rows below it (`soma/membrane/C`). CA has no local constants: a row bound to one is a row of its own,
+ *   with the declared value, and an override of one is a row for each row bound to it.
  * - A root super instance is `{name, module_type, module_subtype, parameterisation, per_submodule_*}`, the hosts of each
  *   child in the flat lists' order, its keys in exposed-port order; its overrides are host rows (`heart/lv/E`).
  * - The layout (`phlynx_layout`) and exposed ports (`phlynx_interface`) are passthrough keys, which the import reads
@@ -29,6 +30,7 @@ import {
 } from '../../utils/hierarchy'
 import { instanceNames } from '../caRules'
 import { isLocalConstantsKey, EXPANDED_ID_SEPARATOR } from '../hierarchy/expand'
+import { asConstants, isLocalConstantRow, localConstantsOf } from '../hierarchy/localConstants'
 import { indexExposures } from '../hierarchy/exposure'
 import { LEVEL_SEPARATOR, PATH_SEPARATOR } from '../hierarchy/names'
 import { supermoduleContentHash } from '../hierarchy/operations'
@@ -292,7 +294,6 @@ function staticReason(smId, store, status, library, flat) {
   if (!status.template && library?.availableSupermodules?.has(ref)) return `has the identity ${ref}, which a library super-module has`
   if (!store.childrenOf(smId).length) return 'is empty'
   if (definition.naming === 'preserve') return "keeps its children's own names, where CA prefixes them with the super instance's"
-  if ((definition.localConstants ?? []).length) return 'has local constants, which CA has no place for'
   if (store.exposedOf(smId).some((port) => port.alias?.via != null)) {
     return "exposes a port of a super instance inside it, which CA can only reach through that super instance's own per_submodule_* (it needs path addressing)"
   }
@@ -526,10 +527,16 @@ function addEntry(smId, submodules, where, state) {
   entries.set(ref, { smId, where: where.slice(1, -1), shape: shape(submodules), entry, rows: definitionRows(smId, state) })
 }
 
-/** A super-module's own values, as its parameterisation's rows: its modules' as `sub/var`, a super instance's overrides below it. */
+/**
+ * A super-module's own values, as its parameterisation's rows: its modules' as `sub/var`, local constants with their
+ * declared values, a super instance's overrides below it.
+ */
 function definitionRows(smId, state) {
+  const declared = new Map(localConstantsOf(state.store.supermodules.get(smId)).map((declaration) => [declaration.name, declaration.value]))
   return state.store.childrenOf(smId).flatMap((child) =>
-    isSuperInstance(child) ? overrideRows(child, [child.data.name], state) : rowsOf(child.data.variables, [child.data.name])
+    isSuperInstance(child)
+      ? overrideRows(child, [child.data.name], state)
+      : rowsOf(asConstants(child.data.variables, (row) => declared.get(row.name)), [child.data.name])
   )
 }
 
@@ -549,7 +556,10 @@ function rowsOf(variables, path) {
 function overrideRows(instance, path, state) {
   const rows = []
   for (const [key, patches] of Object.entries(instance.data?.overrides ?? {})) {
-    if (isLocalConstantsKey(key)) continue
+    if (isLocalConstantsKey(key)) {
+      rows.push(...localConstantRows(instance, key, patches, path, state))
+      continue
+    }
     let smId = instance.data.smId
     let leaf = null
     const names = []
@@ -565,6 +575,26 @@ function overrideRows(instance, path, state) {
     rows.push(...rowsOf(patched, [...path, ...names]))
   }
   return rows
+}
+
+/** A super instance's override of local constants as a row for each row bound to them (`heart/lv/E`). */
+function localConstantRows(instance, key, patches, path, state) {
+  let smId = instance.data.smId
+  const names = []
+  for (const localId of key.split(EXPANDED_ID_SEPARATOR).slice(0, -1)) {
+    const child = state.store.childrenOf(smId).find((node) => localIdOf(node) === localId)
+    if (!isSuperInstance(child)) return []
+    names.push(child.data.name)
+    smId = child.data.smId
+  }
+  const declared = new Set(localConstantsOf(state.store.supermodules.get(smId)).map((declaration) => declaration.name))
+  return state.store.childrenOf(smId).flatMap((child) => {
+    if (isSuperInstance(child)) return []
+    const set = (child.data.variables ?? [])
+      .filter((row) => isLocalConstantRow(row) && declared.has(row.name) && patches?.[row.name] && 'value' in patches[row.name])
+      .map((row) => ({ ...row, type: 'constant', value: patches[row.name].value }))
+    return rowsOf(set, [...path, ...names, child.data.name])
+  })
 }
 
 /**

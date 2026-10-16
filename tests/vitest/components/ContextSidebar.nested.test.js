@@ -6,6 +6,8 @@ import PrimeVue from 'primevue/config'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const nodes = ref([])
+// Interface nodes, which findNode finds but the canvas doesn't select.
+const supermodules = ref([])
 
 vi.mock('@vue-flow/core', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -14,7 +16,7 @@ vi.mock('@vue-flow/core', async (importOriginal) => ({
     edges: ref([]),
     getSelectedNodes: computed(() => nodes.value),
     userSelectionActive: ref(false),
-    findNode: (id) => nodes.value.find((node) => node.id === id),
+    findNode: (id) => [...nodes.value, ...supermodules.value].find((node) => node.id === id),
     findEdge: () => undefined,
     updateNodeData: () => {},
   }),
@@ -39,12 +41,14 @@ vi.mock('../../../src/composables/useParameterContext', async () => {
       rowsOf: () => [
         { name: 'k', value: '9', type: 'constant', units: 's' },
         { name: 'm', value: '5', type: 'constant', units: 's' },
+        { name: 'c', value: '7', type: 'local_constant', units: 's' },
       ],
       provenanceOf: () =>
         mode.value === 'instance'
           ? new Map([
               ['k', { chip: 'overridden', isOverridden: true, inherited: '1', status: { state: 'connected' } }],
               ['m', { chip: 'ignored', isOverridden: false, status: null }],
+              ['c', { chip: 'local', isLocal: true, isOverridden: false, status: null }],
             ])
           : new Map([['k', { total: 3, summary: 'connected in 2/3' }]]),
       targetFor: (node, chosen) => (mode.value === 'supermodule' ? 'supermodule' : chosen),
@@ -79,6 +83,9 @@ describe('ContextSidebar inside a super instance', () => {
     vi.clearAllMocks()
     mode.value = 'instance'
     nodes.value = [reactive({ id: 'sm_1~x', data: { scope: 'sm_1', localId: 'x', name: 'x', variables: [] } })]
+    supermodules.value = [
+      { id: 'sm_1', type: 'supermoduleInterface', data: { supermodule: { name: 'segment', localConstants: [{ name: 'c', units: 's', value: '4' }, { name: 'm', units: 's', value: '6' }] } } },
+    ]
   })
 
   it('shows the values there, chipped by where they come from', async () => {
@@ -108,5 +115,24 @@ describe('ContextSidebar inside a super instance', () => {
     expect(wrapper.vm.editTarget).toBe('supermodule')
     expect(wrapper.vm.editTargetOptions[0]).toMatchObject({ value: 'instance', disabled: true })
     expect(findRow('k').summary).toBe('connected in 2/3')
+  })
+
+  it('chips a local constant row, offers the local type for a row its super-module declares, and binds it at the declared value', async () => {
+    await mountOnParams()
+    expect(findRow('c')).toMatchObject({ value: '7', chip: 'local', statusText: 'local constant' })
+    const optionsOf = (name) => wrapper.vm.typeOptionsFor(findRow(name), null, wrapper.vm.localConstantNames).map((option) => option.value)
+    expect(optionsOf('m')).toContain('local_constant')
+    expect(optionsOf('k')).not.toContain('local_constant')
+
+    wrapper.vm.editTarget = 'supermodule'
+    findRow('m').type = 'local_constant'
+    wrapper.vm.handleParameterTypeChange(findRow('m'))
+    expect(context.writeRow).toHaveBeenLastCalledWith(nodes.value[0], 'm', { value: '6', type: 'local_constant' }, expect.objectContaining({ target: 'supermodule' }))
+  })
+
+  it('shows a local constant row of a super-module edited on its own at its declared value', async () => {
+    mode.value = 'supermodule'
+    await mountOnParams()
+    expect(findRow('c').value).toBe('4')
   })
 })

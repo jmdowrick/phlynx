@@ -44,7 +44,7 @@ import AutoComplete from 'primevue/autocomplete'
 import { vOverflowTitle } from '../../directives/overflowTitle'
 import { searchVariableIndex } from '../../services/simulation/variableIndex'
 
-const KIND_LABELS = { variable: 'variable', constant: 'parameter', global_constant: 'global', boundary_condition: 'boundary', inspection: 'inspection' }
+const KIND_LABELS = { variable: 'variable', constant: 'parameter', global_constant: 'global', local_constant: 'local', boundary_condition: 'boundary', inspection: 'inspection' }
 
 const props = defineProps({
   // See buildVariableIndex.

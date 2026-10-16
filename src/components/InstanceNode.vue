@@ -147,7 +147,8 @@ const mathFile = computed(() => props.data.mathRef.split(':')[0])
 
 const isMissingParameters = computed(() => {
   for (const variable of props.data.variables || []) {
-    if (isEditableVariableType(variable.type)) {
+    // A local constant's value is its super-module's.
+    if (isEditableVariableType(variable.type) && variable.type !== 'local_constant') {
       if (variable.type === 'global_constant') {
         const globalConstant = libraryStore.getGlobalConstant(variable.name)
         if (isEmpty(globalConstant?.value)) {

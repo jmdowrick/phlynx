@@ -118,6 +118,7 @@
                   />
                 </h4>
                 <ExposedPortList :sm-id="selectedNode.id" />
+                <LocalConstantsPanel :sm-id="selectedNode.id" />
                 <NewSupermoduleDialog
                   v-model="renameDialogVisible"
                   mode="rename"
@@ -228,7 +229,7 @@
                       <template #body="slotProps">
                         <Select
                           v-model="slotProps.data.type"
-                          :options="typeOptionsFor(slotProps.data)"
+                          :options="typeOptionsFor(slotProps.data, null, localConstantNames)"
                           :disabled="isTypeFixed(slotProps.data) || isOverrideTarget"
                           optionLabel="label"
                           optionValue="value"
@@ -365,9 +366,11 @@ import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import NodeColourPanel from './NodeColourPanel.vue'
 import ExposedPortList from './ExposedPortList.vue'
+import LocalConstantsPanel from './LocalConstantsPanel.vue'
 import SuperInstancePanel from './SuperInstancePanel.vue'
 import { useParameterContext } from '../composables/useParameterContext'
-import { isSuperInstance, isSupermoduleInterface } from '../utils/hierarchy'
+import { isSuperInstance, isSupermoduleInterface, scopeOf } from '../utils/hierarchy'
+import { localConstantsOf } from '../services/hierarchy/localConstants'
 import { notify } from '../utils/notify'
 import NewSupermoduleDialog from './dialogs/NewSupermoduleDialog.vue'
 import { useSupermodules } from '../composables/useSupermodules'
@@ -438,7 +441,7 @@ const activeTabId = ref('global')
 const libraryStore = useLibraryStore()
 const inspectionModuleStore = useInspectionModuleStore()
 
-const { userSelectionActive } = useVueFlow(FLOW_IDS.MAIN)
+const { userSelectionActive, findNode } = useVueFlow(FLOW_IDS.MAIN)
 const { selectedNodes } = useActiveCanvas()
 const { recordEdit } = useNodeDataHistory(FLOW_IDS.MAIN)
 const { contextOf, rowsOf, provenanceOf, targetFor, writeRow, resetRow, graph: modelGraph } = useParameterContext()
@@ -571,7 +574,11 @@ const { virtualScrollerOptions: parameterVirtualScrollerOptions, tableKey: param
   useVirtualScrollerOptions(parameterRows)
 
 // ── Inside super instances: where a value comes from, and where an edit goes ──────
-const CHIP_SEVERITY = { default: 'secondary', overridden: 'info', ignored: 'warn' }
+const CHIP_SEVERITY = { default: 'secondary', local: 'success', overridden: 'info', ignored: 'warn' }
+
+// The local constants of the super-module the shown node is in, by name: its rows of those names can be bound to them.
+const localConstants = computed(() => new Map(localConstantsOf(findNode(scopeOf(parameterRowsNode.value))).map((declaration) => [declaration.name, declaration])))
+const localConstantNames = computed(() => new Set(localConstants.value.keys()))
 
 // 'root', 'instance' (a super instance entered from the root) or 'supermodule' (a super-module edited on its own).
 const parameterMode = computed(() => contextOf(parameterRowsNode.value).mode)
@@ -591,6 +598,7 @@ watch(parameterMode, (mode) => {
 /** @returns {string} A value's #686 status in words, and the value it would have without this super instance's override. */
 function statusTextOf(info) {
   const parts = []
+  if (info.isLocal) parts.push('local constant')
   if (info.status?.state) parts.push(info.status.state)
   if (info.isOverridden) parts.push(`super-module value ${info.inherited ?? '–'}`)
   return parts.join('; ')
@@ -604,11 +612,15 @@ function statusTextOf(info) {
  */
 function buildParameterRows(node) {
   const provenance = provenanceOf(node)
+  const isModelRow = contextOf(node).mode === 'instance'
+  // A local constant's value: the model's, inside a super instance; else its declaration's.
+  const declared = new Map(localConstantsOf(findNode(scopeOf(node))).map((declaration) => [declaration.name, declaration.value]))
   return detachReactivity(rowsOf(node)).map((row) => {
     const info = provenance.get(row.name)
+    const isLocal = row.type === 'local_constant' && !isModelRow
     return {
       name: row.name,
-      value: row.type === 'global_constant' ? libraryStore.getGlobalConstant(row.name)?.value : row.value,
+      value: row.type === 'global_constant' ? libraryStore.getGlobalConstant(row.name)?.value : isLocal ? (declared.get(row.name) ?? row.value) : row.value,
       units: row.units,
       type: row.type,
       access: row.access,
@@ -714,6 +726,8 @@ function handleParameterTypeChange(row) {
   if (row.type === 'global_constant') {
     row.value = libraryStore.getGlobalConstant(row.name)?.value ?? row.value
   }
+  // A row just bound to a local constant takes its declared value.
+  if (row.type === 'local_constant') row.value = localConstants.value.get(row.name)?.value ?? row.value
   persistParameterRow(row, { isValueEdit: false })
 }
 </script>

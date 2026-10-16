@@ -11,6 +11,9 @@
  * (see exposure.js), which are otherwise never part of the model. Couplings are never recomputed, so pairings and slots chosen by
  * hand survive. Each edge to a super instance becomes one edge per pair of modules it couples, `<edge id>#<k>`.
  *
+ * A nested leaf's rows take its super instances' overrides, outermost winning, then its super-module's local constants
+ * (see localConstants.js).
+ *
  * Nested leaves and rewritten edges carry their model fields only (id, type, ends, handles, data), never canvas state
  * such as positions, so moving a node inside a super-module leaves the expansion as it was.
  *
@@ -37,6 +40,7 @@ import {
 } from '../../utils/hierarchy'
 import { resolveBoundaryValues } from '../export/boundaryValues'
 import { indexExposures } from './exposure'
+import { declarationProblems, emittedLocalConstantName, isLocalConstantRow, localConstantsOf, localConstantValue } from './localConstants'
 import { LEVEL_SEPARATOR, pathOfNames } from './names'
 
 export { superInstancePorts } from './exposure'
@@ -46,7 +50,7 @@ export const EXPANDED_ID_SEPARATOR = '/'
 /** Separates an edge's id from the index of the module pair it couples, for an edge to a super instance. */
 export const EDGE_PART_SEPARATOR = '#'
 /**
- * The override key of local constant values (H13): `@` for the instance's own super-module's, `<localId path>/@` for
+ * The override key of local constant values (see localConstants.js): `@` for the instance's own super-module's, `<localId path>/@` for
  * those of a super instance below it.
  */
 export const LOCAL_CONSTANTS_KEY = '@'
@@ -102,6 +106,10 @@ export function expandHierarchy(nodes, edges) {
   const instanceChains = new Map() // each expanded super instance's id to the instance chain of each place it expands in
   const fail = (kind, message, origins = [], { ids = [], severity = 'error' } = {}) =>
     errors.push({ kind, severity, message, ids, origins })
+  // Local constants: the global constants' names they can't take, and each problem reported once.
+  const globalNames = new Set(nodes.flatMap((node) => (node.data?.variables ?? []).filter((row) => row.type === 'global_constant').map((row) => row.name)))
+  const reported = new Set()
+  const failOnce = (key, ...args) => !reported.has(key) && reported.add(key) && fail(...args)
 
   const edgesByScope = new Map()
   for (const edge of edges) {
@@ -159,6 +167,9 @@ export function expandHierarchy(nodes, edges) {
       fail('depth', `Super instances nest deeper than ${MAX_NESTING_DEPTH} levels.`, where)
       return null
     }
+    for (const problem of declarationProblems(localConstantsOf(supermodule), globalNames)) {
+      failOnce(`${supermodule.id}\0${problem}`, 'localConstantDeclaration', `Super-module "${supermodule.data.supermodule.name}" ${problem}.`, where)
+    }
     return {
       chain: [...context.chain, instance],
       idPath: [...context.idPath, localIdOf(instance)],
@@ -187,13 +198,43 @@ export function expandHierarchy(nodes, edges) {
       for (const name of Object.keys(patches)) if (rows.has(name)) usedOverrides.add(`${instance.id}\0${key}\0${name}`)
       variables = (variables ?? []).map((row) => (patches[row.name] ? { ...row, ...patches[row.name] } : row))
     }
-    return bindLocalConstants(variables, context)
+    return bindLocalConstants(variables, context, leaf)
+  }
+
+  /**
+   * Binds a leaf's local constant rows, after the overrides: each takes its super-module's constant of that name, as
+   * the context's super instances override it (see localConstantValue), with `localConstant: {owner, units}`.
+   */
+  const bindLocalConstants = (variables, context, leaf) => {
+    if (!(variables ?? []).some(isLocalConstantRow)) return variables
+    const declarations = new Map(localConstantsOf(context.supermodule).map((declaration) => [declaration.name, declaration]))
+    const where = () => [originOf(context, leaf.id)]
+    const at = { ids: [expandedIdIn(context, leaf)] }
+    const path = () => pathOfNames([...context.namePath, leaf.data?.name])
+    return variables.map((row) => {
+      if (!isLocalConstantRow(row)) return row
+      const declaration = declarations.get(row.name)
+      if (!declaration) {
+        const message = `"${path()}" variable "${row.name}" is a local constant, but super-module "${context.supermodule.data.supermodule.name}" declares none of that name.`
+        fail('unknownLocalConstant', message, where(), at)
+        return row
+      }
+      if (row.units && declaration.units && row.units !== declaration.units) {
+        const message = `"${path()}" variable "${row.name}" is in ${row.units}, but local constant "${row.name}" of "${context.supermodule.data.supermodule.name}" is in ${declaration.units}.`
+        fail('localConstantUnits', message, where(), at)
+      }
+      const value = localConstantValue(context.chain, context.idPath, row.name, declaration.value)
+      return { ...row, value, localConstant: { owner: context.flatName, units: declaration.units || row.units } }
+    })
   }
 
   const emitLeaf = (context, leaf) => {
     const id = expandedIdIn(context, leaf)
     if (!context.chain.length) {
       outNodes.push(leaf)
+      for (const row of (leaf.data?.variables ?? []).filter(isLocalConstantRow)) {
+        fail('unknownLocalConstant', `"${leaf.data?.name}" variable "${row.name}" is a local constant, but "${leaf.data?.name}" is in no super-module.`, [originOf(context, leaf.id)], { ids: [leaf.id] })
+      }
     } else {
       const { scope: _scope, localId: _localId, ...data } = leaf.data ?? {}
       outNodes.push({ id, type: leaf.type, data: { ...data, name: flatNameIn(context, leaf), variables: applyOverrides(context, leaf) } })
@@ -348,7 +389,7 @@ export function expandHierarchy(nodes, edges) {
   expandEdges(null, ROOT_CONTEXT)
   const outEdges = instanceChains.size ? orderEdges(edgeEntries) : edgeEntries.map((entry) => entry.edge)
 
-  reportOrphanedOverrides(nodes, instanceChains, usedOverrides, fail)
+  reportOrphanedOverrides(nodes, instanceChains, usedOverrides, fail, supermodules, childByLocalId)
 
   const idByName = new Map()
   for (const [id, path] of paths) if (!idByName.has(path)) idByName.set(path, id)
@@ -372,20 +413,6 @@ export function expandHierarchy(nodes, edges) {
       return checked
     },
   }
-}
-
-/**
- * Binds super-modules' local constants into a leaf's rows, after the overrides. The hook for H13 (#445): a row typed
- * `local_constant` will take the value of the innermost enclosing super-module's constant of that name, as the
- * context's super instances override it: the innermost super instance under '@', an outer one under `<localId path>/@` (see
- * isLocalConstantsKey), the outermost winning as for other overrides. Until then the rows are returned as they are.
- *
- * @param {Array} variables - The leaf's rows, overrides applied.
- * @param {Context} _context - The super instances the leaf is expanded through.
- * @returns {Array}
- */
-function bindLocalConstants(variables, _context) {
-  return variables
 }
 
 /**
@@ -518,24 +545,38 @@ class MinHeap {
 }
 
 /**
- * Reports the overrides of expanded super instances that set nothing: their path or variable is gone. Local constant keys
- * are left to H13. A super instance expanded in several places, inside a super-module used more than once, holds one
- * override for them all, so it is reported once, with an origin for each place.
+ * Reports the overrides of expanded super instances that set nothing: their path, variable or local constant is gone. A
+ * super instance expanded in several places, inside a super-module used more than once, holds one override for them
+ * all, so it is reported once, with an origin for each place.
  *
  * @param {Array} nodes
  * @param {Map<string, string[][]>} instanceChains - Each expanded super instance's id to the instance chain of each place.
  * @param {Set<string>} usedOverrides
  * @param {Function} fail
+ * @param {Map<string, Object>} supermodules - By id.
+ * @param {(scope: string, localId: string) => Object|undefined} childByLocalId
  */
-function reportOrphanedOverrides(nodes, instanceChains, usedOverrides, fail) {
+function reportOrphanedOverrides(nodes, instanceChains, usedOverrides, fail, supermodules, childByLocalId) {
+  // The local constants a local constant key sets: those of the super-module its path reaches.
+  const declaredAt = (node, key) => {
+    let smId = node.data.smId
+    for (const localId of key.split(EXPANDED_ID_SEPARATOR).slice(0, -1)) {
+      const child = childByLocalId(smId, localId)
+      if (!isSuperInstance(child)) return new Set()
+      smId = child.data.smId
+    }
+    return new Set(localConstantsOf(supermodules.get(smId)).map((declaration) => declaration.name))
+  }
   for (const node of nodes) {
     if (!instanceChains.has(node.id)) continue
     const origins = instanceChains.get(node.id).map((instanceChain) => ({ mainId: node.id, instanceChain }))
     for (const [key, patches] of Object.entries(node.data.overrides ?? {})) {
-      if (isLocalConstantsKey(key)) continue
+      const declared = isLocalConstantsKey(key) ? declaredAt(node, key) : null
       for (const name of Object.keys(patches ?? {})) {
-        if (usedOverrides.has(`${node.id}\0${key}\0${name}`)) continue
-        const message = `Super instance "${node.data.name}" sets "${key}" variable "${name}", which no longer exists.`
+        if (declared ? declared.has(name) : usedOverrides.has(`${node.id}\0${key}\0${name}`)) continue
+        const message = declared
+          ? `Super instance "${node.data.name}" sets "${key}" local constant "${name}", which no longer exists.`
+          : `Super instance "${node.data.name}" sets "${key}" variable "${name}", which no longer exists.`
         fail('orphanedOverride', message, origins, { severity: 'warning' })
       }
     }
@@ -570,7 +611,7 @@ export function checkExpansion(nodes, edges, pathOf = (id) => id) {
     ['ca', caParameterNames(nodes)],
   ]) {
     for (const [name, sources] of groupIds(emitted)) {
-      const distinct = [...new Map(sources.map((source) => [`${source.id}\0${source.variable}`, source])).values()]
+      const distinct = [...new Map(sources.map((source) => [source.group ?? `${source.id}\0${source.variable}`, source])).values()]
       if (distinct.length < 2) continue
       const what = distinct.map(({ id, variable }) => `"${nameOf(id)}" variable "${variable}"`).join(' and ')
       const where = convention === 'cellml' ? 'the CellML export' : 'the circulatory_autogen parameters'
@@ -606,11 +647,12 @@ export function checkExpansion(nodes, edges, pathOf = (id) => id) {
 
 /**
  * Lists the parameter names the flat CellML export gives instance constants (see generateFlattenedModel): a
- * constant's own name, or `<module>_<variable>` when several modules set one of that name.
+ * constant's own name, or `<module>_<variable>` when several modules set one of that name; a local constant's
+ * `<name>_<super instance>`, once for all its rows (their group).
  *
  * @param {Array} nodes
  * @param {Array} edges
- * @returns {Array<[string, {id: string, variable: string}]>}
+ * @returns {Array<[string, {id: string, variable: string, group?: string}]>}
  */
 function cellmlParameterNames(nodes, edges) {
   let values = null
@@ -627,15 +669,23 @@ function cellmlParameterNames(nodes, edges) {
   )
   const counts = new Map()
   for (const { row } of rows) counts.set(row.name, (counts.get(row.name) ?? 0) + 1)
-  return rows.map(({ node, row }) => [
-    counts.get(row.name) > 1 ? `${node.data.name}_${row.name}` : row.name,
-    { id: node.id, variable: row.name },
-  ])
+  const locals = nodes.flatMap((node) =>
+    (node.data?.variables ?? [])
+      .filter((row) => row.localConstant && !values?.ignored.get(node.id)?.has(row.name))
+      .map((row) => {
+        const name = emittedLocalConstantName(row.name, row.localConstant.owner)
+        return [name, { id: node.id, variable: row.name, group: `local\0${name}` }]
+      })
+  )
+  return [
+    ...rows.map(({ node, row }) => [counts.get(row.name) > 1 ? `${node.data.name}_${row.name}` : row.name, { id: node.id, variable: row.name }]),
+    ...locals,
+  ]
 }
 
 /**
- * Lists the parameter names the circulatory_autogen export gives: `<variable>_<module>` for constants and boundary
- * conditions, and a global constant's own name.
+ * Lists the parameter names the circulatory_autogen export gives: `<variable>_<module>` for constants, local constants
+ * and boundary conditions, and a global constant's own name.
  *
  * @param {Array} nodes
  * @returns {Array<[string, {id: string, variable: string}]>}
@@ -645,7 +695,7 @@ function caParameterNames(nodes) {
   const rows = []
   for (const node of nodes) {
     for (const row of node.data?.variables ?? []) {
-      if (row.type === 'constant' || row.type === 'boundary_condition') {
+      if (row.type === 'constant' || row.type === 'boundary_condition' || isLocalConstantRow(row)) {
         rows.push([`${row.name}_${node.data.name}`, { id: node.id, variable: row.name }])
       } else if (row.type === 'global_constant' && !globals.has(row.name)) {
         // One row however many modules use it.

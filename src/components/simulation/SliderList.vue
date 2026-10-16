@@ -439,7 +439,7 @@ function applyToModel(slider) {
     } else {
       recordEdit({
         type: 'apply-slider',
-        ...recordTargetOf(slider.node.id),
+        ...recordTargetOf(slider.node.id, { variable: slider.parameterName, patch: { value } }),
         apply: () => writeValue(slider.node.id, slider.parameterName, { value }),
       })
     }

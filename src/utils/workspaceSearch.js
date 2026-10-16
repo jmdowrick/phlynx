@@ -10,7 +10,7 @@ export const SEARCH_MODES = [
   { prefix: 'var:', label: 'var:', hint: 'Instances containing a variable' },
 ]
 
-const KIND_LABELS = { constant: 'parameter', global_constant: 'global', boundary_condition: 'boundary' }
+const KIND_LABELS = { constant: 'parameter', global_constant: 'global', local_constant: 'local', boundary_condition: 'boundary' }
 
 /**
  * Parses a query. `var:` (any case) at the start switches to variable mode, where `inst/var` also filters by
