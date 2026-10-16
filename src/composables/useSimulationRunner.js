@@ -4,15 +4,14 @@
  * status line describing them.
  */
 import { computed, ref, unref } from 'vue'
-import { useVueFlow } from '@vue-flow/core'
 
+import { useCanvasLevel } from './useCanvasLevel'
 import { useModelGraph } from './useModelGraph'
 import { useSimulation } from './useSimulation'
 import { libopencor } from '../services/simulation/libopencorLoader'
 import { READOUTS } from '../services/simulation/sweepReadouts'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
-import { FLOW_IDS } from '../utils/constants'
 
 /**
  * Gives what playing simulations from a view needs. The nodes are the model's (see useModelGraph): a selected subsystem
@@ -25,9 +24,9 @@ import { FLOW_IDS } from '../utils/constants'
  *   simulates) and `statusLine`; `isOtherRun` says an instance editor shows another scope's results.
  */
 export function useSimulationRunner({ instanceId = null, isWholeModelOnly = false } = {}) {
-  // The canvas selection; what it runs is expanded into the model.
-  const { getSelectedNodes } = useVueFlow(FLOW_IDS.MAIN)
-  const { modelNodes, expandSelection } = useModelGraph()
+  // The canvas selection and an instance editor's node, as the model nodes they stand for at the canvas's level.
+  const { selectedModelIds: selectedNodeIds, modelIdsOf } = useCanvasLevel()
+  const { modelNodes } = useModelGraph()
   const store = useSimulationResultsStore()
   const simulationSettingsStore = useSimulationSettingsStore()
   const { run, stop, keepCurrent, isStale } = useSimulation()
@@ -38,7 +37,6 @@ export function useSimulationRunner({ instanceId = null, isWholeModelOnly = fals
   const hasScope = computed(() => store.status !== 'idle')
   const isLoading = computed(() => libopencor.status === 'loading')
   const isSimulatorMissing = computed(() => ['unavailable', 'error'].includes(libopencor.status))
-  const selectedNodeIds = computed(() => expandSelection(getSelectedNodes.value.map((node) => node.id)))
 
   const scopeNodes = computed(() =>
     store.scopeNodeIds ? modelNodes.value.filter((node) => store.scopeNodeIds.includes(node.id)) : modelNodes.value
@@ -136,7 +134,7 @@ export function useSimulationRunner({ instanceId = null, isWholeModelOnly = fals
     if (!store.results) return false
     if (isWholeModelOnly) return store.scopeNodeIds !== null
     if (!getInstanceId()) return false
-    const expected = scopeMode.value === 'model' ? null : expandSelection([getInstanceId()])
+    const expected = scopeMode.value === 'model' ? null : modelIdsOf([getInstanceId()])
     return JSON.stringify(store.scopeNodeIds) !== JSON.stringify(expected)
   })
   const isOutdated = computed(() => !!store.results && (isStale.value || isSelectionChanged.value || isOtherRun.value))
@@ -144,7 +142,7 @@ export function useSimulationRunner({ instanceId = null, isWholeModelOnly = fals
   // The instances play simulates, as the switch says: the edited instance or the selection, or null for the whole model.
   const playScopeNodeIds = computed(() => {
     if (scopeMode.value === 'model') return null
-    return getInstanceId() ? expandSelection([getInstanceId()]) : sortedSelectedIds.value
+    return getInstanceId() ? modelIdsOf([getInstanceId()]) : sortedSelectedIds.value
   })
 
   /** Simulates the whole model or the part, as the switch says. */

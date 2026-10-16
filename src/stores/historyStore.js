@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed, shallowRef } from 'vue'
+import { ref, computed, shallowRef, toRaw } from 'vue'
 
 /**
  * Creates an undo/redo command stack with batching. The workspace shares one (useFlowHistoryStore);
@@ -23,6 +23,10 @@ export function createHistory() {
 
   // Manual batching flag.
   const isManualBatching = ref(false)
+
+  // Where each command was recorded, and how to capture and go back there (see setContextHandlers).
+  const contexts = new WeakMap()
+  let contextHandlers = null
 
   const canUndo = computed(() => pointer.value >= 0)
   const canRedo = computed(() => pointer.value < stack.value.length - 1)
@@ -64,8 +68,33 @@ export function createHistory() {
 
   function replaceLastCommand(command) {
     if (pendingCommands.value.length) {
+      const replaced = toRaw(pendingCommands.value[pendingCommands.value.length - 1])
+      if (contexts.has(replaced)) contexts.set(toRaw(command), contexts.get(replaced))
       pendingCommands.value[pendingCommands.value.length - 1] = command
     }
+  }
+
+  /**
+   * Makes every command recorded from now on remember where it was made, and undo and redo go back there before
+   * applying it, so the change they make is in view: the workspace's canvas level.
+   *
+   * @param {{capture: () => *, restore: (context: *) => void}|null} handlers - capture gives where things are now;
+   *   restore goes back to what capture gave. Null forgets them.
+   */
+  function setContextHandlers(handlers) {
+    contextHandlers = handlers
+  }
+
+  /** Remembers where a command was recorded. The stack holds commands reactive, so they are keyed raw. */
+  function stamp(command) {
+    const key = toRaw(command)
+    if (contextHandlers && !contexts.has(key)) contexts.set(key, contextHandlers.capture())
+  }
+
+  /** Goes back to where a command was recorded, without recording. */
+  function revisit(command) {
+    const key = toRaw(command)
+    if (contextHandlers && contexts.has(key)) contextHandlers.restore(contexts.get(key))
   }
 
   function clear() {
@@ -86,6 +115,7 @@ export function createHistory() {
       return
     }
 
+    stamp(command)
     pendingCommands.value.push(command)
 
     if (isManualBatching.value) {
@@ -143,6 +173,9 @@ export function createHistory() {
           ;[...batch].reverse().forEach((cmd) => cmd.undo())
         },
       }
+      // A batch is one change, made in one place.
+      const first = toRaw(batch[0])
+      if (contexts.has(first)) contexts.set(superCommand, contexts.get(first))
       _pushToStack(superCommand)
     }
   }
@@ -153,6 +186,7 @@ export function createHistory() {
       return
     }
 
+    stamp(command)
     working.value = true
 
     try {
@@ -171,13 +205,14 @@ export function createHistory() {
   /**
    * Runs `fn` without recording: commits pending commands first, then ignores every change and
    * command until `fn` (sync or async) settles. For changes that are not edits, like navigation.
-   * Inside a manual batch nothing is committed, so the batch still ends as one step.
+   * Inside a manual batch, an undo or redo, or another withoutHistory, nothing is committed, so a
+   * batch still ends as one step.
    *
    * @param {Function} fn
    * @returns {*} What `fn` returns.
    */
   function withoutHistory(fn) {
-    if (!isManualBatching.value) commitBatch()
+    if (!isManualBatching.value && !isUndoRedoing.value) commitBatch()
     lastChangeWasAdd.value = false
     suppressedDepth.value++
 
@@ -206,6 +241,7 @@ export function createHistory() {
     try {
       const command = stack.value[pointer.value]
       pointer.value--
+      revisit(command)
       await command.undo()
     } finally {
       working.value = false
@@ -221,6 +257,7 @@ export function createHistory() {
     try {
       pointer.value++
       const command = stack.value[pointer.value]
+      revisit(command)
       await command.redo()
     } finally {
       working.value = false
@@ -242,6 +279,7 @@ export function createHistory() {
     pointerIndex,
     redo,
     replaceLastCommand,
+    setContextHandlers,
     startBatch,
     undo,
     withoutHistory,

@@ -12,6 +12,9 @@ import { attachNewNodeToFrame, findAnyNode, generateUniqueInstanceName } from '.
 import { buildInstance } from '../services/import/buildWorkflow'
 import { buildGhostHandles } from '../utils/handles'
 import { useActiveCanvas } from './useActiveCanvas'
+import { useSupermodules } from './useSupermodules'
+import { notify } from '../utils/notify'
+import { toLocalName } from '../utils/hierarchy'
 import { useLibraryStore } from '../stores/libraryStore'
 import { extractGlobalConstants } from '../utils/variables'
 
@@ -32,8 +35,9 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
   const { draggedType, isDragOver, isDragging } = state
 
   const { addNodes, onNodesInitialized, screenToFlowCoordinate, updateNode } = useVueFlow(flowId)
-  const { nodes: canvasNodes, nextNodeId } = useActiveCanvas(flowId)
+  const { scope, nodes: canvasNodes, nextNodeId } = useActiveCanvas(flowId)
   const store = useLibraryStore()
+  const { addSubsystem } = useSupermodules(flowId)
 
   const isGhostSetupOpen = ref(false)
   const pendingGhostNodeId = ref(null)
@@ -42,9 +46,15 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
     document.body.style.userSelect = dragging ? 'none' : ''
   })
 
+  /**
+   * Starts dragging a module, or a super-module (`{smId}`) to place another subsystem of.
+   *
+   * @param {DragEvent} event
+   * @param {Object} module - A library module, or `{smId}`.
+   */
   function onDragStart(event, module) {
     if (event.dataTransfer) {
-      event.dataTransfer.setData('application/vueflow', module.moduleRef)
+      event.dataTransfer.setData('application/vueflow', module.moduleRef ?? module.smId)
       event.dataTransfer.effectAllowed = 'move'
     }
 
@@ -96,7 +106,9 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
     pendingHistoryNodes.add(nodeId)
 
     const existingNames = new Set(canvasNodes.value.map((n) => n.data.name))
-    const instanceName = moduleData.moduleRef.includes(":") ? moduleData.moduleRef.split(":")[0] : moduleData.moduleRef
+    const moduleName = moduleData.moduleRef.includes(":") ? moduleData.moduleRef.split(":")[0] : moduleData.moduleRef
+    // Inside a super-module, names keep its rules (see utils/hierarchy localNameProblem).
+    const instanceName = scope.value ? toLocalName(moduleName) : moduleName
     const finalName = generateUniqueInstanceName(instanceName, existingNames)
 
     const allHandles = [...handles, ...buildGhostHandles(NUM_GHOST_HANDLES_TOP_BOT, NUM_GHOST_HANDLES_LEFT_RIGHT)]
@@ -157,6 +169,13 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
       x: event.clientX,
       y: event.clientY,
     })
+
+    if (moduleData.smId) {
+      if (!addSubsystem(moduleData.smId, position)) {
+        notify.warning({ title: 'Not Placed', message: 'This super-module would then contain itself, so it can’t go here.' })
+      }
+      return
+    }
 
     const { nodeId, nodeType } = createInstanceNode(moduleData, position)
 

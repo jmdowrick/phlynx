@@ -19,9 +19,6 @@ const PATTERNS = [
   /(?<![\w$])(?:nodes|edges|getNodes|getEdges)\s*:\s*[A-Za-z_$][\w$]*[^{}]*\}\s*=\s*useVueFlow\(/g,
 ]
 
-// Vue Flow's selection takes in nodes off screen, so these move to useActiveCanvas().selectedNodes when navigation (H6)
-// hides them, as does WorkspaceArea's (somethingSelected, copy, selectedNodeIds).
-const SELECTION = 'The canvas selection, expanded into the model (expandSelection) before it runs.'
 const MACRO = 'The macro builder’s own flow (FLOW_IDS.MACRO), not the workspace.'
 
 /**
@@ -33,6 +30,12 @@ const MACRO = 'The macro builder’s own flow (FLOW_IDS.MACRO), not the workspac
 const ALLOWED = [
   { file: 'src/composables/useModelGraph.js', use: 'model-safe', reason: 'The model graph expands the store.' },
   { file: 'src/composables/useActiveCanvas.js', use: 'canvas', reason: 'The canvas filters the store to the scope shown.' },
+  { file: 'src/composables/useCanvasLevel.js', use: 'canvas', reason: 'Hides what is off the canvas, in every scope, and deselects it.' },
+  {
+    file: 'src/composables/useSupermodules.js',
+    use: 'model-safe',
+    reason: 'Reads the super-modules’ records and counts their subsystems, each store node once, and adds subsystems.',
+  },
   {
     file: 'src/composables/useModelWriter.js',
     line: 'useVueFlow(FLOW_IDS.MAIN)',
@@ -50,19 +53,15 @@ const ALLOWED = [
   { file: 'src/components/ContextSidebar.vue', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'Whether a box selection is under way.' },
   { file: 'src/components/NodeColourPanel.vue', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'Colours the canvas nodes selected (useActiveCanvas).' },
   { file: 'src/components/InstanceEditorDialog.vue', line: 'const nameOf', use: 'canvas', reason: 'Names the canvas neighbours a port connects to.' },
-  { file: 'src/components/simulation/SimulationFloatingViewer.vue', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: SELECTION },
-  { file: 'src/composables/useSimulationRunner.js', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: SELECTION },
-  { file: 'src/composables/useSelectionAutoRun.js', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: SELECTION },
+  { file: 'src/composables/useSelectionAutoRun.js', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'Whether a box selection is under way.' },
   { file: 'src/composables/useCellmlDrop.js', line: 'if (nodes.value.length > 0)', use: 'canvas', reason: 'Whether a dropped graph would join an occupied canvas.' },
   { file: 'src/composables/useCellmlDrop.js', line: 'const existingIds', use: 'canvas', reason: 'Ids the restored nodes must not take.' },
   { file: 'src/composables/useClearWorkspace.js', line: 'const oldNodes = nodes.value', use: 'canvas', reason: 'Keeps the whole store to undo a clear.' },
   { file: 'src/composables/useClearWorkspace.js', line: 'nodes.value = oldNodes', use: 'canvas', reason: 'Restores the whole store.' },
   { file: 'src/composables/useClearWorkspace.js', line: 'nodes.value = []', use: 'canvas', reason: 'Clears the whole store.' },
-  { file: 'src/composables/useFlowHistory.js', line: 'updateHelperLines(changes, nodes.value)', use: 'canvas', reason: 'Helper lines while dragging.' },
   { file: 'src/composables/useHandleManagement.js', line: 'getNodes.value.find', count: 3, use: 'canvas', reason: 'The handles of canvas nodes.' },
   { file: 'src/composables/useInstanceSave.js', line: 'previewCouplings(nodeId', use: 'canvas', reason: 'Recouples a node’s own edges when its ports change.' },
   { file: 'src/composables/useLoadFromInstanceArray.js', line: 'nodes.value,', use: 'canvas', reason: 'Ids the imported nodes must not take.' },
-  { file: 'src/composables/useWorkspaceClipboard.js', line: 'const nodeIdSet', use: 'canvas', reason: 'Ids pasted nodes must not take.' },
   { file: 'src/composables/useWorkspaceSaveLoad.js', line: 'label: `Nodes:', use: 'canvas', reason: 'Counts what a save holds, for tracking.' },
   { file: 'src/services/generate/generateWorkflow.js', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'Adds a generated macro to the canvas.' },
   { file: 'src/services/generate/generateWorkflow.js', line: 'getNodes.value.forEach', use: 'canvas', reason: 'Ids the generated nodes must not take, unique across the store.' },
@@ -75,8 +74,10 @@ const ALLOWED = [
   { file: 'src/components/InstanceEditorDialog.vue', line: '= useVueFlow()', use: 'canvas', reason: 'The flow the edited node is in.' },
   { file: 'src/components/InstanceEditorDialog.vue', line: 'const names = edges.value', use: 'canvas', reason: 'Names the canvas neighbours a port connects to.' },
   { file: 'src/components/InstanceEditorDialog.vue', line: 'multiportSummary(props.id', use: 'canvas', reason: 'Summarises the instance’s Sum and Multiply couplings by its canvas edges.' },
-  { file: 'src/components/InstanceNode.vue', line: '= useVueFlow()', use: 'canvas', reason: 'The flow the node is drawn in.' },
-  { file: 'src/components/InstanceNode.vue', line: 'const connectedEdges', use: 'canvas', reason: 'The edges on a port handle being removed.' },
+  { file: 'src/composables/useNodeChrome.js', line: '= useVueFlow()', use: 'canvas', reason: 'The flow the node card is drawn in.' },
+  { file: 'src/composables/useNodeChrome.js', line: 'const connectedEdges', use: 'canvas', reason: 'The edges on a port handle being removed.' },
+  { file: 'src/composables/useCanvasDelete.js', line: 'useVueFlow(flowId)', use: 'canvas', reason: 'The flow canvas nodes are deleted from.' },
+  { file: 'src/composables/useRevealModelNode.js', line: 'useVueFlow(flowId)', use: 'canvas', reason: 'Finds the canvas node a revealed model node shows as, to centre on it once measured.' },
   { file: 'src/composables/useCellmlDrop.js', line: 'useVueFlow(flowId)', use: 'canvas', reason: 'The flow a CellML file is dropped on.' },
   { file: 'src/composables/useClearWorkspace.js', line: 'useVueFlow(flowId)', use: 'canvas', reason: 'The flow it clears.' },
   { file: 'src/composables/useClearWorkspace.js', line: 'const oldEdges = edges.value', use: 'canvas', reason: 'Keeps the whole store to undo a clear.' },
@@ -238,6 +239,35 @@ describe('the store’s nodes', () => {
     for (const entry of ALLOWED) {
       expect(['canvas', 'model-safe'], entry.file).toContain(entry.use)
       expect(entry.reason, entry.file).toMatch(/\S/)
+    }
+  })
+})
+
+// Vue Flow's selection and its Delete key take in nodes off the canvas, so only what is on it is ever selected: these
+// are the places that select, each with why what it selects is on the canvas. Deselecting is always safe.
+const SELECTS = /\.selected\s*=\s*(?!\s*false\b)|addSelectedNodes\(\s*\[/g
+const ALLOWED_SELECTS = [
+  { file: 'src/composables/useWorkspaceClipboard.js', line: 'node.selected = true', reason: 'Select-all selects the canvas nodes.' },
+  { file: 'src/composables/useFlowHistory.js', line: 'item.selected = s.', count: 2, reason: 'Selection steps, never recorded.' },
+  { file: 'src/views/WorkspaceArea.vue', line: 'addSelectedNodes([findNode(id)]', reason: 'The canvas node whose menu was opened.' },
+  { file: 'src/views/WorkspaceArea.vue', line: '.selected = true)', count: 2, reason: 'Puts back the selection an image export took off.' },
+  { file: 'src/components/dialogs/CreateInspectionModule.vue', line: 'row.selected =', count: 2, reason: 'Table rows, not nodes.' },
+]
+
+describe('the selection', () => {
+  const selects = listSources(SRC).flatMap((file) => {
+    const text = fs.readFileSync(file, 'utf8')
+    const lines = text.split('\n')
+    const found = new Set([...text.matchAll(SELECTS)].map((match) => text.slice(0, match.index).split('\n').length))
+    const relative = path.relative(process.cwd(), file).split(path.sep).join('/')
+    return [...found].map((line) => ({ file: relative, line, text: lines[line - 1].trim() }))
+  })
+
+  it('takes in only canvas nodes: everything that selects is listed', () => {
+    const unlisted = selects.filter((read) => !ALLOWED_SELECTS.some((entry) => covers(entry, read)))
+    expect(unlisted.map(({ file, line, text }) => `${file}:${line}: ${text}`)).toEqual([])
+    for (const entry of ALLOWED_SELECTS) {
+      expect(selects.filter((read) => covers(entry, read)).length, `${entry.file}: "${entry.line}"`).toBe(entry.count ?? 1)
     }
   })
 })

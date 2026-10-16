@@ -1,6 +1,7 @@
 import { useVueFlow } from '@vue-flow/core'
 import { useActiveCanvas } from '../../composables/useActiveCanvas'
 import { FLOW_IDS, GHOST_NODE_TYPE } from '../../utils/constants'
+import { localIdOf, nodeIdOf, scopeOf, toLocalName } from '../../utils/hierarchy'
 import { generateUniqueInstanceName } from '../../utils/nodes'
 
 // Helper to get the bounding width of the macro graph
@@ -21,6 +22,13 @@ function getGraphWidth(nodes) {
   return maxX - minX
 }
 
+/**
+ * Gets a generated node's local id, `macronode_<n>_iter_<i>`, the first not taken, and takes it.
+ *
+ * @param {number} i - The iteration.
+ * @param {Set<string>} idSet - Local ids taken in the scope.
+ * @returns {string}
+ */
 function getId(i, idSet) {
   let num = 1
   while (true) {
@@ -35,7 +43,7 @@ function getId(i, idSet) {
 
 export function useMacroGenerator() {
   const { addNodes, addEdges, getNodes } = useVueFlow(FLOW_IDS.MAIN)
-  const { nodes: canvasNodes } = useActiveCanvas()
+  const { scope, nodes: canvasNodes } = useActiveCanvas()
 
   /**
    * @param {Object} macroData - { flow: { nodes, edges, ... }, repeatCount: Number }
@@ -73,13 +81,14 @@ export function useMacroGenerator() {
     const newNodes = []
     const newEdges = []
 
-    const idSet = new Set() // To track unique IDs.
+    // The macro goes in the scope shown, its ids that scope's (see utils/hierarchy nextNodeId).
+    const into = scope.value
+    const idSet = new Set() // Local ids taken in the scope.
     const namesSet = new Set()
     canvasNodes.value.forEach((node) => namesSet.add(node.data.name))
-    // Ids are unique across the whole store, not just the canvas.
     getNodes.value.forEach((node) => {
-      if (node.id.startsWith('macronode_')) {
-        idSet.add(node.id)
+      if (scopeOf(node) === into && localIdOf(node).startsWith('macronode_')) {
+        idSet.add(localIdOf(node))
       }
     })
 
@@ -90,13 +99,15 @@ export function useMacroGenerator() {
       // Process nodes.
       realNodes.forEach((node) => {
         // Generate a unique ID.
-        const newId = getId(i, idSet)
+        const localId = getId(i, idSet)
+        const newId = nodeIdOf(into, localId)
         idMap.set(node.id, newId)
 
         // Calculate shift.
         const xOffset = i * (MACRO_WIDTH + MARGIN_X)
 
-        const finalName = generateUniqueInstanceName(node.data.name, namesSet)
+        // Inside a super-module, names keep its rules (see utils/hierarchy localNameProblem).
+        const finalName = generateUniqueInstanceName(into ? toLocalName(node.data.name) : node.data.name, namesSet)
         namesSet.add(finalName)
 
         newNodes.push({
@@ -104,6 +115,8 @@ export function useMacroGenerator() {
           data: {
             ...node.data,
             name: finalName,
+            scope: into,
+            localId,
           },
           type: node.type,
           position: {

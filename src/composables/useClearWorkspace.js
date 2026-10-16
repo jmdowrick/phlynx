@@ -1,6 +1,7 @@
 import { useVueFlow } from '@vue-flow/core'
 import { nextTick } from 'vue'
 
+import { useCanvasLevel } from './useCanvasLevel'
 import { useFlowHistoryFor } from './useFlowHistoryFor'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
@@ -15,17 +16,19 @@ import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
 import { FLOW_IDS } from '../utils/constants'
 
 /**
- * Clears a flow and, for the main flow, resets the app stores.
+ * Clears a flow and, for the main flow, resets the app stores. The canvas goes back to the root, as it does when the
+ * clear is undone. A clear left out of the history, as a load makes, empties the history too.
  *
  * @param {string} [flowId=FLOW_IDS.MAIN] - Only the main flow also resets the app stores.
  * @param {Object} [options]
  * @param {Object} [options.history] - The undo stack to record into; defaults to useFlowHistoryFor().
  */
 export function useClearWorkspace(flowId = FLOW_IDS.MAIN, { history: ownHistory } = {}) {
-  const { nodes, edges, setViewport, getViewport } = useVueFlow(flowId)
+  const { nodes, edges, setViewport } = useVueFlow(flowId)
 
   const libraryStore = useLibraryStore()
   const history = useFlowHistoryFor(ownHistory)
+  const canvasLevel = useCanvasLevel(flowId)
   const inspectionStore = useInspectionModuleStore()
   const simStore = useSimulationSettingsStore()
   const omexStore = useOmexStore()
@@ -37,13 +40,15 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN, { history: ownHistory 
     const oldInspectStore = inspectionStore.getState()
     const oldSimStore = simStore.getState()
     const oldGlobalConstants = Array.from(libraryStore.globalVariables.entries())
-    const oldViewport = getViewport()
+    // Undoing the clear goes back to the root, so to the root's viewport.
+    const oldViewport = canvasLevel.rootViewport()
     const oldOmexState = omexStore.getState()
     const oldSessionMetadata = sessionMetadataStore.getState()
 
     const undoState = () => {
       nodes.value = oldNodes
       edges.value = oldEdges
+      canvasLevel.reset()
       if (flowId === FLOW_IDS.MAIN) {
         omexStore.loadState(oldOmexState)
         inspectionStore.loadState(oldInspectStore)
@@ -59,6 +64,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN, { history: ownHistory 
     const resetState = () => {
       nodes.value = []
       edges.value = []
+      canvasLevel.reset()
       if (flowId === FLOW_IDS.MAIN) {
         simStore.resetState()
         cancelSimulation()
@@ -75,6 +81,8 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN, { history: ownHistory 
     }
 
     if (!recordHistory) {
+      // A load replaces the workspace, so the commands recorded on the one before can't be undone on it.
+      history.clear()
       resetState()
       await nextTick()
       return

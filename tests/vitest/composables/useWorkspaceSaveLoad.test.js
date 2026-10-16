@@ -6,13 +6,16 @@ const notify = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), warning: vi
 const save = vi.hoisted(() => ({ legacyDownload: vi.fn(), saveFileHandle: vi.fn(), writeFileHandle: vi.fn() }))
 const trackEvent = vi.hoisted(() => vi.fn())
 const clearWorkspace = vi.hoisted(() => vi.fn())
+// One flow, so the canvas level the composable reads is the one a test moves.
+const stubFlow = vi.hoisted(() => ({}))
 
 vi.mock('../../../src/utils/notify', () => ({ notify }))
 vi.mock('../../../src/utils/save', async (importOriginal) => ({ ...(await importOriginal()), ...save }))
 vi.mock('../../../src/composables/useGtm', () => ({ useGtm: () => ({ trackEvent }) }))
 vi.mock('../../../src/composables/useClearWorkspace', () => ({ useClearWorkspace: () => ({ clearWorkspace }) }))
-vi.mock('@vue-flow/core', async (importOriginal) => ({ ...(await importOriginal()), useVueFlow: () => ({}) }))
+vi.mock('@vue-flow/core', async (importOriginal) => ({ ...(await importOriginal()), useVueFlow: () => stubFlow }))
 
+import { useActiveCanvas } from '../../../src/composables/useActiveCanvas'
 import { useWorkspaceSaveLoad } from '../../../src/composables/useWorkspaceSaveLoad'
 import { loadWorkspaceFile } from '../../../src/services/workspaceFile'
 import { useInspectionModuleStore } from '../../../src/stores/inspectionModuleStore'
@@ -79,6 +82,19 @@ describe('onSaveConfirm', () => {
     expect(saved.simulation.simulationSettings).toMatchObject({ endingPoint: 42, maxSteps: 77 })
     expect(saved).toHaveProperty('inspectionModules')
     expect(saved).toHaveProperty('workspace')
+  })
+
+  it('saves the root’s viewport, as fromObject reads it, while the canvas is inside a super-module', async () => {
+    const { scope } = useActiveCanvas()
+    flow.toObject.mockReturnValueOnce({ ...FLOW, position: [5, 6], zoom: 2 })
+    scope.value = 'sm_1'
+    try {
+      await view.onSaveConfirm('my-model')
+    } finally {
+      scope.value = null
+    }
+    const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
+    expect(saved.flow).toMatchObject({ viewport: { x: 0, y: 0, zoom: 1 }, position: [0, 0], zoom: 1 })
   })
 
   it('notifies and remembers the name', async () => {
@@ -275,17 +291,26 @@ describe('applyWorkspaceState', () => {
     expect(useSimulationSettingsStore().simulationSettings.maxSteps).toBe(500)
   })
 
-  it('loads no node or edge hidden, whatever the file holds', async () => {
+  it('loads the root shown and what is inside super-modules hidden, whatever the file holds', async () => {
     await view.applyWorkspaceState({
       id: PHLYNX_PROJECT_IDENTIFIER,
       version: PHLYNX_PROJECT_VERSION,
-      flow: { nodes: [{ id: 'n1', hidden: true, data: { scope: 'sm_1' } }], edges: [{ id: 'e1', hidden: true }] },
+      flow: {
+        nodes: [
+          { id: 'n0', hidden: true, data: { scope: null } },
+          { id: 'sm_1~n1', data: { scope: 'sm_1' } },
+        ],
+        edges: [{ id: 'e1', hidden: true, source: 'n0', target: 'n0' }],
+      },
       store: {},
     })
 
     const [loaded] = flow.fromObject.mock.calls[0]
-    expect(loaded.nodes).toEqual([{ id: 'n1', data: { scope: 'sm_1' } }])
-    expect(loaded.edges).toEqual([{ id: 'e1' }])
+    expect(loaded.nodes).toEqual([
+      { id: 'n0', data: { scope: null } },
+      { id: 'sm_1~n1', hidden: true, data: { scope: 'sm_1' } },
+    ])
+    expect(loaded.edges).toEqual([{ id: 'e1', source: 'n0', target: 'n0' }])
   })
 
   it('warns of the ids an older file had to have rewritten', async () => {

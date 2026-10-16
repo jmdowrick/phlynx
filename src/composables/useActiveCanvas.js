@@ -1,8 +1,7 @@
 /**
- * The canvas: the nodes and edges on screen, which are the store's in the scope shown. The root is shown until
- * navigation into super-modules lands (H6), so `scope` is null and the canvas is the root's nodes and the edges
- * between them; a workspace without super-modules is all of its own. What lays out, selects, copies, drops, renames or
- * pictures nodes reads it; the model is useModelGraph's.
+ * The canvas: the nodes and edges on screen, which are the store's in the scope shown (see useCanvasLevel, which
+ * moves between scopes): null for the root, else a super-module's id. A workspace without super-modules is all of its
+ * own. What lays out, selects, copies, drops, renames or pictures nodes reads it; the model is useModelGraph's.
  */
 import { computed, ref } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
@@ -68,9 +67,11 @@ export function useActiveCanvas(flowId = FLOW_IDS.MAIN) {
    * Gets the id for a node added to the canvas, unique in the store (see utils/hierarchy nextNodeId).
    *
    * @param {string} [prefix]
+   * @param {Array} [pending=[]] - Nodes about to be added, whose ids are taken too.
    * @returns {string}
    */
-  const nextNodeId = (prefix) => nextNodeIdIn(scope.value, allNodes(), prefix)
+  const nextNodeId = (prefix, pending = []) =>
+    nextNodeIdIn(scope.value, pending.length ? [...allNodes(), ...pending] : allNodes(), prefix)
 
   return { scope, nodes, edges, selectedNodes, selectedEdges, findNode, nextNodeId }
 }

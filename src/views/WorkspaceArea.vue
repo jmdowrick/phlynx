@@ -287,7 +287,7 @@
         :max-width="400"
         @resize="onLibraryPanelResize"
       >
-        <LibraryArea />
+        <LibraryArea show-supermodules />
       </ResizableLibraryPanel>
       <main
         class="workbench-main"
@@ -296,6 +296,7 @@
           '--context-sidebar-width': contextSidebarWidth + 'px',
         }"
       >
+        <FlowBreadcrumb :escape-disabled="dialogVisible || !!searchQuery" />
         <div
           class="workspace-search-container"
           :class="{ 'search-inactive': !isSearchFocused && !searchQuery, 'search-mode-var': parsedQuery.mode === 'var' }"
@@ -440,7 +441,7 @@
             :default-edge-options="edgeLineOptions"
             :connection-line-options="edgeLineOptions"
             :nodes="nodes"
-            :delete-key-code="dialogVisible ? [] : ['Backspace', 'Delete']"
+            :delete-key-code="dialogVisible || selectionNeedsAsking ? [] : ['Backspace', 'Delete']"
           >
             <HelperLines :horizontal="helperLineHorizontal" :vertical="helperLineVertical" :alignment="alignment" />
             <MiniMap :pannable="true" :zoomable="true" :node-color="miniMapNodeColour" class="mini-map" />
@@ -462,6 +463,18 @@
                 @open-context-menu="onNodeContextMenu"
                 :ref="(el) => (nodeRefs[props.id] = el)"
               />
+            </template>
+            <template #node-subsystemNode="props">
+              <SubsystemNode
+                :id="props.id"
+                :data="props.data"
+                :selected="props.selected"
+                :class="getNodeClass(props)"
+                @open-context-menu="onNodeContextMenu"
+              />
+            </template>
+            <template #node-subsystemInterface="props">
+              <InterfaceNode :id="props.id" :data="props.data" :selected="props.selected" />
             </template>
             <Workbench>
               <p v-if="isDragOver">Drop here</p>
@@ -520,6 +533,8 @@
   />
 
   <MacroBuilderDialog v-model="macroBuilderDialogVisible" @generate="onMacroBuilderGenerate" />
+
+  <NewSubsystemDialog v-model="newSubsystemDialogVisible" @confirm="onNewSubsystemConfirm" />
 
   <SimulationFloatingViewer :nodes="modelNodes" :is-canvas-shown="route.name === 'workspace'" />
   <SimSettingsDialog v-model="simSettingsDialog.visible" :section="simSettingsDialog.section" :nodes="modelNodes" />
@@ -605,14 +620,22 @@ import { useGtm } from '../composables/useGtm'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useImportExportSend } from '../composables/useImportExportSend'
 import { useActiveCanvas } from '../composables/useActiveCanvas'
+import { useCanvasLevel } from '../composables/useCanvasLevel'
 import { useModelGraph } from '../composables/useModelGraph'
+import { useRevealModelNode } from '../composables/useRevealModelNode'
 import { useModelWriter } from '../composables/useModelWriter'
+import { useSupermodules } from '../composables/useSupermodules'
+import { useCanvasDelete } from '../composables/useCanvasDelete'
 
 import LibraryArea from '../components/LibraryArea.vue'
 import ResizableLibraryPanel from '../components/ResizableLibraryPanel.vue'
 import Workbench from '../components/WorkbenchArea.vue'
 import CouplingEdge from '../components/CouplingEdge.vue'
 import InstanceNode from '../components/InstanceNode.vue'
+import SubsystemNode from '../components/SubsystemNode.vue'
+import InterfaceNode from '../components/InterfaceNode.vue'
+import FlowBreadcrumb from '../components/FlowBreadcrumb.vue'
+import NewSubsystemDialog from '../components/dialogs/NewSubsystemDialog.vue'
 import ImportDialog from '../components/ImportDialog.vue'
 import ModuleReplacementDialog from '../components/ModuleReplacementDialog.vue'
 import SaveDialog from '../components/SaveDialog.vue'
@@ -664,14 +687,10 @@ import { useColorScheme } from '../composables/useColorScheme'
 import { useAppSettings } from '../composables/useAppSettings'
 import { useNodeThemeStore } from '../stores/nodeThemeStore'
 import { categoryColour } from '../utils/nodeThemes'
+import { nodeContextMenuItems } from '../utils/nodeContextMenu'
 import { takeInputFile } from '../utils/misc'
 import { bindLibCellML, processCellMLData, loadParametersFromCellML } from '../utils/cellml'
-import {
-  edgeLineOptions,
-  FLOW_IDS,
-  IMPORT_KEYS,
-  NEW_INSTANCE_MODULE_REF,
-} from '../utils/constants'
+import { edgeLineOptions, FLOW_IDS, IMPORT_KEYS, NEW_INSTANCE_MODULE_REF } from '../utils/constants'
 import { resolveEdgeCouplings } from '../utils/edges'
 import { parseParametersFile } from '../utils/import'
 import {
@@ -737,12 +756,13 @@ const {
   modelEdges,
   errors: modelErrors,
   isHierarchical,
-  expandSelection,
   findModelNode,
-  rootIdOf,
 } = useModelGraph()
-// What the canvas shows: the store's nodes and edges in the scope shown.
-const { nodes: canvasNodes, edges: canvasEdges } = useActiveCanvas()
+// What the canvas shows: the store's nodes and edges in the scope shown, and its selection, none of it off screen.
+const { nodes: canvasNodes, edges: canvasEdges, selectedNodes: canvasSelectedNodes } = useActiveCanvas()
+// Which scope the canvas shows, and the model nodes its selection stands for.
+const canvasLevel = useCanvasLevel()
+const supermoduleCatalogue = useSupermodules()
 const { writeVariables } = useModelWriter()
 const { processMacroGeneration } = useMacroGenerator()
 const { confirm } = useConfirmDialog()
@@ -782,6 +802,7 @@ const dialogVisible = computed(() => {
     protocolDialog.visible ||
     settingsDialogVisible.value ||
     edgeConnectionDialogVisible.value ||
+    newSubsystemDialogVisible.value ||
     instanceEditorDialogVisible.value ||
     inspectionModuleDialogVisible.value
   )
@@ -843,6 +864,9 @@ const importDialogVisible = ref(false)
 const exportDialogVisible = ref(false)
 const replacementDialogVisible = ref(false)
 const macroBuilderDialogVisible = ref(false)
+const newSubsystemDialogVisible = ref(false)
+// Where the pane menu that opened the new subsystem dialog was, in flow coordinates.
+const newSubsystemPosition = ref({ x: 0, y: 0 })
 const { state: simSettingsDialog, open: openSimSettingsDialog } = useSimSettingsDialog()
 const { state: protocolDialog } = useProtocolDialog()
 const settingsDialogVisible = ref(false)
@@ -871,6 +895,9 @@ const mousePosition = ref({ x: 0, y: 0 })
 
 const searchInputRef = ref(null)
 const matchListRef = ref(null)
+// Search brings a match inside a subsystem into view by entering it.
+const revealModelNode = useRevealModelNode(zoomToNode)
+
 const {
   searchQuery,
   parsedQuery,
@@ -890,7 +917,13 @@ const {
   onSearchBlur,
   onSearchKeydown,
   getNodeClass,
-} = useWorkspaceSearch({ nodes: modelNodes, findNode: findModelNode, zoomToNode, canvasIdOf: rootIdOf })
+} = useWorkspaceSearch({
+  nodes: modelNodes,
+  findNode: findModelNode,
+  zoomToNode,
+  canvasIdOf: canvasLevel.canvasIdOf,
+  reveal: revealModelNode,
+})
 
 /**
  * Names a matched variable with its kind, such as `R (global)`.
@@ -911,7 +944,7 @@ watch(currentMatchIndex, async () => {
 
 const allNodeNames = computed(() => canvasNodes.value.map((n) => n.data.name))
 const somethingAvailable = computed(() => nodes.value.length > 0)
-const somethingSelected = computed(() => getSelectedNodes.value.length > 0)
+const somethingSelected = computed(() => canvasSelectedNodes.value.length > 0)
 /**
  * Hashes the whole store's (hierarchical) snapshot, which shows nothing of what the canvas shows or selects.
  *
@@ -943,7 +976,7 @@ const {
   onExportConfirm,
   hasModelChanged,
   snapshotFlowState,
-  selectedNodeIds: computed(() => expandSelection(getSelectedNodes.value.map((node) => node.id))),
+  selectedNodeIds: canvasLevel.selectedModelIds,
   modelErrors,
   isHierarchical,
 })
@@ -965,6 +998,10 @@ onConnectEnd(() => {
 })
 
 const { copySelection, pasteSelection, selectAllNodes } = useWorkspaceClipboard({ mousePosition, allNodeNames })
+
+// Entering a scope with no viewport remembered frames its nodes as the workspace does, no closer than full size, so a
+// new super-module's lone interface card doesn't fill the canvas.
+canvasLevel.setFitView(() => fitView({ ...fitViewParams.value, maxZoom: 1 }))
 
 const onPaneClick = () => {
   if (searchQuery.value) {
@@ -1026,7 +1063,7 @@ function updateHelperLines(changes, nodes) {
 }
 
 const addHandle = async (side) => {
-  for (const node of getSelectedNodes.value) {
+  for (const node of canvasSelectedNodes.value) {
     await addHandleToNode(node.id, side)
   }
 }
@@ -1799,6 +1836,10 @@ const paneContextMenuItems = [
     action: () => createNewInstanceAtPosition(mousePosition.value.x, mousePosition.value.y),
   },
   {
+    label: 'New Empty Subsystem',
+    action: () => openNewSubsystemDialog(mousePosition.value.x, mousePosition.value.y),
+  },
+  {
     label: 'Select All',
     action: () => selectAllNodes(),
   },
@@ -1821,22 +1862,45 @@ function onPaneContextMenu(event) {
 }
 
 function onNodeContextMenu({ clientX, clientY, id }) {
-  contextMenuItems.value = [
-    {
-      label: 'Replace Module',
-      action: () => {
-        const node = findNode(id)
-        if (!node) return
-        onOpenReplacementDialog(node)
-      },
+  const node = findNode(id)
+  if (!node) return
+  contextMenuItems.value = nodeContextMenuItems({
+    node,
+    isEditingSupermodule: canvasLevel.isEditingSupermodule.value,
+    simulateLabel: simulateLabelFor(id),
+    actions: {
+      open: () => canvasLevel.enter(id),
+      editSupermodule: () => canvasLevel.editSupermodule(node.data.smId),
+      remove: () => deleteNodes([id]),
+      replace: () => onOpenReplacementDialog(node),
+      simulate: () => simulateFromNode(id),
     },
-    {
-      label: simulateLabelFor(id),
-      action: () => simulateFromNode(id),
-    },
-  ]
+  })
   contextMenuRef.value.open(clientX, clientY)
 }
+
+/**
+ * Asks for a name, then makes a new, empty super-module and a subsystem of it where the pane was right-clicked.
+ *
+ * @param {number} clientX
+ * @param {number} clientY
+ */
+function openNewSubsystemDialog(clientX, clientY) {
+  newSubsystemPosition.value = screenToFlowCoordinate({ x: clientX, y: clientY })
+  newSubsystemDialogVisible.value = true
+}
+
+/** @param {string} name - Checked by the dialog. */
+function onNewSubsystemConfirm(name) {
+  try {
+    supermoduleCatalogue.createEmptySubsystem(name, newSubsystemPosition.value)
+  } catch (error) {
+    notify.error({ title: 'Subsystem Not Created', message: error.message })
+  }
+}
+
+// Deleting asks first when it would break an exposed port or leave a super-module unused.
+const { selectionNeedsAsking, deleteNodes, deleteSelection } = useCanvasDelete({ confirm, history: historyStore })
 
 /**
  * Gets the nodes a node's Simulate menu item runs: its selection, or the node alone when it isn't selected.
@@ -1845,7 +1909,7 @@ function onNodeContextMenu({ clientX, clientY, id }) {
  * @returns {string[]}
  */
 function simulationScopeFor(id) {
-  const selectedIds = getSelectedNodes.value.map((node) => node.id)
+  const selectedIds = canvasSelectedNodes.value.map((node) => node.id)
   return selectedIds.includes(id) ? selectedIds : [id]
 }
 
@@ -1866,9 +1930,9 @@ function simulateLabelFor(id) {
  * @param {string} id
  */
 function simulateFromNode(id) {
-  const scope = expandSelection(simulationScopeFor(id)).sort()
+  const scope = canvasLevel.modelIdsOf(simulationScopeFor(id)).sort()
   // The canvas selection becomes what runs, so the Simulation tab doesn't see it as changed.
-  if (!getSelectedNodes.value.some((node) => node.id === id)) {
+  if (!canvasSelectedNodes.value.some((node) => node.id === id)) {
     removeSelectedNodes(getSelectedNodes.value)
     addSelectedNodes([findNode(id)].filter(Boolean))
   }
@@ -2094,6 +2158,12 @@ const handleKeyDown = (event) => {
   if (isCtrl && event.key.toLowerCase() === 'a') {
     event.preventDefault()
     selectAllNodes()
+  }
+
+  // Vue Flow's Delete key is off while deleting the selection needs asking: this asks first.
+  if (['Backspace', 'Delete'].includes(event.key) && !isCtrl && selectionNeedsAsking.value) {
+    event.preventDefault()
+    deleteSelection()
   }
 
   if (isCtrl && event.key.toLowerCase() === 's') {

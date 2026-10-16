@@ -65,12 +65,15 @@ function createModelGraph(flow) {
 
   /**
    * Gets the model nodes some store nodes stand for: a module is itself, a subsystem every module it expands to, and a
-   * module inside a super-module its copy in each subsystem of it. Without subsystems, the ids as they are.
+   * module inside a super-module its copy in each subsystem of it, or only in the subsystems `within` goes through.
+   * Without subsystems, the ids as they are.
    *
    * @param {Iterable<string>} mainIds - Store ids, such as the canvas selection.
+   * @param {string[]|null} [within=null] - Subsystems' store ids from the root down, as the canvas was entered through
+   *   them: only copies expanded through them are given.
    * @returns {string[]} Model ids, in the model's order.
    */
-  function expandSelection(mainIds) {
+  function expandSelection(mainIds, within = null) {
     const ids = [...mainIds]
     if (!isHierarchical.value) return ids
     const selected = new Set(ids)
@@ -79,6 +82,7 @@ function createModelGraph(flow) {
       .map((node) => node.id)
       .filter((id) => {
         const from = origin.get(id)
+        if (within?.some((instanceId, level) => from.instanceChain[level] !== instanceId)) return false
         return selected.has(from.mainId) || from.instanceChain.some((instanceId) => selected.has(instanceId))
       })
   }

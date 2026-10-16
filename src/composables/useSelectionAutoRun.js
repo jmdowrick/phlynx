@@ -11,7 +11,7 @@
 import { computed, onBeforeUnmount, watch } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
-import { useModelGraph } from './useModelGraph'
+import { useCanvasLevel } from './useCanvasLevel'
 import { useSimulation } from './useSimulation'
 import { libopencor } from '../services/simulation/libopencorLoader'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
@@ -41,10 +41,10 @@ const releaseShift = () => (isShiftHeld = false)
 export function useSelectionAutoRun({ isActive = () => true } = {}) {
   const store = useSimulationResultsStore()
   const { run } = useSimulation()
-  const { getSelectedNodes, userSelectionActive } = useVueFlow(FLOW_IDS.MAIN)
-  const { expandSelection } = useModelGraph()
+  const { userSelectionActive } = useVueFlow(FLOW_IDS.MAIN)
+  const { selectedModelIds } = useCanvasLevel()
   // The model nodes the canvas selection stands for, as play runs them.
-  const selectedIds = computed(() => expandSelection(getSelectedNodes.value.map((node) => node.id)).sort())
+  const selectedIds = computed(() => [...selectedModelIds.value].sort())
 
   /** Runs the selection, unless it is mid-change, empty or what was last simulated. */
   function runIfChosen() {

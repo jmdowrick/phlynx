@@ -155,6 +155,17 @@ describe('useCellmlDrop', () => {
       expect(deps.rebuildNodeEdgeIndex).toHaveBeenCalledTimes(1)
     })
 
+    it('leaves the workspace as it is when the question is closed without an answer', async () => {
+      nodes.value = [createNode('a', 1), createNode('old', 2)]
+      deps.confirm.mockResolvedValue(null)
+
+      const results = await drop.loadCellMLFiles([{ name: 'm.cellml', content: '<model/>' }])
+
+      expect(deps.loadFromCellML).not.toHaveBeenCalled()
+      expect(nodes.value.map((n) => n.id)).toEqual(['a', 'old'])
+      expect(results).toEqual([])
+    })
+
     it('combines on Add to Workspace: remaps clashing ids, offsets by 1500 x and restores edges', async () => {
       nodes.value = [createNode('a', 100), createNode('old', 200)]
       edges.value = [{ id: 'old-edge', source: 'a', target: 'old' }]
@@ -229,6 +240,22 @@ describe('useCellmlDrop', () => {
       await drop.loadCellMLFiles([{ name: 'm.cellml', content: '<model/>' }])
 
       expect(addEdges.mock.calls[0][0][0]).toMatchObject({ source: 'old', target: 'a_1' })
+    })
+
+    it('keeps the ids of super-modules and their nodes, which can’t clash, and loads none hidden', async () => {
+      const inside = { id: 'sm_1~a', position: { x: 0, y: 5 }, hidden: true, data: { name: 'a', scope: 'sm_1', localId: 'a' } }
+      const face = { id: 'sm_1', type: 'subsystemInterface', position: { x: 0, y: 0 }, hidden: true, data: { scope: 'sm_1', localId: 'sm_1' } }
+      nodes.value = [{ ...createNode('a'), data: { name: 'a', scope: null, localId: 'a' } }, face, inside]
+      deps.confirm.mockResolvedValue(false)
+
+      await drop.loadCellMLFiles([{ name: 'm.cellml', content: '<model/>' }])
+
+      const restored = nodes.value.slice(2)
+      expect(restored.map((n) => [n.id, n.data.localId, n.position.x, 'hidden' in n])).toEqual([
+        ['a_1', 'a_1', 1500, false],
+        ['sm_1', 'sm_1', 0, false],
+        ['sm_1~a', 'a', 0, false],
+      ])
     })
 
     it('does not touch edge endpoints that are not in the snapshot', async () => {

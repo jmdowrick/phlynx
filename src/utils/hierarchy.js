@@ -193,6 +193,25 @@ export function nodeIdProblem(id, scope = null, { isInterface = false } = {}) {
 }
 
 /**
+ * Fills in a node's data.scope and data.localId where its data lacks them, as a node made by code that doesn't set
+ * them has: the scope it is added to (an interface node's own), and the local id its id gives. Fields it has are kept,
+ * so a node whose id doesn't match its scope, as one made with a root id inside a super-module, still fails
+ * assertNodeId.
+ *
+ * @param {Object} node
+ * @param {string|null} scope - The scope it is added to.
+ * @returns {Object} Its data, a copy where a field was filled in.
+ */
+export function withScopeFields(node, scope) {
+  const data = node.data ?? {}
+  if (data.scope !== undefined && data.localId != null) return data
+  const isInterface = isSupermoduleInterface(node)
+  const filledScope = data.scope !== undefined ? data.scope : isInterface ? node.id : scope
+  const localId = data.localId ?? (isInterface || !filledScope ? node.id : splitNodeId(node.id).localId)
+  return { ...data, scope: filledScope, localId }
+}
+
+/**
  * Throws when a node's id breaks the id rules (see nodeIdProblem), or doesn't match its scope and local id.
  *
  * @param {Object} node
@@ -298,6 +317,18 @@ export function localNameProblem(name, { scope = null, subsystem = false } = {})
 }
 
 /**
+ * Makes a sanitised name one localNameProblem accepts, for a name made up rather than typed, such as a dropped
+ * module's: each run of `_` becomes one, and leading and trailing `_` go.
+ *
+ * @param {string} name - Sanitised (see utils/identifiers sanitiseName).
+ * @param {string} [fallback='module'] - The name when nothing is left.
+ * @returns {string}
+ */
+export function toLocalName(name, fallback = 'module') {
+  return (name ?? '').replace(/_{2,}/g, '_').replace(/^_+|_+$/g, '') || fallback
+}
+
+/**
  * Lists the super-modules each super-module uses directly, through the subsystems among its children.
  *
  * @param {Array} nodes
@@ -310,6 +341,35 @@ export function supermoduleDependencies(nodes) {
     if (scope && isSubsystem(node) && graph.has(scope)) graph.get(scope).add(node.data.smId)
   }
   return graph
+}
+
+/**
+ * Counts each super-module's occurrences in the model: how many copies of it the root expands to, through every
+ * subsystem of it and of the super-modules holding those. One used by a super-module the root uses twice occurs twice.
+ *
+ * @param {Array} nodes
+ * @returns {Map<string, number>} Every super-module's id to its count; 0 for one the root never reaches.
+ */
+export function supermoduleOccurrences(nodes) {
+  const subsystemsOf = new Map()
+  for (const node of nodes) {
+    if (!isSubsystem(node)) continue
+    if (!subsystemsOf.has(node.data?.smId)) subsystemsOf.set(node.data?.smId, [])
+    subsystemsOf.get(node.data?.smId).push(node)
+  }
+  const memo = new Map([[null, 1]])
+  const visiting = new Set()
+  const countOf = (scope) => {
+    if (memo.has(scope)) return memo.get(scope)
+    // A cycle never reaches the root.
+    if (visiting.has(scope)) return 0
+    visiting.add(scope)
+    const count = (subsystemsOf.get(scope) ?? []).reduce((sum, node) => sum + countOf(scopeOf(node)), 0)
+    visiting.delete(scope)
+    memo.set(scope, count)
+    return count
+  }
+  return new Map([...supermodulesById(nodes).keys()].map((id) => [id, countOf(id)]))
 }
 
 /**

@@ -1,3 +1,4 @@
+import { useCanvasLevel } from './useCanvasLevel'
 import { useGtm } from './useGtm'
 import { useClearWorkspace } from './useClearWorkspace'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
@@ -45,6 +46,7 @@ export function useWorkspaceSaveLoad({
   const simulationSettingsStore = useSimulationSettingsStore()
   const omexStore = useOmexStore()
   const { trackEvent } = useGtm()
+  const canvasLevel = useCanvasLevel()
 
   /**
    * Saves with the native file picker, or opens the save dialog when the browser has none.
@@ -84,11 +86,18 @@ export function useWorkspaceSaveLoad({
   }
 
   /**
-   * Collects all state and creates blob from it. Nodes and edges are saved without `hidden` (see buildWorkspaceFile).
+   * Collects all state and creates blob from it. Nodes and edges are saved without `hidden` (see buildWorkspaceFile),
+   * and the viewport saved is the root's, wherever the canvas is.
    */
   function createSaveBlob() {
+    const flow = toObject()
+    if (!canvasLevel.isAtRoot.value) {
+      // fromObject falls back to `position` and `zoom` where the viewport's are 0, so they are the root's too.
+      const root = canvasLevel.rootViewport()
+      Object.assign(flow, { viewport: root, position: [root.x, root.y], zoom: root.zoom })
+    }
     const saveState = buildWorkspaceFile({
-      flow: toObject(),
+      flow,
       library: libraryStore,
       simulation: simulationSettingsStore,
       inspectionModules: inspectionModuleStore,
@@ -114,8 +123,9 @@ export function useWorkspaceSaveLoad({
   }
 
   /**
-   * Restores the application state from a loaded workspace. Errors are rethrown for the caller to report. No node or
-   * edge is loaded `hidden`, whatever the file holds, and ids the migration rewrote are reported.
+   * Restores the application state from a loaded workspace. Errors are rethrown for the caller to report. The canvas
+   * starts at the root: what the file holds as `hidden` is ignored, and what is inside super-modules is hidden before
+   * it is loaded, so it is never drawn. Ids the migration rewrote are reported.
    */
   async function applyWorkspaceState(loadedState, { source = 'json' } = {}) {
     const { clearWorkspace } = useClearWorkspace()
@@ -133,8 +143,9 @@ export function useWorkspaceSaveLoad({
       // Clear the current Vue Flow state without creating a history step for this load action.
       await clearWorkspace({ recordHistory: false })
 
+      canvasLevel.reset()
       setViewport(migratedState.flow.viewport)
-      fromObject(withoutHidden(migratedState.flow))
+      fromObject(canvasLevel.withVisibility(withoutHidden(migratedState.flow)))
 
       // Rebuild the edge index so the EdgeConnectionDialog subgraph is correct.
       rebuildNodeEdgeIndex()
