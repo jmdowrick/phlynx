@@ -102,19 +102,25 @@ function buildInstances(instanceRefs, availableModules, getMathAnalysis, current
   return pendingInstances
 }
 
+/**
+ * Builds the conduit edges of the instances' out_instances, in module-array order as circulatory_autogen connects
+ * them, so each takes the first slot no earlier edge holds.
+ *
+ * @param {Array} instanceRefs - The module array rows.
+ * @param {Array} pendingInstances - The nodes built from them.
+ * @returns {{ edges: Array, conflicts: Array<string> }} The edges, and a message for each conduit rejected as a port
+ *   it needs has no free slot.
+ */
 function buildEdges(instanceRefs, pendingInstances) {
 
   const pendingEdges = []
+  const conflicts = []
 
   const nodeMap = new Map(pendingInstances.map((n) => [n.data.name, n]))
 
-  // Tracks consumed single-connection port label slots across all edges built so far.
-  // Populated via checkAndClaimCouplings; see portCouplings.js for key format.
+  // Tracks consumed single-connection port slots across all edges built so far.
+  // Populated via checkAndClaimCouplings; see edges.js for key format.
   const usedPortKeys = new Set()
-
-  // For each target node, track how many times it has been connected to as a
-  // target so far — this is its inp_modules ordinal index for the next edge.
-  const targetInboundCount = new Map()
 
   instanceRefs.forEach((instanceRef) => {
 
@@ -125,7 +131,7 @@ function buildEdges(instanceRefs, pendingInstances) {
     if (!sourceNode || sourceNode.data.error) return
 
     const targets = instanceRef.out_instances.split(' ').filter((t) => t.trim())
-    targets.forEach((targetName, sourceIndex) => {
+    targets.forEach((targetName) => {
       const targetNode = nodeMap.get(targetName)
       if (!targetNode || targetNode.data.error) return
 
@@ -144,18 +150,12 @@ function buildEdges(instanceRefs, pendingInstances) {
         return
       }
 
-      // how many times this target node has already been connected
-      // to as a target. 
-      const targetIndex = targetInboundCount.get(targetName) ?? 0
-
-      // Resolve the specific port couplings for this conduit edge, taking
-      // ordinal position into account for repeated same-label slots.
-      const couplings = resolvePortCouplings(
-        sourceNode.data.ports ?? [],
-        targetNode.data.ports ?? [],
-        sourceIndex,
-        targetIndex,
-      )
+      // Each repeated label takes its first slot that no earlier edge holds.
+      const couplings = resolvePortCouplings(sourceNode.data.ports ?? [], targetNode.data.ports ?? [], {
+        sourceId: instanceRef.name,
+        targetId: targetName,
+        usedPortKeys,
+      })
 
       if (couplings.length === 0) {
         console.warn(
@@ -165,8 +165,8 @@ function buildEdges(instanceRefs, pendingInstances) {
       }
 
       // Enforce the non-multiport single-connection constraint.
-      // All-or-nothing: if any coupling violates it, the whole conduit is rejected.
-      const { valid, conflicts } = checkAndClaimCouplings(
+      // All-or-nothing: if any coupling has no free slot, the whole conduit is rejected.
+      const { valid, conflicts: found } = checkAndClaimCouplings(
         instanceRef.name,
         targetName,
         couplings,
@@ -174,15 +174,9 @@ function buildEdges(instanceRefs, pendingInstances) {
       )
 
       if (!valid) {
-        console.warn(
-          `[buildEdges] Conduit "${instanceRef.name}" -> "${targetName}" rejected:\n` +
-            conflicts.map((c) => `  • ${c}`).join('\n')
-        )
+        conflicts.push(`${instanceRef.name} → ${targetName}: ${found.join(' ')}`)
         return
       }
-
-      // Increment the target's inbound count only after a successful edge
-      targetInboundCount.set(targetName, targetIndex + 1)
 
       pendingEdges.push({
         id: `${sourceNode.id}--${targetNode.id}`,
@@ -197,9 +191,21 @@ function buildEdges(instanceRefs, pendingInstances) {
     })
   })
 
-  return pendingEdges
+  return { edges: pendingEdges, conflicts }
 }
 
+/**
+ * Builds the nodes and conduit edges of a module array.
+ *
+ * @param {Array} instanceRefs - The module array rows.
+ * @param {Map<string, Object>} availableModules - Library modules by `module_type:module_subtype`.
+ * @param {Function} getMathAnalysis - From libraryStore.
+ * @param {Array} currentNodes - The nodes already on the canvas, for fresh ids.
+ * @param {Function|null} [progressCallback]
+ * @param {Function|null} [getMathDefaults] - From libraryStore.
+ * @returns {{ pendingInstances: Array, pendingEdges: Array, conflicts: Array<string> }} conflicts: a message for each
+ *   conduit left out as a port it needs has no free slot.
+ */
 export function buildWorkflowGraph(
   instanceRefs,
   availableModules,
@@ -216,6 +222,6 @@ export function buildWorkflowGraph(
     progressCallback,
     getMathDefaults
   )
-  const pendingEdges = buildEdges(instanceRefs, pendingInstances)
-  return { pendingInstances, pendingEdges }
+  const { edges: pendingEdges, conflicts } = buildEdges(instanceRefs, pendingInstances)
+  return { pendingInstances, pendingEdges, conflicts }
 }

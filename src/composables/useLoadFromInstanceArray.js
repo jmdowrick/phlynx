@@ -43,6 +43,10 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
         )
       }
 
+      if (result.conflicts.length) {
+        notify.warning({ title: 'Connections Not Made', message: result.conflicts.join(' ') })
+      }
+
       // 1. Prepare the layout promise chain
       const layoutPromise = prepareLayout(result.pendingEdges, progressCallback)
 

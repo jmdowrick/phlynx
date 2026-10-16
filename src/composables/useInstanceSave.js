@@ -5,6 +5,7 @@ import { getPortVariables, reconcileRows } from '../services/math/reconcileRows'
 import { getNodeSelections, replaceNodeSelections, setNodePlotVariables } from '../services/simulation/plotSelections'
 import { FLOW_IDS, PROTECTED_MATH_REFS } from '../utils/constants'
 import { previewCouplings } from '../utils/edges'
+import { notify } from '../utils/notify'
 import { detachReactivity } from '../utils/reactivity'
 import { useNodeDataHistory } from './useNodeDataHistory'
 
@@ -75,15 +76,17 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
-   * Recomputes couplings on every edge touching a node from the current ports. Call it after
-   * changing ports on one or more nodes.
+   * Recomputes couplings on every edge touching a node from the current ports, each keeping its
+   * slots while they are free (see previewCouplings). Call it after changing ports on one or more
+   * nodes. A coupling with no free slot is left out.
    *
    * @param {string} nodeId
+   * @param {Array<string>} conflicts - Collects a message for each coupling left out.
    */
-  function recomputeEdgeCouplings(nodeId) {
+  function recomputeEdgeCouplings(nodeId, conflicts) {
     const node = findNode(nodeId)
     if (!node) return
-    const couplings = previewCouplings(nodeId, node.data.ports ?? [], nodes.value, edges.value)
+    const couplings = previewCouplings(nodeId, node.data.ports ?? [], nodes.value, edges.value, conflicts)
     edges.value.forEach((edge) => {
       if (couplings.has(edge.id)) edge.data = { ...edge.data, couplings: couplings.get(edge.id) }
     })
@@ -140,8 +143,11 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
       cleanPorts(node)
     })
 
-    recomputeEdgeCouplings(id)
-    otherNodes.forEach((node) => recomputeEdgeCouplings(node.id))
+    // An edge between two recomputed nodes is resolved for each, so report each coupling left out once.
+    const conflicts = []
+    recomputeEdgeCouplings(id, conflicts)
+    otherNodes.forEach((node) => recomputeEdgeCouplings(node.id, conflicts))
+    if (conflicts.length) notify.warning({ title: 'Couplings Removed', message: [...new Set(conflicts)].join(' ') })
     return moduleRef
   }
 

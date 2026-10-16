@@ -59,7 +59,7 @@ function makeNode(store, name, moduleType) {
 
 function connect(nodes, source, target) {
   const byId = new Map(nodes.map((node) => [node.id, node]))
-  const couplings = resolvePortCouplings(byId.get(source).data.ports, byId.get(target).data.ports, 0, 0)
+  const couplings = resolvePortCouplings(byId.get(source).data.ports, byId.get(target).data.ports)
   return { id: `${source}--${target}`, source, target, data: { couplings } }
 }
 

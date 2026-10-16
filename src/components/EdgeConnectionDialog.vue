@@ -221,7 +221,7 @@ import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import Chip from 'primevue/chip'
 import { FLOW_IDS, ROW_H, NODE_W, PAD } from '../utils/constants'
-import { isSingleConnection } from '../utils/edges'
+import { isSingleConnection, slotOf } from '../utils/edges'
 import { isCompatible } from '../utils/ports'
 import { detachReactivity } from '../utils/reactivity'
 import { waitUntilStable } from '../utils/layout'
@@ -572,6 +572,8 @@ function buildPayload() {
           multiportType: tp.multiportType,
           multiplyFactor: tp.multiplyFactor,
         },
+        sourceSlot: slotOf(localSrcPorts.value, sp),
+        targetSlot: slotOf(localTgtPorts.value, tp),
       }
     }),
     foreignCouplings,

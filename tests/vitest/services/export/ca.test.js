@@ -147,6 +147,16 @@ function parametersOf(files) {
   return Object.fromEntries(data.map((row) => [row.variable_name, row]))
 }
 
+/**
+ * Reads the exported module array's rows.
+ *
+ * @param {Object} files - Each file's text, by name (see readZip).
+ * @returns {Array<Object>}
+ */
+function moduleArrayOf(files) {
+  return Papa.parse(files['heart_module_array.csv'], { header: true, skipEmptyLines: true }).data
+}
+
 describe('caModuleFileName', () => {
   it('names a file so it ends in modules.cellml, as CA finds module files', () => {
     expect(caModuleFileName('BG_modules.cellml')).toBe('BG_modules.cellml')
@@ -373,6 +383,82 @@ describe('generateExportZip', () => {
       const port = await exportedPort({ label: 'volume_port', variables: ['q_C'], multiportType: ['sum'] })
       expect(port.multi_port).toEqual(['sum'])
       expect(notified.warning).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'Volume Port Sum' }))
+    })
+  })
+
+  describe('port slots', () => {
+    const vesselPort = (portType, variable) => ({ label: 'vessel_port', portType, variables: [variable], multiportType: 'None' })
+    const nodeWithPorts = (name, ports) => ({ ...nodeWith(name, []), data: { ...nodeWith(name, []).data, ports } })
+    const conduit = (source, target, sourceSlot, targetSlot) => ({
+      id: `${source.id}--${target.id}`,
+      source: source.id,
+      target: target.id,
+      data: {
+        couplings: [
+          {
+            sourcePort: source.data.ports.filter((p) => p.portType !== 'entrance_ports')[sourceSlot],
+            targetPort: target.data.ports.filter((p) => p.portType === 'entrance_ports')[targetSlot],
+            sourceSlot,
+            targetSlot,
+          },
+        ],
+      },
+    })
+    const rowsOf = async (nodes, edges) =>
+      Object.fromEntries(
+        moduleArrayOf(await readZip(await generateExportZip('heart', nodes, edges, library))).map((row) => [
+          row.name,
+          `${row.inp_instances} | ${row.out_instances}`,
+        ])
+      )
+    const pairedDifferently = expect.objectContaining({ title: 'Connections Paired Differently' })
+
+    const split = nodeWithPorts('s', [vesselPort('exit_ports', 'v_in'), vesselPort('exit_ports', 'u')])
+    const vessel = (name) => nodeWithPorts(name, [vesselPort('entrance_ports', 'v_in')])
+    const join = nodeWithPorts('j', [vesselPort('entrance_ports', 'v_in'), vesselPort('entrance_ports', 'u')])
+    const feeder = (name) => nodeWithPorts(name, [vesselPort('exit_ports', 'v_in')])
+
+    it("orders out_instances so CA's first free slot gives each connection its slot", async () => {
+      const [b, c] = [vessel('b'), vessel('c')]
+      const rows = await rowsOf([split, b, c], [conduit(split, b, 1, 0), conduit(split, c, 0, 0)])
+      expect(rows.s).toBe(' | c b')
+      expect(notified.warning).not.toHaveBeenCalledWith(pairedDifferently)
+    })
+
+    it("orders the rows so CA, connecting them in order, gives each connection its target's slot", async () => {
+      const [x, y] = [feeder('x'), feeder('y')]
+      const files = await readZip(await generateExportZip('heart', [join, x, y], [conduit(x, join, 0, 1), conduit(y, join, 0, 0)], library))
+      expect(moduleArrayOf(files).map((row) => row.name)).toEqual(['j', 'y', 'x'])
+      expect(moduleArrayOf(files)[0].inp_instances).toBe('y x')
+      expect(notified.warning).not.toHaveBeenCalledWith(pairedDifferently)
+    })
+
+    it('keeps the workspace order where slots ask for none', async () => {
+      const [b, c] = [vessel('b'), vessel('c')]
+      const rows = await rowsOf([split, b, c], [conduit(split, b, 0, 0), conduit(split, c, 1, 0)])
+      expect(rows).toEqual({ s: ' | b c', b: 's | ', c: 's | ' })
+      expect(notified.warning).not.toHaveBeenCalledWith(pairedDifferently)
+    })
+
+    it('warns about a pairing made by hand, or a slot a deleted connection freed, that no order reproduces', async () => {
+      const a = vessel('a')
+      await rowsOf([split, a], [conduit(split, a, 1, 0)])
+      expect(notified.warning).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Connections Paired Differently',
+          message: expect.stringMatching(/s → a.*deleting a connection on an earlier slot/),
+        })
+      )
+    })
+
+    it('reads the slots of couplings saved before slots were recorded from their ports', async () => {
+      const [b, c] = [vessel('b'), vessel('c')]
+      const edges = [conduit(split, b, 1, 0), conduit(split, c, 0, 0)].map((edge) => ({
+        ...edge,
+        data: { couplings: edge.data.couplings.map(({ sourcePort, targetPort }) => ({ sourcePort: { ...sourcePort }, targetPort })) },
+      }))
+      expect((await rowsOf([split, b, c], edges)).s).toBe(' | c b')
+      expect(notified.warning).not.toHaveBeenCalledWith(pairedDifferently)
     })
   })
 
