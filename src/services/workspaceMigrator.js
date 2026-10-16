@@ -378,7 +378,8 @@ function convertStore(oldStore, globalConstantNames, newAvailableModules) {
  *   values (H13) sit under '@'.
  *   A selection's nodeId and key may name a module inside a subsystem by its expanded id, the
  *   local ids down to it joined with '/' (`dndnode_3/dndnode_1::V`). store.availableSupermodules
- *   is reserved for circulatory_autogen super-module templates (H9), and empty until then. No node
+ *   holds the circulatory_autogen super-module templates of the library, `[[moduleRef, template]]` (see
+ *   caModuleConfig.supermoduleTemplate); files saved before H9 have none. No node
  *   or edge is saved `hidden`. User-defined units (#714) stay in store.availableUnits, so units
  *   need no field of their own. The OMEX flow snapshot (services/flowSnapshot.js) has a
  *   snapshotKind from 1.3.0.
