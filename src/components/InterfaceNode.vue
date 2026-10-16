@@ -20,7 +20,7 @@
 <script setup>
 /**
  * A super-module's interface node: the record of the super-module, shown inside it. Names the super-module and lists,
- * in order, the ports its exposure edges expose, as its subsystems get them. Its handles are only where exposure edges
+ * in order, the ports its exposure edges expose, as its super instances get them. Its handles are only where exposure edges
  * attach, as on any node; it can't be deleted from the canvas.
  */
 import { computed } from 'vue'

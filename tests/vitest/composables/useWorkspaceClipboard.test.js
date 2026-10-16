@@ -6,7 +6,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 import { useActiveCanvas } from '../../../src/composables/useActiveCanvas.js'
 import { shouldIgnoreShortcut, useWorkspaceClipboard } from '../../../src/composables/useWorkspaceClipboard.js'
-import { buildSubsystem, buildSupermoduleInterface } from '../../../src/services/import/buildWorkflow.js'
+import { buildSuperInstance, buildSupermoduleInterface } from '../../../src/services/import/buildWorkflow.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
@@ -246,8 +246,8 @@ describe('useWorkspaceClipboard', () => {
         ])
       })
 
-      it('refuses to paste a subsystem whose super-module would then contain itself', async () => {
-        nodes.value.push(buildSubsystem('dndnode_9', 'heart', 'sm_1'))
+      it('refuses to paste a super instance whose super-module would then contain itself', async () => {
+        nodes.value.push(buildSuperInstance('dndnode_9', 'heart', 'sm_1'))
         select(['dndnode_9'])
         await clipboard.copySelection()
         const before = nodes.value.length
@@ -262,8 +262,8 @@ describe('useWorkspaceClipboard', () => {
         expect(pasted().map(({ id, data }) => [id, data.smId, data.name])).toEqual([['dndnode_10', 'sm_1', 'heart_1']])
       })
 
-      it('pastes nothing when one subsystem is blocked, though the modules with it could go', async () => {
-        nodes.value.push(buildSubsystem('dndnode_9', 'heart', 'sm_1'))
+      it('pastes nothing when one super instance is blocked, though the modules with it could go', async () => {
+        nodes.value.push(buildSuperInstance('dndnode_9', 'heart', 'sm_1'))
         select(['dndnode_0', 'dndnode_9'])
         await clipboard.copySelection()
         const before = nodes.value.map((node) => node.id)
@@ -274,8 +274,8 @@ describe('useWorkspaceClipboard', () => {
         expect(emit).toHaveBeenCalledWith('add', expect.objectContaining({ severity: 'warn', summary: 'Not Pasted' }))
       })
 
-      it('copies the super-modules a subsystem depends on, and reuses one the workspace has the same', async () => {
-        nodes.value.push(buildSubsystem('dndnode_9', 'heart', 'sm_1'))
+      it('copies the super-modules a super instance depends on, and reuses one the workspace has the same', async () => {
+        nodes.value.push(buildSuperInstance('dndnode_9', 'heart', 'sm_1'))
         select(['dndnode_9'])
         await clipboard.copySelection()
         const payload = JSON.parse(systemClipboard.text)
@@ -289,7 +289,7 @@ describe('useWorkspaceClipboard', () => {
       })
 
       it('pastes a super-module gone, as in another window, or changed since, afresh with its own ids', async () => {
-        nodes.value.push(buildSubsystem('dndnode_9', 'heart', 'sm_1'))
+        nodes.value.push(buildSuperInstance('dndnode_9', 'heart', 'sm_1'))
         select(['dndnode_9'])
         await clipboard.copySelection()
 
@@ -307,7 +307,7 @@ describe('useWorkspaceClipboard', () => {
           ['sm_2~dndnode_0', 'sm_2~dndnode_1'],
         ])
 
-        // Gone, as in another window: pasted with the subsystem.
+        // Gone, as in another window: pasted with the super instance.
         nodes.value = nodes.value.filter((node) => node.id !== 'sm_1' && node.data.scope !== 'sm_1' && node.data.scope !== 'sm_2' && node.id !== 'sm_2')
         await clipboard.pasteSelection()
         const smId = pasted()[0].data.smId

@@ -1,15 +1,15 @@
 /**
- * Expands nested subsystems into the flat model every model consumer reads. Pure.
+ * Expands nested super instances into the flat model every model consumer reads. Pure.
  *
- * Each subsystem is replaced, where it stands, by its super-module's children in submoduleOrder, recursively. A
+ * Each super instance is replaced, where it stands, by its super-module's children in submoduleOrder, recursively. A
  * leaf's model id is the local ids along its path joined with '/' (`dndnode_12/dndnode_4`); its name is its flat name
- * (see names.js). Root modules and their edges pass through untouched, so a model with no subsystems expands to
+ * (see names.js). Root modules and their edges pass through untouched, so a model with no super instances expands to
  * itself.
  *
- * A coupling to a subsystem's port is rewritten to the live port of the child that port aliases, following `via`
- * through nested subsystems, with that child's slot. A super-module's exposed ports are read from its exposure edges
+ * A coupling to a super instance's port is rewritten to the live port of the child that port aliases, following `via`
+ * through nested super instances, with that child's slot. A super-module's exposed ports are read from its exposure edges
  * (see exposure.js), which are otherwise never part of the model. Couplings are never recomputed, so pairings and slots chosen by
- * hand survive. Each edge to a subsystem becomes one edge per pair of modules it couples, `<edge id>#<k>`.
+ * hand survive. Each edge to a super instance becomes one edge per pair of modules it couples, `<edge id>#<k>`.
  *
  * Nested leaves and rewritten edges carry their model fields only (id, type, ends, handles, data), never canvas state
  * such as positions, so moving a node inside a super-module leaves the expansion as it was.
@@ -28,7 +28,7 @@ import {
   edgeScopeProblem,
   indexByScope,
   isModelEdge,
-  isSubsystem,
+  isSuperInstance,
   isSupermoduleInterface,
   localIdOf,
   MAX_NESTING_DEPTH,
@@ -39,22 +39,22 @@ import { resolveBoundaryValues } from '../export/boundaryValues'
 import { indexExposures } from './exposure'
 import { LEVEL_SEPARATOR, pathOfNames } from './names'
 
-export { subsystemPorts } from './exposure'
+export { superInstancePorts } from './exposure'
 
 /** Joins the local ids of an expanded model id. */
 export const EXPANDED_ID_SEPARATOR = '/'
-/** Separates an edge's id from the index of the module pair it couples, for an edge to a subsystem. */
+/** Separates an edge's id from the index of the module pair it couples, for an edge to a super instance. */
 export const EDGE_PART_SEPARATOR = '#'
 /**
  * The override key of local constant values (H13): `@` for the instance's own super-module's, `<localId path>/@` for
- * those of a subsystem below it.
+ * those of a super instance below it.
  */
 export const LOCAL_CONSTANTS_KEY = '@'
 
 /** @returns {boolean} Whether an override key holds local constant values (see LOCAL_CONSTANTS_KEY). */
 export const isLocalConstantsKey = (key) => key.split(EXPANDED_ID_SEPARATOR).at(-1) === LOCAL_CONSTANTS_KEY
 
-/** @returns {boolean} Whether an expanded id is a module's inside a subsystem: a root module's id has no '/'. */
+/** @returns {boolean} Whether an expanded id is a module's inside a super instance: a root module's id has no '/'. */
 export const isNestedModelId = (id) => typeof id === 'string' && id.includes(EXPANDED_ID_SEPARATOR)
 
 // The port types through which a module receives from (inputs), or gives to (outputs), its neighbours.
@@ -62,14 +62,14 @@ const INPUT_TYPES = new Set(['entrance_ports', 'general_ports'])
 const OUTPUT_TYPES = new Set(['exit_ports', 'general_ports'])
 
 /**
- * The context a scope is expanded in: the subsystems from the root down to it.
+ * The context a scope is expanded in: the super instances from the root down to it.
  *
  * @typedef {Object} Context
- * @property {Array} chain - The subsystem nodes, outermost first.
+ * @property {Array} chain - The super instance nodes, outermost first.
  * @property {string[]} idPath - Their local ids.
  * @property {string[]} namePath - Their names.
- * @property {string|null} flatName - The innermost subsystem's flat name.
- * @property {Object|null} supermodule - The innermost subsystem's super-module (its interface node).
+ * @property {string|null} flatName - The innermost super instance's flat name.
+ * @property {Object|null} supermodule - The innermost super instance's super-module (its interface node).
  */
 const ROOT_CONTEXT = { chain: [], idPath: [], namePath: [], flatName: null, supermodule: null }
 
@@ -81,7 +81,7 @@ const ROOT_CONTEXT = { chain: [], idPath: [], namePath: [], flatName: null, supe
  * @returns {{ nodes: Array, edges: Array, origin: Map<string, {mainId: string, instanceChain: string[], edgeId?: string}>,
  *   nameOf: (id: string) => string|undefined, idOf: (name: string) => string|undefined,
  *   pathOf: (id: string) => string|undefined, errors: Array<Object> }}
- *   origin: each expanded node's and edge's source in the store, with the subsystems it is expanded through; nameOf:
+ *   origin: each expanded node's and edge's source in the store, with the super instances it is expanded through; nameOf:
  *   an expanded node's flat name; idOf: the expanded node of a flat name or path; pathOf: an expanded node's path.
  */
 export function expandHierarchy(nodes, edges) {
@@ -99,7 +99,7 @@ export function expandHierarchy(nodes, edges) {
   const paths = new Map()
   const errors = []
   const usedOverrides = new Set() // `instanceId\0key\0variable`
-  const instanceChains = new Map() // each expanded subsystem's id to the instance chain of each place it expands in
+  const instanceChains = new Map() // each expanded super instance's id to the instance chain of each place it expands in
   const fail = (kind, message, origins = [], { ids = [], severity = 'error' } = {}) =>
     errors.push({ kind, severity, message, ids, origins })
 
@@ -141,13 +141,13 @@ export function expandHierarchy(nodes, edges) {
   const originOf = (context, mainId, edgeId) => ({ mainId, instanceChain: chainIds(context), ...(edgeId && { edgeId }) })
 
   /**
-   * Gets the context a subsystem's children are expanded in, or null, with an error, when it can't be expanded.
+   * Gets the context a super instance's children are expanded in, or null, with an error, when it can't be expanded.
    */
   const enter = (context, instance) => {
     const supermodule = supermodules.get(instance.data?.smId)
     const where = [originOf(context, instance.id)]
     if (!supermodule) {
-      fail('missingSupermodule', `Subsystem "${pathOfNames([...context.namePath, instance.data?.name])}" has no super-module "${instance.data?.smId}".`, where)
+      fail('missingSupermodule', `Super instance "${pathOfNames([...context.namePath, instance.data?.name])}" has no super-module "${instance.data?.smId}".`, where)
       return null
     }
     if (context.chain.some((outer) => outer.data.smId === supermodule.id)) {
@@ -156,7 +156,7 @@ export function expandHierarchy(nodes, edges) {
       return null
     }
     if (context.chain.length >= MAX_NESTING_DEPTH) {
-      fail('depth', `Subsystems nest deeper than ${MAX_NESTING_DEPTH} levels.`, where)
+      fail('depth', `Super instances nest deeper than ${MAX_NESTING_DEPTH} levels.`, where)
       return null
     }
     return {
@@ -167,7 +167,7 @@ export function expandHierarchy(nodes, edges) {
       supermodule,
     }
   }
-  // Each subsystem's context, keyed by its expanded id, once entered.
+  // Each super instance's context, keyed by its expanded id, once entered.
   const contexts = new Map()
   const contextOf = (context, instance) => {
     const key = expandedIdIn(context, instance)
@@ -175,7 +175,7 @@ export function expandHierarchy(nodes, edges) {
     return contexts.get(key)
   }
 
-  /** Applies the subsystems' overrides to a leaf's rows, innermost first, so the outermost wins. */
+  /** Applies the super instances' overrides to a leaf's rows, innermost first, so the outermost wins. */
   const applyOverrides = (context, leaf) => {
     let variables = leaf.data.variables
     for (let level = context.chain.length - 1; level >= 0; level--) {
@@ -205,7 +205,7 @@ export function expandHierarchy(nodes, edges) {
 
   const expandNodes = (scope, context) => {
     for (const child of childrenOf(scope)) {
-      if (!isSubsystem(child)) {
+      if (!isSuperInstance(child)) {
         emitLeaf(context, child)
         continue
       }
@@ -223,12 +223,12 @@ export function expandHierarchy(nodes, edges) {
    */
   const aliasedPortType = (smId, exposed, depth = 0) => {
     const child = childByLocalId(smId, exposed?.alias?.child)
-    if (!isSubsystem(child)) return exposed?.alias?.portType
+    if (!isSuperInstance(child)) return exposed?.alias?.portType
     const inner = exposedPortsOf(child.data?.smId).find((port) => port.id === exposed.alias.via)
     return depth < MAX_NESTING_DEPTH ? aliasedPortType(child.data.smId, inner, depth + 1) : undefined
   }
 
-  /** Where a subsystem port's child sits in CA's host lists: its first exposed port facing that way. */
+  /** Where a super instance port's child sits in CA's host lists: its first exposed port facing that way. */
   const spliceIndex = (smId, child, side) => {
     const types = side === 'target' ? INPUT_TYPES : OUTPUT_TYPES
     const index = exposedPortsOf(smId).findIndex((port) => port.alias?.child === child && types.has(aliasedPortType(smId, port)))
@@ -236,7 +236,7 @@ export function expandHierarchy(nodes, edges) {
   }
 
   /**
-   * Resolves an exposed port of a subsystem to the module port it aliases, through `via`.
+   * Resolves an exposed port of a super instance to the module port it aliases, through `via`.
    *
    * @returns {{ id: string, port: Object, slot: number, splice: number[] }|null}
    */
@@ -257,8 +257,8 @@ export function expandHierarchy(nodes, edges) {
     const child = childByLocalId(inner.supermodule.id, exposed.alias?.child)
     if (!child) return unresolved(`aliases a missing child "${exposed.alias?.child}"`)
     const splice = spliceIndex(inner.supermodule.id, exposed.alias.child, side)
-    if (isSubsystem(child)) {
-      if (!exposed.alias.via) return unresolved(`aliases subsystem "${child.data.name}" without naming its port`)
+    if (isSuperInstance(child)) {
+      if (!exposed.alias.via) return unresolved(`aliases super instance "${child.data.name}" without naming its port`)
       const resolved = resolveExposed(inner, child, exposed.alias.via, side, edge)
       return resolved && { ...resolved, splice: [splice, ...resolved.splice] }
     }
@@ -275,7 +275,7 @@ export function expandHierarchy(nodes, edges) {
     const id = depth ? [...context.idPath, edge.id].join(EXPANDED_ID_SEPARATOR) : edge.id
     const expandedEnd = (node, fallback) => (node ? expandedIdIn(context, node) : fallback)
 
-    if (!isSubsystem(source) && !isSubsystem(target)) {
+    if (!isSuperInstance(source) && !isSuperInstance(target)) {
       const flat = depth
         ? modelEdgeOf(edge, { id, source: expandedEnd(source, edge.source), target: expandedEnd(target, edge.target) })
         : edge
@@ -285,7 +285,7 @@ export function expandHierarchy(nodes, edges) {
     }
 
     const resolveEnd = (node, port, side) => {
-      if (!isSubsystem(node)) return { id: expandedEnd(node, edge[side]), splice: [] }
+      if (!isSuperInstance(node)) return { id: expandedEnd(node, edge[side]), splice: [] }
       if (!port?.exposedPortId) {
         fail('unresolvedAlias', `Edge "${edge.id}" couples to a port of "${node.data?.name}" that is not an exposed port.`, [
           originOf(context, edge.id, edge.id),
@@ -296,7 +296,7 @@ export function expandHierarchy(nodes, edges) {
     }
 
     if (!edge.data?.couplings?.length) {
-      const ends = [source, target].filter(isSubsystem).map((node) => `"${pathOfNames([...context.namePath, node.data?.name])}"`)
+      const ends = [source, target].filter(isSuperInstance).map((node) => `"${pathOfNames([...context.namePath, node.data?.name])}"`)
       fail('emptyBoundaryEdge', `Edge "${edge.id}" to ${ends.join(' and ')} couples no exposed port, so it can't be expanded.`, [
         originOf(context, edge.id, edge.id),
       ])
@@ -324,9 +324,9 @@ export function expandHierarchy(nodes, edges) {
           id: partId,
           source: from.id,
           target: to.id,
-          // A subsystem's handle is not its child's.
-          sourceHandle: isSubsystem(source) ? undefined : edge.sourceHandle,
-          targetHandle: isSubsystem(target) ? undefined : edge.targetHandle,
+          // A super instance's handle is not its child's.
+          sourceHandle: isSuperInstance(source) ? undefined : edge.sourceHandle,
+          targetHandle: isSuperInstance(target) ? undefined : edge.targetHandle,
           data: { ...edge.data, couplings },
         }),
         depth,
@@ -338,7 +338,7 @@ export function expandHierarchy(nodes, edges) {
   const expandEdges = (scope, context) => {
     for (const edge of edgesByScope.get(scope) ?? []) expandEdge(context, edge)
     for (const child of childrenOf(scope)) {
-      if (!isSubsystem(child)) continue
+      if (!isSuperInstance(child)) continue
       const inner = contextOf(context, child)
       if (inner) expandEdges(inner.supermodule.id, inner)
     }
@@ -377,11 +377,11 @@ export function expandHierarchy(nodes, edges) {
 /**
  * Binds super-modules' local constants into a leaf's rows, after the overrides. The hook for H13 (#445): a row typed
  * `local_constant` will take the value of the innermost enclosing super-module's constant of that name, as the
- * context's subsystems override it: the innermost subsystem under '@', an outer one under `<localId path>/@` (see
+ * context's super instances override it: the innermost super instance under '@', an outer one under `<localId path>/@` (see
  * isLocalConstantsKey), the outermost winning as for other overrides. Until then the rows are returned as they are.
  *
  * @param {Array} variables - The leaf's rows, overrides applied.
- * @param {Context} _context - The subsystems the leaf is expanded through.
+ * @param {Context} _context - The super instances the leaf is expanded through.
  * @returns {Array}
  */
 function bindLocalConstants(variables, _context) {
@@ -433,13 +433,13 @@ function compareSplices(a, b) {
 /**
  * Orders the expanded edges as circulatory_autogen splices a super-module: on each module's inputs, edges from outer
  * levels before its siblings'; on its outputs, after them. Otherwise the given order is kept. Where those orders
- * contradict each other (an edge from a subsystem to itself), the given order breaks the tie.
+ * contradict each other (an edge from a super instance to itself), the given order breaks the tie.
  *
  * This is the edges' order only. orderCaLists keeps it for each row's out_instances, which CA wires by, but lists
- * inp_instances by row, as for a flat model, so a host row after the subsystem is listed after its siblings there.
+ * inp_instances by row, as for a flat model, so a host row after the super instance is listed after its siblings there.
  * CA reads a module's inp_instances for its connections only at a heart, whose inputs orderCaLists orders by slot.
  *
- * @param {Array<{edge: Object, depth: number}>} entries - depth: how many subsystems deep the edge was drawn.
+ * @param {Array<{edge: Object, depth: number}>} entries - depth: how many super instances deep the edge was drawn.
  * @returns {Array} The edges.
  */
 function orderEdges(entries) {
@@ -518,12 +518,12 @@ class MinHeap {
 }
 
 /**
- * Reports the overrides of expanded subsystems that set nothing: their path or variable is gone. Local constant keys
- * are left to H13. A subsystem expanded in several places, inside a super-module used more than once, holds one
+ * Reports the overrides of expanded super instances that set nothing: their path or variable is gone. Local constant keys
+ * are left to H13. A super instance expanded in several places, inside a super-module used more than once, holds one
  * override for them all, so it is reported once, with an origin for each place.
  *
  * @param {Array} nodes
- * @param {Map<string, string[][]>} instanceChains - Each expanded subsystem's id to the instance chain of each place.
+ * @param {Map<string, string[][]>} instanceChains - Each expanded super instance's id to the instance chain of each place.
  * @param {Set<string>} usedOverrides
  * @param {Function} fail
  */
@@ -535,7 +535,7 @@ function reportOrphanedOverrides(nodes, instanceChains, usedOverrides, fail) {
       if (isLocalConstantsKey(key)) continue
       for (const name of Object.keys(patches ?? {})) {
         if (usedOverrides.has(`${node.id}\0${key}\0${name}`)) continue
-        const message = `Subsystem "${node.data.name}" sets "${key}" variable "${name}", which no longer exists.`
+        const message = `Super instance "${node.data.name}" sets "${key}" variable "${name}", which no longer exists.`
         fail('orphanedOverride', message, origins, { severity: 'warning' })
       }
     }

@@ -1,8 +1,8 @@
 /**
  * Writes values into the model by model id. A root module's model id is its node's id, so its values are written to
- * its node. A module inside a subsystem is written, by default, for this subsystem: as an override on the outermost
- * subsystem of its path, keyed by the rest of the path, which wins over the super-module's value; or, as the
- * super-module's default, to the super-module's child itself, for every subsystem not overriding it (see
+ * its node. A module inside a super instance is written, by default, for this super instance: as an override on the outermost
+ * super instance of its path, keyed by the rest of the path, which wins over the super-module's value; or, as the
+ * super-module's default, to the super-module's child itself, for every super instance not overriding it (see
  * services/hierarchy/overrides.js). Writes go through updateNodeData, inside whatever undo step the caller records
  * (see recordTargetOf).
  */
@@ -65,7 +65,7 @@ export function useModelWriter() {
   const rowsOf = (modelId) => model.findModelNode(modelId)?.data?.variables ?? findNode(modelId)?.data?.variables ?? []
 
   /**
-   * Writes overrides of the outermost subsystem under a key.
+   * Writes overrides of the outermost super instance under a key.
    *
    * @returns {Array} The module's rows, as they now are.
    */
@@ -82,10 +82,10 @@ export function useModelWriter() {
    * Writes a module's rows.
    *
    * @param {string} modelId
-   * @param {Array} variables - Its new rows, all of them. For this subsystem, only values that differ are written,
+   * @param {Array} variables - Its new rows, all of them. For this super instance, only values that differ are written,
    *   each as an override.
    * @param {Object} [options]
-   * @param {'instance'|'supermodule'} [options.target='instance'] - This subsystem, or its super-module's child; the
+   * @param {'instance'|'supermodule'} [options.target='instance'] - This super instance, or its super-module's child; the
    *   same for a root module.
    * @returns {Array|null} The rows written, or null when nothing was.
    */
@@ -107,7 +107,7 @@ export function useModelWriter() {
 
   /**
    * Writes fields of one of a module's rows, leaving its other rows as they are. The rows written are copies, so
-   * none is shared with the rows they replace. For this subsystem only the value is written, as an override; one the
+   * none is shared with the rows they replace. For this super instance only the value is written, as an override; one the
    * module would have anyway clears it.
    *
    * @param {string} modelId
@@ -127,11 +127,11 @@ export function useModelWriter() {
   }
 
   /**
-   * Clears this subsystem's override of a module's value, so it has the super-module's again.
+   * Clears this super instance's override of a module's value, so it has the super-module's again.
    *
-   * @param {string} modelId - A module inside a subsystem.
+   * @param {string} modelId - A module inside a super instance.
    * @param {string} variable
-   * @returns {Array|null} The module's rows, or null when it isn't inside a subsystem.
+   * @returns {Array|null} The module's rows, or null when it isn't inside a super instance.
    */
   function resetOverride(modelId, variable) {
     const found = writeTargetOf(modelId, 'instance', model.graph.value.origin, findNode)
@@ -140,27 +140,27 @@ export function useModelWriter() {
   }
 
   /**
-   * Removes one override of a subsystem by its key, as its sidebar lists them, orphaned ones included.
+   * Removes one override of a super instance by its key, as its sidebar lists them, orphaned ones included.
    *
-   * @param {string} subsystemId
+   * @param {string} superInstanceId
    * @param {string} key - Local id path.
    * @param {string} variable
    * @returns {boolean} Whether there was one.
    */
-  function removeOverride(subsystemId, key, variable) {
-    const overrides = findNode(subsystemId)?.data?.overrides
+  function removeOverride(superInstanceId, key, variable) {
+    const overrides = findNode(superInstanceId)?.data?.overrides
     if (!overrides?.[key] || !(variable in overrides[key])) return false
     const { [variable]: _removed, ...entry } = overrides[key]
     const next = { ...overrides }
     if (Object.keys(entry).length) next[key] = entry
     else delete next[key]
-    updateNodeData(subsystemId, { overrides: detachReactivity(next) })
+    updateNodeData(superInstanceId, { overrides: detachReactivity(next) })
     return true
   }
 
   /**
    * Says where each of a model node's values comes from (see overrides.js provenanceOf): chips default, overridden
-   * (by this subsystem) or ignored, and the #686 status, from the model.
+   * (by this super instance) or ignored, and the #686 status, from the model.
    *
    * @param {string} modelId
    * @returns {Map<string, Object>} By row name.
@@ -177,12 +177,12 @@ export function useModelWriter() {
   const aggregateProvenanceOf = (mainId) => aggregateProvenance(mainId, model.graph.value, findNode)
 
   /**
-   * Lists a subsystem's overrides for its sidebar, orphaned ones flagged (see overrides.js overridesOf).
+   * Lists a super instance's overrides for its sidebar, orphaned ones flagged (see overrides.js overridesOf).
    *
-   * @param {string} subsystemId
+   * @param {string} superInstanceId
    * @returns {Array<{key: string, path: string, variable: string, value: *, isOrphaned: boolean}>}
    */
-  const overridesOf = (subsystemId) => listOverrides(subsystemId, nodes.value)
+  const overridesOf = (superInstanceId) => listOverrides(superInstanceId, nodes.value)
 
   return {
     writeValue,

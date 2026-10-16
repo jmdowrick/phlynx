@@ -120,7 +120,7 @@ describe('a nested graph exports as the flat graph it stands for', () => {
   }
 
   it.each([
-    ['venous fan-in summing through a subsystem', venousFanIn],
+    ['venous fan-in summing through a super instance', venousFanIn],
     ['Multiply read live through an exposed port', multiply],
     ['two levels, through via', twoLevel],
     ['one super-module three times, each with its own values', threeInstances],
@@ -132,7 +132,7 @@ describe('a nested graph exports as the flat graph it stands for', () => {
   })
 
   // Not exported: the bundled heart's math uses per_s only in <cn> units, which export doesn't import yet.
-  it('heart slots pinned through a subsystem, by coupling and CA lists', () => {
+  it('heart slots pinned through a super instance, by coupling and CA lists', () => {
     const { nested, flat } = heartSlots(make)
     const expansion = expandHierarchy(nested.nodes, nested.edges)
     expect(expansion.errors).toEqual([])
@@ -202,7 +202,7 @@ describe('a nested graph simulates as the flat graph it stands for', () => {
 
   afterEach(() => vi.restoreAllMocks())
 
-  it('three subsystems of one super-module, each with its own k', async () => {
+  it('three super instances of one super-module, each with its own k', async () => {
     const { nested, flat } = hubBranches(store)
     const expansion = expandHierarchy(nested.nodes, nested.edges)
     expect(expansion.errors).toEqual([])

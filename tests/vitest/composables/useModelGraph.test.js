@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useModelGraph } from '../../../src/composables/useModelGraph.js'
 import { FLOW_IDS } from '../../../src/utils/constants.js'
-import { connect, constant, exposed, exposures, module, port, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
+import { connect, constant, exposed, exposures, module, port, superInstance, supermodule } from '../fixtures/hierarchy/graph.js'
 
 const IN = port('entrance_ports', 'vessel', ['v_in', 'u'])
 const OUT = port('exit_ports', 'vessel', ['v', 'u_out'])
@@ -19,7 +19,7 @@ function flatGraph() {
 }
 
 /**
- * Root a → heart (sm_1: ra → lv, exposing ra's input and lv's output) → b, and, with a second subsystem of sm_1, the
+ * Root a → heart (sm_1: ra → lv, exposing ra's input and lv's output) → b, and, with a second super instance of sm_1, the
  * spare heart, connected to nothing.
  */
 function heartGraph({ spare = false } = {}) {
@@ -29,12 +29,12 @@ function heartGraph({ spare = false } = {}) {
   const exposure = exposures('sm_1', [exposed('xp_in', 'ra', 'entrance_ports', 'vessel'), exposed('xp_out', 'lv', 'exit_ports', 'vessel')])
   const inner = [sm, ra, lv]
   const store = { nodes: inner, edges: exposure }
-  const heart = subsystem(store, 'dndnode_1', 'heart', 'sm_1')
+  const heart = superInstance(store, 'dndnode_1', 'heart', 'sm_1')
   const a = vessel('dndnode_0', 'a')
   const b = vessel('dndnode_2', 'b')
   const used = new Set()
   const edges = [connect(a, heart, { used, id: 'e_in' }), connect(heart, b, { used, id: 'e_out' }), connect(ra, lv, { id: 'e_int' }), ...exposure]
-  const spares = spare ? [subsystem(store, 'dndnode_3', 'spare', 'sm_1')] : []
+  const spares = spare ? [superInstance(store, 'dndnode_3', 'spare', 'sm_1')] : []
   return { nodes: [a, heart, b, ...spares, ...inner], edges }
 }
 
@@ -58,7 +58,7 @@ describe('useModelGraph', () => {
     expect(useModelGraph().graph).toBe(graph)
   })
 
-  it('is the store itself without subsystems: the same nodes and edges, in their order', () => {
+  it('is the store itself without super instances: the same nodes and edges, in their order', () => {
     show(flatGraph())
     expect(modelNodes.value).toHaveLength(3)
     modelNodes.value.forEach((node, i) => expect(node).toBe(flow.nodes.value[i]))
@@ -69,7 +69,7 @@ describe('useModelGraph', () => {
     expect([modelIdOf('b'), mainIdOf('b'), rootIdOf('b'), findModelNode('b')]).toEqual(['b', 'b', 'b', flow.findNode('b')])
   })
 
-  it('reports nothing without subsystems, what flat export tolerates included', () => {
+  it('reports nothing without super instances, what flat export tolerates included', () => {
     const { nodes, edges } = flatGraph()
     nodes[2].data.name = 'a'
     show({ nodes, edges })
@@ -77,7 +77,7 @@ describe('useModelGraph', () => {
     expect(errors.value).toEqual([])
   })
 
-  it('expands subsystems into their modules, by path ids and flat names, each traced to its node', () => {
+  it('expands super instances into their modules, by path ids and flat names, each traced to its node', () => {
     show(heartGraph())
     expect(isHierarchical.value).toBe(true)
     expect(modelNodes.value.map((node) => [node.id, node.data.name])).toEqual([
@@ -101,7 +101,7 @@ describe('useModelGraph', () => {
     expect(errors.value).toEqual([])
   })
 
-  it('expands a selection: a subsystem to its modules, a super-module’s module to its copy in each subsystem', () => {
+  it('expands a selection: a super instance to its modules, a super-module’s module to its copy in each super instance', () => {
     show(heartGraph({ spare: true }))
     expect(expandSelection(['dndnode_1'])).toEqual(['dndnode_1/ra', 'dndnode_1/lv'])
     expect(expandSelection(['dndnode_2', 'dndnode_1'])).toEqual(['dndnode_1/ra', 'dndnode_1/lv', 'dndnode_2'])
@@ -110,7 +110,7 @@ describe('useModelGraph', () => {
     expect(expandSelection([])).toEqual([])
   })
 
-  it('reports what the expansion finds wrong once there are subsystems', () => {
+  it('reports what the expansion finds wrong once there are super instances', () => {
     const { nodes, edges } = heartGraph()
     show({ nodes, edges: edges.filter((edge) => edge.id !== 'sm_1~lv--sm_1') })
     expect(errors.value.map((error) => [error.kind, error.severity])).toEqual([['unresolvedAlias', 'error']])
@@ -119,7 +119,7 @@ describe('useModelGraph', () => {
 
   it.each([
     {
-      workspace: 'without subsystems',
+      workspace: 'without super instances',
       build: flatGraph,
       changes: [
         { id: 'a', type: 'position', position: { x: 40, y: 80 }, dragging: true },
@@ -131,7 +131,7 @@ describe('useModelGraph', () => {
       modelId: 'b',
     },
     {
-      workspace: 'with subsystems',
+      workspace: 'with super instances',
       build: heartGraph,
       changes: [
         { id: 'dndnode_0', type: 'position', position: { x: 40, y: 80 }, dragging: true },
@@ -190,9 +190,9 @@ describe('useModelGraph in development', () => {
     return useFreshModelGraph()
   }
 
-  it('refuses a workspace without subsystems expanded to other nodes than its own', async () => {
+  it('refuses a workspace without super instances expanded to other nodes than its own', async () => {
     const { graph } = await withExpansion((expansion) => ({ nodes: expansion.nodes.map((node) => ({ ...node })), edges: expansion.edges }), flatGraph())
-    expect(() => graph.value).toThrow('A workspace without subsystems must expand to its own nodes and edges.')
+    expect(() => graph.value).toThrow('A workspace without super instances must expand to its own nodes and edges.')
   })
 
   it('refuses a node of a super-module reaching the model', async () => {

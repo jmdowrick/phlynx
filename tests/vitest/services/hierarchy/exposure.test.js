@@ -5,27 +5,27 @@ import {
   exposedPortsOf,
   exposedSlotKeys,
   isBrokenEdge,
-  materialiseSubsystems,
+  materialiseSuperInstances,
   nextExposedPortId,
   planExposure,
   planOverrideRemoval,
   planRelabel,
   planReorder,
   planUnexpose,
-  subsystemPorts,
+  superInstancePorts,
 } from '../../../../src/services/hierarchy/exposure.js'
 import { expandHierarchy } from '../../../../src/services/hierarchy/expand.js'
 import { EXPOSURE_EDGE_TYPE } from '../../../../src/utils/constants.js'
 import { buildUsedPortKeys, slotOf } from '../../../../src/utils/edges.js'
 import { findPort } from '../../../../src/utils/ports.js'
-import { connect, exposed, exposures, module, port, subsystem, supermodule } from '../../fixtures/hierarchy/graph.js'
+import { connect, exposed, exposures, module, port, superInstance, supermodule } from '../../fixtures/hierarchy/graph.js'
 
 const IN = port('entrance_ports', 'vessel', ['v_in'])
 const OUT = port('exit_ports', 'vessel', ['v'])
 const vessel = (localId, name, options = {}) => module(localId, name, { ports: [{ ...IN }, { ...OUT }], ...options })
 
 /**
- * Root src → p1 → sink and an unconnected p2, both subsystems of pair (sm_1: a → b), exposing a's entrance (xp_in)
+ * Root src → p1 → sink and an unconnected p2, both super instances of pair (sm_1: a → b), exposing a's entrance (xp_in)
  * and b's exit (xp_out).
  */
 function pairGraph() {
@@ -34,8 +34,8 @@ function pairGraph() {
   const sm = supermodule('sm_1', 'pair', { submoduleOrder: ['a', 'b'] })
   const exposure = exposures('sm_1', [exposed('xp_in', 'a', 'entrance_ports', 'vessel'), exposed('xp_out', 'b', 'exit_ports', 'vessel')])
   const inner = { nodes: [sm, a, b], edges: exposure }
-  const p1 = subsystem(inner, 'dndnode_1', 'p1', 'sm_1')
-  const p2 = subsystem(inner, 'dndnode_3', 'p2', 'sm_1')
+  const p1 = superInstance(inner, 'dndnode_1', 'p1', 'sm_1')
+  const p2 = superInstance(inner, 'dndnode_3', 'p2', 'sm_1')
   const src = vessel('dndnode_0', 'src')
   const sink = vessel('dndnode_2', 'sink')
   const used = new Set()
@@ -67,7 +67,7 @@ describe('exposed ports, read from exposure edges', () => {
     const { nodes, edges } = pairGraph()
     edgeOf(edges, 'sm_1~a--sm_1').data.exposed[0].order = 3
     expect(exposedPortsOf('sm_1', nodes, edges).map((p) => p.id)).toEqual(['xp_out', 'xp_in'])
-    expect(subsystemPorts(nodes, edges, 'sm_1').map((p) => p.exposedPortId)).toEqual(['xp_out', 'xp_in'])
+    expect(superInstancePorts(nodes, edges, 'sm_1').map((p) => p.exposedPortId)).toEqual(['xp_out', 'xp_in'])
   })
 
   it('never reuses an id a coupling still names', () => {
@@ -126,11 +126,11 @@ describe('the Expose Ports dialog', () => {
     ])
   })
 
-  it('exposes a nested subsystem’s port through via', () => {
+  it('exposes a nested super instance’s port through via', () => {
     const { nodes, edges } = pairGraph()
     const outer = supermodule('sm_5', 'outer', { submoduleOrder: ['dndnode_0'] })
     const store = { nodes: [...nodes, outer], edges }
-    const inner = subsystem(store, 'dndnode_0', 'inner', 'sm_1', { scope: 'sm_5' })
+    const inner = superInstance(store, 'dndnode_0', 'inner', 'sm_1', { scope: 'sm_5' })
     const edge = { id: `${inner.id}--sm_5`, type: EXPOSURE_EDGE_TYPE, source: inner.id, target: 'sm_5', data: { exposed: [] } }
     const all = { nodes: [...store.nodes, inner], edges: [...edges, edge] }
     const rows = exposablePorts(edge, all.nodes, all.edges)
@@ -138,7 +138,7 @@ describe('the Expose Ports dialog', () => {
     const plan = planExposure(edge, [{ key: 'via:xp_out', label: 'drain' }], all.nodes, all.edges)
     expect(plan.entries).toEqual([{ id: 'xp_0', alias: { via: 'xp_out' }, label: 'drain', order: 0 }])
     const exposedNow = withEntries(all.edges, edge.id, plan.entries)
-    expect(subsystemPorts(all.nodes, exposedNow, 'sm_5')).toEqual([{ ...OUT, label: 'drain', exposedPortId: 'xp_0' }])
+    expect(superInstancePorts(all.nodes, exposedNow, 'sm_5')).toEqual([{ ...OUT, label: 'drain', exposedPortId: 'xp_0' }])
   })
 })
 
@@ -160,10 +160,10 @@ describe('ordering and labels for the whole super-module', () => {
   })
 })
 
-describe('materialiseSubsystems', () => {
-  it('changes nothing when every subsystem is in step', () => {
+describe('materialiseSuperInstances', () => {
+  it('changes nothing when every super instance is in step', () => {
     const { nodes, edges } = pairGraph()
-    expect(materialiseSubsystems(nodes, edges)).toEqual({ nodes: new Map(), couplings: new Map() })
+    expect(materialiseSuperInstances(nodes, edges)).toEqual({ nodes: new Map(), couplings: new Map() })
   })
 
   it('rebinds couplings by exposed port id as ports move, keeping their pairing and the other end’s slot', () => {
@@ -172,7 +172,7 @@ describe('materialiseSubsystems', () => {
     const reordered = edges.map((edge) =>
       edge.id === 'sm_1~a--sm_1' ? { ...edge, data: { exposed: [{ ...edge.data.exposed[0], order: 9, label: 'venous' }] } } : edge
     )
-    const { nodes: changed, couplings } = materialiseSubsystems(nodes, reordered)
+    const { nodes: changed, couplings } = materialiseSuperInstances(nodes, reordered)
     expect(changed.get('dndnode_1').ports.map((p) => [p.exposedPortId, p.label])).toEqual([
       ['xp_out', 'vessel'],
       ['xp_in', 'venous'],
@@ -187,19 +187,19 @@ describe('materialiseSubsystems', () => {
   it('flags a coupling whose exposed port is gone broken, keeping it, and clears the flag when it comes back', () => {
     const { nodes, edges } = pairGraph()
     const unexposed = edges.filter((edge) => edge.id !== 'sm_1~b--sm_1')
-    const { nodes: changed, couplings } = materialiseSubsystems(nodes, unexposed)
+    const { nodes: changed, couplings } = materialiseSuperInstances(nodes, unexposed)
     expect(changed.get('dndnode_1')).toEqual({ ports: [{ ...IN, exposedPortId: 'xp_in' }], broken: ['xp_out'] })
     expect(couplings.has('e1')).toBe(false)
     const p1 = { ...nodes[1], data: { ...nodes[1].data, ...changed.get('dndnode_1') } }
     const broken = nodes.map((node) => (node.id === 'dndnode_1' ? p1 : node))
     expect(isBrokenEdge(edgeOf(edges, 'e1'), new Map(broken.map((node) => [node.id, node])))).toBe(true)
-    expect(materialiseSubsystems(broken, edges).nodes.get('dndnode_1')).toEqual({ ports: nodes[1].data.ports, broken: undefined })
+    expect(materialiseSuperInstances(broken, edges).nodes.get('dndnode_1')).toEqual({ ports: nodes[1].data.ports, broken: undefined })
   })
 
   it('takes in a child port’s live variables and multiport', () => {
     const { nodes, edges } = pairGraph()
     nodes.find((node) => node.id === 'sm_1~a').data.ports[0].multiportType = ['sum', 'True']
-    const { nodes: changed, couplings } = materialiseSubsystems(nodes, edges)
+    const { nodes: changed, couplings } = materialiseSuperInstances(nodes, edges)
     expect(changed.get('dndnode_1').ports[0].multiportType).toEqual(['sum', 'True'])
     expect(changed.get('dndnode_3').ports[0].multiportType).toEqual(['sum', 'True'])
     expect(couplings.get('e0')[0].targetPort.multiportType).toEqual(['sum', 'True'])
@@ -213,7 +213,7 @@ describe('planUnexpose', () => {
     expect(plan.removeEdgeIds).toEqual(['e1'])
     expect(plan.couplings.size).toBe(0)
     expect(plan.exposures.get('sm_1~b--sm_1')).toEqual([])
-    expect(plan).toMatchObject({ connections: 1, couplingCount: 1, subsystems: ['dndnode_1'], isEmpty: false })
+    expect(plan).toMatchObject({ connections: 1, couplingCount: 1, superInstances: ['dndnode_1'], isEmpty: false })
     const after = edges.filter((edge) => !plan.removeEdgeIds.includes(edge.id)).map((edge) => (plan.exposures.has(edge.id) ? { ...edge, data: { exposed: plan.exposures.get(edge.id) } } : edge))
     expect(expandHierarchy(nodes, after).errors).toEqual([])
   })
@@ -221,17 +221,17 @@ describe('planUnexpose', () => {
   it('un-exposes an outer super-module’s port exposing it through via, and trims the connections to that', () => {
     const { nodes, edges } = pairGraph()
     const outer = supermodule('sm_5', 'outer', { submoduleOrder: ['dndnode_0'] })
-    const inner = subsystem({ nodes: [...nodes, outer], edges }, 'dndnode_0', 'inner', 'sm_1', { scope: 'sm_5' })
+    const inner = superInstance({ nodes: [...nodes, outer], edges }, 'dndnode_0', 'inner', 'sm_1', { scope: 'sm_5' })
     const outerExposure = { id: `${inner.id}--sm_5`, type: EXPOSURE_EDGE_TYPE, source: inner.id, target: 'sm_5', data: { exposed: [{ id: 'xp_9', alias: { via: 'xp_out' }, order: 0 }] } }
     const store = { nodes: [...nodes, outer, inner], edges: [...edges, outerExposure] }
-    const top = subsystem(store, 'dndnode_7', 'top', 'sm_5')
+    const top = superInstance(store, 'dndnode_7', 'top', 'sm_5')
     const host = vessel('dndnode_8', 'host')
     const all = { nodes: [...store.nodes, top, host], edges: [...store.edges, connect(top, host, { id: 'e9' })] }
     const plan = planUnexpose(all.nodes, all.edges, { unexposed: new Map([['sm_1', ['xp_out']]]) })
     expect(plan.exposures.get(outerExposure.id)).toEqual([])
     expect(plan.removeEdgeIds.sort()).toEqual(['e1', 'e9'])
     expect([...plan.unexposed.get('sm_5')]).toEqual(['xp_9'])
-    expect(plan.subsystems.sort()).toEqual(['dndnode_1', 'dndnode_7'])
+    expect(plan.superInstances.sort()).toEqual(['dndnode_1', 'dndnode_7'])
   })
 
   it('un-exposes a removed child’s ports, and drops the overrides of it, nested ones included', () => {
@@ -263,14 +263,14 @@ describe('exposedSlotKeys', () => {
   })
 })
 
-describe('connecting to a subsystem', () => {
+describe('connecting to a super instance', () => {
   /** sub (sm_1) exposing two entrance vessel ports alike, a's then c's, and two hosts. */
   function twinGraph() {
     const a = vessel('a', 'a', { scope: 'sm_1' })
     const c = vessel('c', 'c', { scope: 'sm_1' })
     const sm = supermodule('sm_1', 'twin', { submoduleOrder: ['a', 'c'] })
     const exposure = exposures('sm_1', [exposed('xp_a', 'a', 'entrance_ports', 'vessel'), exposed('xp_c', 'c', 'entrance_ports', 'vessel')])
-    const sub = subsystem({ nodes: [sm, a, c], edges: exposure }, 'dndnode_1', 'sub', 'sm_1')
+    const sub = superInstance({ nodes: [sm, a, c], edges: exposure }, 'dndnode_1', 'sub', 'sm_1')
     return { sub, exposure, nodes: [vessel('dndnode_0', 'h0'), vessel('dndnode_2', 'h2'), sub, sm, a, c] }
   }
 
@@ -297,7 +297,7 @@ describe('connecting to a subsystem', () => {
     const edge = { id: 'e0', source: host.id, target: sub.id, data: { couplings: [{ sourcePort: host.data.ports[1], sourceSlot: 1, targetPort: sub.data.ports[1], targetSlot: 1 }] } }
     const reordered = exposure.map((e) => (e.source === 'sm_1~c' ? { ...e, data: { exposed: [{ ...e.data.exposed[0], order: -1 }] } } : e))
     const all = [host, ...nodes.slice(1)]
-    const { couplings } = materialiseSubsystems(all, [edge, ...reordered])
+    const { couplings } = materialiseSuperInstances(all, [edge, ...reordered])
     expect(couplings.get('e0')).toEqual([{ sourcePort: host.data.ports[1], sourceSlot: 1, targetPort: { ...IN, exposedPortId: 'xp_c' }, targetSlot: 0 }])
   })
 })

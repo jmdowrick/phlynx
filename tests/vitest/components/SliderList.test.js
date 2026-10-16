@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const history = vi.hoisted(() => ({ updateNodeData: vi.fn(), recordEdit: vi.fn((edit) => edit.apply()) }))
 vi.mock('@vue-flow/core', async (importOriginal) => ({ ...(await importOriginal()), useVueFlow: () => ({ updateNodeData: history.updateNodeData }) }))
-// A nested module's value is written as its subsystem's override, on the outermost subsystem.
+// A nested module's value is written as its super instance's override, on the outermost super instance.
 const writer = vi.hoisted(() => ({
   writeValue: vi.fn(() => []),
   recordTargetOf: vi.fn((id) => (id.includes('/') ? { nodeIds: ['sub'], keys: ['overrides'] } : { nodeIds: [id], keys: ['variables'] })),
@@ -136,7 +136,7 @@ describe('SliderList', () => {
     expect(wrapper.find('.slider-value').classes()).toContain('slider-value--changed')
   })
 
-  it('applies the value of a module inside a subsystem as that subsystem’s override, and moves its default', async () => {
+  it('applies the value of a module inside a super instance as that super instance’s override, and moves its default', async () => {
     useSimulationSettingsStore().setParameterScanConfig({
       selections: [{ key: 'sub/a::k', nodeId: 'sub/a', nodeName: 'sub_a', parameterName: 'k', type: 'constant', min: 0, default: 1, max: 2 }],
     })

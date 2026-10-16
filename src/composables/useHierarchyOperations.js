@@ -1,6 +1,6 @@
 /**
  * Structural edits of the hierarchy on the workspace (see services/hierarchy/operations.js): Make unique, Nest
- * selection and Un-nest; and keeping a super-module for one subsystem, as a command for the edit guard. Each is one undo step: the new nodes and edges are added before the old ones are removed, so
+ * selection and Un-nest; and keeping a super-module for one super instance, as a command for the edit guard. Each is one undo step: the new nodes and edges are added before the old ones are removed, so
  * no global constant a moved node uses is cleaned up, and the sliders, plots, sweeps and inspection variables of the
  * modules moved follow them to their new model ids.
  */
@@ -11,7 +11,7 @@ import { useSupermodules } from './useSupermodules'
 import { keepForOne, makeUnique, modelIdMap, nestProblem, nestSelection, unnest, unnestProblem } from '../services/hierarchy/operations'
 import { remapNodeKeys } from '../services/hierarchy/remapKeys'
 import { FLOW_IDS } from '../utils/constants'
-import { isSubsystem } from '../utils/hierarchy'
+import { isSuperInstance } from '../utils/hierarchy'
 import { detachReactivity } from '../utils/reactivity'
 
 // A flow without nodes or edges, such as a stub of one, reads as empty.
@@ -32,8 +32,8 @@ const EDGE_FIELDS = ['data', 'sourceHandle', 'targetHandle']
  * @param {Object} [options]
  * @param {string} [options.flowId=FLOW_IDS.MAIN]
  * @param {Object} [options.history] - The undo stack; the nearest provided one by default.
- * @returns {{canMakeUnique: Function, makeUniqueSubsystem: Function, nestProblemOf: Function, nest: Function,
- *   unnestProblemOf: Function, unnestSubsystem: Function, keepForOneCommand: Function}}
+ * @returns {{canMakeUnique: Function, makeUniqueSuperInstance: Function, nestProblemOf: Function, nest: Function,
+ *   unnestProblemOf: Function, unnestSuperInstance: Function, keepForOneCommand: Function}}
  */
 export function useHierarchyOperations({ flowId = FLOW_IDS.MAIN, history = useFlowHistoryFor() } = {}) {
   const flow = useVueFlow(flowId)
@@ -182,65 +182,65 @@ export function useHierarchyOperations({ flowId = FLOW_IDS.MAIN, history = useFl
   }
 
   /**
-   * Whether a subsystem's super-module has more than one copy in the model, so making it unique changes anything.
+   * Whether a super instance's super-module has more than one copy in the model, so making it unique changes anything.
    *
-   * @param {Object|string} subsystem - The node or its id.
+   * @param {Object|string} superInstance - The node or its id.
    * @returns {boolean}
    */
-  function canMakeUnique(subsystem) {
-    const node = typeof subsystem === 'string' ? flow.findNode(subsystem) : subsystem
-    return isSubsystem(node) && (find(node.data.smId)?.occurrences ?? 0) > 1
+  function canMakeUnique(superInstance) {
+    const node = typeof superInstance === 'string' ? flow.findNode(superInstance) : superInstance
+    return isSuperInstance(node) && (find(node.data.smId)?.occurrences ?? 0) > 1
   }
 
   /**
-   * Gives a subsystem its own copy of its super-module (see operations.js makeUnique).
+   * Gives a super instance its own copy of its super-module (see operations.js makeUnique).
    *
-   * @param {string} subsystemId
+   * @param {string} superInstanceId
    * @returns {Promise<{done: boolean, problems: string[]}>}
    */
-  function makeUniqueSubsystem(subsystemId) {
+  function makeUniqueSuperInstance(superInstanceId) {
     const before = store()
-    return apply('make-unique', before, makeUnique(before.nodes, before.edges, subsystemId))
+    return apply('make-unique', before, makeUnique(before.nodes, before.edges, superInstanceId))
   }
 
   /** @returns {string|null} Why some nodes can't be nested (see operations.js nestProblem). */
   const nestProblemOf = (ids) => nestProblem(allNodes(), ids)
 
   /**
-   * Nests nodes into a new super-module, with one subsystem of it in their place (see operations.js nestSelection).
+   * Nests nodes into a new super-module, with one super instance of it in their place (see operations.js nestSelection).
    *
    * @param {string[]} ids
-   * @param {string} name - The super-module's and the subsystem's.
-   * @returns {Promise<{done: boolean, problems: string[], result?: Object}>} `result.subsystemId` the new subsystem's.
+   * @param {string} name - The super-module's and the super instance's.
+   * @returns {Promise<{done: boolean, problems: string[], result?: Object}>} `result.superInstanceId` the new super instance's.
    */
   function nest(ids, name) {
     const before = store()
     return apply('nest-selection', before, nestSelection(before.nodes, before.edges, ids, { name }))
   }
 
-  /** @returns {string|null} Why a subsystem can't be un-nested (see operations.js unnestProblem). */
-  const unnestProblemOf = (subsystemId) => unnestProblem(allNodes(), subsystemId)
+  /** @returns {string|null} Why a super instance can't be un-nested (see operations.js unnestProblem). */
+  const unnestProblemOf = (superInstanceId) => unnestProblem(allNodes(), superInstanceId)
 
   /**
-   * Un-nests a subsystem: its super-module's children take its place (see operations.js unnest).
+   * Un-nests a super instance: its super-module's children take its place (see operations.js unnest).
    *
-   * @param {string} subsystemId
+   * @param {string} superInstanceId
    * @returns {Promise<{done: boolean, problems: string[], result?: Object}>}
    */
-  function unnestSubsystem(subsystemId) {
+  function unnestSuperInstance(superInstanceId) {
     const before = store()
-    return apply('unnest', before, unnest(before.nodes, before.edges, subsystemId))
+    return apply('unnest', before, unnest(before.nodes, before.edges, superInstanceId))
   }
 
   /**
-   * Gives a subsystem its super-module to itself, the others moving to a copy (see operations.js keepForOne), as a
+   * Gives a super instance its super-module to itself, the others moving to a copy (see operations.js keepForOne), as a
    * command that records nothing itself (see commandOf).
    *
-   * @param {string} subsystemId
+   * @param {string} superInstanceId
    * @returns {{type: string, redo: Function, undo: Function}}
    */
-  const keepForOneCommand = (subsystemId) =>
-    commandOf('keep-for-one', (before) => keepForOne(before.nodes, before.edges, subsystemId))
+  const keepForOneCommand = (superInstanceId) =>
+    commandOf('keep-for-one', (before) => keepForOne(before.nodes, before.edges, superInstanceId))
 
-  return { canMakeUnique, makeUniqueSubsystem, nestProblemOf, nest, unnestProblemOf, unnestSubsystem, keepForOneCommand }
+  return { canMakeUnique, makeUniqueSuperInstance, nestProblemOf, nest, unnestProblemOf, unnestSuperInstance, keepForOneCommand }
 }

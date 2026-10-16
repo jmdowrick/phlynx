@@ -419,8 +419,8 @@ function updateRange(slider, range) {
 }
 
 /**
- * Writes a slider's value into the model as one undoable edit, so it becomes the model's value: inside a subsystem, as
- * that subsystem's override. The slider's exported default follows it.
+ * Writes a slider's value into the model as one undoable edit, so it becomes the model's value: inside a super instance, as
+ * that super instance's override. The slider's exported default follows it.
  *
  * @param {Object} slider
  */

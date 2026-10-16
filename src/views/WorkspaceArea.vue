@@ -468,8 +468,8 @@
                 :ref="(el) => (nodeRefs[props.id] = el)"
               />
             </template>
-            <template #node-subsystemNode="props">
-              <SubsystemNode
+            <template #node-superInstanceNode="props">
+              <SuperInstanceNode
                 :id="props.id"
                 :data="props.data"
                 :selected="props.selected"
@@ -477,7 +477,7 @@
                 @open-context-menu="onNodeContextMenu"
               />
             </template>
-            <template #node-subsystemInterface="props">
+            <template #node-supermoduleInterface="props">
               <InterfaceNode :id="props.id" :data="props.data" :selected="props.selected" />
             </template>
             <Workbench>
@@ -538,7 +538,7 @@
 
   <MacroBuilderDialog v-model="macroBuilderDialogVisible" @generate="onMacroBuilderGenerate" />
 
-  <NewSubsystemDialog v-model="newSubsystemDialogVisible" :mode="newSubsystemMode" @confirm="onNewSubsystemConfirm" />
+  <NewSupermoduleDialog v-model="newSupermoduleDialogVisible" :mode="newSupermoduleMode" @confirm="onNewSupermoduleConfirm" />
 
   <SimulationFloatingViewer :nodes="modelNodes" :is-canvas-shown="route.name === 'workspace'" />
   <SimSettingsDialog v-model="simSettingsDialog.visible" :section="simSettingsDialog.section" :nodes="modelNodes" />
@@ -651,10 +651,10 @@ import SupermoduleEditDialog from '../components/dialogs/SupermoduleEditDialog.v
 import { useExposure } from '../composables/useExposure'
 import { isExposureEdge } from '../services/hierarchy/exposure'
 import InstanceNode from '../components/InstanceNode.vue'
-import SubsystemNode from '../components/SubsystemNode.vue'
+import SuperInstanceNode from '../components/SuperInstanceNode.vue'
 import InterfaceNode from '../components/InterfaceNode.vue'
 import FlowBreadcrumb from '../components/FlowBreadcrumb.vue'
-import NewSubsystemDialog from '../components/dialogs/NewSubsystemDialog.vue'
+import NewSupermoduleDialog from '../components/dialogs/NewSupermoduleDialog.vue'
 import ImportDialog from '../components/ImportDialog.vue'
 import ModuleReplacementDialog from '../components/ModuleReplacementDialog.vue'
 import SaveDialog from '../components/SaveDialog.vue'
@@ -768,7 +768,7 @@ const {
   viewport,
   vueFlowRef,
 } = useVueFlow(FLOW_IDS.MAIN)
-// What simulation, export, search and parameter import read: the store's nodes with subsystems expanded.
+// What simulation, export, search and parameter import read: the store's nodes with super instances expanded.
 const {
   graph: modelGraph,
   modelNodes,
@@ -821,7 +821,7 @@ const dialogVisible = computed(() => {
     protocolDialog.visible ||
     settingsDialogVisible.value ||
     edgeConnectionDialogVisible.value ||
-    newSubsystemDialogVisible.value ||
+    newSupermoduleDialogVisible.value ||
     instanceEditorDialogVisible.value ||
     inspectionModuleDialogVisible.value
   )
@@ -883,12 +883,12 @@ const importDialogVisible = ref(false)
 const exportDialogVisible = ref(false)
 const replacementDialogVisible = ref(false)
 const macroBuilderDialogVisible = ref(false)
-const newSubsystemDialogVisible = ref(false)
-// Whether the subsystem dialog makes a new, empty subsystem ('new') or nests nodes ('nest').
-const newSubsystemMode = ref('new')
-// Where the pane menu that opened the new subsystem dialog was, in flow coordinates.
-const newSubsystemPosition = ref({ x: 0, y: 0 })
-// The canvas nodes the subsystem dialog nests.
+const newSupermoduleDialogVisible = ref(false)
+// Whether the super-module dialog makes a new, empty super instance ('new') or nests nodes ('nest').
+const newSupermoduleMode = ref('new')
+// Where the pane menu that opened the new super instance dialog was, in flow coordinates.
+const newSupermodulePosition = ref({ x: 0, y: 0 })
+// The canvas nodes the super-module dialog nests.
 const nestIds = ref([])
 const { state: simSettingsDialog, open: openSimSettingsDialog } = useSimSettingsDialog()
 const { state: protocolDialog } = useProtocolDialog()
@@ -918,7 +918,7 @@ const mousePosition = ref({ x: 0, y: 0 })
 
 const searchInputRef = ref(null)
 const matchListRef = ref(null)
-// Search brings a match inside a subsystem into view by entering it.
+// Search brings a match inside a super instance into view by entering it.
 const revealModelNode = useRevealModelNode(zoomToNode)
 
 const {
@@ -1237,7 +1237,7 @@ const loadParametersData = async (content, filename, { notify: shouldNotify = tr
   try {
     const variableCatalogue = new Set(modelNodes.value.flatMap((node) => node.data.variables.map((v) => v.name.trim())))
 
-    // Matched by the model's names, by model id: a module inside a subsystem takes its values as that subsystem's
+    // Matched by the model's names, by model id: a module inside a super instance takes its values as that super instance's
     // overrides. A loaded value never changes a row's type; a computed row's value isn't applied.
     const loaded = applyParametersToModel(modelGraph.value, Array.from(content))
     const { variablesById, updated: totalLocal, skipped } = loaded
@@ -1893,8 +1893,8 @@ const paneContextMenuItems = () => [
     action: () => createNewInstanceAtPosition(mousePosition.value.x, mousePosition.value.y),
   },
   {
-    label: 'New Empty Subsystem',
-    action: () => openNewSubsystemDialog(mousePosition.value.x, mousePosition.value.y),
+    label: 'New Empty Super-module',
+    action: () => openNewSupermoduleDialog(mousePosition.value.x, mousePosition.value.y),
   },
   ...(canvasSelectedNodes.value.length
     ? [{ label: `Nest Selection (${canvasSelectedNodes.value.length})`, action: () => openNestDialog(canvasSelectedNodes.value.map((node) => node.id)) }]
@@ -1943,13 +1943,13 @@ function onNodeContextMenu({ clientX, clientY, id }) {
     node,
     isEditingSupermodule: canvasLevel.isEditingSupermodule.value,
     simulateLabel: simulateLabelFor(id),
-    nestLabel: toNest.length > 1 ? `Nest Selection (${toNest.length})` : 'Nest in Subsystem',
+    nestLabel: toNest.length > 1 ? `Nest Selection (${toNest.length})` : 'Nest in Super-module',
     canMakeUnique: hierarchy.canMakeUnique(node),
     actions: {
       open: () => canvasLevel.enter(id),
       editSupermodule: () => canvasLevel.editSupermodule(node.data.smId),
-      makeUnique: () => reportProblems('Not Made Unique', hierarchy.makeUniqueSubsystem(id)),
-      unnest: () => reportProblems('Not Un-nested', hierarchy.unnestSubsystem(id)),
+      makeUnique: () => reportProblems('Not Made Unique', hierarchy.makeUniqueSuperInstance(id)),
+      unnest: () => reportProblems('Not Un-nested', hierarchy.unnestSuperInstance(id)),
       nest: () => openNestDialog(toNest),
       remove: () => deleteNodes([id]),
       replace: () => onOpenReplacementDialog(node),
@@ -1960,19 +1960,19 @@ function onNodeContextMenu({ clientX, clientY, id }) {
 }
 
 /**
- * Asks for a name, then makes a new, empty super-module and a subsystem of it where the pane was right-clicked.
+ * Asks for a name, then makes a new, empty super-module and a super instance of it where the pane was right-clicked.
  *
  * @param {number} clientX
  * @param {number} clientY
  */
-function openNewSubsystemDialog(clientX, clientY) {
-  newSubsystemPosition.value = screenToFlowCoordinate({ x: clientX, y: clientY })
-  newSubsystemMode.value = 'new'
-  newSubsystemDialogVisible.value = true
+function openNewSupermoduleDialog(clientX, clientY) {
+  newSupermodulePosition.value = screenToFlowCoordinate({ x: clientX, y: clientY })
+  newSupermoduleMode.value = 'new'
+  newSupermoduleDialogVisible.value = true
 }
 
 /**
- * Asks for a name, then nests canvas nodes into a new super-module, with one subsystem of it in their place. Nodes
+ * Asks for a name, then nests canvas nodes into a new super-module, with one super instance of it in their place. Nodes
  * that can't be nested say why at once.
  *
  * @param {string[]} ids
@@ -1984,20 +1984,20 @@ function openNestDialog(ids) {
     return
   }
   nestIds.value = ids
-  newSubsystemMode.value = 'nest'
-  newSubsystemDialogVisible.value = true
+  newSupermoduleMode.value = 'nest'
+  newSupermoduleDialogVisible.value = true
 }
 
 /** @param {string} name - Checked by the dialog. */
-function onNewSubsystemConfirm(name) {
-  if (newSubsystemMode.value === 'nest') {
+function onNewSupermoduleConfirm(name) {
+  if (newSupermoduleMode.value === 'nest') {
     reportProblems('Not Nested', hierarchy.nest(nestIds.value, name))
     return
   }
   try {
-    supermoduleCatalogue.createEmptySubsystem(name, newSubsystemPosition.value)
+    supermoduleCatalogue.createEmptySuperModule(name, newSupermodulePosition.value)
   } catch (error) {
-    notify.error({ title: 'Subsystem Not Created', message: error.message })
+    notify.error({ title: 'Super-module Not Created', message: error.message })
   }
 }
 

@@ -1,7 +1,7 @@
 /**
- * The model: the workspace's nodes and edges with every subsystem expanded into its super-module's modules (see
+ * The model: the workspace's nodes and edges with every super instance expanded into its super-module's modules (see
  * services/hierarchy/expand.js). Simulation, export, SED-ML, protocols, sliders, plots, search and parameter import
- * read it; the canvas reads the store. A workspace without subsystems is its own model: the same nodes and edges, in
+ * read it; the canvas reads the store. A workspace without super instances is its own model: the same nodes and edges, in
  * the same order.
  *
  * One expansion per workspace, shared by every caller. It reads the nodes' ids, types and data and the edges' model
@@ -28,7 +28,7 @@ const graphs = new WeakMap()
  *   modelEdges: import('vue').ComputedRef<Array>, errors: import('vue').ComputedRef<Array>,
  *   isHierarchical: import('vue').ComputedRef<boolean>, expandSelection: Function, modelIdOf: Function,
  *   mainIdOf: Function, rootIdOf: Function, findModelNode: Function}} `graph` is expandHierarchy's result; `errors` the
- *   problems builds report, none for a workspace without subsystems, whose builds check it as before.
+ *   problems builds report, none for a workspace without super instances, whose builds check it as before.
  */
 export function useModelGraph(flowId = FLOW_IDS.MAIN) {
   const flow = useVueFlow(flowId)
@@ -57,19 +57,19 @@ function createModelGraph(flow) {
   const modelEdges = computed(() => graph.value.edges)
   const errors = computed(() => (isHierarchical.value ? graph.value.errors : []))
   const nodeById = computed(() => new Map(graph.value.nodes.map((node) => [node.id, node])))
-  // Each model node's id by where it comes from: the store's node and the subsystems it is expanded through.
+  // Each model node's id by where it comes from: the store's node and the super instances it is expanded through.
   const idByOrigin = computed(() => {
     const { nodes: expanded, origin } = graph.value
     return new Map(expanded.map((node) => [originKey(origin.get(node.id)), node.id]))
   })
 
   /**
-   * Gets the model nodes some store nodes stand for: a module is itself, a subsystem every module it expands to, and a
-   * module inside a super-module its copy in each subsystem of it, or only in the subsystems `within` goes through.
-   * Without subsystems, the ids as they are.
+   * Gets the model nodes some store nodes stand for: a module is itself, a super instance every module it expands to, and a
+   * module inside a super-module its copy in each super instance of it, or only in the super instances `within` goes through.
+   * Without super instances, the ids as they are.
    *
    * @param {Iterable<string>} mainIds - Store ids, such as the canvas selection.
-   * @param {string[]|null} [within=null] - Subsystems' store ids from the root down, as the canvas was entered through
+   * @param {string[]|null} [within=null] - Super instances' store ids from the root down, as the canvas was entered through
    *   them: only copies expanded through them are given.
    * @returns {string[]} Model ids, in the model's order.
    */
@@ -88,10 +88,10 @@ function createModelGraph(flow) {
   }
 
   /**
-   * Gets the model id of a store node, as expanded through some subsystems.
+   * Gets the model id of a store node, as expanded through some super instances.
    *
    * @param {string} mainId
-   * @param {string[]} [instanceChain=[]] - The subsystems' store ids, outermost first; none for a root module.
+   * @param {string[]} [instanceChain=[]] - The super instances' store ids, outermost first; none for a root module.
    * @returns {string|undefined}
    */
   const modelIdOf = (mainId, instanceChain = []) => idByOrigin.value.get(originKey({ mainId, instanceChain }))
@@ -105,7 +105,7 @@ function createModelGraph(flow) {
   const mainIdOf = (modelId) => graph.value.origin.get(modelId)?.mainId
 
   /**
-   * Gets the root node a model node belongs to: itself at the root, else the outermost subsystem it is expanded
+   * Gets the root node a model node belongs to: itself at the root, else the outermost super instance it is expanded
    * through.
    *
    * @param {string} modelId
@@ -136,7 +136,7 @@ function createModelGraph(flow) {
 const originKey = ({ mainId, instanceChain }) => [...instanceChain, mainId].join('\0')
 
 /**
- * Checks what model consumers rely on, in development: a workspace without subsystems expands to its own nodes and
+ * Checks what model consumers rely on, in development: a workspace without super instances expands to its own nodes and
  * edges, and no node of a super-module reaches the model.
  *
  * @param {Object} expansion - From expandHierarchy.
@@ -148,7 +148,7 @@ const originKey = ({ mainId, instanceChain }) => [...instanceChain, mainId].join
 function assertModel(expansion, nodes, edges, isHierarchical) {
   const isSame = (expanded, stored) => expanded.length === stored.length && expanded.every((item, i) => item === stored[i])
   if (!isHierarchical && !(isSame(expansion.nodes, nodes) && isSame(expansion.edges, edges))) {
-    throw new Error('A workspace without subsystems must expand to its own nodes and edges.')
+    throw new Error('A workspace without super instances must expand to its own nodes and edges.')
   }
   const scoped = expansion.nodes.find((node) => scopeOf(node) !== null)
   if (scoped) throw new Error(`Node "${scoped.id}" of super-module "${scopeOf(scoped)}" reached the model.`)

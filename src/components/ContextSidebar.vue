@@ -118,7 +118,7 @@
                   />
                 </h4>
                 <ExposedPortList :sm-id="selectedNode.id" />
-                <NewSubsystemDialog
+                <NewSupermoduleDialog
                   v-model="renameDialogVisible"
                   mode="rename"
                   :sm-id="selectedNode.id"
@@ -126,9 +126,9 @@
                   @confirm="(name) => onRenameSupermodule(selectedNode.id, name)"
                 />
               </template>
-              <template v-else-if="selectedNode && !isMultipleSelected && isSubsystem(selectedNode)">
+              <template v-else-if="selectedNode && !isMultipleSelected && isSuperInstance(selectedNode)">
                 <h4 class="context-section-title">{{ selectedNode.data?.name }}</h4>
-                <SubsystemPanel :node="selectedNode" />
+                <SuperInstancePanel :node="selectedNode" />
               </template>
               <template v-else-if="selectedNode && !isMultipleSelected">
                 <h4 class="context-section-title">
@@ -184,7 +184,7 @@
                     <Column field="name" bodyClass="small-text-col" header="Name" style="min-width: 90px">
                       <template #body="slotProps">
                         <span>{{ slotProps.data.name }}</span>
-                        <!-- Inside a subsystem: where the value comes from -->
+                        <!-- Inside a super instance: where the value comes from -->
                         <div v-if="parameterMode === 'instance'" class="param-source">
                           <Tag
                             :value="slotProps.data.chip"
@@ -365,11 +365,11 @@ import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import NodeColourPanel from './NodeColourPanel.vue'
 import ExposedPortList from './ExposedPortList.vue'
-import SubsystemPanel from './SubsystemPanel.vue'
+import SuperInstancePanel from './SuperInstancePanel.vue'
 import { useParameterContext } from '../composables/useParameterContext'
-import { isSubsystem, isSupermoduleInterface } from '../utils/hierarchy'
+import { isSuperInstance, isSupermoduleInterface } from '../utils/hierarchy'
 import { notify } from '../utils/notify'
-import NewSubsystemDialog from './dialogs/NewSubsystemDialog.vue'
+import NewSupermoduleDialog from './dialogs/NewSupermoduleDialog.vue'
 import { useSupermodules } from '../composables/useSupermodules'
 
 // Renaming the super-module whose interface node is selected.
@@ -570,25 +570,25 @@ watch(selectedNode, () => {
 const { virtualScrollerOptions: parameterVirtualScrollerOptions, tableKey: parameterTableKey } =
   useVirtualScrollerOptions(parameterRows)
 
-// ── Inside subsystems: where a value comes from, and where an edit goes ──────
+// ── Inside super instances: where a value comes from, and where an edit goes ──────
 const CHIP_SEVERITY = { default: 'secondary', overridden: 'info', ignored: 'warn' }
 
-// 'root', 'instance' (a subsystem entered from the root) or 'supermodule' (a super-module edited on its own).
+// 'root', 'instance' (a super instance entered from the root) or 'supermodule' (a super-module edited on its own).
 const parameterMode = computed(() => contextOf(parameterRowsNode.value).mode)
-// Edits inside a subsystem are its own by default.
+// Edits inside a super instance are its own by default.
 const editTarget = ref('instance')
 const editTargetOptions = computed(() => [
-  { label: 'This subsystem', value: 'instance', disabled: parameterMode.value === 'supermodule' },
+  { label: 'This super instance', value: 'instance', disabled: parameterMode.value === 'supermodule' },
   { label: 'Super-module default', value: 'supermodule' },
 ])
-// Whether an edit is this subsystem's override, which sets only a value.
+// Whether an edit is this super instance's override, which sets only a value.
 const isOverrideTarget = computed(() => parameterMode.value === 'instance' && editTarget.value === 'instance')
 
 watch(parameterMode, (mode) => {
   editTarget.value = mode === 'supermodule' ? 'supermodule' : 'instance'
 })
 
-/** @returns {string} A value's #686 status in words, and the value it would have without this subsystem's override. */
+/** @returns {string} A value's #686 status in words, and the value it would have without this super instance's override. */
 function statusTextOf(info) {
   const parts = []
   if (info.status?.state) parts.push(info.status.state)
@@ -598,7 +598,7 @@ function statusTextOf(info) {
 
 /**
  * Build detached sidebar rows from a node's variables, showing the shared value for global constants. Inside a
- * subsystem, the values are the model's there, each with where it comes from.
+ * super instance, the values are the model's there, each with where it comes from.
  * @param {Object} node - Selected Vue Flow node.
  * @returns {Array<Object>} Parameter rows.
  */
@@ -649,7 +649,7 @@ watch(
   }
 )
 
-// Inside a subsystem, the rows are the model's, which an override or an undo of one changes.
+// Inside a super instance, the rows are the model's, which an override or an undo of one changes.
 watch(modelGraph, () => {
   if (parameterMode.value !== 'root' && parameterRowsNode.value) parameterRows.value = buildParameterRows(parameterRowsNode.value)
 })
@@ -690,7 +690,7 @@ function persistParameterRow(row, { isValueEdit }) {
           )
         }
       : null
-  // A subsystem's own value of a global constant is the shared one: only that changes.
+  // A super instance's own value of a global constant is the shared one: only that changes.
   if (assignGlobal && isOverrideTarget.value) {
     recordEdit({ type: 'edit-global-constant', nodeIds: [], keys: [], apply: assignGlobal })
     return

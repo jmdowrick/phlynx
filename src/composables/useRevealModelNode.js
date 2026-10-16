@@ -1,5 +1,5 @@
 /**
- * Brings a model node into view, as search does: enters the subsystems it is expanded through, then centres on it.
+ * Brings a model node into view, as search does: enters the super instances it is expanded through, then centres on it.
  */
 import { watch } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
@@ -25,7 +25,7 @@ export function useRevealModelNode(zoomToNode, flowId = FLOW_IDS.MAIN) {
 
   /**
    * Shows the scope a model node is in, from the root, and centres on its node there; again once it is measured, as a
-   * node first shown by entering its subsystem isn't yet.
+   * node first shown by entering its super instance isn't yet.
    *
    * @param {string} modelId
    */

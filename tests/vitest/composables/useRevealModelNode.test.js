@@ -8,16 +8,16 @@ import { useCanvasLevel } from '../../../src/composables/useCanvasLevel.js'
 import { useModelGraph } from '../../../src/composables/useModelGraph.js'
 import { REVEAL_MEASURE_TIMEOUT_MS, useRevealModelNode } from '../../../src/composables/useRevealModelNode.js'
 import { FLOW_IDS } from '../../../src/utils/constants.js'
-import { module, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
+import { module, superInstance, supermodule } from '../fixtures/hierarchy/graph.js'
 
-/** Root a and heart (sm_1: ra and lv, a subsystem of sm_2 holding wall). */
+/** Root a and heart (sm_1: ra and lv, a super instance of sm_2 holding wall). */
 function nestedGraph() {
   const lvSm = supermodule('sm_2', 'lv')
   const wall = module('dndnode_0', 'wall', { scope: 'sm_2' })
   const heartSm = supermodule('sm_1', 'heart')
   const ra = module('dndnode_7', 'ra', { scope: 'sm_1' })
-  const lv = subsystem([lvSm, wall], 'dndnode_8', 'lv', 'sm_2', { scope: 'sm_1' })
-  const heart = subsystem([heartSm, ra, lv], 'dndnode_1', 'heart', 'sm_1')
+  const lv = superInstance([lvSm, wall], 'dndnode_8', 'lv', 'sm_2', { scope: 'sm_1' })
+  const heart = superInstance([heartSm, ra, lv], 'dndnode_1', 'heart', 'sm_1')
   return { nodes: [module('dndnode_0', 'a'), heart, heartSm, ra, lv, lvSm, wall], edges: [] }
 }
 
@@ -40,7 +40,7 @@ describe('useRevealModelNode', () => {
   })
   afterEach(() => vi.useRealTimers())
 
-  it('enters every subsystem a node is inside, from the root, and centres on it there', () => {
+  it('enters every super instance a node is inside, from the root, and centres on it there', () => {
     const wall = modelIdOf('sm_2~dndnode_0')
     reveal(wall)
     expect(level.scope.value).toBe('sm_2')

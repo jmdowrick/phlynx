@@ -9,7 +9,7 @@ import {
   HANDLE_SPACING,
   NUM_GHOST_HANDLES_TOP_BOT,
   NUM_GHOST_HANDLES_LEFT_RIGHT,
-  SUBSYSTEM_NODE_TYPE,
+  SUPER_INSTANCE_NODE_TYPE,
   SUPERMODULE_INTERFACE_NODE_TYPE,
 } from './constants'
 
@@ -197,14 +197,14 @@ export function buildGhostHandles(
 }
 
 /**
- * Gives a loaded subsystem or interface node without handles a fresh set of ghosts, as one built new has (see
- * buildSubsystem). Any other node, or one with handles, is returned as it is.
+ * Gives a loaded super instance or interface node without handles a fresh set of ghosts, as one built new has (see
+ * buildSuperInstance). Any other node, or one with handles, is returned as it is.
  *
  * @param {Object} node
  * @returns {Object} The node, copied when handles were added.
  */
 export function withHierarchyHandles(node) {
-  if (node?.type !== SUBSYSTEM_NODE_TYPE && node?.type !== SUPERMODULE_INTERFACE_NODE_TYPE) return node
+  if (node?.type !== SUPER_INSTANCE_NODE_TYPE && node?.type !== SUPERMODULE_INTERFACE_NODE_TYPE) return node
   if (node.data?.handles?.length) return node
   return { ...node, data: { ...node.data, handles: buildGhostHandles() } }
 }

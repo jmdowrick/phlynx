@@ -2,7 +2,7 @@ import { useVueFlow } from '@vue-flow/core'
 import { useActiveCanvas } from './useActiveCanvas'
 import { useCanvasLevel } from './useCanvasLevel'
 import { useFlowHistoryFor } from './useFlowHistoryFor'
-import { useSubsystemSync } from './useSubsystemSync'
+import { useSuperInstanceSync } from './useSuperInstanceSync'
 import { useSupermoduleEditGuard } from './useSupermoduleEditGuard'
 import { useLibraryStore } from '../stores/libraryStore'
 import { FLOW_IDS } from '../utils/constants'
@@ -30,7 +30,7 @@ export function getUndoRedoAction(event) {
 /**
  * Turns Vue Flow node and edge changes into undo/redo commands on the history store, which go back to the canvas level
  * they were made at (see useCanvasLevel). Added nodes are stamped with the scope shown, their ids checked against it.
- * Subsystems are kept in step with their super-modules (see useSubsystemSync). Each add or remove names the scopes
+ * Super instances are kept in step with their super-modules (see useSuperInstanceSync). Each add or remove names the scopes
  * whose structure it changes, as `scopes`, and an add the super-modules it creates, as `created` (see
  * useSupermoduleEditGuard).
  *
@@ -62,8 +62,8 @@ export function useFlowHistory({
   canvasLevel.bindHistory(historyStore)
   // Structural edits inside a shared super-module ask first.
   if (flowId === FLOW_IDS.MAIN) useSupermoduleEditGuard(flowId).install(historyStore)
-  // Subsystems follow their super-modules after every change, undo and redo included.
-  useSubsystemSync(flowId)
+  // Super instances follow their super-modules after every change, undo and redo included.
+  useSuperInstanceSync(flowId)
 
   const activeInteractionBuffer = new Map()
   const undoRedoSelection = false

@@ -26,12 +26,12 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
   const { prepareLayout } = useWorkflowLayout({ fitViewParams })
   const history = useFlowHistoryFor()
 
-  /** Whether a module array instantiates super-modules, which are imported as subsystems. */
+  /** Whether a module array instantiates super-modules, which are imported as super instances. */
   const hasSupermodules = (rows) =>
     rows.some((row) => !!store.availableSupermodules?.has(moduleRefOf(row.module_type, row.module_subtype)) || looksLikeSupermoduleInstance(row))
 
   /**
-   * Builds a module array with super-modules as subsystems (see caFold.importCaModuleArray), its parameters applied:
+   * Builds a module array with super-modules as super instances (see caFold.importCaModuleArray), its parameters applied:
    * the host file's, the super-modules' parameterisations the library holds, and the global constants they set.
    */
   const buildFolded = async (instanceArray) => {
@@ -69,7 +69,7 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
 
   /**
    * Replaces the workspace with a CA module array's modules and connections. Super-module instances become
-   * subsystems, with the module array's parameters applied (see buildFolded); a flat array is built as it always was.
+   * super instances, with the module array's parameters applied (see buildFolded); a flat array is built as it always was.
    *
    * @param {{instances: Array, parameters?: Array, source?: string}} instanceArray - The module array rows, and the
    *   host parameters file's rows, which a module array with super-modules applies itself.

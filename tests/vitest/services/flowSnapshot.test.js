@@ -7,7 +7,7 @@ import { buildFlowSnapshot, hashFlowSnapshot, restoreFlowSnapshot, SNAPSHOT_KIND
 import { expandHierarchy } from '../../../src/services/hierarchy/expand.js'
 import { scopeFlowObject } from '../../../src/services/simulation/scopedModel.js'
 import { getHandleId } from '../../../src/utils/handles.js'
-import { connect, exposed, exposures, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
+import { connect, exposed, exposures, superInstance, supermodule } from '../fixtures/hierarchy/graph.js'
 import { modelOf, nestedGraph, vessel } from '../fixtures/hierarchy/saveFormat.js'
 
 const library = {
@@ -30,7 +30,7 @@ function snNested() {
 }
 
 describe('buildFlowSnapshot', () => {
-  it('snapshots the whole store as hierarchical, super-modules, subsystems and exposure edges included', () => {
+  it('snapshots the whole store as hierarchical, super-modules, super instances and exposure edges included', () => {
     const flow = nestedGraph()
     const snapshot = roundTrip(flow)
 
@@ -70,7 +70,7 @@ describe('buildFlowSnapshot', () => {
       ['dndnode_1_b', 'instanceNode', 'p1__b', null],
       ['dndnode_2', 'instanceNode', 'sink', null],
     ])
-    // The subsystem's override is applied; the super-module's own row is the other's.
+    // The super instance's override is applied; the super-module's own row is the other's.
     expect(snapshot.nodeData.map((node) => node.data.variables[0].value)).toEqual(['2', '1', '1'])
     for (const id of [...snapshot.nodeData.map((node) => node.id), ...snapshot.edges.map((edge) => edge.id)]) expect(id).not.toMatch(/\/|~|::/)
     expect(snapshot.edges.map((edge) => [edge.id, edge.source, edge.target])).toEqual([
@@ -79,7 +79,7 @@ describe('buildFlowSnapshot', () => {
     ])
   })
 
-  it('joins a flat part’s edges at handles its modules show, one of its own where the edge met a subsystem', () => {
+  it('joins a flat part’s edges at handles its modules show, one of its own where the edge met a super instance', () => {
     const snapshot = roundTrip(nestedGraph(), { nodeIds: ['dndnode_1/b', 'dndnode_2'] })
     const [edge] = snapshot.edges
     const b = snapshot.nodeData.find((node) => node.id === edge.source)
@@ -146,14 +146,14 @@ describe('restoreFlowSnapshot', () => {
     expect(snapshotOf(restoreFlowSnapshot(JSON.parse(second)))).toBe(second)
   })
 
-  it('gives a subsystem or interface node without handles ghost handles, as a load does', () => {
+  it('gives a super instance or interface node without handles ghost handles, as a load does', () => {
     const snapshot = roundTrip(nestedGraph())
     for (const node of snapshot.nodeData) {
-      if (node.type === 'subsystemNode') delete node.data.handles
-      if (node.type === 'subsystemInterface') node.data.handles = []
+      if (node.type === 'superInstanceNode') delete node.data.handles
+      if (node.type === 'supermoduleInterface') node.data.handles = []
     }
     const restored = restoreFlowSnapshot(snapshot)
-    const hierarchy = restored.nodes.filter((node) => ['subsystemNode', 'subsystemInterface'].includes(node.type))
+    const hierarchy = restored.nodes.filter((node) => ['superInstanceNode', 'supermoduleInterface'].includes(node.type))
 
     expect(hierarchy.length).toBeGreaterThan(1)
     for (const node of hierarchy) {
@@ -162,14 +162,14 @@ describe('restoreFlowSnapshot', () => {
     }
   })
 
-  it('restores a hierarchical snapshot to the same model, subsystem and interface data kept verbatim', () => {
+  it('restores a hierarchical snapshot to the same model, super instance and interface data kept verbatim', () => {
     const flow = nestedGraph()
     const restored = restoreFlowSnapshot(roundTrip(flow))
     const byId = new Map(restored.nodes.map((node) => [node.id, node]))
 
     expect(restored.nodes.map((node) => node.id)).toEqual(flow.nodes.map((node) => node.id))
     expect(byId.get('dndnode_1').data).toEqual(flow.nodes[1].data)
-    expect(byId.get('sm_1')).toMatchObject({ type: 'subsystemInterface', deletable: false, data: flow.nodes[3].data })
+    expect(byId.get('sm_1')).toMatchObject({ type: 'supermoduleInterface', deletable: false, data: flow.nodes[3].data })
     expect(byId.get('sm_1~a').data).toMatchObject({ scope: 'sm_1', localId: 'a', name: 'a' })
     expect(byId.get('sm_1~a').data.mathHash).toBeUndefined()
     expect(restored.edges.find((edge) => edge.id === 'sm_1~b--sm_1')).toMatchObject({
@@ -203,7 +203,7 @@ describe('restoreFlowSnapshot', () => {
     })
   })
 
-  it('sets the CellML’s value for a module inside a subsystem as an override on it, and a root module’s on its row', () => {
+  it('sets the CellML’s value for a module inside a super instance as an override on it, and a root module’s on its row', () => {
     const parameterData = { p1__b: [{ name: 'k', value: '9' }], p1__a: [{ name: 'k', value: '2.0' }], src: [{ name: 'k', value: '4' }] }
     const restored = restoreFlowSnapshot(roundTrip(nestedGraph()), { parameterData })
     const byId = new Map(restored.nodes.map((node) => [node.id, node]))
@@ -240,12 +240,12 @@ describe('restoreFlowSnapshot', () => {
 })
 
 describe('scopeFlowObject', () => {
-  it('keeps every super-module a kept subsystem uses, through others too', () => {
+  it('keeps every super-module a kept super instance uses, through others too', () => {
     const inner = vessel('c', 'c', 'sm_2')
     const innerSm = supermodule('sm_2', 'inner', { submoduleOrder: ['c'] })
     const innerExposure = exposures('sm_2', [exposed('xp_c', 'c', 'exit_ports', 'vessel')])
     const flow = nestedGraph()
-    const nestedSub = subsystem({ nodes: [innerSm, inner], edges: innerExposure }, 'n', 'n', 'sm_2', { scope: 'sm_1' })
+    const nestedSub = superInstance({ nodes: [innerSm, inner], edges: innerExposure }, 'n', 'n', 'sm_2', { scope: 'sm_1' })
     flow.nodes.push(nestedSub, innerSm, inner)
     flow.edges.push(...innerExposure)
 

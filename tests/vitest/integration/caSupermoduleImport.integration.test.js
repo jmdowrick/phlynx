@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 /**
- * A circulatory_autogen module array with super-modules, imported as subsystems, is the model CA builds: the expansion
+ * A circulatory_autogen module array with super-modules, imported as super instances, is the model CA builds: the expansion
  * of the fold exports the CellML, values included, of CA's own expansion built flat, its names mapped from '__' to CA's
  * '_' between levels. Checked on the circulatory-autogen-modules super-module system models, an occurrence forked for
  * its own internal couplings, and host parameters naming nested modules. The palette places a library super-module, and
@@ -20,7 +20,7 @@ import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { generateFlattenedModel } from '../../../src/utils/cellml.js'
 import { EXPOSURE_EDGE_TYPE, FLOW_IDS } from '../../../src/utils/constants.js'
-import { isSubsystem, isSupermoduleInterface } from '../../../src/utils/hierarchy.js'
+import { isSuperInstance, isSupermoduleInterface } from '../../../src/utils/hierarchy.js'
 import { libraryOf, loadCaLibrary, systemModel } from '../helpers/caLibrary.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
@@ -78,7 +78,7 @@ describe('circulatory_autogen module arrays with super-modules', () => {
     return { model, folded, expansion }
   }
 
-  it('folds 3compartment_supermodules into a heart subsystem that exports as CA builds it', async () => {
+  it('folds 3compartment_supermodules into a heart super instance that exports as CA builds it', async () => {
     const { rows, hostRows } = systemModel(THREE_COMPARTMENT)
     const { folded } = await expectFoldIsCa(rows, hostRows)
     const [heart] = folded.nodes.filter(isSupermoduleInterface)
@@ -133,7 +133,7 @@ describe('circulatory_autogen module arrays with super-modules', () => {
     const { rows, hostRows } = systemModel(THREE_COMPARTMENT)
     const row = (variable_name, value) => ({ variable_name, units: 'J_per_m6', value, data_reference: 'test' })
     const { folded, expansion } = await expectFoldIsCa(rows, [row('heart/lv/E_A', '400000000'), row('E_B_heart_rv', '12345'), ...hostRows])
-    const heart = folded.nodes.find((node) => isSubsystem(node) && node.data.name === 'heart')
+    const heart = folded.nodes.find((node) => isSuperInstance(node) && node.data.name === 'heart')
     const localId = (name) => folded.nodes.find((node) => node.data.scope === heart.data.smId && node.data.name === name).data.localId
     expect(heart.data.overrides[localId('lv')].E_A).toEqual({ value: '400000000' })
     expect(heart.data.overrides[localId('rv')].E_B).toEqual({ value: '12345' })

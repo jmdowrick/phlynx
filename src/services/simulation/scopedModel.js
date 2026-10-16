@@ -1,7 +1,7 @@
 /**
  * Scoped models: a selection of instances, the couplings between them, and the inspection modules that
  * reach them, flattened on their own. The whole model is the scope of every node. The nodes and edges are the model's
- * (see useModelGraph), subsystems expanded.
+ * (see useModelGraph), super instances expanded.
  */
 import { resolveBoundaryValues } from '../export/boundaryValues'
 import { errorsConcerning, summariseExpansionErrors } from '../hierarchy/errors'
@@ -10,7 +10,7 @@ import { cyrb53 } from '../../utils/misc'
 import { couplingConflicts, variableTypes } from '../../utils/multiport'
 import { getHandleId } from '../../utils/handles'
 import { HANDLE_VARIANT } from '../../utils/constants'
-import { indexByScope, isSubsystem } from '../../utils/hierarchy'
+import { indexByScope, isSuperInstance } from '../../utils/hierarchy'
 import { isEmpty } from '../../utils/variables'
 
 /**
@@ -22,7 +22,7 @@ import { isEmpty } from '../../utils/variables'
  * @param {Array<Object>} nodes - The model's nodes.
  * @param {Array<Object>} edges - The model's edges.
  * @param {Array<Object>} [inspectionModules] - Records from inspectionModuleStore.
- * @param {{modelErrors?: Array<Object>}} [options] - `modelErrors`: the problems expanding subsystems found (see
+ * @param {{modelErrors?: Array<Object>}} [options] - `modelErrors`: the problems expanding super instances found (see
  *   useModelGraph), of which the scope keeps those concerning it.
  * @returns {{nodeIds: string[], nodes: Array, internalEdges: Array, cutEdges: Array, inspectionModules: Array,
  *   trimmedModules: Array<{name: string, removed: number, isLeftOut: boolean}>, allNodes: Array, allEdges: Array,
@@ -60,11 +60,11 @@ export function resolveScope(nodeIds, nodes, edges, inspectionModules = [], { mo
 }
 
 /**
- * Narrows a Vue Flow object (`toObject()`) to some nodes and the edges between them. A subsystem kept
+ * Narrows a Vue Flow object (`toObject()`) to some nodes and the edges between them. A super instance kept
  * keeps every super-module it uses, directly or through others: its interface node, children and
  * edges. A handle whose every edge was cut becomes a ghost again, as an unused handle is.
  *
- * Takes store ids, not model ids (resolveScope's nodeIds name modules inside subsystems by path). The
+ * Takes store ids, not model ids (resolveScope's nodeIds name modules inside super instances by path). The
  * OMEX snapshot narrows only flat workspaces with it, where the two are the same; part of a nested
  * model is flattened instead (see services/flowSnapshot.js).
  *
@@ -94,7 +94,7 @@ export function scopeFlowObject(flowState, nodeIds) {
 }
 
 /**
- * Adds to some nodes the nodes of every super-module their subsystems use, directly or through others.
+ * Adds to some nodes the nodes of every super-module their super instances use, directly or through others.
  *
  * @param {Array} nodes - Every node in the store.
  * @param {string[]} nodeIds
@@ -103,7 +103,7 @@ export function scopeFlowObject(flowState, nodeIds) {
 function withSupermodules(nodes, nodeIds) {
   const selected = new Set(nodeIds)
   const byScope = indexByScope(nodes)
-  const pending = nodes.filter((node) => selected.has(node.id) && isSubsystem(node)).map((node) => node.data.smId)
+  const pending = nodes.filter((node) => selected.has(node.id) && isSuperInstance(node)).map((node) => node.data.smId)
   const seen = new Set()
   while (pending.length) {
     const smId = pending.pop()
@@ -111,7 +111,7 @@ function withSupermodules(nodes, nodeIds) {
     seen.add(smId)
     for (const node of byScope.get(smId) ?? []) {
       selected.add(node.id)
-      if (isSubsystem(node)) pending.push(node.data.smId)
+      if (isSuperInstance(node)) pending.push(node.data.smId)
     }
   }
   return selected
@@ -189,7 +189,7 @@ function resolveWholeBoundaryValues(scope) {
  * coupled only to each other in the whole model stop the build; lost Sum terms, trimmed inspection modules,
  * boundary conditions falling back to their own value and boundary conditions set to 0 for want of one are
  * warnings, since the scope still builds. A boundary condition the run itself supplies, as a sweep does, isn't set to 0
- * for long, so it isn't warned about. The problems expanding subsystems found in the scope stop it or warn
+ * for long, so it isn't warned about. The problems expanding super instances found in the scope stop it or warn
  * (`modelWarnings`), as their severity says.
  *
  * @param {ReturnType<typeof resolveScope>} scope

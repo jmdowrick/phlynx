@@ -2,7 +2,7 @@
  * Builds and reads the saved workspace file. buildWorkspaceFile is the one definition of what a
  * save writes, so any change to its shape needs a new format version and a migration step in
  * workspaceMigrator.js. Since 1.3.0 the flow holds every scope's nodes (super-modules' children
- * included), their data.scope and data.localId, subsystem and interface nodes and exposure edges,
+ * included), their data.scope and data.localId, super instance and interface nodes and exposure edges,
  * and never `hidden`: which nodes the canvas shows is worked out on load.
  */
 import { PHLYNX_PROJECT_IDENTIFIER, PHLYNX_PROJECT_VERSION } from '../utils/constants'

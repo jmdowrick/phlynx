@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { useWorkspaceSearch } from '../../../src/composables/useWorkspaceSearch.js'
 
-/** The model of root a beside heart, a subsystem holding ra and lv. */
+/** The model of root a beside heart, a super instance holding ra and lv. */
 const MODEL = [
   { id: 'a', data: { name: 'a', variables: [{ name: 'R', type: 'constant' }] } },
   { id: 'heart/ra', data: { name: 'heart__ra', variables: [{ name: 'E', type: 'constant' }] } },
@@ -26,7 +26,7 @@ function setup(options = {}) {
 }
 
 describe('useWorkspaceSearch over the model', () => {
-  it('finds modules inside subsystems, by their model ids', () => {
+  it('finds modules inside super instances, by their model ids', () => {
     const { search, type } = setup()
     type('var:E')
     expect(search.matchingNodesList.value.map(({ node }) => node.data.name)).toEqual(['heart__ra', 'heart__lv'])

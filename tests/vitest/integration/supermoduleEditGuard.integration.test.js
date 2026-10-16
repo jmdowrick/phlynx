@@ -28,7 +28,7 @@ const { useSupermoduleEditGuard } = await import('../../../src/composables/useSu
 const { useWorkspaceClipboard } = await import('../../../src/composables/useWorkspaceClipboard.js')
 const { useFlowHistoryStore } = await import('../../../src/stores/historyStore.js')
 const { EXPOSURE_EDGE_TYPE, FLOW_IDS } = await import('../../../src/utils/constants.js')
-const { connect, exposed, exposures, module, port, subsystem, supermodule } = await import('../fixtures/hierarchy/graph.js')
+const { connect, exposed, exposures, module, port, superInstance, supermodule } = await import('../fixtures/hierarchy/graph.js')
 
 const IN = port('entrance_ports', 'vessel', ['v_in'])
 const OUT = port('exit_ports', 'vessel', ['v'])
@@ -42,7 +42,7 @@ const vessel = (localId, name, options = {}) => module(localId, name, { ports: [
 function graph() {
   const wall = vessel('w', 'wall', { scope: 'sm_2' })
   const chamber = supermodule('sm_2', 'chamber')
-  const lv = subsystem([chamber, wall], 'lv', 'lv', 'sm_2', { scope: 'sm_1' })
+  const lv = superInstance([chamber, wall], 'lv', 'lv', 'sm_2', { scope: 'sm_1' })
   const [a, b, c] = ['a', 'b', 'c'].map((id) => vessel(id, id, { scope: 'sm_1' }))
   const heart = supermodule('sm_1', 'heart', { submoduleOrder: ['a', 'b', 'c', 'lv'] })
   const exposure = [
@@ -50,14 +50,14 @@ function graph() {
     { id: 'sm_1~c--sm_1', type: EXPOSURE_EDGE_TYPE, source: 'sm_1~c', target: 'sm_1', data: { exposed: [] } },
   ]
   const inner = { nodes: [heart, a, b, c, lv, chamber, wall], edges: exposure }
-  const h1 = subsystem(inner, 'dndnode_1', 'h1', 'sm_1')
-  const h2 = subsystem(inner, 'dndnode_2', 'h2', 'sm_1')
+  const h1 = superInstance(inner, 'dndnode_1', 'h1', 'sm_1')
+  const h2 = superInstance(inner, 'dndnode_2', 'h2', 'sm_1')
   const x = vessel('x', 'x', { scope: 'sm_3' })
   const single = supermodule('sm_3', 'single')
-  const solo = subsystem([single, x], 'dndnode_3', 'solo', 'sm_3')
+  const solo = superInstance([single, x], 'dndnode_3', 'solo', 'sm_3')
   const y = vessel('y', 'y', { scope: 'sm_4' })
   const lib = supermodule('sm_4', 'lib', { source: { format: 'circulatory_autogen', moduleRef: 'lib:v1', hash: '00000000' } })
-  const lib1 = subsystem([lib, y], 'dndnode_4', 'lib1', 'sm_4')
+  const lib1 = superInstance([lib, y], 'dndnode_4', 'lib1', 'sm_4')
   return {
     nodes: [h1, h2, solo, lib1, ...inner.nodes, single, x, lib, y],
     edges: [connect(a, b, { id: 'e_int' }), ...exposure],
@@ -177,7 +177,7 @@ describe('asking before the first structural edit inside a shared super-module',
       }),
     'exposing ports': () => tools.exposure.saveExposure('sm_1~c--sm_1', [{ key: 'exit_ports:vessel#0', label: 'c_out' }]),
     nesting: () => tools.hierarchy.nest(['sm_1~b', 'sm_1~c'], 'pair'),
-    'un-nesting': () => tools.hierarchy.unnestSubsystem('sm_1~lv'),
+    'un-nesting': () => tools.hierarchy.unnestSuperInstance('sm_1~lv'),
   }
 
   it.each(Object.entries(paths))('asks on %s, and Cancel leaves no edit and no undo step', async (_, edit) => {

@@ -13,7 +13,7 @@ import {
   MAIN_NODE_TYPE,
   NUM_GHOST_HANDLES_LEFT_RIGHT,
   NUM_GHOST_HANDLES_TOP_BOT,
-  SUBSYSTEM_NODE_TYPE,
+  SUPER_INSTANCE_NODE_TYPE,
 } from '../../../src/utils/constants.js'
 
 const flow = vi.hoisted(() => ({
@@ -262,7 +262,7 @@ describe('useDragAndDrop', () => {
       expect(dnd.pendingGhostNodeId.value).toBeNull()
     })
 
-    it('places another subsystem of a dragged super-module, with its ports', () => {
+    it('places another super instance of a dragged super-module, with its ports', () => {
       flow.nodes.value = [buildSupermoduleInterface('sm_1', { name: 'heart' })]
       dnd.onDragStart({}, { smId: 'sm_1' })
       dnd.onDrop(dropEvent)
@@ -270,7 +270,7 @@ describe('useDragAndDrop', () => {
       expect(flow.addNodes).toHaveBeenCalledTimes(1)
       expect(flow.addNodes.mock.calls[0][0]).toMatchObject({
         id: 'dndnode_0',
-        type: SUBSYSTEM_NODE_TYPE,
+        type: SUPER_INSTANCE_NODE_TYPE,
         position: { x: 1005, y: 1006 },
         data: { name: 'heart', smId: 'sm_1', scope: null, ports: [] },
       })
@@ -285,7 +285,7 @@ describe('useDragAndDrop', () => {
       const [definition, instance] = flow.addNodes.mock.calls[0][0]
       expect(definition).toMatchObject({ id: 'sm_2', data: { supermodule: { name: 'supermodule_2' } } })
       expect(instance).toMatchObject({
-        type: SUBSYSTEM_NODE_TYPE,
+        type: SUPER_INSTANCE_NODE_TYPE,
         position: { x: 1005, y: 1006 },
         data: { name: 'supermodule_2', smId: 'sm_2', scope: null },
       })

@@ -5,7 +5,7 @@
     "nodes": [
       {
         "id": "dndnode_3",
-        "type": "subsystemNode",
+        "type": "superInstanceNode",
         "position": {
           "x": -122.50000000000001,
           "y": -60
@@ -1265,7 +1265,7 @@
       },
       {
         "id": "sm_0",
-        "type": "subsystemInterface",
+        "type": "supermoduleInterface",
         "deletable": false,
         "position": {
           "x": 600,
@@ -1316,7 +1316,7 @@
       },
       {
         "id": "sm_0~dndnode_0",
-        "type": "subsystemNode",
+        "type": "superInstanceNode",
         "position": {
           "x": -520,
           "y": -60
@@ -1759,7 +1759,7 @@
       },
       {
         "id": "sm_1",
-        "type": "subsystemInterface",
+        "type": "supermoduleInterface",
         "deletable": false,
         "position": {
           "x": 400,

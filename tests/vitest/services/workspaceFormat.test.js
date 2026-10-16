@@ -11,7 +11,7 @@ const FIXTURE_DIR = path.join(RESOURCES_DIR, `v${PHLYNX_PROJECT_VERSION.replaceA
 const SHAPE_FILE = path.join(RESOURCES_DIR, 'shapes', `${PHLYNX_PROJECT_VERSION}.json`)
 const ERAS = fs.readdirSync(RESOURCES_DIR).filter((name) => name === 'legacy' || /^v\d+-\d+-\d+$/.test(name))
 
-// Objects keyed by data (e.g. node ids) rather than by field name; their keys aren't part of the format. A subsystem's
+// Objects keyed by data (e.g. node ids) rather than by field name; their keys aren't part of the format. A super instance's
 // overrides are keyed by local id path ('@' for local constants), then by variable.
 const MAP_PATHS = new Set([
   'simulation.plotConfig',

@@ -1,6 +1,6 @@
 <template>
   <div
-    class="instance-node subsystem-node"
+    class="instance-node super-instance-node"
     :id="id"
     :class="{ selected: selected, 'instance-node--simulated': isSimulated }"
     @contextmenu.stop.prevent="openContextMenu"
@@ -9,15 +9,15 @@
   >
     <NodeResizer min-width="200" min-height="120" :is-visible="selected" />
 
-    <div :class="['instance-card', 'subsystem-card', { 'has-category': categoryStyle }]" :style="categoryStyle">
+    <div :class="['instance-card', 'super-instance-card', { 'has-category': categoryStyle }]" :style="categoryStyle">
       <div class="card-header-actions">
         <div class="instance-details">
           <div class="detail-item">
             <i class="pi pi-sitemap detail-icon"></i>
-            <span v-if="supermodule" class="detail-value subsystem-supermodule" :title="`Super-module ${supermodule.label}`">
+            <span v-if="supermodule" class="detail-value super-instance-supermodule" :title="`Super-module ${supermodule.label}`">
               {{ supermodule.label }}
             </span>
-            <span v-else class="detail-value subsystem-supermodule subsystem-supermodule--missing">
+            <span v-else class="detail-value super-instance-supermodule super-instance-supermodule--missing">
               Missing super-module
             </span>
           </div>
@@ -29,7 +29,7 @@
         <div style="flex-grow: 1; min-width: 1.5em"></div>
         <span
           v-if="supermodule"
-          class="subsystem-count"
+          class="super-instance-count"
           role="img"
           :aria-label="countLabel"
           v-tooltip.top="{ value: countLabel, showDelay: 300 }"
@@ -39,13 +39,13 @@
           iconOnly
           size="small"
           severity="secondary"
-          class="instance-button subsystem-open"
+          class="instance-button super-instance-open"
           icon="pi pi-sign-in"
-          aria-label="Open subsystem"
+          aria-label="Open super instance"
           :disabled="!supermodule"
           @click="open"
           @dblclick.stop
-          v-tooltip.bottom="{ value: 'Open subsystem', showDelay: 300 }"
+          v-tooltip.bottom="{ value: 'Open super instance', showDelay: 300 }"
         />
       </div>
 
@@ -81,8 +81,8 @@
 
 <script setup>
 /**
- * A subsystem on the canvas: one instance of a super-module. Shows its name, its super-module and how many subsystems
- * that has, and its ports; double-click or Open shows the super-module's nodes, as this subsystem's.
+ * A super instance on the canvas: one instance of a super-module. Shows its name, its super-module and how many super instances
+ * that has, and its ports; double-click or Open shows the super-module's nodes, as this super instance's.
  */
 import { computed } from 'vue'
 import { NodeResizer } from '@vue-flow/node-resizer'
@@ -131,13 +131,13 @@ const {
   openContextMenu,
 } = useNodeChrome(props, emit, {
   onDoubleClick: () => open(),
-  isSubsystem: true,
+  isSuperInstance: true,
   nameTakenMessage: 'A node here already has this name.',
 })
 const canvasLevel = useCanvasLevel(flowId)
 const { find } = useSupermodules(flowId)
 
-// Its super-module's entry: name, label and subsystem count; undefined when missing.
+// Its super-module's entry: name, label and super instance count; undefined when missing.
 const supermodule = computed(() => find(props.data.smId))
 const portCount = computed(() => props.data.ports?.length ?? 0)
 const countLabel = computed(() => {
@@ -145,7 +145,7 @@ const countLabel = computed(() => {
   return `${count} super instance${count === 1 ? '' : 's'} of ${supermodule.value?.name ?? 'this super-module'}`
 })
 
-/** Shows the super-module's nodes, as this subsystem's. */
+/** Shows the super-module's nodes, as this super instance's. */
 function open() {
   canvasLevel.enter(props.id)
 }
@@ -156,29 +156,29 @@ function open() {
 @import '../assets/vueflowhandle.css';
 
 /* A second edge just inside the instance card's own, so it reads as nested at exactly an instance card's size. */
-.subsystem-card {
+.super-instance-card {
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--p-text-color) 22%, transparent),
     0 1px 2px color-mix(in srgb, var(--p-text-color) 6%, transparent);
 }
 
-.subsystem-card:hover {
+.super-instance-card:hover {
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--p-text-color) 22%, transparent),
     0 4px 10px color-mix(in srgb, var(--p-text-color) 12%, transparent);
 }
 
-.selected .subsystem-card {
+.selected .super-instance-card {
   box-shadow:
     inset 0 0 0 1px #409eff, /* the selection border, vueflownode.css */
     0 1px 2px color-mix(in srgb, var(--p-text-color) 6%, transparent);
 }
 
-.subsystem-supermodule--missing {
+.super-instance-supermodule--missing {
   color: var(--p-orange-500);
 }
 
-.subsystem-count {
+.super-instance-count {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;

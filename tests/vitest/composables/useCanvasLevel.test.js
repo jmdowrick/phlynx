@@ -10,7 +10,7 @@ import { useFlowHistory } from '../../../src/composables/useFlowHistory.js'
 import { useSupermodules } from '../../../src/composables/useSupermodules.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { FLOW_IDS } from '../../../src/utils/constants.js'
-import { connect, exposed, exposures, module, port, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
+import { connect, exposed, exposures, module, port, superInstance, supermodule } from '../fixtures/hierarchy/graph.js'
 
 const IN = port('entrance_ports', 'vessel', ['v_in', 'u'])
 const OUT = port('exit_ports', 'vessel', ['v', 'u_out'])
@@ -23,7 +23,7 @@ function heartGraph() {
   const sm = supermodule('sm_1', 'heart', { submoduleOrder: ['dndnode_7', 'dndnode_8'] })
   const exposure = exposures('sm_1', [exposed('xp_in', 'dndnode_7', 'entrance_ports', 'vessel'), exposed('xp_out', 'dndnode_8', 'exit_ports', 'vessel')])
   const inner = [sm, ra, lv]
-  const heart = subsystem({ nodes: inner, edges: exposure }, 'dndnode_1', 'heart', 'sm_1')
+  const heart = superInstance({ nodes: inner, edges: exposure }, 'dndnode_1', 'heart', 'sm_1')
   const a = vessel('dndnode_0', 'a')
   const b = vessel('dndnode_2', 'b')
   const used = new Set()
@@ -89,7 +89,7 @@ describe('useCanvasLevel', () => {
   })
 
   describe('navigation', () => {
-    it('enters a subsystem, showing its super-module’s nodes and hiding the rest', () => {
+    it('enters a super instance, showing its super-module’s nodes and hiding the rest', () => {
       expect(level.enter('dndnode_1')).toBe(true)
       expect(level.scope.value).toBe('sm_1')
       expect(level.instancePath.value).toEqual(['dndnode_1'])
@@ -101,7 +101,7 @@ describe('useCanvasLevel', () => {
       ])
     })
 
-    it('enters only a subsystem on the canvas', () => {
+    it('enters only a super instance on the canvas', () => {
       expect(level.enter('dndnode_0')).toBe(false)
       expect(level.enter('sm_1~dndnode_7')).toBe(false)
       expect(level.enter('missing')).toBe(false)
@@ -121,7 +121,7 @@ describe('useCanvasLevel', () => {
       expect(level.path.value).toEqual([])
     })
 
-    it('edits a super-module on its own, through no subsystem', () => {
+    it('edits a super-module on its own, through no super instance', () => {
       expect(level.editSupermodule('sm_1')).toBe(true)
       expect(level.isEditingSupermodule.value).toBe(true)
       expect(level.instancePath.value).toEqual([])
@@ -164,7 +164,7 @@ describe('useCanvasLevel', () => {
       expect(shownIds()).toEqual(['dndnode_0', 'dndnode_1', 'dndnode_2'])
     })
 
-    it('undoes a clear made inside a subsystem at the root’s viewport', async () => {
+    it('undoes a clear made inside a super instance at the root’s viewport', async () => {
       const setViewport = vi.spyOn(flow, 'setViewport').mockImplementation(() => {})
       const { clearWorkspace } = useClearWorkspace()
       flow.viewport.value = { x: 10, y: 20, zoom: 2 }
@@ -187,7 +187,7 @@ describe('useCanvasLevel', () => {
       expect(history.canRedo).toBe(false)
     })
 
-    it('shows the scope a model node is in, through its subsystems', () => {
+    it('shows the scope a model node is in, through its super instances', () => {
       expect(level.showInstanceChain(['dndnode_1'])).toBe(true)
       expect(level.scope.value).toBe('sm_1')
       expect(level.showInstanceChain(['dndnode_0'])).toBe(false)
@@ -206,7 +206,7 @@ describe('useCanvasLevel', () => {
   })
 
   describe('selection', () => {
-    it('stands for the copies through the subsystems entered', async () => {
+    it('stands for the copies through the super instances entered', async () => {
       level.enter('dndnode_1')
       flow.findNode('sm_1~dndnode_7').selected = true
       expect(level.selectedModelIds.value).toEqual(['dndnode_1/dndnode_7'])
@@ -287,14 +287,14 @@ describe('useCanvasLevel', () => {
   describe('super-modules', () => {
     const supermodules = useSupermodules()
 
-    it('lists each with its subsystems and its copies in the model', () => {
+    it('lists each with its super instances and its copies in the model', () => {
       expect(supermodules.supermodules.value).toEqual([{ id: 'sm_1', name: 'heart', label: 'heart', source: null, count: 1, occurrences: 1 }])
     })
 
-    it('makes an empty super-module and a subsystem of it as one undo step', async () => {
-      const { smId, subsystemId } = supermodules.createEmptySubsystem('lung', { x: 5, y: 6 })
+    it('makes an empty super-module and a super instance of it as one undo step', async () => {
+      const { smId, superInstanceId } = supermodules.createEmptySuperModule('lung', { x: 5, y: 6 })
       expect(smId).toBe('sm_2')
-      expect(subsystemId).toBe('dndnode_3')
+      expect(superInstanceId).toBe('dndnode_3')
       expect(flow.findNode('sm_2')).toMatchObject({ hidden: true, deletable: false })
       expect(flow.findNode('dndnode_3')).toMatchObject({ position: { x: 5, y: 6 }, data: { smId: 'sm_2', scope: null } })
       expect(flow.findNode('dndnode_3').hidden).toBeFalsy()
@@ -308,15 +308,15 @@ describe('useCanvasLevel', () => {
       expect(flow.findNode('dndnode_3').hidden).toBeFalsy()
     })
 
-    it('refuses a name a subsystem can’t have, or one in use', () => {
-      expect(() => supermodules.createEmptySubsystem('a__b', { x: 0, y: 0 })).toThrow('"__"')
-      expect(() => supermodules.createEmptySubsystem('heart', { x: 0, y: 0 })).toThrow('already used here')
-      expect(supermodules.subsystemNameProblem('lung')).toBeNull()
+    it('refuses a name a super instance can’t have, or one in use', () => {
+      expect(() => supermodules.createEmptySuperModule('a__b', { x: 0, y: 0 })).toThrow('"__"')
+      expect(() => supermodules.createEmptySuperModule('heart', { x: 0, y: 0 })).toThrow('already used here')
+      expect(supermodules.superInstanceNameProblem('lung')).toBeNull()
       expect(supermodules.supermoduleNameProblem('heart')).toMatch('already called')
     })
 
-    it('renames a super-module as one undo step, its subsystems keeping their names', async () => {
-      supermodules.createEmptySubsystem('lung', { x: 0, y: 0 })
+    it('renames a super-module as one undo step, its super instances keeping their names', async () => {
+      supermodules.createEmptySuperModule('lung', { x: 0, y: 0 })
       await expect(supermodules.renameSupermodule('sm_1', 'heart', { history })).resolves.toBe(false)
       await expect(supermodules.renameSupermodule('sm_1', 'lung', { history })).rejects.toThrow('already called')
 
@@ -330,8 +330,8 @@ describe('useCanvasLevel', () => {
     })
 
     it('deletes an unused super-module and its nodes as one undo step', async () => {
-      const { smId, subsystemId } = supermodules.createEmptySubsystem('lung', { x: 0, y: 0 })
-      flow.removeNodes([subsystemId])
+      const { smId, superInstanceId } = supermodules.createEmptySuperModule('lung', { x: 0, y: 0 })
+      flow.removeNodes([superInstanceId])
       commit()
       expect(supermodules.find(smId).count).toBe(0)
       const steps = history.pointerIndex
@@ -344,15 +344,15 @@ describe('useCanvasLevel', () => {
       expect(flow.findNode(smId).hidden).toBe(true)
     })
 
-    it('places another subsystem, but never one that would contain itself', () => {
-      expect(supermodules.addSubsystem('sm_1', { x: 0, y: 0 })).toBe('dndnode_3')
+    it('places another super instance, but never one that would contain itself', () => {
+      expect(supermodules.addSuperInstance('sm_1', { x: 0, y: 0 })).toBe('dndnode_3')
       expect(flow.findNode('dndnode_3').data).toMatchObject({ name: 'heart_2', smId: 'sm_1' })
       expect(flow.findNode('dndnode_3').data.ports.map((p) => p.exposedPortId)).toEqual(['xp_in', 'xp_out'])
       expect(supermodules.find('sm_1')).toMatchObject({ count: 2, occurrences: 2 })
 
       level.enter('dndnode_1')
       expect(supermodules.canPlace('sm_1', 'sm_1')).toBe(false)
-      expect(supermodules.addSubsystem('sm_1', { x: 0, y: 0 })).toBeNull()
+      expect(supermodules.addSuperInstance('sm_1', { x: 0, y: 0 })).toBeNull()
     })
   })
 })

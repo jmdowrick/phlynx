@@ -103,7 +103,7 @@ export function useEdgeCouplings(props, askSwapIntent) {
 
     const coupling = sibling.data?.couplings?.find(c => {
       const portToCheck = side === 'source' ? c.sourcePort : c.targetPort
-      // A subsystem's port is the exposed port it names: two may share a label and variables.
+      // A super instance's port is the exposed port it names: two may share a label and variables.
       if (port.exposedPortId != null) return portToCheck?.exposedPortId === port.exposedPortId
       return portToCheck?.label === port.label &&
              portToCheck?.portType === port.portType &&

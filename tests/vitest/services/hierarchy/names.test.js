@@ -10,7 +10,7 @@ import {
   toPath,
 } from '../../../../src/services/hierarchy/names.js'
 import { localNameProblem } from '../../../../src/utils/hierarchy.js'
-import { exposed, exposures, module, subsystem, supermodule } from '../../fixtures/hierarchy/graph.js'
+import { exposed, exposures, module, superInstance, supermodule } from '../../fixtures/hierarchy/graph.js'
 
 describe('flat names and paths', () => {
   it('joins levels with "__" in flat names and "/" in paths', () => {
@@ -44,9 +44,9 @@ describe('local name rules', () => {
     expect(localNameProblem('a_b', { scope: 'sm_1' })).toBeNull()
   })
 
-  it('holds subsystem names to them too, as they prefix flat names', () => {
-    expect(localNameProblem('heart_', { subsystem: true })).toMatch(/starts or ends with "_"/)
-    expect(localNameProblem('heart', { subsystem: true })).toBeNull()
+  it('holds super instance names to them too, as they prefix flat names', () => {
+    expect(localNameProblem('heart_', { superInstance: true })).toMatch(/starts or ends with "_"/)
+    expect(localNameProblem('heart', { superInstance: true })).toBeNull()
   })
 
   it('leaves root module names to today’s rules', () => {
@@ -65,13 +65,13 @@ describe('local name rules', () => {
 })
 
 describe('resolveName', () => {
-  /** Root host and a subsystem "cell" of "wrap" whose children are self and gate, under the given naming. */
+  /** Root host and a super instance "cell" of "wrap" whose children are self and gate, under the given naming. */
   function graph(naming) {
     const self = module('self', 'self', { scope: 'sm_1', data: { originalName: 'fast_sodium_current' } })
     const gate = module('gate', 'm_gate', { scope: 'sm_1', data: { originalName: 'fast_sodium_current_m_gate' } })
     const sm = supermodule('sm_1', 'wrap', { submoduleOrder: ['self', 'gate'], naming })
     const exposure = exposures('sm_1', [exposed('xp', 'self', 'general_ports', 'V')])
-    const cell = subsystem({ nodes: [sm, self, gate], edges: exposure }, 'dndnode_1', 'cell', 'sm_1')
+    const cell = superInstance({ nodes: [sm, self, gate], edges: exposure }, 'dndnode_1', 'cell', 'sm_1')
     return expandHierarchy([module('dndnode_0', 'membrane'), cell, sm, self, gate], exposure)
   }
 
@@ -96,10 +96,10 @@ describe('resolveName', () => {
   it('splits every prefixed flat name of an expansion back into its path', () => {
     const cap = module('cap', 'cap_x', { scope: 'sm_2' })
     const inner = supermodule('sm_2', 'bed_sm', { submoduleOrder: ['cap'] })
-    const bed = subsystem([inner, cap], 'bed', 'bed_1', 'sm_2', { scope: 'sm_1' })
+    const bed = superInstance([inner, cap], 'bed', 'bed_1', 'sm_2', { scope: 'sm_1' })
     const art = module('art', 'art_a', { scope: 'sm_1' })
     const outer = supermodule('sm_1', 'limb', { submoduleOrder: ['art', 'bed'] })
-    const leg = subsystem([outer, art, bed, inner, cap], 'dndnode_1', 'leg_l', 'sm_1')
+    const leg = superInstance([outer, art, bed, inner, cap], 'dndnode_1', 'leg_l', 'sm_1')
     const expansions = [expandHierarchy([module('dndnode_0', 'a_b'), leg, outer, art, bed, inner, cap], []), graph('prefixed')]
     for (const expansion of expansions) {
       const nested = expansion.nodes.map((node) => node.id).filter((id) => id.includes('/'))

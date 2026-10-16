@@ -92,7 +92,7 @@ describe('useLoadFromInstanceArray', () => {
 
     expect(mocks.notify.warning).not.toHaveBeenCalled()
   })
-  it('imports a module array with super-modules as subsystems, its parameters applied', async () => {
+  it('imports a module array with super-modules as super instances, its parameters applied', async () => {
     const loader = vi.fn()
     Object.assign(mocks.store, {
       availableSupermodules: new Map([['heart:v1', {}]]),

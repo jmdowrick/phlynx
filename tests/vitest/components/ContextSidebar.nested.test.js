@@ -25,7 +25,7 @@ vi.mock('../../../src/composables/useActiveCanvas', async () => {
   return { useActiveCanvas: () => ({ selectedNodes: makeComputed(() => nodes.value) }) }
 })
 
-// The selected node is a module inside a subsystem entered from the root, or edited on its own.
+// The selected node is a module inside a super instance entered from the root, or edited on its own.
 const mode = ref('instance')
 const context = vi.hoisted(() => ({
   writeRow: vi.fn(() => []),
@@ -73,7 +73,7 @@ async function mountOnParams() {
 
 const findRow = (name) => wrapper.vm.parameterRows.find((row) => row.name === name)
 
-describe('ContextSidebar inside a subsystem', () => {
+describe('ContextSidebar inside a super instance', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
@@ -88,7 +88,7 @@ describe('ContextSidebar inside a subsystem', () => {
     expect(wrapper.text()).toContain('Edits apply to')
   })
 
-  it('edits this subsystem by default, only its value, and the super-module’s default when switched', async () => {
+  it('edits this super instance by default, only its value, and the super-module’s default when switched', async () => {
     await mountOnParams()
     expect(wrapper.vm.editTarget).toBe('instance')
     expect(wrapper.vm.isOverrideTarget).toBe(true)

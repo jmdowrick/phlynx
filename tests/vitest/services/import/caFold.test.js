@@ -45,7 +45,7 @@ const pumpArray = (pump = {}) => [
 ]
 
 const byName = (nodes, name, scope = null) => nodes.find((node) => node.data?.name === name && (node.data?.scope ?? null) === scope)
-const interfaces = (nodes) => nodes.filter((node) => node.type === 'subsystemInterface')
+const interfaces = (nodes) => nodes.filter((node) => node.type === 'supermoduleInterface')
 const valueOf = (node, name) => node.data.variables.find((variable) => variable.name === name)?.value
 
 /** Each expanded coupling as `source.port#slot -> target.port#slot`, names with '_' between levels, as CA's. */
@@ -61,7 +61,7 @@ const couplingsOf = ({ nodes, edges }, nameOf = (node) => node.data.name) => {
 }
 
 describe('foldCaModel', () => {
-  it('folds expanded modules into a subsystem by path, exposing the ports the host edges use', () => {
+  it('folds expanded modules into a super instance by path, exposing the ports the host edges use', () => {
     const model = buildCaModel(pumpArray(), library(), { load })
     const { nodes, edges, warnings } = foldCaModel(model, library(), { load })
     expect(warnings).toEqual([])
@@ -71,7 +71,7 @@ describe('foldCaModel', () => {
     expect(sm.data.supermodule.source).toMatchObject({ format: 'circulatory_autogen', moduleRef: 'pump:v1', hash: templateHash('pump:v1', library().supermodules) })
     expect(nodes.filter((node) => node.data.scope === sm.id).map((node) => node.data.name)).toEqual(['inlet', 'chamber', 'outlet', undefined])
     const pump = byName(nodes, 'pump')
-    expect(pump).toMatchObject({ type: 'subsystemNode', data: { smId: sm.id }, hidden: false })
+    expect(pump).toMatchObject({ type: 'superInstanceNode', data: { smId: sm.id }, hidden: false })
     expect(nodes.filter((node) => (node.data.scope ?? null) === null).map((node) => node.data.name)).toEqual(['svc', 'pump', 'art'])
 
     // Exposure edges from the children inside, inputs before outputs.
@@ -82,7 +82,7 @@ describe('foldCaModel', () => {
     ])
     expect(exposure.every((edge) => edge.target === sm.id && edge.hidden)).toBe(true)
 
-    // The edges at the root name the exposed ports, in the subsystem's own slots.
+    // The edges at the root name the exposed ports, in the super instance's own slots.
     const into = edges.find((edge) => edge.target === pump.id)
     expect(into.data.couplings).toMatchObject([{ targetPort: { exposedPortId: 'xp_0', portType: 'entrance_ports' }, targetSlot: 0, sourceSlot: 0 }])
     const outOf = edges.find((edge) => edge.source === pump.id)
@@ -201,7 +201,7 @@ describe('foldCaModel', () => {
     const { nodes, edges } = foldCaModel(model, library([PAIR]), { load })
     const [pump, pair] = interfaces(nodes)
     expect([pump.data.supermodule.name, pair.data.supermodule.name]).toEqual(['pump', 'pair'])
-    expect(byName(nodes, 'a', pair.id)).toMatchObject({ type: 'subsystemNode', data: { smId: pump.id } })
+    expect(byName(nodes, 'a', pair.id)).toMatchObject({ type: 'superInstanceNode', data: { smId: pump.id } })
     // a's outlet is exposed on pump, and the edge a → b in pair names it.
     const ab = edges.find((edge) => edge.source === byName(nodes, 'a', pair.id).id)
     expect(ab.data.couplings[0].sourcePort.exposedPortId).toBe('xp_0')

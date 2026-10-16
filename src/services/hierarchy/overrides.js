@@ -1,20 +1,20 @@
 /**
- * Values of modules inside subsystems: where an edit is written, what a value would be without this subsystem's
+ * Values of modules inside super instances: where an edit is written, what a value would be without this super instance's
  * override, and where each value comes from. Pure.
  *
- * A module inside a subsystem has a model id of local ids joined with '/' (`dndnode_1/bed/cap`). An edit for "this
- * subsystem" is an override on the outermost subsystem, the root node the id starts with, keyed by the rest of the
+ * A module inside a super instance has a model id of local ids joined with '/' (`dndnode_1/bed/cap`). An edit for "this
+ * super instance" is an override on the outermost super instance, the root node the id starts with, keyed by the rest of the
  * path (`bed/cap`), as expandHierarchy reads overrides; one for "the super-module" changes the child's own row, so
- * every subsystem of it has the value unless it overrides it.
+ * every super instance of it has the value unless it overrides it.
  */
 import { resolveBoundaryValues } from '../export/boundaryValues'
-import { indexByScope, isSubsystem, isSupermoduleInterface, localIdOf, scopeOf } from '../../utils/hierarchy'
+import { indexByScope, isSuperInstance, isSupermoduleInterface, localIdOf, scopeOf } from '../../utils/hierarchy'
 import { EXPANDED_ID_SEPARATOR, isLocalConstantsKey } from './expand'
 
 /** The fields of a row an override sets. */
 export const OVERRIDE_FIELDS = ['value']
 
-/** Where an edit is stored: 'instance' on this subsystem, 'supermodule' on the super-module's child. */
+/** Where an edit is stored: 'instance' on this super instance, 'supermodule' on the super-module's child. */
 export const WRITE_TARGETS = Object.freeze(['instance', 'supermodule'])
 
 /**
@@ -35,19 +35,19 @@ export function writeTargetOf(modelId, target, origin, findNode) {
     const node = findNode(modelId)
     if (!node) return null
     if (scopeOf(node) === null || target === 'supermodule') return { nodeId: node.id, field: 'variables' }
-    return { problem: 'A module of a super-module edited on its own has no subsystem to set a value on: change the super-module’s value.' }
+    return { problem: 'A module of a super-module edited on its own has no super instance to set a value on: change the super-module’s value.' }
   }
   if (!from.instanceChain.length || target === 'supermodule') return findNode(from.mainId) ? { nodeId: from.mainId, field: 'variables' } : null
   const [rootId] = from.instanceChain
   return findNode(rootId) ? { nodeId: rootId, field: 'overrides', key: keyOf(modelId) } : null
 }
 
-/** @returns {string} A nested model id's override key on its outermost subsystem: its path below it. */
+/** @returns {string} A nested model id's override key on its outermost super instance: its path below it. */
 export const keyOf = (modelId) => modelId.split(EXPANDED_ID_SEPARATOR).slice(1).join(EXPANDED_ID_SEPARATOR)
 
 /**
- * Gets a module's rows inside a subsystem as they would be without the outermost subsystem's overrides: its own rows
- * with every inner subsystem's applied, innermost first. What "reset" goes back to.
+ * Gets a module's rows inside a super instance as they would be without the outermost super instance's overrides: its own rows
+ * with every inner super instance's applied, innermost first. What "reset" goes back to.
  *
  * @param {string} modelId
  * @param {{mainId: string, instanceChain: string[]}} from - Its origin.
@@ -65,13 +65,13 @@ export function inheritedRows(modelId, from, findNode) {
 }
 
 /**
- * Sets, or clears, overrides of a subsystem under one key. A value the module would have anyway clears its override,
+ * Sets, or clears, overrides of a super instance under one key. A value the module would have anyway clears its override,
  * so overrides only ever hold what differs.
  *
- * @param {Object} overrides - The subsystem's overrides now; not changed.
+ * @param {Object} overrides - The super instance's overrides now; not changed.
  * @param {string} key
  * @param {Object<string, Object|null>} patches - Variable name to the fields to set, or null to clear its override.
- * @param {Array} inherited - The module's rows without this subsystem's overrides (see inheritedRows).
+ * @param {Array} inherited - The module's rows without this super instance's overrides (see inheritedRows).
  * @returns {Object} The new overrides.
  */
 export function withOverrides(overrides, key, patches, inherited) {
@@ -93,7 +93,7 @@ export function withOverrides(overrides, key, patches, inherited) {
 
 /**
  * Says where each of a module's values comes from, for the parameter table: its value, the value without this
- * subsystem's override, whether this subsystem overrides it, and whether export ignores it (#686), with the chip to
+ * super instance's override, whether this super instance overrides it, and whether export ignores it (#686), with the chip to
  * show: 'ignored', else 'overridden', else 'default'.
  *
  * @param {string} modelId
@@ -180,34 +180,34 @@ function resolveQuietly(model) {
 }
 
 /**
- * Lists a subsystem's overrides for its sidebar, each with the path of names it sets and whether it still sets
+ * Lists a super instance's overrides for its sidebar, each with the path of names it sets and whether it still sets
  * anything: an orphaned one, whose module or variable is gone, is kept and flagged, never dropped.
  *
- * @param {string} subsystemId
+ * @param {string} superInstanceId
  * @param {Array} nodes - Every node in the store.
  * @returns {Array<{key: string, path: string, variable: string, value: *, isOrphaned: boolean}>}
  */
-export function overridesOf(subsystemId, nodes) {
-  const subsystem = nodes.find((node) => node.id === subsystemId)
-  if (!isSubsystem(subsystem)) return []
+export function overridesOf(superInstanceId, nodes) {
+  const superInstance = nodes.find((node) => node.id === superInstanceId)
+  if (!isSuperInstance(superInstance)) return []
   const byScope = indexByScope(nodes)
   const childOf = (scope, localId) => (byScope.get(scope) ?? []).find((node) => !isSupermoduleInterface(node) && localIdOf(node) === localId)
   const resolve = (key) => {
-    let scope = subsystem.data.smId
+    let scope = superInstance.data.smId
     const names = []
     let node = null
     for (const localId of key.split(EXPANDED_ID_SEPARATOR)) {
       node = childOf(scope, localId)
       if (!node) return { names: [...names, localId], node: null }
       names.push(node.data?.name ?? localId)
-      if (isSubsystem(node)) scope = node.data.smId
+      if (isSuperInstance(node)) scope = node.data.smId
     }
     return { names, node }
   }
-  return Object.entries(subsystem.data.overrides ?? {}).flatMap(([key, patches]) => {
+  return Object.entries(superInstance.data.overrides ?? {}).flatMap(([key, patches]) => {
     if (isLocalConstantsKey(key)) return []
     const { names, node } = resolve(key)
-    const rows = new Set(isSubsystem(node) ? [] : (node?.data?.variables ?? []).map((row) => row.name))
+    const rows = new Set(isSuperInstance(node) ? [] : (node?.data?.variables ?? []).map((row) => row.name))
     return Object.entries(patches ?? {}).map(([variable, patch]) => ({
       key,
       path: names.join('/'),

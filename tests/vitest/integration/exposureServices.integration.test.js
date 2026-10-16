@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 /**
- * Nested models built as the canvas builds them, through its services: a new subsystem, modules dropped inside, a
- * child connected to the interface and its ports picked in the Expose Ports dialog, subsystems connected at the
- * parent level, and values set for one subsystem. Each must export as the hand-built flat graph it stands for.
+ * Nested models built as the canvas builds them, through its services: a new super instance, modules dropped inside, a
+ * child connected to the interface and its ports picked in the Expose Ports dialog, super instances connected at the
+ * parent level, and values set for one super instance. Each must export as the hand-built flat graph it stands for.
  */
 import { useVueFlow } from '@vue-flow/core'
 import { createPinia, setActivePinia } from 'pinia'
@@ -137,13 +137,13 @@ describe('a nested model built through the canvas’s services exports as its fl
   }
 
   it('one super-module three times, each with its own values', async () => {
-    const { smId, subsystemId: seg1 } = supermodules.createEmptySubsystem('seg1', { x: 0, y: 0 })
+    const { smId, superInstanceId: seg1 } = supermodules.createEmptySuperModule('seg1', { x: 0, y: 0 })
     level.enter(seg1)
     const a = drop('a', 'arterial_simple:vp')
     await expose(a, vesselPort)
     level.exitTo(0)
-    const seg2 = supermodules.addSubsystem(smId, { x: 1, y: 0 })
-    const seg3 = supermodules.addSubsystem(smId, { x: 2, y: 0 })
+    const seg2 = supermodules.addSuperInstance(smId, { x: 1, y: 0 })
+    const seg3 = supermodules.addSuperInstance(smId, { x: 2, y: 0 })
     flow.updateNodeData(seg2, { name: 'seg2' })
     flow.updateNodeData(seg3, { name: 'seg3' })
     await draw(seg1, seg2)
@@ -155,13 +155,13 @@ describe('a nested model built through the canvas’s services exports as its fl
   })
 
   it('keeps its flat graph through a super-module edit, a reset, an un-expose and their undo and redo', async () => {
-    const { smId, subsystemId: seg1 } = supermodules.createEmptySubsystem('seg1', { x: 0, y: 0 })
+    const { smId, superInstanceId: seg1 } = supermodules.createEmptySuperModule('seg1', { x: 0, y: 0 })
     level.enter(seg1)
     const a = drop('a', 'arterial_simple:vp')
     await expose(a, vesselPort)
     level.exitTo(0)
-    const seg2 = supermodules.addSubsystem(smId, { x: 1, y: 0 })
-    const seg3 = supermodules.addSubsystem(smId, { x: 2, y: 0 })
+    const seg2 = supermodules.addSuperInstance(smId, { x: 1, y: 0 })
+    const seg3 = supermodules.addSuperInstance(smId, { x: 2, y: 0 })
     flow.updateNodeData(seg2, { name: 'seg2' })
     flow.updateNodeData(seg3, { name: 'seg3' })
     await draw(seg1, seg2)
@@ -187,7 +187,7 @@ describe('a nested model built through the canvas’s services exports as its fl
     const outlet = supermodules.exposedPortsOf(smId).find((port) => port.alias.portType === 'exit_ports')
     const confirm = vi.fn(async () => true)
     expect(await exposure.unexposePorts(smId, [outlet.id], { confirm })).toBe(true)
-    expect(confirm.mock.calls[0][0].message).toContain('2 connections in 2 subsystems')
+    expect(confirm.mock.calls[0][0].message).toContain('2 connections in 2 super instances')
     await compare({ ...edited, edges: [] })
     await history.undo()
     await compare(edited)
@@ -198,10 +198,10 @@ describe('a nested model built through the canvas’s services exports as its fl
   })
 
   it('two levels, the outer exposing the inner’s outlet through via', async () => {
-    const { subsystemId: leg } = supermodules.createEmptySubsystem('leg', { x: 0, y: 0 })
+    const { superInstanceId: leg } = supermodules.createEmptySuperModule('leg', { x: 0, y: 0 })
     level.enter(leg)
     const art = drop('art', 'arterial_simple:pv')
-    const { subsystemId: bed } = supermodules.createEmptySubsystem('bed', { x: 1, y: 0 })
+    const { superInstanceId: bed } = supermodules.createEmptySuperModule('bed', { x: 1, y: 0 })
     level.enter(bed)
     const cap = drop('cap', 'terminal:pp')
     await expose(cap, vesselPort)

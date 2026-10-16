@@ -10,7 +10,7 @@ const { useParameterContext } = await import('../../../src/composables/useParame
 const { useCanvasLevel } = await import('../../../src/composables/useCanvasLevel.js')
 const { useFlowHistoryStore } = await import('../../../src/stores/historyStore.js')
 const { FLOW_IDS } = await import('../../../src/utils/constants.js')
-const { connect, constant, exposed, exposures, module, port, subsystem, supermodule } = await import('../fixtures/hierarchy/graph.js')
+const { connect, constant, exposed, exposures, module, port, superInstance, supermodule } = await import('../fixtures/hierarchy/graph.js')
 
 const vessel = (localId, name, options = {}) =>
   module(localId, name, {
@@ -19,14 +19,14 @@ const vessel = (localId, name, options = {}) =>
     ...options,
   })
 
-/** Root a → leg, leg and arm subsystems of limb (sm_1: art, its entrance exposed). */
+/** Root a → leg, leg and arm super instances of limb (sm_1: art, its entrance exposed). */
 function limbGraph() {
   const art = vessel('art', 'art', { scope: 'sm_1' })
   const limb = supermodule('sm_1', 'limb', { submoduleOrder: ['art'] })
   const exposure = exposures('sm_1', [exposed('xp_a', 'art', 'entrance_ports', 'vessel')])
   const store = { nodes: [limb, art], edges: exposure }
-  const leg = subsystem(store, 'dndnode_1', 'leg', 'sm_1')
-  const arm = subsystem(store, 'dndnode_2', 'arm', 'sm_1')
+  const leg = superInstance(store, 'dndnode_1', 'leg', 'sm_1')
+  const arm = superInstance(store, 'dndnode_2', 'arm', 'sm_1')
   const a = vessel('dndnode_0', 'a')
   return { nodes: [a, leg, arm, ...store.nodes], edges: [connect(a, leg, { id: 'e0' }), ...exposure] }
 }
@@ -57,7 +57,7 @@ describe('useParameterContext', () => {
     expect(context.provenanceOf(a).size).toBe(0)
   })
 
-  it('edits inside a subsystem as its override by default, one undo step, leaving its other copies', async () => {
+  it('edits inside a super instance as its override by default, one undo step, leaving its other copies', async () => {
     level.enter('dndnode_1')
     expect(context.contextOf(art())).toEqual({ mode: 'instance', modelId: 'dndnode_1/art' })
     expect(context.provenanceOf(art()).get('R').chip).toBe('default')

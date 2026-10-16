@@ -1,7 +1,7 @@
 /**
  * Deletes canvas nodes as one undo step, first asking about what the deletion would break: ports a super-module
- * exposes from a node, or through an exposure edge, and the connections to them in every subsystem, or a super-module
- * left without subsystems. What it breaks goes in the same step: the couplings to the ports un-exposed (an edge left
+ * exposes from a node, or through an exposure edge, and the connections to them in every super instance, or a super-module
+ * left without super instances. What it breaks goes in the same step: the couplings to the ports un-exposed (an edge left
  * with none too), the overrides of what is removed, and the sliders, plots, sweeps and inspection variables of every
  * copy of a node removed from a super-module.
  */
@@ -67,7 +67,7 @@ export function useCanvasDelete({ confirm, history = useFlowHistoryFor(), flowId
   }
 
   /**
-   * Asks whether super-modules left without subsystems go too.
+   * Asks whether super-modules left without super instances go too.
    *
    * @param {string[]} smIds
    * @returns {Promise<boolean|null>}
@@ -78,7 +78,7 @@ export function useCanvasDelete({ confirm, history = useFlowHistoryFor(), flowId
     return confirm({
       header: one ? 'Delete Super-module Too?' : 'Delete Super-modules Too?',
       message:
-        `No other subsystem uses the super-module${one ? '' : 's'} ${names}. ` +
+        `No other super instance uses the super-module${one ? '' : 's'} ${names}. ` +
         `Delete ${one ? 'it' : 'them'} as well, or keep ${one ? 'it' : 'them'} in the palette to place again?`,
       severity: 'warning',
       acceptLabel: one ? 'Delete super-module' : 'Delete super-modules',
@@ -88,7 +88,7 @@ export function useCanvasDelete({ confirm, history = useFlowHistoryFor(), flowId
 
   /**
    * Deletes canvas nodes and edges as one undo step, once the user agrees to break exposed ports and says whether
-   * super-modules left without subsystems go too. Closing a question without an answer deletes nothing. What changed
+   * super-modules left without super instances go too. Closing a question without an answer deletes nothing. What changed
    * while a question was open is checked again, so only what still exists is deleted.
    *
    * @param {string[]} nodeIds

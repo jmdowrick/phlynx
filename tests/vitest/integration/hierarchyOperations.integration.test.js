@@ -22,7 +22,7 @@ import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { useSimulationSettingsStore } from '../../../src/stores/simulationSettingsStore.js'
 import { generateFlattenedModel } from '../../../src/utils/cellml.js'
 import { FLOW_IDS } from '../../../src/utils/constants.js'
-import { isSubsystem } from '../../../src/utils/hierarchy.js'
+import { isSuperInstance } from '../../../src/utils/hierarchy.js'
 import {
   bcOnlyThroughInterface,
   exposureLeavesInternalCouplings,
@@ -33,7 +33,7 @@ import {
   twoLevel,
   venousFanIn,
 } from '../fixtures/hierarchy/equivalence.js'
-import { connect, constant, exposed, exposures, module, port, shuffled, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
+import { connect, constant, exposed, exposures, module, port, shuffled, superInstance, supermodule } from '../fixtures/hierarchy/graph.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
 // Exporting through libcellml takes seconds per test on CI.
@@ -111,14 +111,14 @@ describe('nest and un-nest keep the model the bundled modules make', () => {
       const ids = graph.nodes.slice(1).map((node) => node.id)
       const nestedFlat = nestSelection(graph.nodes, graph.edges, ids, { name: 'wrap' })
       await expectSameModel(graph, nestedFlat, `nest, seed ${seed}`)
-      const back = unnest(nestedFlat.nodes, nestedFlat.edges, nestedFlat.subsystemId)
+      const back = unnest(nestedFlat.nodes, nestedFlat.edges, nestedFlat.superInstanceId)
       await expectSameModel(graph, composed(nestedFlat, back), `un-nest, seed ${seed}`)
       expect(back.nodes).toHaveLength(graph.nodes.length)
       expect(back.edges).toHaveLength(graph.edges.length)
     }
 
-    // The nested graph: each subsystem at the root un-nested, and the root's modules and subsystems nested.
-    for (const node of nested.nodes.filter((candidate) => isSubsystem(candidate) && candidate.data.scope === null)) {
+    // The nested graph: each super instance at the root un-nested, and the root's modules and super instances nested.
+    for (const node of nested.nodes.filter((candidate) => isSuperInstance(candidate) && candidate.data.scope === null)) {
       await expectSameModel(nested, unnest(nested.nodes, nested.edges, node.id), `un-nest ${node.data.name}`)
     }
     const roots = nested.nodes.filter((node) => node.data.scope === null)
@@ -126,8 +126,8 @@ describe('nest and un-nest keep the model the bundled modules make', () => {
       const wrapped = nestSelection(nested.nodes, nested.edges, roots.slice(1).map((node) => node.id), { name: 'wrap' })
       await expectSameModel(nested, wrapped, 'nest the root')
     }
-    // Every subsystem's super-module, made unique for it.
-    for (const node of nested.nodes.filter(isSubsystem)) {
+    // Every super instance's super-module, made unique for it.
+    for (const node of nested.nodes.filter(isSuperInstance)) {
       await expectSameModel(nested, makeUnique(nested.nodes, nested.edges, node.id), `make ${node.data.name} unique`)
     }
   })
@@ -152,13 +152,13 @@ describe('nest, un-nest and Make unique on the workspace', () => {
     return { nodes: [a, b, c], edges: [connect(a, b, { used }), connect(b, c, { used })] }
   }
 
-  /** One super-module (seg: s) used by three subsystems in series. */
+  /** One super-module (seg: s) used by three super instances in series. */
   function segments() {
     const s = vessel('s', 's', { scope: 'sm_1' })
     const sm = supermodule('sm_1', 'seg', { submoduleOrder: ['s'] })
     const exposure = exposures('sm_1', [exposed('xp_in', 's', 'entrance_ports', 'vessel'), exposed('xp_out', 's', 'exit_ports', 'vessel')])
     const inner = { nodes: [sm, s], edges: exposure }
-    const segs = ['2', '3', '5'].map((value, i) => subsystem(inner, `dndnode_${i}`, `seg${i + 1}`, 'sm_1', { overrides: { s: { R: { value } } } }))
+    const segs = ['2', '3', '5'].map((value, i) => superInstance(inner, `dndnode_${i}`, `seg${i + 1}`, 'sm_1', { overrides: { s: { R: { value } } } }))
     const used = new Set()
     return { nodes: [...segs, sm, s], edges: [connect(segs[0], segs[1], { used }), connect(segs[1], segs[2], { used }), ...exposure] }
   }
@@ -219,15 +219,15 @@ describe('nest, un-nest and Make unique on the workspace', () => {
     await nextTick()
     const nestedStore = snapshot()
     const nestedKeys = keys()
-    const subsystemId = result.subsystemId
-    expect(flow.findNode(subsystemId).data).toMatchObject({ name: 'tail', smId: 'sm_0' })
+    const superInstanceId = result.superInstanceId
+    expect(flow.findNode(superInstanceId).data).toMatchObject({ name: 'tail', smId: 'sm_0' })
     expect(flow.findNode('dndnode_1')).toBeUndefined()
     expect(flow.findNode('sm_0~dndnode_1').hidden).toBe(true)
     expect(settings.plotConfig.selections.map((selection) => [selection.key, selection.nodeName])).toEqual([
-      [`${subsystemId}/dndnode_1::R`, 'tail__b'],
+      [`${superInstanceId}/dndnode_1::R`, 'tail__b'],
       ['dndnode_0::R', 'dndnode_0'],
     ])
-    expect(inspection.modules[0].variables[0].nodeId).toBe(`${subsystemId}/dndnode_1`)
+    expect(inspection.modules[0].variables[0].nodeId).toBe(`${superInstanceId}/dndnode_1`)
     expect(library.getGlobalConstant('rho_only_b')).toBeTruthy()
     expect(history.canUndo).toBe(true)
 
@@ -253,7 +253,7 @@ describe('nest, un-nest and Make unique on the workspace', () => {
     await nextTick()
     const [nestedStore, nestedKeys] = [snapshot(), keys()]
 
-    const { done, result: unnested } = await operations.unnestSubsystem(result.subsystemId)
+    const { done, result: unnested } = await operations.unnestSuperInstance(result.superInstanceId)
     expect(done).toBe(true)
     await nextTick()
     expect(unnested.removedSupermodule).toBe(true)
@@ -269,14 +269,14 @@ describe('nest, un-nest and Make unique on the workspace', () => {
     expect(library.getGlobalConstant('rho_only_b')).toBeTruthy()
   })
 
-  it('makes one subsystem unique as one undo step, the others’ model unchanged', async () => {
+  it('makes one super instance unique as one undo step, the others’ model unchanged', async () => {
     await load(segments())
     const before = snapshot()
     const others = () => expandHierarchy(flow.nodes.value, flow.edges.value).nodes.filter((node) => !node.id.startsWith('dndnode_1/')).map((node) => [node.id, node.data])
     const othersBefore = JSON.stringify(others())
     expect(operations.canMakeUnique('dndnode_1')).toBe(true)
 
-    expect((await operations.makeUniqueSubsystem('dndnode_1')).done).toBe(true)
+    expect((await operations.makeUniqueSuperInstance('dndnode_1')).done).toBe(true)
     await nextTick()
     expect(flow.findNode('dndnode_1').data.smId).toBe('sm_2')
     expect(JSON.stringify(others())).toBe(othersBefore)

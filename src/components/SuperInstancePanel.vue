@@ -1,23 +1,23 @@
 <template>
-  <div class="subsystem-panel">
+  <div class="super-instance-panel">
     <template v-if="brokenCouplings.length">
-      <h5 class="subsystem-panel-title subsystem-panel-title--warn">
+      <h5 class="super-instance-panel-title super-instance-panel-title--warn">
         <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
         Broken couplings ({{ brokenCouplings.length }})
       </h5>
       <p class="hint">Their ports are no longer exposed. Double-click a connection to re-pair or remove them.</p>
-      <ul class="subsystem-panel-list" aria-label="Broken couplings">
+      <ul class="super-instance-panel-list" aria-label="Broken couplings">
         <li v-for="coupling in brokenCouplings" :key="coupling.key" class="broken-coupling">
           {{ coupling.text }}
         </li>
       </ul>
     </template>
 
-    <h5 class="subsystem-panel-title">Overridden values ({{ overrides.length }})</h5>
+    <h5 class="super-instance-panel-title">Overridden values ({{ overrides.length }})</h5>
     <p v-if="!overrides.length" class="hint">
-      This subsystem has its super-module's values. Open it and edit a value to set one for it alone.
+      This super instance has its super-module's values. Open it and edit a value to set one for it alone.
     </p>
-    <ul v-else class="subsystem-panel-list" aria-label="Overridden values">
+    <ul v-else class="super-instance-panel-list" aria-label="Overridden values">
       <li
         v-for="override in overrides"
         :key="`${override.key}:${override.variable}`"
@@ -47,7 +47,7 @@
 
 <script setup>
 /**
- * A subsystem's sidebar: couplings to ports its super-module no longer exposes, kept until the user re-pairs or
+ * A super instance's sidebar: couplings to ports its super-module no longer exposes, kept until the user re-pairs or
  * removes them, and the values it overrides, orphaned ones flagged; each override can be reset.
  */
 import { computed } from 'vue'
@@ -68,7 +68,7 @@ const { recordEdit } = useNodeDataHistory(FLOW_IDS.MAIN)
 
 const overrides = computed(() => overridesOf(props.node.id))
 
-// Each coupling of a connection to this subsystem whose port it no longer exposes.
+// Each coupling of a connection to this super instance whose port it no longer exposes.
 const brokenCouplings = computed(() => {
   const broken = new Set(props.node.data?.broken ?? [])
   if (!broken.size) return []
@@ -96,12 +96,12 @@ function remove(override) {
 </script>
 
 <style scoped>
-.subsystem-panel-title {
+.super-instance-panel-title {
   margin: 0.75rem 0 0.25rem;
   font-size: 13px;
 }
 
-.subsystem-panel-title--warn {
+.super-instance-panel-title--warn {
   color: var(--p-orange-500);
 }
 
@@ -111,7 +111,7 @@ function remove(override) {
   color: var(--p-text-muted-color);
 }
 
-.subsystem-panel-list {
+.super-instance-panel-list {
   margin: 0;
   padding: 0;
   list-style: none;

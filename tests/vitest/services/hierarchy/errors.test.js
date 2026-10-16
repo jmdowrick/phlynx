@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { errorsConcerning, summariseExpansionErrors } from '../../../../src/services/hierarchy/errors.js'
 import { expandHierarchy } from '../../../../src/services/hierarchy/expand.js'
 import { checkScope, resolveScope, summariseScopeReport } from '../../../../src/services/simulation/scopedModel.js'
-import { connect, constant, exposed, exposures, module, port, subsystem, supermodule } from '../../fixtures/hierarchy/graph.js'
+import { connect, constant, exposed, exposures, module, port, superInstance, supermodule } from '../../fixtures/hierarchy/graph.js'
 
 const error = (message, ids = [], kind = 'unresolvedAlias') => ({ kind, severity: 'error', message, ids, origins: [] })
 const warning = (message, ids = [], kind = 'orphanedOverride') => ({ kind, severity: 'warning', message, ids, origins: [] })
@@ -21,7 +21,7 @@ function brokenGraph() {
   const x = vessel('x', 'x', { scope: 'sm_1' })
   const sm = supermodule('sm_1', 'segment', { submoduleOrder: ['x'] })
   const [exposure] = exposures('sm_1', [exposed('xp_in', 'x', 'entrance_ports', 'vessel'), exposed('xp_out', 'x', 'exit_ports', 'vessel')])
-  const seg = subsystem({ nodes: [sm, x], edges: [exposure] }, 'dndnode_1', 'seg', 'sm_1', { overrides: { x: { gone: { value: '1' } } } })
+  const seg = superInstance({ nodes: [sm, x], edges: [exposure] }, 'dndnode_1', 'seg', 'sm_1', { overrides: { x: { gone: { value: '1' } } } })
   const [a, b] = [vessel('dndnode_0', 'a'), vessel('dndnode_2', 'b')]
   const used = new Set()
   const edges = [connect(a, seg, { used, id: 'e0' }), connect(seg, b, { used, id: 'e1' })]
@@ -63,7 +63,7 @@ describe('a scope of the model', () => {
     expect(report.errors).toEqual(['Edge "e1" couples to port "xp_out" of "seg", which its super-module no longer exposes.'])
     const { errors, warnings } = summariseScopeReport(report)
     expect(errors).toContain('Edge "e1" couples to port "xp_out" of "seg", which its super-module no longer exposes.')
-    expect(warnings).toContain('Subsystem "seg" sets "x" variable "gone", which no longer exists.')
+    expect(warnings).toContain('Super instance "seg" sets "x" variable "gone", which no longer exists.')
   })
 
   it('adds nothing without the expansion’s problems', () => {

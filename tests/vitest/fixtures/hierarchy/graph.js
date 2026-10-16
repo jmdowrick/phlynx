@@ -1,8 +1,8 @@
 /**
- * Builders for nested test graphs: modules, super-modules, subsystems and edges, as the store holds them.
+ * Builders for nested test graphs: modules, super-modules, super instances and edges, as the store holds them.
  */
-import { buildSubsystem, buildSupermoduleInterface } from '../../../../src/services/import/buildWorkflow.js'
-import { subsystemPorts } from '../../../../src/services/hierarchy/exposure.js'
+import { buildSuperInstance, buildSupermoduleInterface } from '../../../../src/services/import/buildWorkflow.js'
+import { superInstancePorts } from '../../../../src/services/hierarchy/exposure.js'
 import { checkAndClaimCouplings, resolvePortCouplings } from '../../../../src/utils/edges.js'
 import { EXPOSURE_EDGE_TYPE, MAIN_NODE_TYPE } from '../../../../src/utils/constants.js'
 import { nodeIdOf } from '../../../../src/utils/hierarchy.js'
@@ -84,7 +84,7 @@ export function exposures(smId, ports) {
 }
 
 /**
- * A subsystem, its ports built from its super-module as the store holds it.
+ * A super instance, its ports built from its super-module as the store holds it.
  *
  * @param {Array|{nodes: Array, edges: Array}} store - The store's nodes so far, its super-module's included, and its
  *   edges, its exposure edges included; nodes alone for a super-module exposing nothing.
@@ -94,9 +94,9 @@ export function exposures(smId, ports) {
  * @param {Object} [options] - scope and overrides.
  * @returns {Object}
  */
-export function subsystem(store, localId, name, smId, { scope = null, overrides = {} } = {}) {
+export function superInstance(store, localId, name, smId, { scope = null, overrides = {} } = {}) {
   const { nodes, edges = [] } = Array.isArray(store) ? { nodes: store } : store
-  return buildSubsystem(nodeIdOf(scope, localId), name, smId, { scope, overrides, ports: subsystemPorts(nodes, edges, smId) })
+  return buildSuperInstance(nodeIdOf(scope, localId), name, smId, { scope, overrides, ports: superInstancePorts(nodes, edges, smId) })
 }
 
 /**

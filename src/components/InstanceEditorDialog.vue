@@ -928,7 +928,7 @@ function hasTimeVaryingInitialiser(row) {
 /**
  * Where this instance's rows get their values, from resolveBoundaryValues, using the rows and complete ports as
  * edited here against the rest of the canvas. Couplings are previewed as save would recompute them, and the values
- * resolved in the model that leaves, its subsystems expanded; the instance is a root module, its own model node.
+ * resolved in the model that leaves, its super instances expanded; the instance is a root module, its own model node.
  */
 const connection = computed(() => {
   const rows = parameterRows.value
@@ -1183,14 +1183,14 @@ const componentFile = computed(() => props.mathRef?.split(':')[0])
 const componentName = computed(() => props.mathRef?.split(':')[1])
 
 // The canvas nodes a save switches to the new math with this one, a module inside a super-module once for all its
-// subsystems.
+// super instances.
 const siblings = computed(() => {
   if (!componentName.value || !componentFile.value) return []
   return nodes.value.filter((n) => n.id !== props.id && n.data?.mathRef === props.mathRef).map((n) => n.id)
 })
 
-// How many other instances use the math: counted in the model, where each subsystem has its own, and a sibling that
-// reaches no model node (in a super-module without subsystems) once. None exactly when there are no siblings.
+// How many other instances use the math: counted in the model, where each super instance has its own, and a sibling that
+// reaches no model node (in a super-module without super instances) once. None exactly when there are no siblings.
 const siblingCount = computed(() => {
   if (!componentName.value || !componentFile.value) return 0
   const expanded = modelNodes.value.filter((node) => mainIdOf(node.id) !== props.id && node.data?.mathRef === props.mathRef)

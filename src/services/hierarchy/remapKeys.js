@@ -1,7 +1,7 @@
 /**
  * The stores keyed by model node id (`nodeId`, or `nodeId::variable` keys): sliders, plots, sweeps, inspection modules,
  * slider values and the last run's scope. When the modules a key names go, as a child of a super-module is removed and
- * with it its copy in every subsystem, dropKeys takes the keys out of them all; when they move, as nesting and
+ * with it its copy in every super instance, dropKeys takes the keys out of them all; when they move, as nesting and
  * un-nesting give them new model ids, remapNodeKeys follows them. Each is one change that can be put back.
  *
  * Every Pinia store is listed here, keyed or not (with why), so the registry test fails when a store is added without

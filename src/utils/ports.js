@@ -6,7 +6,7 @@ export function isCompatible(srcType, tgtType) {
 
 export function findPort(ports, port) {
   if (!port) return null
-  // A subsystem's port is the exposed port it names: two may share a label and variables.
+  // A super instance's port is the exposed port it names: two may share a label and variables.
   if (port.exposedPortId != null) return ports.find((p) => p.exposedPortId === port.exposedPortId) ?? null
   return ports.find((p) =>
     p.label === port.label &&

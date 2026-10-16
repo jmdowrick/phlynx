@@ -11,7 +11,7 @@ vi.mock('@vue-flow/core', async (importOriginal) => {
     useVueFlow: () => ({ getSelectedNodes: computed(() => selected.value.map((id) => ({ id }))), userSelectionActive: ref(false) }),
   }
 })
-// Subsystem sm expands to its modules in the model; any other node is its own.
+// Super instance sm expands to its modules in the model; any other node is its own.
 vi.mock('../../../src/composables/useModelGraph', () => ({
   useModelGraph: () => ({ expandSelection: (ids) => [...ids].flatMap((id) => (id === 'sm' ? ['sm/ra', 'sm/lv'] : [id])) }),
 }))
@@ -56,7 +56,7 @@ describe('useSelectionAutoRun', () => {
     expect(run).toHaveBeenCalledWith(['b'])
   })
 
-  it('runs a selected subsystem as the modules it expands to', async () => {
+  it('runs a selected super instance as the modules it expands to', async () => {
     await select(['sm', 'b'])
     expect(run).toHaveBeenCalledWith(['b', 'sm/lv', 'sm/ra'])
   })

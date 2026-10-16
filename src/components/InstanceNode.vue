@@ -111,7 +111,7 @@ const emit = defineEmits([
   'open-context-menu',
 ])
 
-// Name editing, theme, simulated outline and context menu, shared with SubsystemNode.
+// Name editing, theme, simulated outline and context menu, shared with SuperInstanceNode.
 const {
   isSimulated,
   categoryStyle,

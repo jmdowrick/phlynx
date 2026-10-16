@@ -1,7 +1,7 @@
 /**
  * Imports a circulatory_autogen (CA) module array that instantiates super-modules: CA's expansion
  * (expandSupermodules), built as a flat module array is (buildWorkflowGraph), so its couplings and slots are exactly
- * CA's, then folded back into subsystems. Pure.
+ * CA's, then folded back into super instances. Pure.
  *
  * The fold groups the expanded modules by the path CA expanded each from (`heart/ra`), deepest first:
  * - One super-module per (module_type, module_subtype), its children named by the last segment of their paths, never
@@ -13,11 +13,11 @@
  *   instance's per_submodule_* key order.
  * - Values, lowest precedence first: a super-module's children take its default parameterisation (CA's `lv/E` rows,
  *   over the parameterisations its component submodules name); an outer super-module's rows naming a nested one's
- *   modules are overrides on that subsystem inside it; whatever else an occurrence's modules have (its own
- *   parameterisation, the host parameters file) is an override on its outermost subsystem. Global rows set global
+ *   modules are overrides on that super instance inside it; whatever else an occurrence's modules have (its own
+ *   parameterisation, the host parameters file) is an override on its outermost super instance. Global rows set global
  *   constants, the first winning, as in CA.
  */
-import { buildSubsystem, buildSupermoduleInterface, buildWorkflowGraph } from './buildWorkflow'
+import { buildSuperInstance, buildSupermoduleInterface, buildWorkflowGraph } from './buildWorkflow'
 import { withoutZeroedIvcRows } from '../caRules'
 import { normaliseModuleRecords, toInstanceRows } from './caModuleArray'
 import { moduleRefOf } from './caModuleConfig'
@@ -31,12 +31,12 @@ import {
 } from './caSupermodules'
 import { applyRowsByName, componentEntries, globalRows, rowIndex } from './caParameters'
 import { expandHierarchy, EXPANDED_ID_SEPARATOR } from '../hierarchy/expand'
-import { EXPOSED_PORT_ID_PREFIX, subsystemPorts } from '../hierarchy/exposure'
+import { EXPOSED_PORT_ID_PREFIX, superInstancePorts } from '../hierarchy/exposure'
 import { supermoduleContentHash } from '../hierarchy/operations'
 import { slotOf } from '../../utils/edges'
 import { EXPOSURE_EDGE_TYPE, HANDLE_VARIANT } from '../../utils/constants'
 import { findMostCentralGhostHandle, getHandleId } from '../../utils/handles'
-import { isSubsystem, isSupermoduleInterface, localNameProblem, nextSequentialId, nodeIdOf, SUPERMODULE_ID_PREFIX } from '../../utils/hierarchy'
+import { isSuperInstance, isSupermoduleInterface, localNameProblem, nextSequentialId, nodeIdOf, SUPERMODULE_ID_PREFIX } from '../../utils/hierarchy'
 
 const NODE_ID_PREFIX = 'dndnode_'
 const PER_KEY = { in: 'per_submodule_inputs', out: 'per_submodule_outputs' }
@@ -186,7 +186,7 @@ function sideHandles(node) {
 }
 
 /**
- * Folds a module array's flat build (see buildCaModel) into super-modules and subsystems.
+ * Folds a module array's flat build (see buildCaModel) into super-modules and super instances.
  *
  * @param {ReturnType<typeof buildCaModel>} model
  * @param {CaLibrary} library
@@ -316,7 +316,7 @@ export function foldCaModel(model, library, { source = 'module array', load, cur
     return { edge, at, via }
   })
 
-  // The nodes: each super-module's interface and children, and the root's modules and subsystems.
+  // The nodes: each super-module's interface and children, and the root's modules and super instances.
   const withStyle = (node, from) => (from?.style ? { ...node, style: { ...from.style } } : node)
   const defNodes = []
   const nodeById = new Map()
@@ -333,7 +333,7 @@ export function foldCaModel(model, library, { source = 'module array', load, cur
       submoduleOrder.push(localId)
       def.childIds.set(child.name, id)
       if (child.occurrence) {
-        const node = buildSubsystem(id, child.name, defOf.get(child.occurrence.key).smId, { scope: def.smId })
+        const node = buildSuperInstance(id, child.name, defOf.get(child.occurrence.key).smId, { scope: def.smId })
         add(defNodes, withStyle(node, base[0]))
       } else {
         const from = clone(base[child.leaf])
@@ -358,12 +358,12 @@ export function foldCaModel(model, library, { source = 'module array', load, cur
     flatIds.add(id)
     // Where the module array placed it, else where the root's layout will.
     const placed = record.x !== undefined && record.y !== undefined ? { x: Number(record.x), y: Number(record.y) } : null
-    const subsystem = buildSubsystem(id, record.name, defOf.get(occurrence.key).smId, { position: placed })
-    rootIds.set(record.name, add(rootNodes, placed ? subsystem : withStyle(subsystem, base[0])).id)
+    const superInstance = buildSuperInstance(id, record.name, defOf.get(occurrence.key).smId, { position: placed })
+    rootIds.set(record.name, add(rootNodes, placed ? superInstance : withStyle(superInstance, base[0])).id)
   }
   const problems = [
     ...defNodes.filter((node) => !isSupermoduleInterface(node)).map((node) => [node.data.name, localNameProblem(node.data.name, { scope: node.data.scope })]),
-    ...rootNodes.filter(isSubsystem).map((node) => [node.data.name, localNameProblem(node.data.name, { subsystem: true })]),
+    ...rootNodes.filter(isSuperInstance).map((node) => [node.data.name, localNameProblem(node.data.name, { superInstance: true })]),
   ].filter(([, problem]) => problem)
   if (problems.length) {
     warnings.push(`${source}: some names break the rules for names inside super-modules; rename them: ${problems.map(([, p]) => p).join(' ')}`)
@@ -403,10 +403,10 @@ export function foldCaModel(model, library, { source = 'module array', load, cur
     }
   }
 
-  // Every subsystem's ports, from its super-module's exposure edges.
+  // Every super instance's ports, from its super-module's exposure edges.
   const allNodes = [...rootNodes, ...defNodes]
-  const portsOf = new Map(defs.map((def) => [def.smId, subsystemPorts(allNodes, exposureEdges, def.smId)]))
-  for (const node of allNodes.filter(isSubsystem)) node.data.ports = clone(portsOf.get(node.data.smId))
+  const portsOf = new Map(defs.map((def) => [def.smId, superInstancePorts(allNodes, exposureEdges, def.smId)]))
+  for (const node of allNodes.filter(isSuperInstance)) node.data.ports = clone(portsOf.get(node.data.smId))
 
   // The model edges, at the root and in each super-module (from the occurrence it was made from), one per pair of
   // nodes and direction.
@@ -451,16 +451,16 @@ export function foldCaModel(model, library, { source = 'module array', load, cur
   }
   const modelEdges = [...merged.values()]
 
-  // Values: each super-module's defaults, innermost first, then each root subsystem's overrides.
+  // Values: each super-module's defaults, innermost first, then each root super instance's overrides.
   const components = componentEntries(library.modules)
   const options = { source, load }
   for (const def of defs) {
     const { index, caName } = supermoduleDefaults(def, library, components, options)
     for (const [name, id] of def.childIds) {
       const node = nodeById.get(id)
-      if (!isSubsystem(node)) node.data.variables = applyRowsByName([node], index, () => caName([name])).nodes[0].data.variables
+      if (!isSuperInstance(node)) node.data.variables = applyRowsByName([node], index, () => caName([name])).nodes[0].data.variables
     }
-    const probe = buildSubsystem(`${NODE_ID_PREFIX}probe`, def.rep.path.at(-1), def.smId)
+    const probe = buildSuperInstance(`${NODE_ID_PREFIX}probe`, def.rep.path.at(-1), def.smId)
     const expansion = expandHierarchy([...defNodes, probe], [])
     for (const leaf of expansion.nodes) {
       const ids = leaf.id.split(EXPANDED_ID_SEPARATOR)
@@ -469,9 +469,9 @@ export function foldCaModel(model, library, { source = 'module array', load, cur
       const target = applyRowsByName([leaf], index, () => caName(relativePath)).nodes[0]
       const patches = valueOverrides(leaf.data.variables, target.data.variables)
       if (!Object.keys(patches).length) continue
-      const subsystem = nodeById.get(nodeIdOf(def.smId, ids[1]))
+      const superInstance = nodeById.get(nodeIdOf(def.smId, ids[1]))
       const key = ids.slice(2).join(EXPANDED_ID_SEPARATOR)
-      subsystem.data.overrides = { ...subsystem.data.overrides, [key]: { ...subsystem.data.overrides?.[key], ...patches } }
+      superInstance.data.overrides = { ...superInstance.data.overrides, [key]: { ...superInstance.data.overrides?.[key], ...patches } }
     }
   }
   const expansion = expandHierarchy(allNodes, [])
@@ -481,8 +481,8 @@ export function foldCaModel(model, library, { source = 'module array', load, cur
     const target = valued[leafByPath.get(expansion.pathOf(leaf.id))]
     const patches = valueOverrides(leaf.data.variables, target?.data?.variables)
     if (!Object.keys(patches).length) continue
-    const subsystem = nodeById.get(ids[0])
-    subsystem.data.overrides = { ...subsystem.data.overrides, [ids.slice(1).join(EXPANDED_ID_SEPARATOR)]: patches }
+    const superInstance = nodeById.get(ids[0])
+    superInstance.data.overrides = { ...superInstance.data.overrides, [ids.slice(1).join(EXPANDED_ID_SEPARATOR)]: patches }
   }
 
   // Handles no edge uses any more go back to ghosts.

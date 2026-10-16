@@ -136,7 +136,7 @@ describe('model consumers read the expanded workspace', () => {
     expect(files['modules/model_module_config.json']).toBe(handFlat['modules/model_module_config.json'])
   })
 
-  it('checks circulatory_autogen’s heart rules on the modules inside subsystems', async () => {
+  it('checks circulatory_autogen’s heart rules on the modules inside super instances', async () => {
     const { nested } = heartSlots(make)
     const spare = make('dndnode_9', 'spare_heart', 'heart:vp')
     show({ nodes: [...nested.nodes, spare], edges: nested.edges })
@@ -153,7 +153,7 @@ describe('model consumers read the expanded workspace', () => {
     }
   })
 
-  it('names a slider of a module inside a subsystem in the archive as the model exports it, after a rename', async () => {
+  it('names a slider of a module inside a super instance in the archive as the model exports it, after a rename', async () => {
     const { nested } = threeInstances(make)
     show(nested)
     const { findModelNode } = useModelGraph()
@@ -169,7 +169,7 @@ describe('model consumers read the expanded workspace', () => {
     expect(files['model.cellml']).toMatch(/<component name="mid__a"/)
   })
 
-  it('simulates a selected subsystem as its modules on their own', async () => {
+  it('simulates a selected super instance as its modules on their own', async () => {
     const { nested, flat } = threeInstances(make)
     show(nested)
     flow.addSelectedNodes([flow.findNode('dndnode_1')])
@@ -203,7 +203,7 @@ describe('model consumers read the expanded workspace', () => {
     expect(checked).not.toHaveBeenCalled()
   })
 
-  it('stops a run of a model whose subsystems don’t expand, saying why', async () => {
+  it('stops a run of a model whose super instances don’t expand, saying why', async () => {
     const { nested } = threeInstances(make)
     const exposure = nested.edges.find((edge) => edge.id === 'sm_1~a--sm_1')
     exposure.data = { exposed: exposure.data.exposed.filter((entry) => entry.id !== 'xp_out') }
