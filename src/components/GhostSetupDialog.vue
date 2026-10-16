@@ -44,7 +44,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { useVueFlow } from '@vue-flow/core'
+import { useActiveCanvas } from '../composables/useActiveCanvas'
 import { FLOW_IDS, GHOST_NODE_TYPE } from '../utils/constants'
 import { notify } from '../utils/notify'
 
@@ -52,11 +52,11 @@ import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import Select from 'primevue/select' // Use 'primevue/dropdown' if using PrimeVue v3
 
-const { getNodes } = useVueFlow(FLOW_IDS.MACRO)
+const { nodes: canvasNodes } = useActiveCanvas(FLOW_IDS.MACRO)
 const selectedId = ref('')
 
 const availableNodes = computed(() => {
-  return getNodes.value.filter((n) => n.type !== GHOST_NODE_TYPE)
+  return canvasNodes.value.filter((n) => n.type !== GHOST_NODE_TYPE)
 })
 
 const emit = defineEmits(['confirm', 'cancel'])

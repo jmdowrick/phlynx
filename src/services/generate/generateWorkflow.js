@@ -1,4 +1,5 @@
 import { useVueFlow } from '@vue-flow/core'
+import { useActiveCanvas } from '../../composables/useActiveCanvas'
 import { FLOW_IDS, GHOST_NODE_TYPE } from '../../utils/constants'
 import { generateUniqueInstanceName } from '../../utils/nodes'
 
@@ -34,6 +35,7 @@ function getId(i, idSet) {
 
 export function useMacroGenerator() {
   const { addNodes, addEdges, getNodes } = useVueFlow(FLOW_IDS.MAIN)
+  const { nodes: canvasNodes } = useActiveCanvas()
 
   /**
    * @param {Object} macroData - { flow: { nodes, edges, ... }, repeatCount: Number }
@@ -73,8 +75,9 @@ export function useMacroGenerator() {
 
     const idSet = new Set() // To track unique IDs.
     const namesSet = new Set()
+    canvasNodes.value.forEach((node) => namesSet.add(node.data.name))
+    // Ids are unique across the whole store, not just the canvas.
     getNodes.value.forEach((node) => {
-      namesSet.add(node.data.name)
       if (node.id.startsWith('macronode_')) {
         idSet.add(node.id)
       }

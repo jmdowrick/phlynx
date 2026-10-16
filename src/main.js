@@ -7,6 +7,7 @@ import Aura from '@primevue/themes/aura'
 import ConfirmationService from 'primevue/confirmationservice'
 import ToastService from 'primevue/toastservice'
 import libcellmlPlugin from 'vue3-libcellml.js'
+import { useVueFlow } from '@vue-flow/core'
 import GlossaryLink from './components/GlossaryLink.vue'
 
 import '@vue-flow/core/dist/style.css'
@@ -29,6 +30,10 @@ import { useNodeThemeStore } from './stores/nodeThemeStore'
 import App from './App.vue'
 import { waitForIsolationReload } from './utils/isolation'
 import { libopencor, loadLibOpenCOR } from './services/simulation/libopencorLoader'
+import { FLOW_IDS } from './utils/constants'
+
+// The workspace's flow, made outside any component so that no view unmounting destroys its nodes.
+useVueFlow(FLOW_IDS.MAIN)
 
 // The first visit reloads once to install the isolation service worker; starting the app before that
 // would load anything it was opened with twice.

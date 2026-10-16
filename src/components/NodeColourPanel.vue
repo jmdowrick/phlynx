@@ -163,6 +163,7 @@ import Button from 'primevue/button'
 import Select from 'primevue/select'
 
 import NodeThemeEditor from './NodeThemeEditor.vue'
+import { useActiveCanvas } from '../composables/useActiveCanvas'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useNodeDataHistory } from '../composables/useNodeDataHistory'
 import { useNodeThemeStore } from '../stores/nodeThemeStore'
@@ -173,11 +174,12 @@ import { THEME_REPO, buildSubmissionUrl, findCategory, isLocalThemeId, toSubmiss
 const MIXED = Symbol('mixed')
 
 const themeStore = useNodeThemeStore()
-const { getSelectedNodes, updateNodeData } = useVueFlow(FLOW_IDS.MAIN)
+const { updateNodeData } = useVueFlow(FLOW_IDS.MAIN)
+const { selectedNodes: canvasSelection } = useActiveCanvas()
 const { recordEdit } = useNodeDataHistory(FLOW_IDS.MAIN)
 const { confirm } = useConfirmDialog()
 
-const selectedNodes = computed(() => getSelectedNodes.value.filter((node) => node.type !== GHOST_NODE_TYPE))
+const selectedNodes = computed(() => canvasSelection.value.filter((node) => node.type !== GHOST_NODE_TYPE))
 
 const themeGroups = computed(() =>
   [
