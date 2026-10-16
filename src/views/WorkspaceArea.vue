@@ -442,6 +442,7 @@
             :nodes="nodes"
             :delete-key-code="dialogVisible ? [] : ['Backspace', 'Delete']"
           >
+            <component :is="'style'" v-if="highlightCss">{{ highlightCss }}</component>
             <HelperLines :horizontal="helperLineHorizontal" :vertical="helperLineVertical" :alignment="alignment" />
             <MiniMap :pannable="true" :zoomable="true" :node-color="miniMapNodeColour" class="mini-map" />
             <Controls :fit-view-params="fitViewParams">
@@ -457,7 +458,6 @@
                 :id="props.id"
                 :data="props.data"
                 :selected="props.selected"
-                :class="getNodeClass(props)"
                 @open-instance-editor="onOpenInstanceEditorDialog"
                 @open-context-menu="onNodeContextMenu"
                 :ref="(el) => (nodeRefs[props.id] = el)"
@@ -871,7 +871,7 @@ const {
   onSearchFocus,
   onSearchBlur,
   onSearchKeydown,
-  getNodeClass,
+  highlightCss,
 } = useWorkspaceSearch({ nodes, findNode, zoomToNode })
 
 /**
@@ -2678,19 +2678,6 @@ watch(
 
 .cursor-pointer {
   cursor: pointer;
-}
-
-.node-search-match {
-  opacity: 1 !important;
-  transition: opacity 0.2s ease;
-  outline: 3px solid var(--p-primary-color);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-
-.node-search-dimmed {
-  opacity: 0.25 !important;
-  transition: opacity 0.2s ease;
 }
 
 /* While exporting an image: never the edit controls, and warnings only when Settings asks. */
