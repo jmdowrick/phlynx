@@ -1,7 +1,7 @@
 import { PORT_TYPE_OPTIONS } from './constants'
 import { toRaw } from 'vue'
 import { extractVariablesFromMath } from './cellml'
-import { parseMultiport } from './multiport'
+import { normaliseMultiport, parseMultiport, VOLUME_PORT } from './multiport'
 
 export function parseMathRef(mathRef) {
   const [componentFile, componentName] = mathRef.split(':')
@@ -52,9 +52,18 @@ export function buildModule(moduleRef, mathRef, math) {
   }
 }
 
-// applied on import
-export function normalisePorts(config) {
+/**
+ * A module config's ports, as stored on a module. Leniently, for saved workspaces and the library, an
+ * unknown multi_port is 'None'; strictly, for an imported config, it throws as circulatory_autogen would.
+ *
+ * @param {Object} config - A module config entry.
+ * @param {Object} [options]
+ * @param {boolean} [options.strict]
+ * @throws {Error} when strict and a multi_port is one circulatory_autogen rejects.
+ */
+export function normalisePorts(config, { strict = false } = {}) {
   const ports = []
+  const description = `Module "${config?.module_type}:${config?.module_subtype}"`
 
   PORT_TYPE_OPTIONS.forEach((portType) => {
     const list = config?.[portType.value] || []
@@ -63,7 +72,7 @@ export function normalisePorts(config) {
         portType: portType.value,
         label: p.port_type, 
         variables: p.variables || [],
-        multiportType: parseMultiport(p.multi_port),
+        multiportType: strict ? normaliseMultiport(p, description) : parseMultiport(p.multi_port),
       })
     }
   })
@@ -88,7 +97,7 @@ export function restorePorts(ports) {
       variables: toRaw(p.variables) || [],
     }
 
-    const multiPortValue = unparseMultiport(p.multiportType)
+    const multiPortValue = unparseMultiport(p)
     
     if (multiPortValue !== undefined) {
       portEntry.multi_port = multiPortValue
@@ -120,7 +129,14 @@ export function restoreVariables(variables = []) {
   ])
 }
 
-function unparseMultiport(value) {
-  if (value === "None") return undefined
-  return value
+/**
+ * A port's multi_port as written to a config, undefined for None. A whole-port Sum or Multiply on several
+ * variables is written per variable, since circulatory_autogen reads a whole-port one as mapping one
+ * variable; a volume_port keeps its whole-port Sum, CA's legacy blood-volume sum.
+ */
+function unparseMultiport({ label, variables = [], multiportType }) {
+  const type = Array.isArray(multiportType) ? null : parseMultiport(multiportType)
+  if (type === 'None') return undefined
+  const perVariable = type === 'Multiply' || (type === 'Sum' && label !== VOLUME_PORT)
+  return perVariable && variables.length > 1 ? variables.map(() => type.toLowerCase()) : multiportType
 }

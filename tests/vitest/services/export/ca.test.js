@@ -336,6 +336,46 @@ describe('generateExportZip', () => {
     expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('par, pvn') }))
   })
 
+  describe('multi_port', () => {
+    const nodeWithPort = (port) => {
+      const node = nodeWith('vp', [])
+      node.data.ports = [{ portType: 'exit_ports', ...port }]
+      return node
+    }
+    const exportedPort = async (port) =>
+      JSON.parse((await readZip(await generateExportZip('heart', [nodeWithPort(port)], [], library)))['modules/heart_module_config.json'])[0]
+        .exit_ports[0]
+
+    it('writes a whole-port Sum on several variables per variable, as CA reads it', async () => {
+      const port = await exportedPort({ label: 'vessel_port', variables: ['v_in', 'u'], multiportType: 'Sum' })
+      expect(port.multi_port).toEqual(['sum', 'sum'])
+    })
+
+    it.each([
+      ['a list', ['multiply', 'True']],
+      ['a whole-port value', 'Multiply'],
+    ])('fails on a Multiply on several variables, as %s, which CA cannot read', async (_, multiportType) => {
+      const node = nodeWithPort({ label: 'vessel_port', variables: ['q_C', 'u'], multiportType })
+      await expect(generateExportZip('heart', [node], [], library)).rejects.toThrow(
+        `CA can't read a port. Module "arterial_simple:vp": port "vessel_port" multiplies variables ["q_C","u"]; CA multiplies only a port with one variable.`
+      )
+    })
+
+    it("warns that CA sums a volume_port's whole-port Sum over its inp_vessels only", async () => {
+      const port = await exportedPort({ label: 'volume_port', variables: ['q_C'], multiportType: 'Sum' })
+      expect(port.multi_port).toBe('Sum')
+      expect(notified.warning).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Volume Port Sum', message: expect.stringContaining('arterial_simple:vp') })
+      )
+    })
+
+    it("doesn't warn about a volume_port's list sum, CA's sum over every connection", async () => {
+      const port = await exportedPort({ label: 'volume_port', variables: ['q_C'], multiportType: ['sum'] })
+      expect(port.multi_port).toEqual(['sum'])
+      expect(notified.warning).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'Volume Port Sum' }))
+    })
+  })
+
   it('fails when a component has no math in the library', async () => {
     library.addModule({ moduleRef: 'stub:default', mathRef: 'gone.cellml:stub_type', ports: [], variables: [] })
     const node = { id: 's', data: { name: 's', moduleRef: 'stub:default', mathRef: 'gone.cellml:stub_type', ports: [], variables: [] } }

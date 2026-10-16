@@ -2,6 +2,7 @@ import Papa from 'papaparse'
 
 import { IMPORT_KEYS, IMPORT_LABELS, RELEVANT_EXTENSIONS } from './constants'
 import { isCellML, doesComponentExistInModel } from './cellml'
+import { normalisePorts } from './config'
 
 /** Columns an instance array CSV must have. */
 const INSTANCE_ARRAY_COLUMNS = ['name', 'module_type', 'module_subtype', 'inp_instances', 'out_instances']
@@ -316,6 +317,8 @@ const parseConfigJson = (file) => {
         }
         const schemaError = missingFieldsError('module configuration file', MODULE_CONFIG_KEYS, Object.keys(parsed[0] ?? {}), 'keys')
         if (schemaError) throw schemaError
+        // Rejects a multi_port circulatory_autogen would, so it isn't read as something else.
+        parsed.forEach((config) => normalisePorts(config, { strict: true }))
         resolve(parsed)
       } catch (err) {
         reject(err)

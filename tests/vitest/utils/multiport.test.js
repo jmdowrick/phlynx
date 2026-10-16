@@ -2,13 +2,14 @@ import { readFileSync } from 'node:fs'
 
 import { describe, expect, it } from 'vitest'
 
-import { normaliseConfig, restorePorts } from '../../../src/utils/config.js'
+import { normaliseConfig, normalisePorts, restorePorts } from '../../../src/utils/config.js'
 import {
   couplingConflicts,
   cycleMultiportType,
   isMultiport,
   multiplyFactor,
   multiportSummary,
+  normaliseMultiport,
   parseMultiport,
   restorePortVariables,
   setMultiport,
@@ -39,9 +40,75 @@ describe('parseMultiport', () => {
     expect(parseMultiport(list)).not.toBe(list)
   })
 
-  it('reads a list whose entries all agree as that one value', () => {
-    expect(parseMultiport(['None', false])).toBe('None')
-    expect(parseMultiport(['sum', 'SUM'])).toBe('Sum')
+  it('keeps a list whose entries all agree, which CA reads unlike a whole-port value', () => {
+    expect(parseMultiport(['sum', 'sum'])).toEqual(['sum', 'sum'])
+    expect(parseMultiport(['True', 'True'])).toEqual(['True', 'True'])
+    expect(parseMultiport(['sum'])).toEqual(['sum'])
+  })
+
+  it('reads an unknown whole-port value as one connection', () => {
+    expect(parseMultiport('yes')).toBe('None')
+  })
+})
+
+describe('normaliseMultiport', () => {
+  const configPort = (variables, multi_port, port_type = 'vessel_port') => ({ port_type, variables, multi_port })
+  const normalise = (...args) => normaliseMultiport(configPort(...args), 'Module "m:s"')
+
+  it.each([
+    [undefined, 'None'],
+    [null, 'None'],
+    [false, 'None'],
+    ['FALSE', 'None'],
+    [true, 'True'],
+    ['true', 'True'],
+    ['SUM', 'Sum'],
+    ['multiply', 'Multiply'],
+  ])('reads whole-port %j on one variable as %j', (value, expected) => {
+    expect(normalise(['v'], value)).toBe(expected)
+  })
+
+  it('reads list entries as "sum" or "True", one per variable', () => {
+    expect(normalise(['v', 'u'], ['SUM', true])).toEqual(['sum', 'True'])
+    expect(normalise(['v', 'w'], ['sum', 'sum'])).toEqual(['sum', 'sum'])
+  })
+
+  it('rejects an unknown whole-port value', () => {
+    expect(() => normalise(['v'], 'yes')).toThrow(
+      `Module "m:s": port "vessel_port" has multi_port 'yes'. It must be "True", "Sum" or "Multiply" (any case), true/false, or a list with one entry per port variable.`
+    )
+    expect(() => normalise(['v'], 'None')).toThrow(/has multi_port 'None'\./)
+  })
+
+  it.each([
+    ['Sum', 'Sum'],
+    ['multiply', 'Multiply'],
+  ])('rejects a whole-port %s on several variables', (value, kind) => {
+    expect(() => normalise(['v_in', 'w_in'], value)).toThrow(
+      `Module "m:s": port "vessel_port" has multi_port "${value}" but variables ['v_in', 'w_in']. A "${kind}" port must map exactly one variable.`
+    )
+  })
+
+  it("keeps a volume_port's whole-port Sum, on any number of variables", () => {
+    expect(normalise(['q', 'r'], 'sum', 'volume_port')).toBe('Sum')
+  })
+
+  it('rejects a list of the wrong length', () => {
+    expect(() => normalise(['v', 'u'], ['sum'])).toThrow(
+      `Module "m:s": port "vessel_port" has a list-form multi_port ['sum'] of length 1, but 2 variables ['v', 'u']. The list must have one entry per port variable.`
+    )
+  })
+
+  it.each([
+    ['multiply', "'multiply'"],
+    [null, 'None'],
+    [false, 'False'],
+    ['None', "'None'"],
+    ['true', "'true'"],
+  ])('rejects the list entry %j, shown as CA shows it', (entry, shown) => {
+    expect(() => normalise(['q', 'p'], [entry, 'True'])).toThrow(
+      `Module "m:s": port "vessel_port" has multi_port entry ${shown} for variable "q". List-form entries must be "sum" or "True".`
+    )
   })
 })
 
@@ -97,6 +164,11 @@ describe('couplingConflicts', () => {
     ])
   })
 
+  it("leaves a Multiply on several variables, which CA can't read, to the CA export", () => {
+    expect(couplingConflicts(port(['x', 'y'], ['multiply', 'True']), port(['p', 'q'], ['True', 'sum']))).toEqual([])
+    expect(couplingConflicts(port(['x', 'y'], 'Multiply'), port(['p', 'q'], 'True'))).toEqual([])
+  })
+
   it('reports a malformed list', () => {
     expect(couplingConflicts(port(['x'], ['sum', 'True']), port(['p'], 'None'))).toEqual([
       'Port "p" has 2 multiport entries for 1 variables.',
@@ -127,18 +199,40 @@ describe('cycleMultiportType', () => {
     expect(seen).toEqual(['Sum', 'Multiply', 'True'])
   })
 
-  it('changes only the clicked variable, storing one value when they agree', () => {
+  it('changes only the clicked variable, storing several Sum variables as a list', () => {
     const p = port(['a', 'b'], 'True')
     cycleMultiportType(p, 'a')
     expect(p.multiportType).toEqual(['sum', 'True'])
     cycleMultiportType(p, 'b')
-    expect(p.multiportType).toBe('Sum')
+    expect(p.multiportType).toEqual(['sum', 'sum'])
+    cycleMultiportType(p, 'a')
+    cycleMultiportType(p, 'b')
+    expect(p.multiportType).toBe('True')
   })
 
-  it('gives a new Multiply variable a factor of 1, keeping the others', () => {
+  it('moves a variable of several through True and Sum only, as CA multiplies only one-variable ports', () => {
+    const p = port(['a', 'b'], 'True')
+    cycleMultiportType(p, 'a')
+    cycleMultiportType(p, 'a')
+    expect(p.multiportType).toBe('True')
+  })
+
+  it("sums a volume_port's variable as a list, CA's sum over every connection", () => {
+    const p = { label: 'volume_port', variables: ['q'], multiportType: 'True' }
+    cycleMultiportType(p, 'q')
+    expect(p.multiportType).toEqual(['sum'])
+  })
+
+  it('moves an older Multiply variable of several back to True', () => {
     const p = port(['a', 'b'], ['multiply', 'sum'], 2)
-    cycleMultiportType(p, 'b')
-    expect(p).toMatchObject({ multiportType: 'Multiply', multiplyFactor: [2, 1] })
+    cycleMultiportType(p, 'a')
+    expect(p.multiportType).toEqual(['True', 'sum'])
+  })
+
+  it('gives a new Multiply variable a factor of 1', () => {
+    const p = port(['a'], 'Sum', 2)
+    cycleMultiportType(p, 'a')
+    expect(p).toMatchObject({ multiportType: 'Multiply', multiplyFactor: 1 })
   })
 })
 
@@ -159,7 +253,26 @@ describe('restorePortVariables', () => {
     setPortVariables(p, ['b'])
     cycleMultiportType(p, 'b')
     restorePortVariables(p, earlier)
-    expect(p).toMatchObject({ variables: ['a', 'b'], multiportType: 'Sum' })
+    expect(p).toMatchObject({ variables: ['a', 'b'], multiportType: ['sum', 'sum'] })
+  })
+
+  it('makes a Multiply set since on the one-variable port True among several variables', () => {
+    const p = port(['a', 'b'], 'True')
+    const earlier = { ...p }
+    setPortVariables(p, ['a'])
+    cycleMultiportType(p, 'a')
+    cycleMultiportType(p, 'a')
+    expect(p.multiportType).toBe('Multiply')
+    restorePortVariables(p, earlier)
+    expect(p).toMatchObject({ variables: ['a', 'b'], multiportType: 'True' })
+  })
+
+  it('puts back an earlier Multiply on several variables as it was', () => {
+    const p = port(['a', 'b'], ['multiply', 'multiply'], [2, 3])
+    const earlier = { ...p }
+    setPortVariables(p, ['a'])
+    restorePortVariables(p, earlier)
+    expect(p).toMatchObject({ variables: ['a', 'b'], multiportType: ['multiply', 'multiply'], multiplyFactor: [2, 3] })
   })
 
   it('follows a rename back', () => {
@@ -190,6 +303,34 @@ describe('setPortVariables', () => {
     expect(single.multiportType).toBe('None')
   })
 
+  it('links a one-variable Multiply port as True once it has several variables', () => {
+    const p = port(['q'], 'Multiply', 2)
+    setPortVariables(p, ['q', 'p'])
+    expect(p.multiportType).toBe('True')
+  })
+
+  it('keeps a Multiply on several variables through a rename or removal', () => {
+    const p = port(['a', 'b', 'c'], ['multiply', 'True', 'True'])
+    setPortVariables(p, ['x', 'b'], (name) => (name === 'x' ? 'a' : name))
+    expect(p.multiportType).toEqual(['multiply', 'True'])
+  })
+
+  it.each([
+    ['a list sum', ['q'], ['sum'], ['sum']],
+    ['a list sum on several variables', ['q', 'r'], ['sum', 'sum'], ['sum', 'sum']],
+    ['the legacy whole-port Sum', ['q', 'r'], 'Sum', 'Sum'],
+  ])("keeps a volume_port's %s through a rename", (_, variables, multiportType, expected) => {
+    const p = { label: 'volume_port', variables, multiportType }
+    setPortVariables(p, ['x', ...variables.slice(1)], (name) => (name === 'x' ? 'q' : name))
+    expect(p.multiportType).toEqual(expected)
+  })
+
+  it('keeps a volume_port list sum when a variable is removed', () => {
+    const p = { label: 'volume_port', variables: ['q', 'r'], multiportType: ['sum', 'sum'] }
+    setPortVariables(p, ['q'])
+    expect(p.multiportType).toEqual(['sum'])
+  })
+
   it('keeps a port with no variables yet a multiport', () => {
     const p = port([], 'True')
     setPortVariables(p, ['a', 'b'])
@@ -206,6 +347,55 @@ describe('setPortVariables', () => {
     const p = port(['a'], 'Sum')
     setPortVariables(p, [])
     expect(p).toMatchObject({ variables: [], multiportType: 'Sum' })
+  })
+})
+
+describe('restorePorts', () => {
+  const exported = (label, variables, multiportType) =>
+    restorePorts([{ portType: 'exit_ports', label, variables, multiportType }]).exit_ports[0].multi_port
+
+  it.each([
+    ['Sum', ['sum', 'sum']],
+    ['Multiply', ['multiply', 'multiply']],
+  ])('writes a whole-port %s on several variables per variable', (type, expected) => {
+    expect(exported('vessel_port', ['v', 'w'], type)).toEqual(expected)
+  })
+
+  it("keeps a whole-port value on one variable, and a volume_port's whole-port Sum", () => {
+    expect(exported('vessel_port', ['v'], 'Sum')).toBe('Sum')
+    expect(exported('vessel_port', ['v', 'w'], 'True')).toBe('True')
+    expect(exported('volume_port', ['q', 'r'], 'Sum')).toBe('Sum')
+  })
+
+  it('writes no multi_port for one connection', () => {
+    expect(exported('vessel_port', ['v'], 'None')).toBeUndefined()
+  })
+})
+
+describe("the issue's examples", () => {
+  const config = (port) => ({ module_type: 'm', module_subtype: 's', exit_ports: [port] })
+  const roundTrip = (port) => restorePorts(normalisePorts(config(port))).exit_ports[0].multi_port
+
+  it('round-trips a two-variable all-sum list as written', () => {
+    expect(roundTrip({ port_type: 'vessel_port', variables: ['v_in', 'w_in'], multi_port: ['sum', 'sum'] })).toEqual(['sum', 'sum'])
+  })
+
+  it('round-trips a volume_port list sum as the generic sum, not the whole-port legacy one', () => {
+    expect(roundTrip({ port_type: 'volume_port', variables: ['q'], multi_port: ['sum'] })).toEqual(['sum'])
+  })
+
+  it('offers no Multiply on a variable of several, so no list multiply is made', () => {
+    const p = port(['q', 'p'], 'True')
+    for (let i = 0; i < 3; i++) {
+      cycleMultiportType(p, 'q')
+      expect(p.multiportType).not.toContain('multiply')
+    }
+  })
+
+  it("rejects multi_port 'yes' on import, and reads it as one connection when lenient", () => {
+    const yes = { port_type: 'vessel_port', variables: ['v'], multi_port: 'yes' }
+    expect(() => normalisePorts(config(yes), { strict: true })).toThrow(`Module "m:s": port "vessel_port" has multi_port 'yes'.`)
+    expect(normalisePorts(config(yes))[0].multiportType).toBe('None')
   })
 })
 

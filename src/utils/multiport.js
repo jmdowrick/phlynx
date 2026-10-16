@@ -3,7 +3,9 @@
  *
  * A port's multiportType is 'None', 'True', 'Sum' or 'Multiply' for every variable, or a list with one
  * entry per variable ('True', 'sum' or 'multiply', any case), as in circulatory_autogen. Its
- * multiplyFactor is the factor of every Multiply variable, or a list aligned with its variables.
+ * multiplyFactor is the factor of every Multiply variable, or a list aligned with its variables. As in
+ * circulatory_autogen, the editors put a whole-port Sum, and any Multiply, only on a one-variable port;
+ * PhLynx's own CellML still reads older ports that multiply several variables.
  *
  * - None: a plain link, on a port that takes one connection. A port never mixes None with the other
  *   types: beside them, None reads as True.
@@ -27,13 +29,71 @@ function typeOf(value) {
 }
 
 /**
- * A multi_port value as stored on a port: anything unknown is 'None', and a list is copied as written
- * unless its entries all agree, when it is that one value.
+ * A multi_port value as stored on a port, leniently, for saved workspaces: anything unknown is 'None',
+ * and a list is copied as written. A list never collapses to a whole-port value, which in
+ * circulatory_autogen means something else.
  */
 export function parseMultiport(value) {
-  if (!Array.isArray(value)) return typeOf(value) ?? 'None'
-  const types = value.map(typeOf)
-  return types[0] && types.every((type) => type === types[0]) ? types[0] : [...value]
+  return Array.isArray(value) ? [...value] : (typeOf(value) ?? 'None')
+}
+
+/** The port label whose whole-port Sum is circulatory_autogen's legacy blood-volume sum, over its inp_vessels only. */
+export const VOLUME_PORT = 'volume_port'
+
+const isText = (value, text) => typeof value === 'string' && value.toLowerCase() === text
+// A value as Python's repr writes it, so messages read as circulatory_autogen's do.
+const show = (value) => {
+  if (value == null) return 'None'
+  if (typeof value === 'boolean') return value ? 'True' : 'False'
+  if (Array.isArray(value)) return `[${value.map(show).join(', ')}]`
+  if (typeof value === 'string') return value.includes("'") && !value.includes('"') ? `"${value}"` : `'${value.replaceAll("'", "\\'")}'`
+  if (typeof value === 'object') return `{${Object.entries(value).map(([key, entry]) => `${show(key)}: ${show(entry)}`).join(', ')}}`
+  return String(value)
+}
+
+/**
+ * A module config port's multi_port as stored on a port, checked as circulatory_autogen checks it on
+ * import (normalise_port_multi_port and validate_list_multi_port), with its messages. A list's entries
+ * become 'sum' or 'True'.
+ *
+ * @param {{ port_type: string, variables?: string[], multi_port?: * }} port - A config port.
+ * @param {string} description - The module, starting each message.
+ * @throws {Error} when circulatory_autogen would reject the value.
+ */
+export function normaliseMultiport(port, description) {
+  const value = port.multi_port
+  const variables = port.variables ?? []
+  const at = `${description}: port "${port.port_type}"`
+  const single = (kind) => {
+    if (variables.length !== 1) {
+      throw new Error(`${at} has multi_port "${value}" but variables ${show(variables)}. A "${kind}" port must map exactly one variable.`)
+    }
+  }
+  if (value == null || value === false || isText(value, 'false')) return 'None'
+  if (value === true || isText(value, 'true')) return 'True'
+  if (isText(value, 'sum')) {
+    if (port.port_type !== VOLUME_PORT) single('Sum')
+    return 'Sum'
+  }
+  if (isText(value, 'multiply')) {
+    single('Multiply')
+    return 'Multiply'
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(
+      `${at} has multi_port ${show(value)}. It must be "True", "Sum" or "Multiply" (any case), true/false, or a list with one entry per port variable.`
+    )
+  }
+  if (value.length !== variables.length) {
+    throw new Error(
+      `${at} has a list-form multi_port ${show(value)} of length ${value.length}, but ${variables.length} variables ${show(variables)}. The list must have one entry per port variable.`
+    )
+  }
+  return value.map((entry, i) => {
+    if (isText(entry, 'sum')) return 'sum'
+    if (entry === true || entry === 'True') return 'True'
+    throw new Error(`${at} has multi_port entry ${show(entry)} for variable "${variables[i]}". List-form entries must be "sum" or "True".`)
+  })
 }
 
 /**
@@ -210,11 +270,17 @@ const factorAt = (port, i) => (Array.isArray(port.multiplyFactor) ? port.multipl
 const factorsOf = (port) => (port.variables ?? []).map((_, i) => factorAt(port, i) ?? null)
 
 /**
- * Stores per-variable types and factors, as one whole-port value wherever every variable agrees. A port
- * with no Multiply variable keeps a whole-port factor.
+ * Stores per-variable types and factors. The types are one whole-port value for one variable, or when every
+ * variable is True or every one None; otherwise a list, since in circulatory_autogen a whole-port Sum or
+ * Multiply maps one variable. A volume_port sums as a list, CA's generic sum, unless it already holds the
+ * legacy whole-port Sum. A port with no Multiply variable keeps a whole-port factor.
  */
 function setTypes(port, types, factors) {
-  port.multiportType = types.every((type) => type === types[0]) ? types[0] : types.map((type) => LIST_ENTRY[type])
+  const whole =
+    port.label === VOLUME_PORT && types.every((type) => type === 'Sum')
+      ? !Array.isArray(port.multiportType) && typeOf(port.multiportType) === 'Sum'
+      : types.length === 1 || types.every((type) => isPlain(type) && type === types[0])
+  port.multiportType = whole ? types[0] : types.map((type) => LIST_ENTRY[type])
   const used = factors.filter((_, i) => types[i] === 'Multiply')
   if (new Set(used).size > 1) {
     port.multiplyFactor = factors.map((factor, i) => (types[i] === 'Multiply' ? factor : null))
@@ -247,19 +313,24 @@ export function setVariableFactor(port, name, factor) {
   setTypes(port, spread(port), factors)
 }
 
-/** Moves one variable of a multiport to its next type: True → Sum → Multiply → True. */
+/**
+ * Moves one variable of a multiport to its next type: True → Sum → Multiply → True, or True → Sum → True
+ * on a port with several variables, which circulatory_autogen doesn't multiply.
+ */
 export function cycleMultiportType(port, name) {
   const i = port.variables.indexOf(name)
   const types = spread(port)
   const factors = factorsOf(port)
-  types[i] = CYCLE[(CYCLE.indexOf(types[i]) + 1) % CYCLE.length]
+  const cycle = types.length === 1 ? CYCLE : CYCLE.filter((type) => type !== 'Multiply')
+  types[i] = cycle[(cycle.indexOf(types[i]) + 1) % cycle.length]
   if (types[i] === 'Multiply') factors[i] = 1
   setTypes(port, types, factors)
 }
 
 /**
  * Sets a port's variables, each kept variable keeping its type and factor; an added one is True on a
- * multiport and None otherwise.
+ * multiport and None otherwise. A one-variable Multiply port given more variables links its variable
+ * as True instead, since circulatory_autogen multiplies only a one-variable port.
  *
  * @param {Object} port
  * @param {string[]} variables
@@ -268,15 +339,18 @@ export function cycleMultiportType(port, name) {
 export function setPortVariables(port, variables, previousName = (name) => name) {
   const types = spread(port)
   const added = isMultiport(port) ? 'True' : 'None'
+  const grows = types.length <= 1 && variables.length > 1
   const from = variables.map((name) => (port.variables ?? []).indexOf(previousName(name)))
   const factors = from.map((j) => (j < 0 ? null : (factorAt(port, j) ?? null)))
   port.variables = variables
-  if (variables.length) setTypes(port, from.map((j) => (j < 0 ? added : types[j])), factors)
+  const kept = (j) => (grows && types[j] === 'Multiply' ? 'True' : types[j])
+  if (variables.length) setTypes(port, from.map((j) => (j < 0 ? added : kept(j))), factors)
 }
 
 /**
  * Puts back a port's earlier variables (an undo). Each keeps the type and factor it has now, if it is
- * still on the port, and otherwise gets back its earlier ones.
+ * still on the port, and otherwise gets back its earlier ones; but a Multiply set since on the
+ * one-variable port is True among several variables, as in setPortVariables.
  *
  * @param {Object} port
  * @param {Object} earlier - The port's earlier { variables, multiportType, multiplyFactor }.
@@ -286,7 +360,9 @@ export function restorePortVariables(port, earlier, currentName = (name) => name
   const now = { types: spread(port), factors: factorsOf(port) }
   const before = { types: spread(earlier), factors: factorsOf(earlier) }
   const from = earlier.variables.map((name) => port.variables.indexOf(currentName(name)))
-  const types = from.map((j, i) => (j < 0 ? before.types[i] : now.types[j]))
+  const grows = now.types.length <= 1 && from.length > 1
+  const kept = (j, i) => (grows && now.types[j] === 'Multiply' && before.types[i] !== 'Multiply' ? 'True' : now.types[j])
+  const types = from.map((j, i) => (j < 0 ? before.types[i] : kept(j, i)))
   const factors = from.map((j, i) => (j < 0 ? before.factors[i] : now.factors[j]))
   const multiport = isMultiport(port)
   port.variables = earlier.variables

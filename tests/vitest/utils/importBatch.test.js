@@ -101,6 +101,24 @@ describe('parseForRole', () => {
     expect(result.data).toEqual(CONFIG)
   })
 
+  it("rejects a multi_port CA would reject, giving CA's reason", async () => {
+    const port = { port_type: 'vessel_port', variables: ['v_in', 'w_in'], multi_port: 'Sum' }
+    const config = JSON.stringify([{ ...CONFIG[0], exit_ports: [port] }])
+    const result = await parseForRole(entry('config.json', config).file, [fieldFor(IMPORT_KEYS.MODULE_CONFIG)])
+
+    expect(result.error).toBe(
+      `Module "heart:simple": port "vessel_port" has multi_port "Sum" but variables ['v_in', 'w_in']. A "Sum" port must map exactly one variable.`
+    )
+  })
+
+  it('reads a list multi_port CA accepts', async () => {
+    const port = { port_type: 'vessel_port', variables: ['v_in', 'w_in'], multi_port: ['sum', 'sum'] }
+    const config = [{ ...CONFIG[0], exit_ports: [port] }]
+    const result = await parseForRole(entry('config.json', JSON.stringify(config)).file, [fieldFor(IMPORT_KEYS.MODULE_CONFIG)])
+
+    expect(result.data).toEqual(config)
+  })
+
   it('rejects CellML that the processor cannot read, giving its reason', async () => {
     const cellmlField = {
       key: IMPORT_KEYS.CELLML_FILE,
