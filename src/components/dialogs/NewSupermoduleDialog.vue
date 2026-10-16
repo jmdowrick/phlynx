@@ -7,16 +7,16 @@
     @mousedown.stop
     @wheel.stop
   >
-    <form class="new-subsystem-form" @submit.prevent="handleConfirm">
-      <label for="new-subsystem-name">Name</label>
+    <form class="new-supermodule-form" @submit.prevent="handleConfirm">
+      <label for="new-supermodule-name">Name</label>
       <InputText
-        id="new-subsystem-name"
+        id="new-supermodule-name"
         v-model="name"
         autofocus
         :invalid="!!problem"
-        aria-describedby="new-subsystem-hint"
+        aria-describedby="new-supermodule-hint"
       />
-      <small id="new-subsystem-hint" :class="['new-subsystem-hint', { 'new-subsystem-hint--error': problem }]">
+      <small id="new-supermodule-hint" :class="['new-supermodule-hint', { 'new-supermodule-hint--error': problem }]">
         <template v-if="problem">{{ problem }}</template>
         <template v-else-if="cleaned !== name.trim()">Will be named <strong>{{ cleaned }}</strong>.</template>
         <template v-else>{{ text.hint }}</template>
@@ -34,8 +34,8 @@
 
 <script setup>
 /**
- * Asks for a super-module's name: a new, empty one's and its subsystem's ('new'), the one a selection is nested into
- * and its subsystem's ('nest'), or a new name for one ('rename'). Emits `confirm` with the name, which the rules for
+ * Asks for a super-module's name: a new, empty one's and its super instance's ('new'), the one a selection is nested into
+ * and its super instance's ('nest'), or a new name for one ('rename'). Emits `confirm` with the name, which the rules for
  * names inside super-modules accept and nothing on the canvas (but a super-module renamed) or among the other
  * super-modules has (see useSupermodules).
  */
@@ -71,15 +71,15 @@ const props = defineProps({
 })
 
 const TEXT = {
-  new: { header: 'New Empty Subsystem', confirm: 'Create', hint: 'Makes a super-module and one subsystem of it, both with this name.' },
-  nest: { header: 'Nest Selection', confirm: 'Nest', hint: 'Moves the selection into a new super-module, with one subsystem of it in its place, both with this name.' },
-  rename: { header: 'Rename Super-module', confirm: 'Rename', hint: 'Its subsystems keep their own names.' },
+  new: { header: 'New Empty Super-module', confirm: 'Create', hint: 'Makes a super-module and one super instance of it, both with this name.' },
+  nest: { header: 'Nest Selection', confirm: 'Nest', hint: 'Moves the selection into a new super-module, with one super instance of it in its place, both with this name.' },
+  rename: { header: 'Rename Super-module', confirm: 'Rename', hint: 'Its super instances keep their own names.' },
 }
 const text = computed(() => TEXT[props.mode])
 
 const emit = defineEmits(['update:modelValue', 'confirm'])
 
-const { subsystemNameProblem, supermoduleNameProblem } = useSupermodules()
+const { superInstanceNameProblem, supermoduleNameProblem } = useSupermodules()
 
 const name = ref('')
 const dialogVisible = computed({
@@ -92,13 +92,13 @@ const cleaned = computed(() => sanitiseName(name.value))
 const problem = computed(() => {
   if (!cleaned.value) return 'A name is needed.'
   if (props.mode === 'rename') return supermoduleNameProblem(cleaned.value, { except: props.smId })
-  return subsystemNameProblem(cleaned.value) ?? supermoduleNameProblem(cleaned.value)
+  return superInstanceNameProblem(cleaned.value) ?? supermoduleNameProblem(cleaned.value)
 })
 
-/** @returns {string} `subsystem`, else the first of `subsystem_2`, `subsystem_3`, … nothing has. */
+/** @returns {string} `supermodule`, else the first of `supermodule_2`, `supermodule_3`, … nothing has. */
 function freeDefaultName() {
-  let candidate = 'subsystem'
-  for (let n = 2; subsystemNameProblem(candidate) || supermoduleNameProblem(candidate); n++) candidate = `subsystem_${n}`
+  let candidate = 'supermodule'
+  for (let n = 2; superInstanceNameProblem(candidate) || supermoduleNameProblem(candidate); n++) candidate = `supermodule_${n}`
   return candidate
 }
 
@@ -123,17 +123,17 @@ watch(
 </script>
 
 <style scoped>
-.new-subsystem-form {
+.new-supermodule-form {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
 }
 
-.new-subsystem-hint {
+.new-supermodule-hint {
   color: var(--p-text-muted-color);
 }
 
-.new-subsystem-hint--error {
+.new-supermodule-hint--error {
   color: var(--p-red-500);
 }
 

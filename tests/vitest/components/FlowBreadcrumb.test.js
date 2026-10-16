@@ -8,18 +8,18 @@ import FlowBreadcrumb from '../../../src/components/FlowBreadcrumb.vue'
 import { useCanvasLevel } from '../../../src/composables/useCanvasLevel.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { FLOW_IDS } from '../../../src/utils/constants.js'
-import { module, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
+import { module, superInstance, supermodule } from '../fixtures/hierarchy/graph.js'
 
 /**
- * Root: three subsystems of heart (sm_1), which holds lv, a subsystem of chamber (sm_2), which holds a wall module.
+ * Root: three super instances of heart (sm_1), which holds lv, a super instance of chamber (sm_2), which holds a wall module.
  */
 function graph() {
   const wall = module('dndnode_0', 'wall', { scope: 'sm_2' })
   const chamber = supermodule('sm_2', 'chamber')
-  const lv = subsystem([chamber, wall], 'dndnode_0', 'lv', 'sm_2', { scope: 'sm_1' })
+  const lv = superInstance([chamber, wall], 'dndnode_0', 'lv', 'sm_2', { scope: 'sm_1' })
   const heart = supermodule('sm_1', 'heart', { ca: { module_type: 'heart', module_subtype: 'Argus2026_v01' } })
   const inner = [heart, lv, chamber, wall]
-  const hearts = ['dndnode_1', 'dndnode_2', 'dndnode_3'].map((id, i) => subsystem(inner, id, `heart${i || ''}`, 'sm_1'))
+  const hearts = ['dndnode_1', 'dndnode_2', 'dndnode_3'].map((id, i) => superInstance(inner, id, `heart${i || ''}`, 'sm_1'))
   return { nodes: [...hearts, ...inner], edges: [] }
 }
 
@@ -47,7 +47,7 @@ describe('FlowBreadcrumb', () => {
     expect(wrapper.find('.flow-breadcrumb').exists()).toBe(false)
   })
 
-  it('names each level: the subsystems entered, with their super-module and its subsystem count', async () => {
+  it('names each level: the super instances entered, with their super-module and its super instance count', async () => {
     mountCrumbs()
     level.enter('dndnode_1')
     level.enter('sm_1~dndnode_0')
@@ -140,13 +140,13 @@ describe('FlowBreadcrumb', () => {
     expect(wrapper.find('.supermodule-banner').classes()).toContain('supermodule-banner--shared')
     expect(wrapper.findAll('.crumb')[1].attributes('title')).toBe("Super-module 'heart' in the library")
 
-    // chamber has one subsystem, but it is in heart, so the model has three copies of it.
+    // chamber has one super instance, but it is in heart, so the model has three copies of it.
     level.enter('sm_1~dndnode_0')
     await wrapper.vm.$nextTick()
     expect(wrapper.find('.supermodule-banner').text()).toContain("'chamber' in the library — changes apply to 3 super instances")
   })
 
-  it('makes the subsystem entered unique from the banner, the canvas following it to the copy and back on undo', async () => {
+  it('makes the super instance entered unique from the banner, the canvas following it to the copy and back on undo', async () => {
     mountCrumbs()
     level.enter('dndnode_1')
     await wrapper.vm.$nextTick()
@@ -166,7 +166,7 @@ describe('FlowBreadcrumb', () => {
 
     await useFlowHistoryStore().undo()
     await flushPromises()
-    // Without the canvas's change listeners only the subsystem's own change is recorded; the copy's undo is the
+    // Without the canvas's change listeners only the super instance's own change is recorded; the copy's undo is the
     // integration test's.
     expect(flow.findNode('dndnode_1').data.smId).toBe('sm_1')
     expect(level.scope.value).toBe('sm_1')

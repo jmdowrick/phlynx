@@ -1,16 +1,16 @@
 /**
  * Exposure: which of its children's ports a super-module exposes, read from its exposure edges. Pure.
  *
- * An exposure edge joins a child of a super-module (a module or a subsystem) and the super-module's interface node,
+ * An exposure edge joins a child of a super-module (a module or a super instance) and the super-module's interface node,
  * either way round. Handles only say where it is drawn; the edge's data says what it exposes:
  * `data.exposed = [{ id, alias, label?, order }]`, each entry one whole port of the child.
  *   - `alias`: `{portType, label, slot}`, the slot-th (portType, label) port of a module, or `{via}`, the exposed port
- *     `via` of a subsystem, whose port it then is.
- *   - `id`: the exposed port's id, `xp_<n>`, never reused, which the couplings to its subsystems name
+ *     `via` of a super instance, whose port it then is.
+ *   - `id`: the exposed port's id, `xp_<n>`, never reused, which the couplings to its super instances name
  *     (`exposedPortId`).
- *   - `label`: what its subsystems call it, the child port's label by default.
+ *   - `label`: what its super instances call it, the child port's label by default.
  *   - `order`: its place among the super-module's exposed ports, which sets the slot of each (portType, label) on
- *     its subsystems and circulatory_autogen's per_submodule key order.
+ *     its super instances and circulatory_autogen's per_submodule key order.
  *
  * A super-module's exposed ports are derived from its exposure edges (exposedPortsOf), never stored on their own: an
  * ExposedPort is `{id, alias: {child, portType?, label?, slot?, via?}, label?, order, edgeId, childId}`, `child` the
@@ -20,7 +20,7 @@ import { buildUsedPortKeys, isSingleConnection, portKey } from '../../utils/edge
 import {
   indexByScope,
   isModelEdge,
-  isSubsystem,
+  isSuperInstance,
   isSupermoduleInterface,
   localIdOf,
   MAX_NESTING_DEPTH,
@@ -121,7 +121,7 @@ export function portResolver(nodes, exposures) {
     if (!exposed || depth > MAX_NESTING_DEPTH) return null
     const child = childOf(smId, exposed.alias.child)
     if (!child) return null
-    if (isSubsystem(child)) {
+    if (isSuperInstance(child)) {
       const inner = exposed.alias.via != null && resolve(child.data.smId, exposed.alias.via, depth + 1)
       return inner ? { ...inner, label: exposed.label ?? inner.label } : null
     }
@@ -133,7 +133,7 @@ export function portResolver(nodes, exposures) {
 }
 
 /**
- * Builds a subsystem's ports from its super-module's exposed ports, in their order: each a copy of the module port it
+ * Builds a super instance's ports from its super-module's exposed ports, in their order: each a copy of the module port it
  * aliases (through `via`), with the exposed port's id and label. An exposed port that doesn't resolve is left out.
  *
  * @param {Array} nodes - Every node in the store.
@@ -142,7 +142,7 @@ export function portResolver(nodes, exposures) {
  * @param {Map<string, Array>} [exposures] - From indexExposures, when already made.
  * @returns {Array}
  */
-export function subsystemPorts(nodes, edges, smId, exposures = indexExposures(nodes, edges)) {
+export function superInstancePorts(nodes, edges, smId, exposures = indexExposures(nodes, edges)) {
   const resolve = portResolver(nodes, exposures)
   return (exposures.get(smId) ?? []).flatMap((exposed) => {
     const port = resolve(smId, exposed.id)
@@ -224,7 +224,7 @@ export function exposedSlotKeys(nodes, edges, smId) {
 
 /**
  * Lists the ports of an exposure edge's child that can be exposed, one row each, for the Expose Ports dialog: a
- * module's own ports, or a subsystem's (each then exposed through `via`). A single-connection port an edge inside the
+ * module's own ports, or a super instance's (each then exposed through `via`). A single-connection port an edge inside the
  * super-module already holds can't be exposed, unless it already is.
  *
  * @param {Object} edge - An exposure edge.
@@ -244,7 +244,7 @@ export function exposablePorts(edge, nodes, edges) {
   const ports = child.data?.ports ?? []
   return ports.map((port) => {
     const slot = ports.filter((other) => other.portType === port.portType && other.label === port.label).indexOf(port)
-    const alias = isSubsystem(child) ? { via: port.exposedPortId } : { portType: port.portType, label: port.label, slot }
+    const alias = isSuperInstance(child) ? { via: port.exposedPortId } : { portType: port.portType, label: port.label, slot }
     const key = aliasKey(alias)
     const entry = entries.get(key)
     const isHeld = isSingleConnection(port) && ['in', 'out'].some((role) => held.has(portKey(child.id, role, port, slot)))
@@ -332,7 +332,7 @@ export function planReorder(smId, orderedIds, nodes, edges) {
 }
 
 /**
- * Plans a new label for an exposed port: what its subsystems call it. An empty label, or the child port's own, goes
+ * Plans a new label for an exposed port: what its super instances call it. An empty label, or the child port's own, goes
  * back to the child port's.
  *
  * @param {string} smId
@@ -373,7 +373,7 @@ function changedEntries(smId, nodes, edges, map) {
  * Plans what un-exposing ports, or removing nodes, does to the connections across the workspace: every coupling to a
  * port that goes is trimmed, an edge left with none removed, and an outer super-module's port exposing one of them
  * through `via` goes too, and so on outwards. Removing a child inside a super-module un-exposes its ports, and its
- * subsystems' overrides of it, and of what is inside it, go.
+ * super instances' overrides of it, and of what is inside it, go.
  *
  * @param {Array} nodes
  * @param {Array} edges
@@ -383,9 +383,9 @@ function changedEntries(smId, nodes, edges, map) {
  * @param {Iterable<string>} [change.removedEdgeIds] - Edges removed; an exposure edge's ports are un-exposed.
  * @returns {{couplings: Map<string, Array>, removeEdgeIds: string[], exposures: Map<string, Array>,
  *   overrides: Map<string, Object>, unexposed: Map<string, Set<string>>, connections: number, couplingCount: number,
- *   subsystems: string[], isEmpty: boolean}} The edges' new couplings; the edges left with none; the exposure edges'
- *   new entries; the subsystems' new overrides; every port un-exposed, by super-module; how many edges lose
- *   couplings, how many couplings go, and the subsystems they are on.
+ *   super instances: string[], isEmpty: boolean}} The edges' new couplings; the edges left with none; the exposure edges'
+ *   new entries; the super instances' new overrides; every port un-exposed, by super-module; how many edges lose
+ *   couplings, how many couplings go, and the super instances they are on.
  */
 export function planUnexpose(nodes, edges, { unexposed: given = new Map(), removedNodeIds = [], removedEdgeIds = [] } = {}) {
   const unexposed = new Map([...given].map(([smId, ids]) => [smId, new Set(ids)]))
@@ -419,12 +419,12 @@ export function planUnexpose(nodes, edges, { unexposed: given = new Map(), remov
   }
 
   const couplingsOf = new Map()
-  const subsystems = new Set()
+  const superInstances = new Set()
   let couplingCount = 0
   while (pending.length) {
     const [smId, ids] = pending.shift()
     for (const instance of nodes) {
-      if (!isSubsystem(instance) || instance.data.smId !== smId || removedNodes.has(instance.id)) continue
+      if (!isSuperInstance(instance) || instance.data.smId !== smId || removedNodes.has(instance.id)) continue
       for (const edge of edges) {
         if (isGone(edge) || !isModelEdge(edge) || (edge.source !== instance.id && edge.target !== instance.id)) continue
         const couplings = couplingsOf.get(edge.id) ?? edge.data?.couplings ?? []
@@ -432,10 +432,10 @@ export function planUnexpose(nodes, edges, { unexposed: given = new Map(), remov
         const kept = couplings.filter((coupling) => !named(coupling, 'source') && !named(coupling, 'target'))
         if (kept.length === couplings.length) continue
         couplingCount += couplings.length - kept.length
-        subsystems.add(instance.id)
+        superInstances.add(instance.id)
         couplingsOf.set(edge.id, kept)
       }
-      // An outer super-module exposing one of them through this subsystem loses that port too.
+      // An outer super-module exposing one of them through this super instance loses that port too.
       const outer = scopeOf(instance)
       if (!outer) continue
       for (const edge of edges) {
@@ -460,18 +460,18 @@ export function planUnexpose(nodes, edges, { unexposed: given = new Map(), remov
     unexposed: all,
     connections: couplingsOf.size + removeEdgeIds.length,
     couplingCount,
-    subsystems: [...subsystems],
+    superInstances: [...superInstances],
     isEmpty: !couplingsOf.size && !removeEdgeIds.length && !exposuresOf.size && !overrides.size,
   }
 }
 
 /**
- * Plans the overrides removing nodes inside super-modules leaves setting nothing: every subsystem's override whose
+ * Plans the overrides removing nodes inside super-modules leaves setting nothing: every super instance's override whose
  * local id path goes through a removed node.
  *
  * @param {Array} nodes
  * @param {Set<string>} removed - Node ids.
- * @returns {Map<string, Object>} Each subsystem whose overrides change, to its new overrides.
+ * @returns {Map<string, Object>} Each super instance whose overrides change, to its new overrides.
  */
 export function planOverrideRemoval(nodes, removed) {
   const changed = new Map()
@@ -485,13 +485,13 @@ export function planOverrideRemoval(nodes, removed) {
       const child = childOf(scope, segment)
       if (!child) return false
       if (removed.has(child.id)) return true
-      if (!isSubsystem(child)) return false
+      if (!isSuperInstance(child)) return false
       scope = child.data.smId
     }
     return false
   }
   for (const node of nodes) {
-    if (!isSubsystem(node) || removed.has(node.id)) continue
+    if (!isSuperInstance(node) || removed.has(node.id)) continue
     const overrides = node.data?.overrides ?? {}
     const dead = Object.keys(overrides).filter((key) => throughRemoved(node.data.smId, key))
     if (dead.length) changed.set(node.id, Object.fromEntries(Object.entries(overrides).filter(([key]) => !dead.includes(key))))
@@ -500,25 +500,25 @@ export function planOverrideRemoval(nodes, removed) {
 }
 
 /**
- * Works out every subsystem's materialised ports from its super-module's exposed ports, and rebinds the couplings to
+ * Works out every super instance's materialised ports from its super-module's exposed ports, and rebinds the couplings to
  * them: a coupling naming an exposed port gets the port as it is now, and its slot, and is otherwise left as it is,
- * never re-paired. A coupling whose exposed port is gone keeps its port and is listed in its subsystem's `broken`.
+ * never re-paired. A coupling whose exposed port is gone keeps its port and is listed in its super instance's `broken`.
  * Only what differs from the store is given.
  *
  * @param {Array} nodes
  * @param {Array} edges
  * @returns {{nodes: Map<string, {ports?: Array, broken?: string[]|undefined}>, couplings: Map<string, Array>}}
- *   Each subsystem's changed data fields (`broken` undefined when none is), and each edge's rebound couplings.
+ *   Each super instance's changed data fields (`broken` undefined when none is), and each edge's rebound couplings.
  */
-export function materialiseSubsystems(nodes, edges) {
+export function materialiseSuperInstances(nodes, edges) {
   const changedNodes = new Map()
   const changedCouplings = new Map()
-  const subsystems = nodes.filter(isSubsystem)
-  if (!subsystems.length) return { nodes: changedNodes, couplings: changedCouplings }
+  const superInstances = nodes.filter(isSuperInstance)
+  if (!superInstances.length) return { nodes: changedNodes, couplings: changedCouplings }
 
   const exposures = indexExposures(nodes, edges)
-  const portsById = new Map(subsystems.map((node) => [node.id, subsystemPorts(nodes, edges, node.data.smId, exposures)]))
-  const broken = new Map(subsystems.map((node) => [node.id, new Set()]))
+  const portsById = new Map(superInstances.map((node) => [node.id, superInstancePorts(nodes, edges, node.data.smId, exposures)]))
+  const broken = new Map(superInstances.map((node) => [node.id, new Set()]))
 
   for (const edge of edges) {
     if (!isModelEdge(edge) || !(portsById.has(edge.source) || portsById.has(edge.target))) continue
@@ -545,7 +545,7 @@ export function materialiseSubsystems(nodes, edges) {
     if (isChanged) changedCouplings.set(edge.id, rebound)
   }
 
-  for (const node of subsystems) {
+  for (const node of superInstances) {
     const fields = {}
     const ports = portsById.get(node.id)
     if (!same(node.data?.ports ?? [], ports)) fields.ports = ports
@@ -561,7 +561,7 @@ export function materialiseSubsystems(nodes, edges) {
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
 
 /**
- * Whether an edge has a coupling to a subsystem port its super-module no longer exposes (see materialiseSubsystems).
+ * Whether an edge has a coupling to a super instance port its super-module no longer exposes (see materialiseSuperInstances).
  *
  * @param {Object} edge
  * @param {Map<string, Object>} nodeById

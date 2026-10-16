@@ -3,7 +3,7 @@
  * services/hierarchy/exposure.js), and what un-exposing them does across the workspace. The Expose Ports dialog, the
  * interface node's sidebar, connecting and deleting read it.
  *
- * Each change is one undo step. Un-exposing a port that connections to its subsystems use asks first; on yes, those
+ * Each change is one undo step. Un-exposing a port that connections to its super instances use asks first; on yes, those
  * couplings go in the same step (an edge left with none with them), and so does an outer super-module's port exposing
  * it through `via`.
  */
@@ -11,7 +11,7 @@ import { useVueFlow } from '@vue-flow/core'
 
 import { useFlowHistoryFor } from './useFlowHistoryFor'
 import { useModelGraph } from './useModelGraph'
-import { useSubsystemSync } from './useSubsystemSync'
+import { useSuperInstanceSync } from './useSuperInstanceSync'
 import {
   exposablePorts,
   exposureEnds,
@@ -40,8 +40,8 @@ const NONE = Object.freeze({ value: Object.freeze([]) })
 export function describeUnexposeImpact(plan) {
   if (!plan.connections) return ''
   const connections = plan.connections === 1 ? '1 connection' : `${plan.connections} connections`
-  const subsystems = plan.subsystems.length === 1 ? '1 subsystem' : `${plan.subsystems.length} subsystems`
-  return `This affects ${connections} in ${subsystems}.`
+  const superInstances = plan.superInstances.length === 1 ? '1 super instance' : `${plan.superInstances.length} super instances`
+  return `This affects ${connections} in ${superInstances}.`
 }
 
 /**
@@ -64,7 +64,7 @@ export function useExposure({ flowId = FLOW_IDS.MAIN, history = useFlowHistoryFo
 function createExposure(flow, flowId, history, handles) {
   const allNodes = () => (flow.nodes ?? flow.getNodes ?? NONE).value
   const allEdges = () => (flow.edges ?? flow.getEdges ?? NONE).value
-  const { sync } = useSubsystemSync(flowId)
+  const { sync } = useSuperInstanceSync(flowId)
   const model = useModelGraph(flowId)
   const nodeIndex = () => new Map(allNodes().map((node) => [node.id, node]))
 
@@ -96,7 +96,7 @@ function createExposure(flow, flowId, history, handles) {
   }
 
   /**
-   * Lists a super-module's exposed ports for its interface's sidebar, in order: each with the port its subsystems get
+   * Lists a super-module's exposed ports for its interface's sidebar, in order: each with the port its super instances get
    * (label, port type, variables, multiport), the child it is on, and whether it still resolves.
    *
    * @param {string} smId
@@ -137,14 +137,14 @@ function createExposure(flow, flowId, history, handles) {
 
   /**
    * Makes a change to the store as one undo step: exposure entries, couplings and overrides written, edges removed,
-   * and the keys of model nodes that go dropped. Undo and redo bring the subsystems back in step.
+   * and the keys of model nodes that go dropped. Undo and redo bring the super instances back in step.
    *
    * @param {Object} change
    * @param {string} change.type
    * @param {Map<string, Array>} [change.exposures] - Exposure edges' new entries.
    * @param {Map<string, Array>} [change.couplings] - Edges' new couplings.
    * @param {string[]} [change.removeEdgeIds]
-   * @param {Map<string, Object>} [change.overrides] - Subsystems' new overrides.
+   * @param {Map<string, Object>} [change.overrides] - Super instances' new overrides.
    * @param {(modelId: string) => boolean} [change.isDeadKey] - Model ids whose keys go.
    * @returns {Promise<void>}
    */
@@ -286,7 +286,7 @@ function createExposure(flow, flowId, history, handles) {
   }
 
   /**
-   * Gives an exposed port its own label on the super-module's subsystems; empty for the child port's.
+   * Gives an exposed port its own label on the super-module's super instances; empty for the child port's.
    *
    * @param {string} smId
    * @param {string} exposedPortId

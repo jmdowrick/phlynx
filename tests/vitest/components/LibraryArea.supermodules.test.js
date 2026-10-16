@@ -13,16 +13,16 @@ import { useSupermoduleEditGuard } from '../../../src/composables/useSupermodule
 import { supermoduleContentHash } from '../../../src/services/hierarchy/operations.js'
 import { createHistory } from '../../../src/stores/historyStore.js'
 import { FLOW_IDS } from '../../../src/utils/constants.js'
-import { module, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
+import { module, superInstance, supermodule } from '../fixtures/hierarchy/graph.js'
 
-/** Root: two subsystems of heart (sm_1), which holds lv, a subsystem of chamber (sm_2). */
+/** Root: two super instances of heart (sm_1), which holds lv, a super instance of chamber (sm_2). */
 function graph() {
   const chamber = supermodule('sm_2', 'chamber')
   const wall = module('dndnode_0', 'wall', { scope: 'sm_2' })
-  const lv = subsystem([chamber, wall], 'dndnode_0', 'lv', 'sm_2', { scope: 'sm_1' })
+  const lv = superInstance([chamber, wall], 'dndnode_0', 'lv', 'sm_2', { scope: 'sm_1' })
   const heart = supermodule('sm_1', 'heart', { ca: { module_type: 'heart', module_subtype: 'Argus2026_v01' } })
   const inner = [heart, lv, chamber, wall]
-  return { nodes: [subsystem(inner, 'dndnode_1', 'left', 'sm_1'), subsystem(inner, 'dndnode_2', 'right', 'sm_1'), ...inner], edges: [] }
+  return { nodes: [superInstance(inner, 'dndnode_1', 'left', 'sm_1'), superInstance(inner, 'dndnode_2', 'right', 'sm_1'), ...inner], edges: [] }
 }
 
 describe('LibraryArea super-modules', () => {
@@ -43,13 +43,13 @@ describe('LibraryArea super-modules', () => {
   })
   afterEach(() => wrapper?.unmount())
 
-  it('lists the workspace’s super-modules with how many subsystems each has', () => {
+  it('lists the workspace’s super-modules with how many super instances each has', () => {
     mountLibrary()
     expect(wrapper.find('.mlc__group--supermodules .mlc__group-name').text()).toBe('Super-modules')
     expect(cards().map((entry) => entry.find('.mlc__card-name').text())).toEqual(['heart', 'chamber'])
-    expect(card('sm_1').find('.mlc__badge').text()).toBe('2 subsystems')
+    expect(card('sm_1').find('.mlc__badge').text()).toBe('2 super instances')
     expect(card('sm_1').find('.mlc__supermodule-label').text()).toBe('heart:Argus2026_v01')
-    expect(card('sm_2').find('.mlc__badge').text()).toBe('1 subsystem')
+    expect(card('sm_2').find('.mlc__badge').text()).toBe('1 super instance')
   })
 
   it('lists none outside the workspace’s palette', () => {
@@ -67,7 +67,7 @@ describe('LibraryArea super-modules', () => {
     expect(level.scope.value).toBe('sm_2')
   })
 
-  it('drags a super-module to place another subsystem of it', async () => {
+  it('drags a super-module to place another super instance of it', async () => {
     mountLibrary()
     const data = new Map()
     const dataTransfer = { setData: (type, value) => data.set(type, value), effectAllowed: '' }

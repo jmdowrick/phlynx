@@ -110,7 +110,7 @@ export async function collectEntry(entry, path, depth, maxDepth, results) {
  * @returns {{warnings: string[], errors: string[], resourcesAreLoaded: boolean,
  *   missingResources: {modules: Set<string>, math: Set<string>, parameterisations: Set<string>},
  *   supermoduleInstances: string[]}} `supermoduleInstances` lists the rows that are super-module instances, as
- *   `name (type:subtype)`, which are imported as subsystems; `parameterisations` the parameter files missing, as
+ *   `name (type:subtype)`, which are imported as super instances; `parameterisations` the parameter files missing, as
  *   `type:subtype parameterisations/<name>/<name>_parameters.csv`.
  */
 export const checkResourcesAreLoaded = (requestedModules, store) => {

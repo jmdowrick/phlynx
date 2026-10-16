@@ -1,5 +1,5 @@
 /**
- * The problems expanding subsystems finds (expandHierarchy's `errors`), as the builds that read the model report them:
+ * The problems expanding super instances finds (expandHierarchy's `errors`), as the builds that read the model report them:
  * an error stops a simulation or export, a warning is shown with it.
  */
 

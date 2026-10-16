@@ -286,7 +286,7 @@ export function buildUsedPortKeys(edges, portsOf = () => []) {
 function findSlot(ports, port, slot) {
   const group = (ports ?? []).filter((p) => p.portType === port?.portType && p.label === port?.label)
   const variables = JSON.stringify(port?.variables ?? [])
-  // A subsystem's port is the exposed port it names, whatever its variables.
+  // A super instance's port is the exposed port it names, whatever its variables.
   const matches = (p) =>
     !!p && (p === port || (port?.exposedPortId != null ? p.exposedPortId === port.exposedPortId : JSON.stringify(p.variables ?? []) === variables))
   const isRecorded = Number.isInteger(slot) && slot >= 0

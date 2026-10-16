@@ -67,7 +67,7 @@ const path = computed(() => getSmoothStepPath(props))
 
 const { findNode } = useVueFlow()
 
-// A coupling to a port its subsystem no longer exposes (useSubsystemSync keeps it, in the subsystem's `broken`).
+// A coupling to a port its super instance no longer exposes (useSuperInstanceSync keeps it, in the super instance's `broken`).
 const broken = computed(() =>
   (props.data?.couplings ?? []).flatMap((coupling) =>
     ['source', 'target'].flatMap((side) => {

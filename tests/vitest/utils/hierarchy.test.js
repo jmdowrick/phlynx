@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildSubsystem, buildSupermoduleInterface } from '../../../src/services/import/buildWorkflow.js'
+import { buildSuperInstance, buildSupermoduleInterface } from '../../../src/services/import/buildWorkflow.js'
 import {
   EXPOSURE_EDGE_TYPE,
   HANDLE_VARIANT,
-  SUBSYSTEM_NODE_TYPE,
+  SUPER_INSTANCE_NODE_TYPE,
   SUPERMODULE_INTERFACE_NODE_TYPE,
 } from '../../../src/utils/constants.js'
 import { buildGhostHandles } from '../../../src/utils/handles.js'
 import {
   assertNodeId,
-  canPlaceSubsystem,
+  canPlaceSuperInstance,
   edgeScopeProblem,
   findSupermoduleCycle,
   indexByScope,
@@ -33,7 +33,7 @@ import { getId } from '../../../src/utils/nodes.js'
 
 const node = (id, scope = null, extra = {}) => ({ id, type: 'instanceNode', data: { scope, ...extra } })
 const sm = (id, name = id) => buildSupermoduleInterface(id, { name })
-const instance = (id, smId, scope = null) => buildSubsystem(id, id, smId, { scope })
+const instance = (id, smId, scope = null) => buildSuperInstance(id, id, smId, { scope })
 
 describe('ids', () => {
   const nodes = [node('dndnode_0'), node('dndnode_4'), sm('sm_1'), node('sm_1~dndnode_7', 'sm_1'), node('sm_1~dndnode_2', 'sm_1')]
@@ -66,7 +66,7 @@ describe('ids', () => {
     expect(nodeIdProblem('macronode_3_iter_1')).toBeNull()
     expect(nodeIdProblem('sm_1~dndnode_0', 'sm_1')).toBeNull()
     expect(nodeIdProblem('sm_1', 'sm_1', { isInterface: true })).toBeNull()
-    expect(() => assertNodeId(buildSubsystem('sm_1~dndnode_3', 'heart', 'sm_2', { scope: 'sm_1' }))).not.toThrow()
+    expect(() => assertNodeId(buildSuperInstance('sm_1~dndnode_3', 'heart', 'sm_2', { scope: 'sm_1' }))).not.toThrow()
     expect(() => assertNodeId(sm('sm_1'))).not.toThrow()
   })
 
@@ -82,35 +82,35 @@ describe('ids', () => {
 })
 
 describe('builders', () => {
-  it('builds a subsystem with its local id', () => {
-    const built = buildSubsystem('sm_1~dndnode_3', 'heart', 'sm_2', { scope: 'sm_1', overrides: { lv: { E: { value: '2' } } } })
+  it('builds a super instance with its local id', () => {
+    const built = buildSuperInstance('sm_1~dndnode_3', 'heart', 'sm_2', { scope: 'sm_1', overrides: { lv: { E: { value: '2' } } } })
     expect(built).toEqual({
       id: 'sm_1~dndnode_3',
-      type: SUBSYSTEM_NODE_TYPE,
+      type: SUPER_INSTANCE_NODE_TYPE,
       position: { x: 100, y: 100 },
       data: { scope: 'sm_1', localId: 'dndnode_3', name: 'heart', smId: 'sm_2', overrides: { lv: { E: { value: '2' } } }, ports: [], handles: expect.any(Array) },
     })
-    expect(buildSubsystem('dndnode_3', 'heart', 'sm_2').data).toMatchObject({ scope: null, localId: 'dndnode_3', overrides: {} })
+    expect(buildSuperInstance('dndnode_3', 'heart', 'sm_2').data).toMatchObject({ scope: null, localId: 'dndnode_3', overrides: {} })
   })
 
-  it('gives a subsystem and an interface node a fresh set of ghost handles by default, as an instance gets', () => {
+  it('gives a super instance and an interface node a fresh set of ghost handles by default, as an instance gets', () => {
     const ghosts = buildGhostHandles()
-    const sub = buildSubsystem('dndnode_3', 'heart', 'sm_2').data.handles
+    const sub = buildSuperInstance('dndnode_3', 'heart', 'sm_2').data.handles
     const face = buildSupermoduleInterface('sm_2', { name: 'heart' }).data.handles
     for (const handles of [sub, face]) {
       expect(handles).toHaveLength(ghosts.length)
       expect(handles.every((handle) => handle.variant === HANDLE_VARIANT.GHOST)).toBe(true)
     }
-    expect(buildSubsystem('dndnode_4', 'heart', 'sm_2').data.handles[0].uid).not.toBe(sub[0].uid)
+    expect(buildSuperInstance('dndnode_4', 'heart', 'sm_2').data.handles[0].uid).not.toBe(sub[0].uid)
     const own = [{ uid: 'h1', side: 'left', name: '', variant: HANDLE_VARIANT.DEFAULT }]
-    expect(buildSubsystem('dndnode_3', 'heart', 'sm_2', { handles: own }).data.handles).toBe(own)
+    expect(buildSuperInstance('dndnode_3', 'heart', 'sm_2', { handles: own }).data.handles).toBe(own)
     expect(buildSupermoduleInterface('sm_2', { name: 'heart' }, null, { handles: own }).data.handles).toBe(own)
   })
 
   it('refuses an id that is not in the scope given', () => {
-    expect(() => buildSubsystem('dndnode_3', 'heart', 'sm_2', { scope: 'sm_1' })).toThrow('does not start with its scope "sm_1~"')
-    expect(() => buildSubsystem('sm_9~dndnode_3', 'heart', 'sm_2', { scope: 'sm_1' })).toThrow()
-    expect(() => buildSubsystem('sm_1~dndnode_3', 'heart', 'sm_2')).toThrow('outside a super-module')
+    expect(() => buildSuperInstance('dndnode_3', 'heart', 'sm_2', { scope: 'sm_1' })).toThrow('does not start with its scope "sm_1~"')
+    expect(() => buildSuperInstance('sm_9~dndnode_3', 'heart', 'sm_2', { scope: 'sm_1' })).toThrow()
+    expect(() => buildSuperInstance('sm_1~dndnode_3', 'heart', 'sm_2')).toThrow('outside a super-module')
     expect(() => buildSupermoduleInterface('sm~1', { name: 'heart' })).toThrow()
     expect(() => buildSupermoduleInterface('sm/1', { name: 'heart' })).toThrow()
   })
@@ -171,10 +171,10 @@ describe('super-module dependencies', () => {
   })
 
   it('refuses a placement that would make a cycle', () => {
-    expect(canPlaceSubsystem(graph, null, 'sm_a')).toBe(true)
-    expect(canPlaceSubsystem(graph, 'sm_a', 'sm_c')).toBe(true)
-    expect(canPlaceSubsystem(graph, 'sm_c', 'sm_a')).toBe(false)
-    expect(canPlaceSubsystem(graph, 'sm_b', 'sm_b')).toBe(false)
+    expect(canPlaceSuperInstance(graph, null, 'sm_a')).toBe(true)
+    expect(canPlaceSuperInstance(graph, 'sm_a', 'sm_c')).toBe(true)
+    expect(canPlaceSuperInstance(graph, 'sm_c', 'sm_a')).toBe(false)
+    expect(canPlaceSuperInstance(graph, 'sm_b', 'sm_b')).toBe(false)
   })
 
   it('finds a cycle', () => {

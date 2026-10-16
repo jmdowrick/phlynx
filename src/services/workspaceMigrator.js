@@ -359,24 +359,24 @@ function convertStore(oldStore, globalConstantNames, newAvailableModules) {
  *   'max' or 'peak'; missing means 'end'). Its `family`, when it has one, is a second parameter
  *   `{key, nodeId, nodeName, parameterName, units, type}` and the `values` it takes, a curve each.
  *   Older files have none. Whether play sweeps is the session's choice, not saved.
- * - 1.3.0: nested subsystems. Every node has data.scope, null at the root or the id of the
+ * - 1.3.0: nested super instances. Every node has data.scope, null at the root or the id of the
  *   super-module it is a child of, and data.localId, its id within that scope (a root node's id).
  *   A nested node's id is `<smId>~<localId>`; no id holds `/` or `::`, nor `~` at the root, and an
  *   older file's ids that do are rewritten, with the edges and saved selections that name them.
- *   A super-module is its interface node, type 'subsystemInterface' (deletable: false), whose
+ *   A super-module is its interface node, type 'supermoduleInterface' (deletable: false), whose
  *   data.supermodule is `{name, ca, submoduleOrder, localConstants, naming, source}` and data.handles
  *   its handles (see buildSupermoduleInterface). What it exposes lives on exposure edges, type
  *   'exposure', each joining one child and the interface node, either way round: data.exposed is
  *   `[{id, alias, label?, order}]`, each a whole port of the child, alias `{portType, label, slot}`
- *   on a module or `{via}` (an exposed port id) on a subsystem; `order` orders the super-module's
+ *   on a module or `{via}` (an exposed port id) on a super instance; `order` orders the super-module's
  *   exposed ports, which are derived from these edges and never stored on their own (see
- *   services/hierarchy/exposure.js). Exposure edges are never in the model. A subsystem, type
- *   'subsystemNode', is one instance of a super-module, with data `{smId, overrides, ports, handles,
- *   broken?}` (see buildSubsystem): ports are materialised from the exposed ports, each with its
+ *   services/hierarchy/exposure.js). Exposure edges are never in the model. A super instance, type
+ *   'superInstanceNode', is one instance of a super-module, with data `{smId, overrides, ports, handles,
+ *   broken?}` (see buildSuperInstance): ports are materialised from the exposed ports, each with its
  *   exposedPortId, as are the couplings to them; broken lists the exposed port ids couplings still
  *   name that are gone. Overrides are `{<localId path>: {<variable>: {value}}}`, and local constant
  *   values (H13) sit under '@'.
- *   A selection's nodeId and key may name a module inside a subsystem by its expanded id, the
+ *   A selection's nodeId and key may name a module inside a super instance by its expanded id, the
  *   local ids down to it joined with '/' (`dndnode_3/dndnode_1::V`). store.availableSupermodules
  *   holds the circulatory_autogen super-module templates of the library, `[[moduleRef, template]]` (see
  *   caModuleConfig.supermoduleTemplate); files saved before H9 have none. No node
@@ -547,7 +547,7 @@ export function migrateWorkspace(doc, { notes = [] } = {}) {
 }
 
 /**
- * Gives subsystem and interface nodes saved without handles their ghosts (see withHierarchyHandles).
+ * Gives super instance and interface nodes saved without handles their ghosts (see withHierarchyHandles).
  *
  * @param {Object} doc - A workspace at the current version.
  * @returns {Object} The workspace, copied when any node changed.

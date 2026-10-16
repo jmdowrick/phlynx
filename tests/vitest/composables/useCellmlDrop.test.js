@@ -244,7 +244,7 @@ describe('useCellmlDrop', () => {
 
     it('keeps the ids of super-modules and their nodes, which can’t clash, and loads none hidden', async () => {
       const inside = { id: 'sm_1~a', position: { x: 0, y: 5 }, hidden: true, data: { name: 'a', scope: 'sm_1', localId: 'a' } }
-      const face = { id: 'sm_1', type: 'subsystemInterface', position: { x: 0, y: 0 }, hidden: true, data: { scope: 'sm_1', localId: 'sm_1' } }
+      const face = { id: 'sm_1', type: 'supermoduleInterface', position: { x: 0, y: 0 }, hidden: true, data: { scope: 'sm_1', localId: 'sm_1' } }
       nodes.value = [{ ...createNode('a'), data: { name: 'a', scope: null, localId: 'a' } }, face, inside]
       deps.confirm.mockResolvedValue(false)
 

@@ -16,7 +16,7 @@ except ImportError:
     )
 
 
-SUBSYSTEM = ".vue-flow__node:has(.subsystem-node)"
+SUPER_INSTANCE = ".vue-flow__node:has(.super-instance-node)"
 INTERFACE = ".vue-flow__node:has(.interface-node)"
 BREADCRUMB = ".flow-breadcrumb"
 CRUMB = ".flow-breadcrumb .crumb"
@@ -27,7 +27,7 @@ BANNER = ".supermodule-banner"
 EXPOSURE_LABEL = ".exposure-edge-label"
 
 # An edge's couplings, read from the app's store (dev server only): each port's label, and the exposed port the
-# source's port stands for, when the source is a subsystem.
+# source's port stands for, when the source is a super instance.
 EDGE_COUPLINGS = """async (edgeId) => {
   const vueFlowUrl = performance.getEntriesByType('resource').map((entry) => entry.name).find((name) => name.includes('@vue-flow_core.js'))
   const { useVueFlow } = await import(vueFlowUrl)
@@ -46,7 +46,7 @@ def ghost_on(node, side):
     return handles.nth(handles.count() // 2)
 
 
-class TestSubsystems(unittest.TestCase):
+class TestSuperInstances(unittest.TestCase):
 
     def setUp(self):
         self.playwright = sync_playwright().start()
@@ -71,16 +71,16 @@ class TestSubsystems(unittest.TestCase):
         expect(page.locator(EDGE)).to_have_count(2)
         return wait_for_settled_transform(page)
 
-    def new_empty_subsystem(self, name):
-        """Right-click an empty corner of the canvas and make a new, empty subsystem there."""
+    def new_empty_supermodule(self, name):
+        """Right-click an empty corner of the canvas and make a new, empty super-module and its super instance there."""
         page = self.page
         # The canvas runs under the library panel, so aim right of it.
         library = page.locator(".mlc").bounding_box()
         page.mouse.click(library["x"] + library["width"] + 120, library["y"] + 160, button="right")
-        page.locator(".context-menu__item", has_text="New Empty Subsystem").click()
+        page.locator(".context-menu__item", has_text="New Empty Super-module").click()
 
-        dialog = page.get_by_role("dialog", name="New Empty Subsystem")
-        dialog.locator("#new-subsystem-name").fill(name)
+        dialog = page.get_by_role("dialog", name="New Empty Super-module")
+        dialog.locator("#new-supermodule-name").fill(name)
         dialog.get_by_role("button", name="Create").click()
         expect(dialog).to_be_hidden()
 
@@ -90,20 +90,20 @@ class TestSubsystems(unittest.TestCase):
         page = self.page
         self.open_workspace()
 
-        self.new_empty_subsystem("heart")
+        self.new_empty_supermodule("heart")
         expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT + 1)
-        subsystem = page.locator(SUBSYSTEM)
-        expect(subsystem).to_have_count(1)
-        expect(subsystem.locator(".name-text")).to_have_text("heart")
-        expect(subsystem.locator(".subsystem-count")).to_have_text("×1")
+        super_instance = page.locator(SUPER_INSTANCE)
+        expect(super_instance).to_have_count(1)
+        expect(super_instance.locator(".name-text")).to_have_text("heart")
+        expect(super_instance.locator(".super-instance-count")).to_have_text("×1")
         # The palette lists the new super-module.
         card = page.locator(SUPERMODULE_CARD)
         expect(card.locator(".mlc__card-name")).to_have_text("heart")
-        expect(card.locator(".mlc__badge")).to_have_text("1 subsystem")
+        expect(card.locator(".mlc__badge")).to_have_text("1 super instance")
         expect(page.locator(BREADCRUMB)).to_have_count(0)
 
         # Open shows the super-module's nodes, its interface node alone, and where the canvas is.
-        subsystem.get_by_role("button", name="Open subsystem").click()
+        super_instance.get_by_role("button", name="Open super instance").click()
         expect(page.locator(INTERFACE)).to_have_count(1)
         expect(page.locator(NODE)).to_have_count(1)
         expect(page.locator(CRUMB)).to_have_text(["Model", "heart"])
@@ -123,13 +123,13 @@ class TestSubsystems(unittest.TestCase):
 
         # A double-click enters too, and the Model crumb leaves.
         wait_for_settled_transform(page)
-        page.locator(SUBSYSTEM).locator(".subsystem-card").dblclick(position={"x": 30, "y": 60})
+        page.locator(SUPER_INSTANCE).locator(".super-instance-card").dblclick(position={"x": 30, "y": 60})
         expect(page.locator(CRUMB)).to_have_text(["Model", "heart"])
         page.locator(CRUMB).first.click()
         expect(page.locator(BREADCRUMB)).to_have_count(0)
         expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT + 1)
 
-        # Moving between levels is never an undo step: one undo removes the new subsystem and its super-module.
+        # Moving between levels is never an undo step: one undo removes the new super instance and its super-module.
         undo(page)
         expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT)
         expect(page.locator(SUPERMODULE_CARD)).to_have_count(0)
@@ -139,15 +139,15 @@ class TestSubsystems(unittest.TestCase):
     def test_delete_asks_about_unused_supermodule(self):
         page = self.page
         self.open_workspace()
-        self.new_empty_subsystem("heart")
-        page.locator(SUBSYSTEM).get_by_role("button", name="Open subsystem").click()
+        self.new_empty_supermodule("heart")
+        page.locator(SUPER_INSTANCE).get_by_role("button", name="Open super instance").click()
         expect(page.locator(CRUMB)).to_have_text(["Model", "heart"])
 
-        self.new_empty_subsystem("lv")
-        lv = page.locator(SUBSYSTEM)
+        self.new_empty_supermodule("lv")
+        lv = page.locator(SUPER_INSTANCE)
         expect(lv).to_have_count(1)
 
-        # Its super-module has no other subsystem, so Delete asks whether it goes too.
+        # Its super-module has no other super instance, so Delete asks whether it goes too.
         lv.click(button="right")
         page.locator(".context-menu__item", has_text="Delete").click()
         dialog = page.get_by_role("alertdialog")
@@ -172,8 +172,8 @@ class TestSubsystems(unittest.TestCase):
     def test_expose_and_connect(self):
         page = self.page
         self.open_workspace()
-        self.new_empty_subsystem("heart")
-        page.locator(SUBSYSTEM).get_by_role("button", name="Open subsystem").click()
+        self.new_empty_supermodule("heart")
+        page.locator(SUPER_INSTANCE).get_by_role("button", name="Open super instance").click()
         interface = page.locator(INTERFACE)
         expect(interface).to_contain_text("No exposed ports yet")
         wait_for_settled_transform(page)
@@ -210,18 +210,18 @@ class TestSubsystems(unittest.TestCase):
         expect(interface.locator(".interface-port-list li")).to_have_count(1)
         expect(interface).to_contain_text("membrane_voltage")
 
-        # Up a level, the subsystem has the port, and a new module connected to it couples to the exposed port.
+        # Up a level, the super instance has the port, and a new module connected to it couples to the exposed port.
         page.keyboard.press("Escape")
         expect(page.locator(BREADCRUMB)).to_have_count(0)
         wait_for_settled_transform(page)
-        subsystem = page.locator(SUBSYSTEM)
-        expect(subsystem).to_contain_text("1 port")
+        super_instance = page.locator(SUPER_INSTANCE)
+        expect(super_instance).to_contain_text("1 port")
         cards.filter(has_text="SN_varicosity").first.drag_to(canvas, target_position={"x": 650, "y": 750})
         expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT + 2)
         varicosity = page.locator(NODE).last
-        drag(page, centre(ghost_on(subsystem, "bottom")), centre(ghost_on(varicosity, "top")))
+        drag(page, centre(ghost_on(super_instance, "bottom")), centre(ghost_on(varicosity, "top")))
         expect(page.locator(EDGE)).to_have_count(3)
-        edge = page.locator(f'{EDGE}[data-id*="{subsystem.get_attribute("data-id")}"]')
+        edge = page.locator(f'{EDGE}[data-id*="{super_instance.get_attribute("data-id")}"]')
         expect(edge).to_have_count(1)
         couplings = page.evaluate(EDGE_COUPLINGS, edge.get_attribute("data-id"))
         self.assertEqual(len(couplings), 1)
@@ -235,27 +235,27 @@ class TestSubsystems(unittest.TestCase):
         page = self.page
         self.open_workspace()
 
-        # Two connected modules, nested into one subsystem in their place.
+        # Two connected modules, nested into one super instance in their place.
         shift_drag_select(page, ["var_SN", "axon_SN"])
         expect(page.locator(f"{NODE}.selected")).to_have_count(2)
         # A box selection is right-clicked over the rectangle drawn around it.
         page.locator(".vue-flow__nodesselection-rect").click(button="right")
         page.locator(".context-menu__item", has_text="Nest Selection (2)").click()
         dialog = page.get_by_role("dialog", name="Nest Selection")
-        dialog.locator("#new-subsystem-name").fill("nerve")
+        dialog.locator("#new-supermodule-name").fill("nerve")
         dialog.get_by_role("button", name="Nest").click()
         expect(dialog).to_be_hidden()
 
-        subsystem = page.locator(SUBSYSTEM)
-        expect(subsystem).to_have_count(1)
-        expect(subsystem.locator(".name-text")).to_have_text("nerve")
+        super_instance = page.locator(SUPER_INSTANCE)
+        expect(super_instance).to_have_count(1)
+        expect(super_instance.locator(".name-text")).to_have_text("nerve")
         expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT - 1)
         expect(page.locator(SUPERMODULE_CARD).locator(".mlc__card-name")).to_have_text(["nerve"])
-        # The edge cut by the selection now joins soma_SN and the subsystem.
+        # The edge cut by the selection now joins soma_SN and the super instance.
         expect(page.locator(EDGE)).to_have_count(1)
 
         # Inside are the two modules, joined as they were, and the interface they are exposed on.
-        subsystem.get_by_role("button", name="Open subsystem").click()
+        super_instance.get_by_role("button", name="Open super instance").click()
         expect(page.locator(CRUMB)).to_have_text(["Model", "nerve"])
         expect(page.locator(INTERFACE)).to_have_count(1)
         expect(page.locator(NODE)).to_have_count(3)
@@ -266,21 +266,21 @@ class TestSubsystems(unittest.TestCase):
 
         # Un-nest puts the modules back, named by their place, and the super-module goes.
         wait_for_settled_transform(page)
-        page.locator(SUBSYSTEM).click(button="right")
+        page.locator(SUPER_INSTANCE).click(button="right")
         page.locator(".context-menu__item", has_text="Un-nest").click()
-        expect(page.locator(SUBSYSTEM)).to_have_count(0)
+        expect(page.locator(SUPER_INSTANCE)).to_have_count(0)
         expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT)
         expect(node_by_name(page, "nerve__var_SN")).to_have_count(1)
         expect(node_by_name(page, "nerve__axon_SN")).to_have_count(1)
         expect(page.locator(EDGE)).to_have_count(2)
         expect(page.locator(SUPERMODULE_CARD)).to_have_count(0)
 
-        # Each is one undo step: the subsystem comes back, then the modules as they were.
+        # Each is one undo step: the super instance comes back, then the modules as they were.
         undo(page)
-        expect(page.locator(SUBSYSTEM)).to_have_count(1)
+        expect(page.locator(SUPER_INSTANCE)).to_have_count(1)
         expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT - 1)
         undo(page)
-        expect(page.locator(SUBSYSTEM)).to_have_count(0)
+        expect(page.locator(SUPER_INSTANCE)).to_have_count(0)
         expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT)
         expect(node_by_name(page, "var_SN")).to_have_count(1)
         expect(page.locator(EDGE)).to_have_count(2)
@@ -300,25 +300,25 @@ class TestSubsystems(unittest.TestCase):
         empty = page.locator(EMPTY_SUPERMODULE)
         expect(empty.locator(".mlc__card-name")).to_have_text("Empty super-module")
         empty.drag_to(canvas, target_position={"x": x + 200, "y": 600})
-        subsystem = page.locator(SUBSYSTEM)
-        expect(subsystem).to_have_count(1)
-        expect(subsystem.locator(".name-text")).to_have_text("supermodule")
+        super_instance = page.locator(SUPER_INSTANCE)
+        expect(super_instance).to_have_count(1)
+        expect(super_instance.locator(".name-text")).to_have_text("supermodule")
         expect(page.locator(SUPERMODULE_CARD).locator(".mlc__card-name")).to_have_text(["supermodule"])
         expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT + 1)
 
         # One undo step takes both away; redo, and a second super instance from its card.
         undo(page)
-        expect(subsystem).to_have_count(0)
+        expect(super_instance).to_have_count(0)
         expect(page.locator(SUPERMODULE_CARD)).to_have_count(0)
         empty.drag_to(canvas, target_position={"x": x + 200, "y": 600})
-        expect(subsystem).to_have_count(1)
+        expect(super_instance).to_have_count(1)
         page.locator(SUPERMODULE_CARD).drag_to(canvas, target_position={"x": x + 600, "y": 600})
-        expect(subsystem).to_have_count(2)
-        expect(page.locator(SUPERMODULE_CARD).locator(".mlc__badge")).to_have_text("2 subsystems")
+        expect(super_instance).to_have_count(2)
+        expect(page.locator(SUPERMODULE_CARD).locator(".mlc__badge")).to_have_text("2 super instances")
 
         # Inside one, the banner names the library entry, and the first structural edit asks.
         wait_for_settled_transform(page)
-        subsystem.first.get_by_role("button", name="Open subsystem").click()
+        super_instance.first.get_by_role("button", name="Open super instance").click()
         expect(page.locator(BANNER)).to_contain_text(
             "Editing super-module 'supermodule' in the library — changes apply to 2 super instances"
         )
@@ -351,7 +351,7 @@ class TestSubsystems(unittest.TestCase):
         page.keyboard.press("Escape")
         expect(page.locator(BREADCRUMB)).to_have_count(0)
         wait_for_settled_transform(page)
-        subsystem.first.get_by_role("button", name="Open subsystem").click()
+        super_instance.first.get_by_role("button", name="Open super instance").click()
         expect(page.locator(NODE)).to_have_count(3)
         wait_for_settled_transform(page)
         node_by_name(page, "axon_SN").locator(".card-header-actions").click()

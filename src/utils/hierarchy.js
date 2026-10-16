@@ -1,11 +1,11 @@
 /**
- * Scopes, ids and names of nested nodes (super-modules and their subsystems). Pure.
+ * Scopes, ids and names of nested nodes (super-modules and their super instances). Pure.
  *
  * Every node lives in one store. A node's data.scope is null at the root, otherwise the id of the super-module whose
  * children it is one of. A nested node's id is `<smId>~<localId>`; a root node's id is its localId, so flat workspaces
  * keep their ids. A super-module's interface node has the super-module's id, and is in its own scope.
  */
-import { EXPOSURE_EDGE_TYPE, SUBSYSTEM_NODE_TYPE, SUPERMODULE_INTERFACE_NODE_TYPE } from './constants'
+import { EXPOSURE_EDGE_TYPE, SUPER_INSTANCE_NODE_TYPE, SUPERMODULE_INTERFACE_NODE_TYPE } from './constants'
 
 /** Joins a super-module id and a local id into a nested node's id. */
 export const SCOPE_SEPARATOR = '~'
@@ -19,8 +19,8 @@ const NODE_ID_PREFIX = 'dndnode_'
 /** @returns {string|null} The node's scope: null at the root. */
 export const scopeOf = (node) => node?.data?.scope ?? null
 
-/** @returns {boolean} Whether the node is a subsystem (an instance of a super-module). */
-export const isSubsystem = (node) => node?.type === SUBSYSTEM_NODE_TYPE
+/** @returns {boolean} Whether the node is a super instance (an instance of a super-module). */
+export const isSuperInstance = (node) => node?.type === SUPER_INSTANCE_NODE_TYPE
 
 /** @returns {boolean} Whether the node is a super-module's interface node. */
 export const isSupermoduleInterface = (node) => node?.type === SUPERMODULE_INTERFACE_NODE_TYPE
@@ -29,7 +29,7 @@ export const isSupermoduleInterface = (node) => node?.type === SUPERMODULE_INTER
 export const isModelEdge = (edge) => edge?.type !== EXPOSURE_EDGE_TYPE
 
 /**
- * Whether the store holds any hierarchy: a subsystem, a super-module's node or an exposure edge. Without one, its
+ * Whether the store holds any hierarchy: a super instance, a super-module's node or an exposure edge. Without one, its
  * nodes and edges are the model as they are.
  *
  * @param {Array} nodes
@@ -37,7 +37,7 @@ export const isModelEdge = (edge) => edge?.type !== EXPOSURE_EDGE_TYPE
  * @returns {boolean}
  */
 export function hasHierarchy(nodes, edges = []) {
-  return nodes.some((node) => scopeOf(node) !== null || isSubsystem(node)) || edges.some((edge) => !isModelEdge(edge))
+  return nodes.some((node) => scopeOf(node) !== null || isSuperInstance(node)) || edges.some((edge) => !isModelEdge(edge))
 }
 
 /**
@@ -292,23 +292,23 @@ export function rewriteUnsafeIds(nodes, edges) {
   }
 }
 
-// Kept out of names inside super-modules (and of subsystem names): path, scope, key and override separators, and the
+// Kept out of names inside super-modules (and of super instance names): path, scope, key and override separators, and the
 // level separator of flat names.
 const RESERVED_IN_NAMES = ['/', SCOPE_SEPARATOR, '::', '@', '__']
 
 /**
- * Why a node name can't be used, or null when it can. Inside a super-module, and for every subsystem (whose name
+ * Why a node name can't be used, or null when it can. Inside a super-module, and for every super instance (whose name
  * prefixes its children's flat names), a name may not contain `/`, `~`, `::`, `@` or `__`, nor start or end with `_`,
  * so flat names split back into paths. A root module keeps today's rules.
  *
  * @param {string} name
  * @param {Object} [options]
  * @param {string|null} [options.scope=null] - The scope the node is in.
- * @param {boolean} [options.subsystem=false] - Whether the node is a subsystem.
+ * @param {boolean} [options.superInstance=false] - Whether the node is a super instance.
  * @returns {string|null}
  */
-export function localNameProblem(name, { scope = null, subsystem = false } = {}) {
-  if (!scope && !subsystem) return null
+export function localNameProblem(name, { scope = null, superInstance = false } = {}) {
+  if (!scope && !superInstance) return null
   if (!name) return 'A name is needed.'
   const reserved = RESERVED_IN_NAMES.find((text) => name.includes(text))
   if (reserved) return `"${name}" contains "${reserved}", which names inside super-modules can't.`
@@ -329,7 +329,7 @@ export function toLocalName(name, fallback = 'module') {
 }
 
 /**
- * Lists the super-modules each super-module uses directly, through the subsystems among its children.
+ * Lists the super-modules each super-module uses directly, through the super instances among its children.
  *
  * @param {Array} nodes
  * @returns {Map<string, Set<string>>} Every super-module's id to the ids it uses, missing ones included.
@@ -338,24 +338,24 @@ export function supermoduleDependencies(nodes) {
   const graph = new Map([...supermodulesById(nodes).keys()].map((id) => [id, new Set()]))
   for (const node of nodes) {
     const scope = scopeOf(node)
-    if (scope && isSubsystem(node) && graph.has(scope)) graph.get(scope).add(node.data.smId)
+    if (scope && isSuperInstance(node) && graph.has(scope)) graph.get(scope).add(node.data.smId)
   }
   return graph
 }
 
 /**
  * Counts each super-module's occurrences in the model: how many copies of it the root expands to, through every
- * subsystem of it and of the super-modules holding those. One used by a super-module the root uses twice occurs twice.
+ * super instance of it and of the super-modules holding those. One used by a super-module the root uses twice occurs twice.
  *
  * @param {Array} nodes
  * @returns {Map<string, number>} Every super-module's id to its count; 0 for one the root never reaches.
  */
 export function supermoduleOccurrences(nodes) {
-  const subsystemsOf = new Map()
+  const superInstancesOf = new Map()
   for (const node of nodes) {
-    if (!isSubsystem(node)) continue
-    if (!subsystemsOf.has(node.data?.smId)) subsystemsOf.set(node.data?.smId, [])
-    subsystemsOf.get(node.data?.smId).push(node)
+    if (!isSuperInstance(node)) continue
+    if (!superInstancesOf.has(node.data?.smId)) superInstancesOf.set(node.data?.smId, [])
+    superInstancesOf.get(node.data?.smId).push(node)
   }
   const memo = new Map([[null, 1]])
   const visiting = new Set()
@@ -364,7 +364,7 @@ export function supermoduleOccurrences(nodes) {
     // A cycle never reaches the root.
     if (visiting.has(scope)) return 0
     visiting.add(scope)
-    const count = (subsystemsOf.get(scope) ?? []).reduce((sum, node) => sum + countOf(scopeOf(node)), 0)
+    const count = (superInstancesOf.get(scope) ?? []).reduce((sum, node) => sum + countOf(scopeOf(node)), 0)
     visiting.delete(scope)
     memo.set(scope, count)
     return count
@@ -423,20 +423,20 @@ export function supermoduleUses(graph, smId, otherId) {
 }
 
 /**
- * Whether a subsystem of one super-module can be placed in a scope without making a cycle: never in the super-module
+ * Whether a super instance of one super-module can be placed in a scope without making a cycle: never in the super-module
  * itself, nor in one it uses.
  *
  * @param {Map<string, Set<string>>} graph - From supermoduleDependencies.
- * @param {string|null} scope - Where the subsystem would go.
+ * @param {string|null} scope - Where the super instance would go.
  * @param {string} smId - Its super-module.
  * @returns {boolean}
  */
-export function canPlaceSubsystem(graph, scope, smId) {
+export function canPlaceSuperInstance(graph, scope, smId) {
   return !scope || (scope !== smId && !supermoduleUses(graph, smId, scope))
 }
 
 /**
- * Gets how deep a super-module nests: 1 for one with no subsystems.
+ * Gets how deep a super-module nests: 1 for one with no super instances.
  *
  * @param {Map<string, Set<string>>} graph - From supermoduleDependencies.
  * @param {string} smId

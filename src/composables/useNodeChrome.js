@@ -1,5 +1,5 @@
 /**
- * What InstanceNode and SubsystemNode share: in-place renaming unique on the canvas, theme colour, simulated outline
+ * What InstanceNode and SuperInstanceNode share: in-place renaming unique on the canvas, theme colour, simulated outline
  * and context menu. Their handles, shared with InterfaceNode too, are NodeHandles.
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
@@ -28,14 +28,14 @@ const DOUBLE_CLICK_WINDOW_MS = 500
  * @param {Function} emit - The card's emit; `open-context-menu` is emitted with `{clientX, clientY, id}`.
  * @param {Object} options
  * @param {Function} options.onDoubleClick - What a double-click on the card does, a pending rename dropped first.
- * @param {boolean} [options.isSubsystem=false] - Whether the node is a subsystem, whose name follows the rules for
+ * @param {boolean} [options.isSuperInstance=false] - Whether the node is a super instance, whose name follows the rules for
  *   names inside super-modules wherever it is.
  * @param {string} [options.nameTakenMessage] - The error shown when another node on the canvas has the name.
  */
 export function useNodeChrome(
   props,
   emit,
-  { onDoubleClick, isSubsystem = false, nameTakenMessage = 'An instance with this name already exists.' }
+  { onDoubleClick, isSuperInstance = false, nameTakenMessage = 'An instance with this name already exists.' }
 ) {
   const { id: flowId, updateNodeData, viewport } = useVueFlow()
   const { scope, nodes: canvasNodes } = useActiveCanvas(flowId)
@@ -137,7 +137,7 @@ export function useNodeChrome(
       return
     }
 
-    const nameProblem = localNameProblem(sanitisedName, { scope: scope.value, subsystem: isSubsystem })
+    const nameProblem = localNameProblem(sanitisedName, { scope: scope.value, superInstance: isSuperInstance })
     if (nameProblem) {
       notify.error({ message: nameProblem })
       return

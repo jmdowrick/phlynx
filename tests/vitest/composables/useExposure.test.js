@@ -16,14 +16,14 @@ const { useFlowHistoryStore } = await import('../../../src/stores/historyStore.j
 const { useInspectionModuleStore } = await import('../../../src/stores/inspectionModuleStore.js')
 const { useSimulationSettingsStore } = await import('../../../src/stores/simulationSettingsStore.js')
 const { FLOW_IDS } = await import('../../../src/utils/constants.js')
-const { connect, exposed, exposures, module, port, subsystem, supermodule } = await import('../fixtures/hierarchy/graph.js')
+const { connect, exposed, exposures, module, port, superInstance, supermodule } = await import('../fixtures/hierarchy/graph.js')
 
 const IN = port('entrance_ports', 'vessel', ['v_in'])
 const OUT = port('exit_ports', 'vessel', ['v'])
 const vessel = (localId, name, options = {}) => module(localId, name, { ports: [{ ...IN }, { ...OUT }], ...options })
 
 /**
- * Root src → p1 → sink and an unconnected p2, both subsystems of pair (sm_1: a → b, and c, connected to nothing),
+ * Root src → p1 → sink and an unconnected p2, both super instances of pair (sm_1: a → b, and c, connected to nothing),
  * exposing a's entrance (xp_in) and b's exit (xp_out).
  */
 function pairGraph() {
@@ -33,8 +33,8 @@ function pairGraph() {
   const sm = supermodule('sm_1', 'pair', { submoduleOrder: ['a', 'b', 'c'] })
   const exposure = exposures('sm_1', [exposed('xp_in', 'a', 'entrance_ports', 'vessel'), exposed('xp_out', 'b', 'exit_ports', 'vessel')])
   const inner = { nodes: [sm, a, b, c], edges: exposure }
-  const p1 = subsystem(inner, 'dndnode_1', 'p1', 'sm_1')
-  const p2 = subsystem(inner, 'dndnode_3', 'p2', 'sm_1')
+  const p1 = superInstance(inner, 'dndnode_1', 'p1', 'sm_1')
+  const p2 = superInstance(inner, 'dndnode_3', 'p2', 'sm_1')
   const src = vessel('dndnode_0', 'src')
   const sink = vessel('dndnode_2', 'sink')
   const used = new Set()
@@ -136,7 +136,7 @@ describe('exposing ports through exposure edges', () => {
       expect(exposure.exposureDialogOf('e0')).toBeNull()
     })
 
-    it('exposes the ports ticked, and every subsystem gets them, as one undo step', async () => {
+    it('exposes the ports ticked, and every super instance gets them, as one undo step', async () => {
       flow.addEdges({ id: 'sm_1~c--sm_1', type: 'exposure', source: 'sm_1~c', target: 'sm_1', data: { exposed: [] } })
       history.startBatch()
       history.endBatch()
@@ -174,7 +174,7 @@ describe('exposing ports through exposure edges', () => {
     it('asks across the workspace, and changes nothing when told no', async () => {
       confirm.mockResolvedValue(false)
       const result = await exposure.saveExposure('sm_1~b--sm_1', [], { confirm })
-      expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('This affects 1 connection in 1 subsystem.') }))
+      expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('This affects 1 connection in 1 super instance.') }))
       expect(result.saved).toBe(false)
       expect(entriesOf('sm_1~b--sm_1')).toHaveLength(1)
       expect(edgeIds()).toContain('e1')
@@ -211,7 +211,7 @@ describe('exposing ports through exposure edges', () => {
       ])
     })
 
-    it('reorders the exposed ports, the subsystems’ ports with them, keeping every coupling', async () => {
+    it('reorders the exposed ports, the super instances’ ports with them, keeping every coupling', async () => {
       const before = couplingOf('e0')
       expect(await exposure.reorderExposedPorts('sm_1', ['xp_out', 'xp_in'])).toBe(true)
       expect(portsOf('dndnode_1')).toEqual([
@@ -232,7 +232,7 @@ describe('exposing ports through exposure edges', () => {
     })
   })
 
-  describe('keeping subsystems in step', () => {
+  describe('keeping super instances in step', () => {
     it('flags couplings whose port a child’s edit took away as broken, keeping them, and clears the flag on undo', async () => {
       flow.updateNodeData('sm_1~a', { ports: [{ ...OUT }] })
       await nextTick()
@@ -262,7 +262,7 @@ describe('exposing ports through exposure edges', () => {
     it('asks, then un-exposes the child’s ports, trims their connections, and drops its overrides and keys in every copy, as one undo step', async () => {
       confirm.mockResolvedValue(true)
       await canvasDelete.deleteNodes(['sm_1~b'])
-      expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('This affects 1 connection in 1 subsystem.') }))
+      expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('This affects 1 connection in 1 super instance.') }))
       expect(flow.findNode('sm_1~b')).toBeUndefined()
       expect(edgeIds()).not.toContain('e1')
       expect(edgeIds()).not.toContain('sm_1~b--sm_1')

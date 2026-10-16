@@ -221,7 +221,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    *
    * @param {Object} save - The instance editor's `confirm` payload.
    * @returns {Promise<number>} How many instances of the model now use the saved math reference: a module inside a
-   *   super-module counts once for each subsystem of it.
+   *   super-module counts once for each super instance of it.
    */
   async function saveInstanceEdit(save) {
     const { id, mathRef, previousMathRef, math, isLayoutChanged, updateAll, siblings } = save

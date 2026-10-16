@@ -34,7 +34,7 @@ const hasHidden = (flow) => [...flow.nodes, ...flow.edges].some((item) => 'hidde
 describe('saving and loading a nested workspace', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
-  it('keeps its super-modules, subsystems, overrides and exposure edges', () => {
+  it('keeps its super-modules, super instances, overrides and exposure edges', () => {
     const flow = { ...nestedGraph(), viewport: { x: 0, y: 0, zoom: 1 } }
     const loaded = migrateWorkspace(save(flow))
 
@@ -42,7 +42,7 @@ describe('saving and loading a nested workspace', () => {
     expect(loaded.flow.nodes).toEqual(flow.nodes)
     expect(loaded.flow.edges).toEqual(flow.edges)
     const byId = new Map(loaded.flow.nodes.map((node) => [node.id, node]))
-    expect(byId.get('sm_1')).toMatchObject({ type: 'subsystemInterface', deletable: false })
+    expect(byId.get('sm_1')).toMatchObject({ type: 'supermoduleInterface', deletable: false })
     expect(byId.get('sm_1').data.supermodule.localConstants).toEqual([{ name: 'g', units: 'dimensionless', value: '1', data_reference: null }])
     expect(byId.get('dndnode_1').data.overrides).toEqual({ a: { k: { value: '2' } }, '@': { g: { value: '3' } } })
     expect(loaded.flow.edges.filter((edge) => edge.type === 'exposure').map((edge) => edge.data.exposed.map((entry) => entry.id))).toEqual([['xp_in'], ['xp_out']])
@@ -60,7 +60,7 @@ describe('saving and loading a nested workspace', () => {
     expect(saved.flow).toEqual(save(flow).flow)
   })
 
-  it('keeps a selection of a module inside a subsystem', () => {
+  it('keeps a selection of a module inside a super instance', () => {
     const simulation = useSimulationSettingsStore()
     const key = 'dndnode_1/b::k'
     simulation.setParameterScanConfig({ selections: [{ key, nodeId: 'dndnode_1/b', nodeName: 'p1__b', parameterName: 'k' }] })

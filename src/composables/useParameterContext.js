@@ -1,7 +1,7 @@
 /**
  * Where the parameter sidebar's rows come from, and where its edits go, for the node selected on the canvas: a root
- * module's own rows; inside a subsystem entered from the root, the values the model has there, each edit this
- * subsystem's override by default or the super-module's default; inside a super-module edited on its own, its child's
+ * module's own rows; inside a super instance entered from the root, the values the model has there, each edit this
+ * super instance's override by default or the super-module's default; inside a super-module edited on its own, its child's
  * own rows, with how every copy of it is supplied.
  */
 import { useCanvasLevel } from './useCanvasLevel'
@@ -26,7 +26,7 @@ export function useParameterContext(flowId = FLOW_IDS.MAIN) {
    * Says how a node's rows are shown and written.
    *
    * @param {Object|null} node - A store node on the canvas.
-   * @returns {{mode: 'root'|'instance'|'supermodule', modelId: string|null}} 'instance' for a module of a subsystem
+   * @returns {{mode: 'root'|'instance'|'supermodule', modelId: string|null}} 'instance' for a module of a super instance
    *   entered from the root, by its model id; 'supermodule' for one of a super-module edited on its own, by its store
    *   id.
    */
@@ -37,7 +37,7 @@ export function useParameterContext(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
-   * Gets the rows a node shows: inside a subsystem, the model's, overrides applied.
+   * Gets the rows a node shows: inside a super instance, the model's, overrides applied.
    *
    * @param {Object} node
    * @returns {Array}
@@ -48,7 +48,7 @@ export function useParameterContext(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
-   * Says where each of a node's values comes from: in a subsystem, its chip and #686 status (see
+   * Says where each of a node's values comes from: in a super instance, its chip and #686 status (see
    * useModelWriter.provenanceOf); in a super-module edited on its own, a summary across its copies (see
    * aggregateProvenanceOf); nothing at the root.
    *
@@ -72,7 +72,7 @@ export function useParameterContext(flowId = FLOW_IDS.MAIN) {
   const targetFor = (node, chosen) => (contextOf(node).mode === 'supermodule' ? 'supermodule' : chosen)
 
   /**
-   * Writes one row's fields as one undo step, where the target puts it: for this subsystem only the value, as its
+   * Writes one row's fields as one undo step, where the target puts it: for this super instance only the value, as its
    * override.
    *
    * @param {Object} node
@@ -101,7 +101,7 @@ export function useParameterContext(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
-   * Resets this subsystem's override of a value, as one undo step.
+   * Resets this super instance's override of a value, as one undo step.
    *
    * @param {Object} node
    * @param {string} variable

@@ -10,7 +10,7 @@ const { useModelWriter } = await import('../../../src/composables/useModelWriter
 const { FLOW_IDS } = await import('../../../src/utils/constants.js')
 const { useModelGraph } = await import('../../../src/composables/useModelGraph.js')
 const { applyParametersToModel } = await import('../../../src/utils/parameters.js')
-const { connect, constant, exposed, exposures, module, port, subsystem, supermodule } = await import('../fixtures/hierarchy/graph.js')
+const { connect, constant, exposed, exposures, module, port, superInstance, supermodule } = await import('../fixtures/hierarchy/graph.js')
 
 const rows = () => [{ ...constant('R', '1'), data_reference: 'ref' }, constant('C', '2')]
 const vessel = (localId, name, options = {}) =>
@@ -21,7 +21,7 @@ const vessel = (localId, name, options = {}) =>
   })
 
 /**
- * Root a → leg → b, leg a subsystem of limb (sm_1: art → bed), bed one of bedsm (sm_2: cap), and a second subsystem
+ * Root a → leg → b, leg a super instance of limb (sm_1: art → bed), bed one of bedsm (sm_2: cap), and a second super instance
  * of limb, arm, connected to nothing.
  */
 function legGraph() {
@@ -29,15 +29,15 @@ function legGraph() {
   const bedsm = supermodule('sm_2', 'bedsm', { submoduleOrder: ['cap'] })
   const bedExposure = exposures('sm_2', [exposed('xp_in', 'cap', 'entrance_ports', 'vessel'), exposed('xp_out', 'cap', 'exit_ports', 'vessel')])
   const art = vessel('art', 'art', { scope: 'sm_1' })
-  const bed = subsystem({ nodes: [bedsm, cap], edges: bedExposure }, 'bed', 'bed', 'sm_2', { scope: 'sm_1', overrides: { cap: { R: { value: '2' } } } })
+  const bed = superInstance({ nodes: [bedsm, cap], edges: bedExposure }, 'bed', 'bed', 'sm_2', { scope: 'sm_1', overrides: { cap: { R: { value: '2' } } } })
   const limb = supermodule('sm_1', 'limb', { submoduleOrder: ['art', 'bed'] })
   const exposure = [
     ...exposures('sm_1', [exposed('xp_a', 'art', 'entrance_ports', 'vessel'), exposed('xp_b', 'bed', 'exit_ports', 'vessel', { via: 'xp_out' })]),
     ...bedExposure,
   ]
   const store = { nodes: [limb, art, bed, bedsm, cap], edges: exposure }
-  const leg = subsystem(store, 'dndnode_1', 'leg', 'sm_1')
-  const arm = subsystem(store, 'dndnode_3', 'arm', 'sm_1')
+  const leg = superInstance(store, 'dndnode_1', 'leg', 'sm_1')
+  const arm = superInstance(store, 'dndnode_3', 'arm', 'sm_1')
   const [a, b] = [vessel('dndnode_0', 'a'), vessel('dndnode_2', 'b')]
   const used = new Set()
   return {
@@ -81,10 +81,10 @@ describe('useModelWriter', () => {
     expect(toRaw(flow.findNode('a').data.variables)).toBe(variables)
   })
 
-  describe('inside subsystems', () => {
+  describe('inside super instances', () => {
     beforeEach(() => show(legGraph()))
 
-    it('writes for this subsystem an override on the outermost one, keyed by the path below it, which wins', () => {
+    it('writes for this super instance an override on the outermost one, keyed by the path below it, which wins', () => {
       expect(valueOf('dndnode_1/bed/cap', 'R')).toBe('2')
       expect(recordTargetOf('dndnode_1/bed/cap')).toEqual({ nodeIds: ['dndnode_1'], keys: ['overrides'] })
       const written = writeValue('dndnode_1/bed/cap', 'R', { value: '7', type: 'boundary_condition' })
@@ -97,7 +97,7 @@ describe('useModelWriter', () => {
       expect(notify.warning).not.toHaveBeenCalled()
     })
 
-    it('writes the super-module’s default to its child, for every subsystem not overriding it', () => {
+    it('writes the super-module’s default to its child, for every super instance not overriding it', () => {
       writeValue('dndnode_1/art', 'R', { value: '9' }, { target: 'supermodule' })
       expect(recordTargetOf('dndnode_1/art', { target: 'supermodule' })).toEqual({ nodeIds: ['sm_1~art'], keys: ['variables'] })
       expect(flow.findNode('sm_1~art').data.variables[0].value).toBe('9')
@@ -149,7 +149,7 @@ describe('useModelWriter', () => {
       expect(flow.findNode('sm_1~art').data.variables[0].value).toBe('5')
     })
 
-    it('writes a parameters file’s rows as the workspace loads it, those inside subsystems as overrides', () => {
+    it('writes a parameters file’s rows as the workspace loads it, those inside super instances as overrides', () => {
       const row = (variable_name, value) => ({ variable_name, units: 'dimensionless', value, data_reference: 'file' })
       const { variablesById } = applyParametersToModel(graph.value, [row('R_a', '5'), row('R_leg__bed__cap', '7')])
       // As WorkspaceArea's loadParametersData writes them.

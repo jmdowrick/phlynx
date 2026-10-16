@@ -1,6 +1,6 @@
 /**
  * The workspace search: finds instances by name or (with `var:`) by variable, highlights them and steps through them.
- * It searches the model (see useModelGraph), so modules inside subsystems are found too; the canvas shows each match
+ * It searches the model (see useModelGraph), so modules inside super instances are found too; the canvas shows each match
  * as the node holding it (`canvasIdOf`), and `reveal` brings a match into view.
  */
 import { computed, ref, watch } from 'vue'

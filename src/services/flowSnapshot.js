@@ -3,10 +3,10 @@
  * archive is loaded back from.
  *
  * A snapshot's snapshotKind says what its nodes are. A whole-model snapshot is 'hierarchical': the store as it is,
- * every super-module, subsystem and exposure edge included, so it loads back as the workspace was. A snapshot of part
+ * every super-module, super instance and exposure edge included, so it loads back as the workspace was. A snapshot of part
  * of the model is 'flat': the expanded model narrowed to that part, every module at the root under its flat name, its
- * id rewritten without '/' (see utils/hierarchy.js rewriteUnsafeIds), since a part may hold only some of a subsystem's
- * modules and so no whole super-module. Without subsystems a part is the store's nodes narrowed, as before 1.3.0.
+ * id rewritten without '/' (see utils/hierarchy.js rewriteUnsafeIds), since a part may hold only some of a super instance's
+ * modules and so no whole super-module. Without super instances a part is the store's nodes narrowed, as before 1.3.0.
  */
 import { buildInstance } from './import/buildWorkflow'
 import { expandHierarchy, EXPANDED_ID_SEPARATOR, isNestedModelId } from './hierarchy/expand'
@@ -18,7 +18,7 @@ import {
   NUM_GHOST_HANDLES_TOP_BOT,
   PHLYNX_PROJECT_VERSION,
   SOURCE_HANDLE_TYPE,
-  SUBSYSTEM_NODE_TYPE,
+  SUPER_INSTANCE_NODE_TYPE,
   SUPERMODULE_INTERFACE_NODE_TYPE,
   TARGET_HANDLE_TYPE,
 } from '../utils/constants'
@@ -39,7 +39,7 @@ export const FLOW_SNAPSHOT_ID = 'phlynx-flow-snapshot'
 export const SNAPSHOT_KIND = Object.freeze({ HIERARCHICAL: 'hierarchical', FLAT: 'flat' })
 
 // Node types a snapshot keeps as they are; every other node is rebuilt as a module.
-const VERBATIM_TYPES = new Set([SUBSYSTEM_NODE_TYPE, SUPERMODULE_INTERFACE_NODE_TYPE])
+const VERBATIM_TYPES = new Set([SUPER_INSTANCE_NODE_TYPE, SUPERMODULE_INTERFACE_NODE_TYPE])
 
 /**
  * Picks the nodes and edges a snapshot holds.
@@ -91,7 +91,7 @@ export function buildFlowSnapshot(flow, { nodeIds = null, library }) {
     const { handles, ...restData } = node.data ?? {}
     const slimNode = {
       id: node.id,
-      // A module's ghost handles are rebuilt on restore; a subsystem's or interface node's data is kept as it is.
+      // A module's ghost handles are rebuilt on restore; a super instance's or interface node's data is kept as it is.
       data: VERBATIM_TYPES.has(node.type)
         ? { ...node.data }
         : { ...restData, handles: handles?.filter((handle) => handle.variant !== HANDLE_VARIANT.GHOST) ?? [] },
@@ -126,8 +126,8 @@ export function buildFlowSnapshot(flow, { nodeIds = null, library }) {
 
 /**
  * Narrows the expanded model to some of its nodes and the edges between them, as root modules: a module inside a
- * subsystem keeps its flat name and its rows as overridden, stands where its outermost subsystem does, and is joined
- * by its edges' handles or, for an edge that met a subsystem, a handle of its own.
+ * super instance keeps its flat name and its rows as overridden, stands where its outermost super instance does, and is joined
+ * by its edges' handles or, for an edge that met a super instance, a handle of its own.
  *
  * @param {{nodes: Array, edges: Array}} flow
  * @param {ReturnType<typeof expandHierarchy>} expansion
@@ -218,10 +218,10 @@ function markHandles(nodes, edges) {
 
 /**
  * Rebuilds a snapshot's nodes and edges for the workspace. A module is rebuilt as a dropped one is, keeping its scope
- * and local id, with ghost handles filled in; a subsystem or interface node keeps its data as it is, given ghost
+ * and local id, with ghost handles filled in; a super instance or interface node keeps its data as it is, given ghost
  * handles when it has none. A parameter the
- * archive's CellML gives a root module is set on its row; one it gives a module inside a subsystem, where it differs,
- * becomes an override on the outermost subsystem, so the super-module's other subsystems keep theirs.
+ * archive's CellML gives a root module is set on its row; one it gives a module inside a super instance, where it differs,
+ * becomes an override on the outermost super instance, so the super-module's other super instances keep theirs.
  *
  * @param {{nodeData: Array, edges: Array}} snapshot
  * @param {Object} [options]
@@ -271,10 +271,10 @@ export function restoreFlowSnapshot(snapshot, { parameterData = {}, prepareNode 
 }
 
 /**
- * Sets the CellML's values for modules inside subsystems as overrides on their outermost subsystems, where they
+ * Sets the CellML's values for modules inside super instances as overrides on their outermost super instances, where they
  * differ from the values the expansion gives.
  *
- * @param {Array} nodes - Rebuilt; the outermost subsystems' overrides are replaced.
+ * @param {Array} nodes - Rebuilt; the outermost super instances' overrides are replaced.
  * @param {ReturnType<typeof expandHierarchy>} expansion
  * @param {Object<string, Array<{name: string, value: string}>>} parameterData
  * @returns {Array<{nodeName: string, name: string}>} The computed rows the CellML gave values, left as they were.

@@ -11,7 +11,7 @@ import { getId as getNextEdgeId } from '../utils/edges'
 import {
   findSupermoduleCycle,
   isModelEdge,
-  isSubsystem,
+  isSuperInstance,
   isSupermoduleInterface,
   splitNodeId,
   supermoduleDependencies,
@@ -74,10 +74,10 @@ const getBoundingCenter = (nodes) => {
 
 /**
  * Copy, paste and select-all for the workspace. Copy keeps the selection in memory and on the system
- * clipboard together with the modules and maths it needs, and the super-modules its subsystems depend on, so paste
+ * clipboard together with the modules and maths it needs, and the super-modules its super instances depend on, so paste
  * also works in another window. Each acts on the canvas: paste puts nodes in the scope shown, with that scope's ids.
  * A super-module's interface node is never copied on its own. A super-module copied is reused where the workspace has
- * the same one, else pasted with fresh ids; a subsystem pastes only where its super-module would not then contain
+ * the same one, else pasted with fresh ids; a super instance pastes only where its super-module would not then contain
  * itself.
  *
  * @param {Object} options
@@ -108,7 +108,7 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
 
     if (nodes.length === 0) return
 
-    // The super-modules the subsystems copied depend on, all the way down.
+    // The super-modules the super instances copied depend on, all the way down.
     const supermodules = supermoduleClosure(storeNodes.value, storeEdges.value, nodes)
 
     const storeSnapshot = {}
@@ -174,19 +174,19 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
       : { nodes: [], edges: [], smIdMap: new Map() }
     const smIdOf = (smId) => supermodules.smIdMap.get(smId) ?? smId
 
-    // A subsystem goes only where its super-module is, and where it makes no cycle.
+    // A super instance goes only where its super-module is, and where it makes no cycle.
     const placed = sourceClipboard.nodes
-      .filter(isSubsystem)
+      .filter(isSuperInstance)
       .map((node) => ({ id: `pasted:${node.id}`, type: node.type, data: { scope: into, smId: smIdOf(node.data?.smId) } }))
     const added = new Set(supermodules.nodes.filter(isSupermoduleInterface).map((node) => node.id))
     const isCyclic = () => !!findSupermoduleCycle(supermoduleDependencies([...storeNodes.value, ...supermodules.nodes, ...placed]))
     const unplaceable = sourceClipboard.nodes.filter((node) => {
-      if (!isSubsystem(node)) return false
+      if (!isSuperInstance(node)) return false
       const smId = smIdOf(node.data?.smId)
       return added.has(smId) ? into === smId : !canPlace(into, smId)
     })
     if (unplaceable.length || (into && placed.length && isCyclic())) {
-      const names = (unplaceable.length ? unplaceable : sourceClipboard.nodes.filter(isSubsystem)).map((node) => `"${node.data?.name ?? node.id}"`).join(', ')
+      const names = (unplaceable.length ? unplaceable : sourceClipboard.nodes.filter(isSuperInstance)).map((node) => `"${node.data?.name ?? node.id}"`).join(', ')
       notify.warning({
         title: 'Not Pasted',
         message: into
@@ -259,7 +259,7 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
           name: finalName,
           scope: into,
           localId: into ? splitNodeId(newId).localId : newId,
-          ...(isSubsystem(node) && { smId: smIdOf(node.data.smId) }),
+          ...(isSuperInstance(node) && { smId: smIdOf(node.data.smId) }),
         },
         position: {
           x: node.position.x + dx,

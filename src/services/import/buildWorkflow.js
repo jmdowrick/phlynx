@@ -2,7 +2,7 @@ import { getHandleId, buildHandles, buildGhostHandles } from '../../utils/handle
 import {
   MAIN_NODE_TYPE,
   SOURCE_HANDLE_TYPE,
-  SUBSYSTEM_NODE_TYPE,
+  SUPER_INSTANCE_NODE_TYPE,
   SUPERMODULE_INTERFACE_NODE_TYPE,
   TARGET_HANDLE_TYPE,
 } from '../../utils/constants'
@@ -70,7 +70,7 @@ export function buildInstance(
 }
 
 /**
- * Builds a subsystem: one instance of a super-module, standing in its scope like a module.
+ * Builds a super instance: one instance of a super-module, standing in its scope like a module.
  *
  * @param {string} nodeId - From nextNodeId(scope): `<scope>~<localId>` inside a super-module.
  * @param {string} name - Its local name, which prefixes its children's flat names.
@@ -78,19 +78,19 @@ export function buildInstance(
  * @param {Object} [options]
  * @param {string|null} [options.scope=null] - The super-module it is a child of; null at the root.
  * @param {Array} [options.ports=[]] - Its ports, each a copy of the child port an exposed port aliases with its
- *   exposedPortId and label (see subsystemPorts), kept in step with its super-module (see useSubsystemSync).
+ *   exposedPortId and label (see superInstancePorts), kept in step with its super-module (see useSuperInstanceSync).
  * @param {Array} [options.handles] - Where its edges attach; a fresh set of ghosts by default.
  * @param {Object} [options.overrides={}] - Values set on this instance: `{ <localId path>: { <variable>: { value } } }`,
  *   paths of local ids below it joined with '/'. Local constants (H13) are kept under '@' for its own super-module's
- *   and `<localId path>/@` for a nested subsystem's.
+ *   and `<localId path>/@` for a nested super instance's.
  * @param {Object|null} [options.position=null]
  * @returns {Object}
  * @throws {Error} When nodeId is not in scope (see assertNodeId).
  */
-export function buildSubsystem(nodeId, name, smId, { scope = null, ports = [], handles = buildGhostHandles(), overrides = {}, position = null } = {}) {
+export function buildSuperInstance(nodeId, name, smId, { scope = null, ports = [], handles = buildGhostHandles(), overrides = {}, position = null } = {}) {
   const node = {
     id: nodeId,
-    type: SUBSYSTEM_NODE_TYPE,
+    type: SUPER_INSTANCE_NODE_TYPE,
     position: position ?? { x: 100, y: 100 },
     data: {
       scope,

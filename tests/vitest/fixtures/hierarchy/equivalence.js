@@ -13,7 +13,7 @@ import { MAIN_NODE_TYPE } from '../../../../src/utils/constants.js'
 import { nodeIdOf } from '../../../../src/utils/hierarchy.js'
 import { isBlank } from '../../../../src/utils/variables.js'
 import { processCellMLData } from '../../../../src/utils/cellml.js'
-import { connect, exposed, exposures, subsystem, supermodule } from './graph.js'
+import { connect, exposed, exposures, superInstance, supermodule } from './graph.js'
 
 const readAsset = (file) => readFileSync(`src/assets/${file}`, 'utf8')
 
@@ -73,14 +73,14 @@ export function moduleFactory(store) {
 const portAt = (node, portType, label, slot = 0) => node.data.ports.filter((p) => p.portType === portType && p.label === label)[slot]
 
 /**
- * Two terminals feeding a venous subsystem, whose ivc sums their flows through the bundled venous vp's
+ * Two terminals feeding a venous super instance, whose ivc sums their flows through the bundled venous vp's
  * ['sum', 'True'] entrance.
  */
 export function venousFanIn(make) {
   const ivc = make('ivc', 'ivc', 'venous:vp', { scope: 'sm_1' })
   const sm = supermodule('sm_1', 'venous_return', { submoduleOrder: ['ivc'] })
   const exposure = exposures('sm_1', [exposed('xp_in', 'ivc', 'entrance_ports', 'vessel_port')])
-  const veins = subsystem({ nodes: [sm, ivc], edges: exposure }, 'dndnode_2', 'veins', 'sm_1')
+  const veins = superInstance({ nodes: [sm, ivc], edges: exposure }, 'dndnode_2', 'veins', 'sm_1')
   const termA = make('dndnode_0', 'term_a', 'terminal:pp')
   const termB = make('dndnode_1', 'term_b', 'terminal:pp')
   const nested = {
@@ -94,7 +94,7 @@ export function venousFanIn(make) {
 }
 
 /**
- * Two subsystems of one super-module, each multiplying its artery's flow by 2 into one of a flow sum's two inputs:
+ * Two super instances of one super-module, each multiplying its artery's flow by 2 into one of a flow sum's two inputs:
  * the child's Multiply and factor are read live through the exposed port.
  */
 export function multiply(make) {
@@ -103,8 +103,8 @@ export function multiply(make) {
   const sm = supermodule('sm_1', 'source', { submoduleOrder: ['art'] })
   const exposure = exposures('sm_1', [exposed('xp_flow', 'art', 'exit_ports', 'flow_port')])
   const inner = { nodes: [sm, art], edges: exposure }
-  const s1 = subsystem(inner, 'dndnode_0', 's1', 'sm_1')
-  const s2 = subsystem(inner, 'dndnode_1', 's2', 'sm_1', { overrides: { art: { R: { value: '7' } } } })
+  const s1 = superInstance(inner, 'dndnode_0', 's1', 'sm_1')
+  const s2 = superInstance(inner, 'dndnode_1', 's2', 'sm_1', { overrides: { art: { R: { value: '7' } } } })
   const mix = make('dndnode_2', 'mix', 'flow_sum_2:nn')
   const used = new Set()
   const nested = {
@@ -127,7 +127,7 @@ export function multiply(make) {
 }
 
 /**
- * A heart in a subsystem exposing its three entrance vessel_ports in order, fed in its svc and pulmonary slots as CA
+ * A heart in a super instance exposing its three entrance vessel_ports in order, fed in its svc and pulmonary slots as CA
  * pins them, and feeding an aorta.
  */
 export function heartSlots(make) {
@@ -139,7 +139,7 @@ export function heartSlots(make) {
     exposed('xp_pvn', 'heart', 'entrance_ports', 'vessel_port', { slot: 2 }),
     exposed('xp_aov', 'heart', 'exit_ports', 'vessel_port', { slot: 0 }),
   ])
-  const cardiac = subsystem({ nodes: [sm, heart], edges: exposure }, 'dndnode_2', 'cardiac', 'sm_1', { overrides: { heart: { v_ivc: { value: '0' } } } })
+  const cardiac = superInstance({ nodes: [sm, heart], edges: exposure }, 'dndnode_2', 'cardiac', 'sm_1', { overrides: { heart: { v_ivc: { value: '0' } } } })
   const svc = make('dndnode_0', 'venous_svc', 'venous:vp')
   const pvn = make('dndnode_1', 'pvn', 'venous:vp')
   const aorta = make('dndnode_3', 'aorta', 'arterial_simple:vp')
@@ -172,14 +172,14 @@ export function heartSlots(make) {
 }
 
 /**
- * An artery in a subsystem whose outlet pressure, a boundary condition, meets a terminal's inlet pressure, also one:
+ * An artery in a super instance whose outlet pressure, a boundary condition, meets a terminal's inlet pressure, also one:
  * nothing computes them, through the interface or not.
  */
 export function bcOnlyThroughInterface(make) {
   const art = make('art', 'art', 'arterial_simple:vp', { scope: 'sm_1' })
   const sm = supermodule('sm_1', 'upstream', { submoduleOrder: ['art'] })
   const exposure = exposures('sm_1', [exposed('xp_out', 'art', 'exit_ports', 'vessel_port')])
-  const up = subsystem({ nodes: [sm, art], edges: exposure }, 'dndnode_0', 'up', 'sm_1')
+  const up = superInstance({ nodes: [sm, art], edges: exposure }, 'dndnode_0', 'up', 'sm_1')
   const term = make('dndnode_1', 'term', 'terminal:pp')
   const flatArt = make('f0', 'up__art', 'arterial_simple:vp')
   const flatTerm = make('f1', 'term', 'terminal:pp')
@@ -198,14 +198,14 @@ export function twoLevel(make) {
   const bedsm = supermodule('sm_2', 'capillary_bed', { submoduleOrder: ['cap'] })
   const bedExposure = exposures('sm_2', [exposed('xp_in', 'cap', 'entrance_ports', 'vessel_port'), exposed('xp_out', 'cap', 'exit_ports', 'vessel_port')])
   const art = make('art', 'art', 'arterial_simple:pv', { scope: 'sm_1' })
-  const bed = subsystem({ nodes: [bedsm, cap], edges: bedExposure }, 'bed', 'bed', 'sm_2', { scope: 'sm_1', overrides: { cap: { R_T: { value: '2' } } } })
+  const bed = superInstance({ nodes: [bedsm, cap], edges: bedExposure }, 'bed', 'bed', 'sm_2', { scope: 'sm_1', overrides: { cap: { R_T: { value: '2' } } } })
   const limb = supermodule('sm_1', 'limb', { submoduleOrder: ['art', 'bed'] })
   const exposure = [
     ...exposures('sm_1', [exposed('xp_a', 'art', 'entrance_ports', 'vessel_port'), exposed('xp_b', 'bed', 'exit_ports', 'vessel_port', { via: 'xp_out' })]),
     ...bedExposure,
   ]
   const store = [limb, art, bed, bedsm, cap]
-  const leg = subsystem({ nodes: store, edges: exposure }, 'dndnode_1', 'leg', 'sm_1', { overrides: { 'bed/cap': { R_T: { value: '3' } }, art: { R: { value: '4' } } } })
+  const leg = superInstance({ nodes: store, edges: exposure }, 'dndnode_1', 'leg', 'sm_1', { overrides: { 'bed/cap': { R_T: { value: '3' } }, art: { R: { value: '4' } } } })
   const aorta = make('dndnode_0', 'aorta', 'arterial_simple:pv')
   const vc = make('dndnode_2', 'vc', 'venous:vp')
   const used = new Set()
@@ -228,14 +228,14 @@ export function twoLevel(make) {
   }
 }
 
-/** One super-module, a single artery, used three times in series, each subsystem setting its own R. */
+/** One super-module, a single artery, used three times in series, each super instance setting its own R. */
 export function threeInstances(make) {
   const a = make('a', 'a', 'arterial_simple:vp', { scope: 'sm_1' })
   const sm = supermodule('sm_1', 'segment', { submoduleOrder: ['a'] })
   const exposure = exposures('sm_1', [exposed('xp_in', 'a', 'entrance_ports', 'vessel_port'), exposed('xp_out', 'a', 'exit_ports', 'vessel_port')])
   const R = ['2', '3', '5']
   const inner = { nodes: [sm, a], edges: exposure }
-  const segments = R.map((value, i) => subsystem(inner, `dndnode_${i}`, `seg${i + 1}`, 'sm_1', { overrides: { a: { R: { value } } } }))
+  const segments = R.map((value, i) => superInstance(inner, `dndnode_${i}`, `seg${i + 1}`, 'sm_1', { overrides: { a: { R: { value } } } }))
   const used = new Set()
   const nested = {
     nodes: [...segments, sm, a],
@@ -261,7 +261,7 @@ export function exposureLeavesInternalCouplings(make) {
     exposed('xp_out', 'j', 'exit_ports', 'vessel_port'),
   ])
   const internal = connect(p, j, { id: 'e_int' })
-  const m = subsystem({ nodes: [sm, p, j], edges: exposure }, 'dndnode_1', 'm', 'sm_1')
+  const m = superInstance({ nodes: [sm, p, j], edges: exposure }, 'dndnode_1', 'm', 'sm_1')
   const q = make('dndnode_0', 'q', 'arterial_simple:vp')
   const out = make('dndnode_2', 'out', 'venous:vp')
   const nested = {
@@ -316,7 +316,7 @@ const PER_SECOND = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="units
 </model>`
 
 /**
- * A hub draining through a Sum port into three subsystems of one super-module, each a branch with its own k: a small
+ * A hub draining through a Sum port into three super instances of one super-module, each a branch with its own k: a small
  * ODE that simulates quickly.
  *
  * @param {Object} store - A libraryStore; the hub and branch math are added to it.
@@ -344,7 +344,7 @@ export function hubBranches(store) {
   const exposure = exposures('sm_1', [exposed('xp', 'leaf', 'entrance_ports', 'vessel')])
   const hub = buildNode('dndnode_0', 'hub', 'file:hub', hubPort())
   const inner = { nodes: [sm, leaf], edges: exposure }
-  const branches = k.map((value, i) => subsystem(inner, `dndnode_${i + 1}`, `b${i + 1}`, 'sm_1', { overrides: { leaf: { k: { value } } } }))
+  const branches = k.map((value, i) => superInstance(inner, `dndnode_${i + 1}`, `b${i + 1}`, 'sm_1', { overrides: { leaf: { k: { value } } } }))
   const nested = {
     nodes: [hub, ...branches, sm, leaf],
     edges: [...branches.map((branch, i) => connect(hub, branch, { id: `e${i}` })), ...exposure],

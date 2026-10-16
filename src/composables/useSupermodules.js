@@ -1,23 +1,23 @@
 /**
- * The workspace's super-modules: each one's name and subsystems, what it may be placed in, and the nodes it holds,
- * read from the store whatever scope the canvas shows; and the commands that add subsystems to the canvas. The
- * palette, the breadcrumb and subsystem nodes read it.
+ * The workspace's super-modules: each one's name and super instances, what it may be placed in, and the nodes it holds,
+ * read from the store whatever scope the canvas shows; and the commands that add super instances to the canvas. The
+ * palette, the breadcrumb and super instance nodes read it.
  */
 import { computed, effectScope } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
 import { useActiveCanvas } from './useActiveCanvas'
 import { useFlowHistoryFor } from './useFlowHistoryFor'
-import { indexExposures, nextExposedPortId, portResolver, subsystemPorts } from '../services/hierarchy/exposure'
+import { indexExposures, nextExposedPortId, portResolver, superInstancePorts } from '../services/hierarchy/exposure'
 import { supermoduleContentHash } from '../services/hierarchy/operations'
-import { buildSubsystem, buildSupermoduleInterface } from '../services/import/buildWorkflow'
+import { buildSuperInstance, buildSupermoduleInterface } from '../services/import/buildWorkflow'
 import { importCaModuleArray, templateHash } from '../services/import/caFold'
 import { layoutSupermoduleScopes } from '../services/layouts/scopes'
 import { useLibraryStore } from '../stores/libraryStore'
 import { FLOW_IDS } from '../utils/constants'
 import {
-  canPlaceSubsystem,
-  isSubsystem,
+  canPlaceSuperInstance,
+  isSuperInstance,
   isSupermoduleInterface,
   localNameProblem,
   nextSupermoduleId,
@@ -38,7 +38,7 @@ const catalogues = new WeakMap()
  * @property {string} name
  * @property {string} label - Its circulatory_autogen `module_type:module_subtype` once it has one, else its name.
  * @property {Object|null} source - The library definition it was made from, if any.
- * @property {number} count - Its subsystems, as the palette shows.
+ * @property {number} count - Its super instances, as the palette shows.
  * @property {number} occurrences - Its copies in the model, through super-modules holding it: what an edit changes.
  */
 
@@ -70,7 +70,7 @@ function createCatalogue(flow, flowId) {
   const supermodules = computed(() => {
     const nodes = allNodes()
     const counts = new Map()
-    for (const node of nodes) if (isSubsystem(node)) counts.set(node.data?.smId, (counts.get(node.data?.smId) ?? 0) + 1)
+    for (const node of nodes) if (isSuperInstance(node)) counts.set(node.data?.smId, (counts.get(node.data?.smId) ?? 0) + 1)
     const occurrences = supermoduleOccurrences(nodes)
     return nodes.filter(isSupermoduleInterface).map((node) => {
       const { name = node.id, ca = null, source = null } = node.data?.supermodule ?? {}
@@ -117,21 +117,21 @@ function createCatalogue(flow, flowId) {
    */
   const templateOf = (smId) => templates.value.get(smId)
 
-  /** @returns {number} How many subsystems a super-module has, nested ones included. */
+  /** @returns {number} How many super instances a super-module has, nested ones included. */
   const countOf = (smId) => find(smId)?.count ?? 0
 
   /**
-   * Whether a subsystem of a super-module can be placed in a scope: the super-module exists, and placing it there
-   * makes no cycle (see utils/hierarchy canPlaceSubsystem).
+   * Whether a super instance of a super-module can be placed in a scope: the super-module exists, and placing it there
+   * makes no cycle (see utils/hierarchy canPlaceSuperInstance).
    *
    * @param {string|null} scope
    * @param {string} smId
    * @returns {boolean}
    */
-  const canPlace = (scope, smId) => !!find(smId) && canPlaceSubsystem(dependencies.value, scope, smId)
+  const canPlace = (scope, smId) => !!find(smId) && canPlaceSuperInstance(dependencies.value, scope, smId)
 
-  /** @returns {Array} The ports a new subsystem of a super-module has (see subsystemPorts). */
-  const portsOf = (smId) => subsystemPorts(allNodes(), allEdges(), smId, exposures.value)
+  /** @returns {Array} The ports a new super instance of a super-module has (see superInstancePorts). */
+  const portsOf = (smId) => superInstancePorts(allNodes(), allEdges(), smId, exposures.value)
 
   /**
    * Gets a super-module's exposed ports, in order, as its exposure edges give them (see exposure.js indexExposures).
@@ -148,7 +148,7 @@ function createCatalogue(flow, flowId) {
       .map((node) => node.id)
 
   /**
-   * Gets the super-modules a removal leaves without subsystems: every subsystem of each is among those removed, and
+   * Gets the super-modules a removal leaves without super instances: every super instance of each is among those removed, and
    * the super-module itself isn't.
    *
    * @param {Iterable<string>} removedIds
@@ -157,8 +157,8 @@ function createCatalogue(flow, flowId) {
   const orphanedBy = (removedIds) => {
     const removed = new Set(removedIds)
     const nodes = allNodes()
-    const kept = nodes.filter((node) => isSubsystem(node) && !removed.has(node.id))
-    const smIds = new Set(nodes.filter((node) => removed.has(node.id) && isSubsystem(node)).map((node) => node.data.smId))
+    const kept = nodes.filter((node) => isSuperInstance(node) && !removed.has(node.id))
+    const smIds = new Set(nodes.filter((node) => removed.has(node.id) && isSuperInstance(node)).map((node) => node.data.smId))
     return [...smIds].filter((smId) => find(smId) && !removed.has(smId) && !kept.some((node) => node.data.smId === smId))
   }
 
@@ -204,22 +204,22 @@ function createCatalogue(flow, flowId) {
   }
 
   /**
-   * Why a name can't be a new subsystem's on the canvas, or null when it can: the rules for names inside super-modules
+   * Why a name can't be a new super instance's on the canvas, or null when it can: the rules for names inside super-modules
    * (see localNameProblem), and unique on the canvas.
    *
    * @param {string} name
    * @returns {string|null}
    */
-  const subsystemNameProblem = (name) => {
+  const superInstanceNameProblem = (name) => {
     const trimmed = (name ?? '').trim()
-    const problem = localNameProblem(trimmed, { scope: canvas.scope.value, subsystem: true })
+    const problem = localNameProblem(trimmed, { scope: canvas.scope.value, superInstance: true })
     if (problem) return problem
     if (canvas.nodes.value.some((node) => node.data?.name === trimmed)) return `"${trimmed}" is already used here.`
     return null
   }
 
   /**
-   * Why a name can't be a super-module's, or null when it can: a subsystem's rules, and unique among super-modules.
+   * Why a name can't be a super-module's, or null when it can: a super instance's rules, and unique among super-modules.
    *
    * @param {string} name
    * @param {Object} [options]
@@ -228,14 +228,14 @@ function createCatalogue(flow, flowId) {
    */
   const supermoduleNameProblem = (name, { except } = {}) => {
     const trimmed = (name ?? '').trim()
-    const problem = localNameProblem(trimmed, { subsystem: true })
+    const problem = localNameProblem(trimmed, { superInstance: true })
     if (problem) return problem
     const taken = supermodules.value.some((entry) => entry.name === trimmed && entry.id !== except)
     return taken ? `A super-module is already called "${trimmed}".` : null
   }
 
   /**
-   * Renames a super-module, as one undo step. Its subsystems keep their own names.
+   * Renames a super-module, as one undo step. Its super instances keep their own names.
    *
    * @param {string} smId
    * @param {string} name - Checked by supermoduleNameProblem.
@@ -263,10 +263,10 @@ function createCatalogue(flow, flowId) {
     return true
   }
 
-  /** @returns {string} A name a new super-module and its subsystem can both have: `base`, else `base_2`, `base_3`, … */
+  /** @returns {string} A name a new super-module and its super instance can both have: `base`, else `base_2`, `base_3`, … */
   const freeSupermoduleName = (base = 'supermodule') => {
     let name = base
-    for (let n = 2; subsystemNameProblem(name) || supermoduleNameProblem(name); n++) name = `${base}_${n}`
+    for (let n = 2; superInstanceNameProblem(name) || supermoduleNameProblem(name); n++) name = `${base}_${n}`
     return name
   }
 
@@ -279,26 +279,26 @@ function createCatalogue(flow, flowId) {
   }
 
   /**
-   * Makes a new, empty super-module and one subsystem of it on the canvas, both named `name`, as one undo step. Both
+   * Makes a new, empty super-module and one super instance of it on the canvas, both named `name`, as one undo step. Both
    * get the usual ghost handles, where edges attach.
    *
-   * @param {string} name - Checked by subsystemNameProblem and supermoduleNameProblem.
-   * @param {{x: number, y: number}} position - Where the subsystem goes, in flow coordinates.
+   * @param {string} name - Checked by superInstanceNameProblem and supermoduleNameProblem.
+   * @param {{x: number, y: number}} position - Where the super instance goes, in flow coordinates.
    * @param {Object} [options]
    * @param {Object} [options.history] - The undo stack to record into; the workspace's by default.
-   * @returns {{smId: string, subsystemId: string}}
+   * @returns {{smId: string, superInstanceId: string}}
    * @throws {Error} When the name can't be used.
    */
-  function createEmptySubsystem(name, position, { history = useFlowHistoryFor() } = {}) {
+  function createEmptySuperModule(name, position, { history = useFlowHistoryFor() } = {}) {
     const trimmed = (name ?? '').trim()
-    const problem = subsystemNameProblem(trimmed) ?? supermoduleNameProblem(trimmed)
+    const problem = superInstanceNameProblem(trimmed) ?? supermoduleNameProblem(trimmed)
     if (problem) throw new Error(problem)
 
     const smId = nextSupermoduleId(allNodes())
-    const subsystemId = canvas.nextNodeId()
+    const superInstanceId = canvas.nextNodeId()
     const nodes = [
       buildSupermoduleInterface(smId, { name: trimmed }),
-      buildSubsystem(subsystemId, trimmed, smId, { scope: canvas.scope.value, position }),
+      buildSuperInstance(superInstanceId, trimmed, smId, { scope: canvas.scope.value, position }),
     ]
     history.startBatch()
     try {
@@ -306,21 +306,21 @@ function createCatalogue(flow, flowId) {
     } finally {
       history.endBatch()
     }
-    return { smId, subsystemId }
+    return { smId, superInstanceId }
   }
 
   /**
-   * Places another subsystem of a super-module on the canvas, named after it and unique there, with its ports.
+   * Places another super instance of a super-module on the canvas, named after it and unique there, with its ports.
    *
    * @param {string} smId
    * @param {{x: number, y: number}} position - In flow coordinates.
-   * @returns {string|null} The new subsystem's id, or null when it can't be placed here (see canPlace).
+   * @returns {string|null} The new super instance's id, or null when it can't be placed here (see canPlace).
    */
-  function addSubsystem(smId, position) {
+  function addSuperInstance(smId, position) {
     if (!canPlace(canvas.scope.value, smId)) return null
     const id = canvas.nextNodeId()
     const options = { scope: canvas.scope.value, ports: portsOf(smId), position }
-    flow.addNodes(buildSubsystem(id, freeName(find(smId).name), smId, options))
+    flow.addNodes(buildSuperInstance(id, freeName(find(smId).name), smId, options))
     return id
   }
 
@@ -334,7 +334,7 @@ function createCatalogue(flow, flowId) {
   )
 
   /**
-   * Places a subsystem of a library super-module, as one undo step: of the workspace super-module made from it when
+   * Places a super instance of a library super-module, as one undo step: of the workspace super-module made from it when
    * there is one, made from the same definition (its moduleRef and content hash); else of a new one, built as a module
    * array of one instance of it is (see caFold.importCaModuleArray), with every super-module nested in it. It exposes
    * nothing until the user exposes ports. Global constants its parameterisation sets are added when not set already.
@@ -343,7 +343,7 @@ function createCatalogue(flow, flowId) {
    * @param {{x: number, y: number}} position - In flow coordinates.
    * @param {Object} [options]
    * @param {Object} [options.history] - The undo stack to record into; the workspace's by default.
-   * @returns {Promise<string|null>} The new subsystem's id, or null when it can't be placed here.
+   * @returns {Promise<string|null>} The new super instance's id, or null when it can't be placed here.
    */
   async function placeLibrarySupermodule(moduleRef, position, { history = useFlowHistoryFor() } = {}) {
     const library = useLibraryStore()
@@ -354,7 +354,7 @@ function createCatalogue(flow, flowId) {
       const source = isSupermoduleInterface(node) ? node.data?.supermodule?.source : null
       return source?.moduleRef === moduleRef && source.hash === hash && !source.fork
     })
-    if (made) return addSubsystem(made.id, position)
+    if (made) return addSuperInstance(made.id, position)
 
     const { module_type, module_subtype } = template
     const built = importCaModuleArray(
@@ -377,7 +377,7 @@ function createCatalogue(flow, flowId) {
     try {
       flow.addNodes(nodes)
       flow.addEdges(built.edges)
-      return addSubsystem(instance.data.smId, position)
+      return addSuperInstance(instance.data.smId, position)
     } finally {
       history.endBatch()
     }
@@ -398,10 +398,10 @@ function createCatalogue(flow, flowId) {
     exposedBy,
     deleteSupermodule,
     renameSupermodule,
-    subsystemNameProblem,
+    superInstanceNameProblem,
     supermoduleNameProblem,
-    createEmptySubsystem,
+    createEmptySuperModule,
     freeSupermoduleName,
-    addSubsystem,
+    addSuperInstance,
   }
 }

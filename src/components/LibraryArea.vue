@@ -17,7 +17,7 @@
 
     <!-- Collections -->
     <div ref="scrollEl" class="mlc__scroll">
-      <!-- The workspace's super-modules: drag one to place another subsystem of it, or edit it on its own. -->
+      <!-- The workspace's super-modules: drag one to place another super instance of it, or edit it on its own. -->
       <div v-if="showsEmptySupermodule || filteredSupermodules.length + filteredLibrarySupermodules.length > 0" class="mlc__group mlc__group--supermodules">
         <button
           class="mlc__group-header"
@@ -83,7 +83,7 @@
                         severity="info"
                         rounded
                         class="mlc__badge"
-                        :value="`${entry.count} subsystem${entry.count !== 1 ? 's' : ''}`"
+                        :value="`${entry.count} super instance${entry.count !== 1 ? 's' : ''}`"
                       />
                       <Button
                         icon="pi pi-pencil"
@@ -116,7 +116,7 @@
                         class="mlc__preview-btn"
                         :aria-label="`Delete super-module ${entry.name}`"
                         :disabled="entry.count > 0"
-                        v-tooltip.top="entry.count > 0 ? 'Used by a subsystem, so it can’t be deleted' : 'Delete super-module'"
+                        v-tooltip.top="entry.count > 0 ? 'Used by a super instance, so it can’t be deleted' : 'Delete super-module'"
                         @click.stop="deleteSupermodule(entry.id)"
                       />
                     </div>
@@ -288,7 +288,7 @@
     </div>
 
     <ModulePreviewDialog v-model="showPreview" :module-data="previewTarget" />
-    <NewSubsystemDialog
+    <NewSupermoduleDialog
       v-model="renameTarget.visible"
       mode="rename"
       :sm-id="renameTarget.smId"
@@ -319,7 +319,7 @@ import { useCanvasLevel } from '../composables/useCanvasLevel'
 import { useSupermodules } from '../composables/useSupermodules'
 import { useSupermoduleEditGuard } from '../composables/useSupermoduleEditGuard'
 import ModulePreviewDialog from './ModulePreviewDialog.vue'
-import NewSubsystemDialog from './dialogs/NewSubsystemDialog.vue'
+import NewSupermoduleDialog from './dialogs/NewSupermoduleDialog.vue'
 import { notify } from '../utils/notify'
 import { GHOST_MODULE_REF, NEW_MODULE_REF } from '../utils/constants.js'
 
@@ -428,7 +428,7 @@ async function onRenameConfirm(name) {
   }
 }
 
-/** @returns {boolean} Whether a subsystem of a super-module can go on the canvas shown, without a cycle. */
+/** @returns {boolean} Whether a super instance of a super-module can go on the canvas shown, without a cycle. */
 const canPlaceHere = (smId) => canPlace(canvasScope.value, smId)
 
 // ─── Accordion ───────────────────────────────────────────────────────────────
@@ -479,7 +479,7 @@ function handleDragStart(event, module) {
 }
 
 /**
- * Starts dragging a super-module, to place another subsystem of it; one that can't go here doesn't drag.
+ * Starts dragging a super-module, to place another super instance of it; one that can't go here doesn't drag.
  *
  * @param {DragEvent} event
  * @param {{id: string}} entry

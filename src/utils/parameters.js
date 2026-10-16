@@ -73,15 +73,15 @@ export function applyParametersToNodes(nodes, rows) {
 
 /**
  * Matches a parameters file's rows to the model's modules by their model names (see applyParametersToNodes), each
- * module's rows by its model id: a root module's is its node's id; one inside a subsystem takes its values as
- * overrides on its outermost subsystem, as useModelWriter writes them for that subsystem.
+ * module's rows by its model id: a root module's is its node's id; one inside a super instance takes its values as
+ * overrides on its outermost super instance, as useModelWriter writes them for that super instance.
  *
  * @param {{nodes: Array, origin: Map<string, {instanceChain: string[]}>, pathOf: Function}} model - From
  *   expandHierarchy (see useModelGraph); not changed.
  * @param {Array<{variable_name: string, units: string, value: string, data_reference: string}>} rows
  * @returns {{variablesById: Map<string, Array>, updated: number, skipped: Array<{nodeName: string, name: string}>,
  *   overridden: {updated: number, paths: string[]}}} As applyParametersToNodes, by model id; `overridden`, how many
- *   values name modules inside subsystems, and their paths.
+ *   values name modules inside super instances, and their paths.
  */
 export function applyParametersToModel({ nodes, origin, pathOf }, rows) {
   const isNested = (node) => origin.get(node.id)?.instanceChain.length > 0

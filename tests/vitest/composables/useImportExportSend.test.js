@@ -230,7 +230,7 @@ describe('useImportExportSend selection exports', () => {
     expect(addInfo.modified).toBe(true)
   })
 
-  it('keeps a slider’s stored name in a workspace without subsystems, whatever its id', async () => {
+  it('keeps a slider’s stored name in a workspace without super instances, whatever its id', async () => {
     nodes.value = [{ ...createNode('old/id'), data: { ...createNode('old/id').data, name: 'renamed' } }]
     edges.value = []
     useSimulationSettingsStore().setParameterScanConfig({

@@ -10,7 +10,7 @@ import {
   withOverrides,
   writeTargetOf,
 } from '../../../../src/services/hierarchy/overrides.js'
-import { connect, constant, exposed, exposures, module, port, subsystem, supermodule } from '../../fixtures/hierarchy/graph.js'
+import { connect, constant, exposed, exposures, module, port, superInstance, supermodule } from '../../fixtures/hierarchy/graph.js'
 
 const vessel = (localId, name, options = {}) =>
   module(localId, name, {
@@ -24,7 +24,7 @@ const vessel = (localId, name, options = {}) =>
   })
 
 /**
- * Root src → leg, leg and arm subsystems of limb (sm_1: art → bed), bed one of bedsm (sm_2: cap), which sets cap's R
+ * Root src → leg, leg and arm super instances of limb (sm_1: art → bed), bed one of bedsm (sm_2: cap), which sets cap's R
  * to 2; leg sets it again to 3.
  */
 function legGraph() {
@@ -32,12 +32,12 @@ function legGraph() {
   const bedsm = supermodule('sm_2', 'bedsm', { submoduleOrder: ['cap'] })
   const bedExposure = exposures('sm_2', [exposed('xp_in', 'cap', 'entrance_ports', 'vessel')])
   const art = vessel('art', 'art', { scope: 'sm_1' })
-  const bed = subsystem({ nodes: [bedsm, cap], edges: bedExposure }, 'bed', 'bed', 'sm_2', { scope: 'sm_1', overrides: { cap: { R: { value: '2' } } } })
+  const bed = superInstance({ nodes: [bedsm, cap], edges: bedExposure }, 'bed', 'bed', 'sm_2', { scope: 'sm_1', overrides: { cap: { R: { value: '2' } } } })
   const limb = supermodule('sm_1', 'limb', { submoduleOrder: ['art', 'bed'] })
   const exposure = [...exposures('sm_1', [exposed('xp_a', 'art', 'entrance_ports', 'vessel')]), ...bedExposure]
   const store = { nodes: [limb, art, bed, bedsm, cap], edges: exposure }
-  const leg = subsystem(store, 'dndnode_1', 'leg', 'sm_1', { overrides: { 'bed/cap': { R: { value: '3' } }, gone: { R: { value: '1' } }, art: { nope: { value: '1' } } } })
-  const arm = subsystem(store, 'dndnode_3', 'arm', 'sm_1')
+  const leg = superInstance(store, 'dndnode_1', 'leg', 'sm_1', { overrides: { 'bed/cap': { R: { value: '3' } }, gone: { R: { value: '1' } }, art: { nope: { value: '1' } } } })
+  const arm = superInstance(store, 'dndnode_3', 'arm', 'sm_1')
   const src = vessel('dndnode_0', 'src')
   const nodes = [src, leg, arm, ...store.nodes]
   const edges = [connect(src, leg, { id: 'e0' }), connect(art, bed, { id: 'e1' }), ...exposure]
@@ -48,7 +48,7 @@ function legGraph() {
 describe('writeTargetOf', () => {
   const { model, findNode } = legGraph()
 
-  it('writes for this subsystem on the outermost one, under the path below it', () => {
+  it('writes for this super instance on the outermost one, under the path below it', () => {
     expect(writeTargetOf('dndnode_1/bed/cap', 'instance', model.origin, findNode)).toEqual({ nodeId: 'dndnode_1', field: 'overrides', key: 'bed/cap' })
     expect(keyOf('dndnode_1/bed/cap')).toBe('bed/cap')
   })
@@ -59,8 +59,8 @@ describe('writeTargetOf', () => {
     expect(writeTargetOf('sm_1~art', 'supermodule', model.origin, findNode)).toEqual({ nodeId: 'sm_1~art', field: 'variables' })
   })
 
-  it('has no subsystem to write for when a super-module is edited on its own', () => {
-    expect(writeTargetOf('sm_1~art', 'instance', model.origin, findNode)).toEqual({ problem: expect.stringMatching(/no subsystem/) })
+  it('has no super instance to write for when a super-module is edited on its own', () => {
+    expect(writeTargetOf('sm_1~art', 'instance', model.origin, findNode)).toEqual({ problem: expect.stringMatching(/no super instance/) })
     expect(writeTargetOf('nope', 'instance', model.origin, findNode)).toBeNull()
     expect(() => writeTargetOf('dndnode_0', 'all', model.origin, findNode)).toThrow('Unknown write target')
   })
@@ -86,7 +86,7 @@ describe('inherited values and overrides', () => {
 })
 
 describe('provenanceOf', () => {
-  it('says which values this subsystem overrides, which export ignores, and the chip to show', () => {
+  it('says which values this super instance overrides, which export ignores, and the chip to show', () => {
     const { model, findNode } = legGraph()
     const leg = provenanceOf('dndnode_1/bed/cap', model, findNode)
     expect(leg.get('R')).toMatchObject({ value: '3', inherited: '2', isOverridden: true, isIgnored: false, chip: 'overridden' })
@@ -112,7 +112,7 @@ describe('aggregateProvenance', () => {
 })
 
 describe('overridesOf', () => {
-  it('lists a subsystem’s overrides by path, an orphaned one flagged, never dropped', () => {
+  it('lists a super instance’s overrides by path, an orphaned one flagged, never dropped', () => {
     const { nodes } = legGraph()
     expect(overridesOf('dndnode_1', nodes)).toEqual([
       { key: 'bed/cap', path: 'bed/cap', variable: 'R', value: '3', isOrphaned: false },

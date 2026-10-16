@@ -1,9 +1,9 @@
 /**
  * A small nested workspace graph for save, load and snapshot tests: modules with handles, a super-module with local
- * constants, a subsystem with overrides (its '@' included), an internal edge and an exposure edge.
+ * constants, a super instance with overrides (its '@' included), an internal edge and an exposure edge.
  */
 import { expandHierarchy } from '../../../../src/services/hierarchy/expand.js'
-import { connect, constant, exposed, exposures, module, port, subsystem, supermodule } from './graph.js'
+import { connect, constant, exposed, exposures, module, port, superInstance, supermodule } from './graph.js'
 
 /** A handle. */
 export const handle = (uid, type, side, variant = 'default') => ({ uid, type, side, variant, slotIndex: 0, name: '' })
@@ -21,7 +21,7 @@ export const vessel = (localId, name, scope = null) =>
   })
 
 /**
- * src → p1 → sink at the root, p1 a subsystem of 'pair' (a → b inside), whose exposure edges expose a's entrance and
+ * src → p1 → sink at the root, p1 a super instance of 'pair' (a → b inside), whose exposure edges expose a's entrance and
  * b's exit.
  */
 export function nestedGraph() {
@@ -38,7 +38,7 @@ export function nestedGraph() {
     { ...toA, sourceHandle: 'handle_a_out', targetHandle: 'handle_sm_1_in' },
     { ...toB, sourceHandle: 'handle_b_out', targetHandle: 'handle_sm_1_in' },
   ]
-  const p1 = subsystem({ nodes: [sm, a, b], edges: exposure }, 'dndnode_1', 'p1', 'sm_1', {
+  const p1 = superInstance({ nodes: [sm, a, b], edges: exposure }, 'dndnode_1', 'p1', 'sm_1', {
     overrides: { a: { k: { value: '2' } }, '@': { g: { value: '3' } } },
   })
   p1.data.handles = [handle('p1_in', 'target', 'left'), handle('p1_out', 'source', 'right')]

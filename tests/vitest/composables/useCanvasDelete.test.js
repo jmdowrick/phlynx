@@ -9,9 +9,9 @@ import { useCanvasLevel } from '../../../src/composables/useCanvasLevel.js'
 import { useFlowHistory } from '../../../src/composables/useFlowHistory.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { FLOW_IDS } from '../../../src/utils/constants.js'
-import { exposed, exposures, module, port, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
+import { exposed, exposures, module, port, superInstance, supermodule } from '../fixtures/hierarchy/graph.js'
 
-/** Root: a module, one subsystem of lung (sm_1, holding a wall module it exposes a port of) and two of heart (sm_2). */
+/** Root: a module, one super instance of lung (sm_1, holding a wall module it exposes a port of) and two of heart (sm_2). */
 function graph() {
   const lung = supermodule('sm_1', 'lung')
   const exposure = exposures('sm_1', [exposed('xp_in', 'dndnode_0', 'entrance_ports', 'vessel')])
@@ -20,9 +20,9 @@ function graph() {
   return {
     nodes: [
       module('dndnode_0', 'a'),
-      subsystem({ nodes: [lung, wall], edges: exposure }, 'dndnode_1', 'lung', 'sm_1'),
-      subsystem([heart], 'dndnode_2', 'left', 'sm_2'),
-      subsystem([heart], 'dndnode_3', 'right', 'sm_2'),
+      superInstance({ nodes: [lung, wall], edges: exposure }, 'dndnode_1', 'lung', 'sm_1'),
+      superInstance([heart], 'dndnode_2', 'left', 'sm_2'),
+      superInstance([heart], 'dndnode_3', 'right', 'sm_2'),
       lung,
       wall,
       heart,
@@ -64,7 +64,7 @@ describe('useCanvasDelete', () => {
     flow.applyDefault.value = true
   })
 
-  it('knows when the selection leaves a super-module without subsystems', () => {
+  it('knows when the selection leaves a super-module without super instances', () => {
     expect(canvasDelete.selectionNeedsAsking.value).toBe(false)
     select('dndnode_0', 'dndnode_2')
     expect(canvasDelete.selectionNeedsAsking.value).toBe(false)
@@ -72,7 +72,7 @@ describe('useCanvasDelete', () => {
     expect(canvasDelete.selectionNeedsAsking.value).toBe(true)
   })
 
-  it('deletes the subsystem and, when told to, its super-module, as one undo step', async () => {
+  it('deletes the super instance and, when told to, its super-module, as one undo step', async () => {
     confirm.mockResolvedValue(true)
     await canvasDelete.deleteNodes(['dndnode_1'])
     expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("'lung'") }))
@@ -91,7 +91,7 @@ describe('useCanvasDelete', () => {
     expect(ids()).toEqual(['dndnode_0', 'dndnode_2', 'dndnode_3', 'sm_1', 'sm_1~dndnode_0', 'sm_2'])
   })
 
-  it('asks nothing while the super-module has other subsystems', async () => {
+  it('asks nothing while the super-module has other super instances', async () => {
     select('dndnode_2')
     await canvasDelete.deleteSelection()
     expect(confirm).not.toHaveBeenCalled()
@@ -115,7 +115,7 @@ describe('useCanvasDelete', () => {
     expect(history.canUndo).toBe(false)
   })
 
-  it('keeps a super-module an undo gave a subsystem back while the question was open', async () => {
+  it('keeps a super-module an undo gave a super instance back while the question was open', async () => {
     await canvasDelete.deleteNodes(['dndnode_3'])
     let answer
     confirm.mockReturnValue(new Promise((resolve) => (answer = resolve)))

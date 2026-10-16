@@ -46,7 +46,7 @@
 
 <script setup>
 /**
- * Where the canvas is: Model, then each subsystem entered (or the super-module edited on its own), the last the one
+ * Where the canvas is: Model, then each super instance entered (or the super-module edited on its own), the last the one
  * shown, each titled with its super-module. Earlier entries go back there, and Escape goes up one level. A banner names the
  * library super-module being edited and how many super instances an edit changes; while that is more than one, and
  * the canvas came through a super instance, it offers to give that one its own copy.
@@ -78,16 +78,16 @@ const impact = computed(() => {
   if (sharedCount.value > 1) return `changes apply to ${sharedCount.value} super instances`
   return sharedCount.value === 1 ? 'changes apply to its one super instance' : 'no super instance uses it yet'
 })
-const { makeUniqueSubsystem } = useHierarchyOperations()
+const { makeUniqueSuperInstance } = useHierarchyOperations()
 
-/** Gives the subsystem shown its own copy of its super-module; the canvas then shows the copy. */
+/** Gives the super instance shown its own copy of its super-module; the canvas then shows the copy. */
 async function makeUnique() {
-  const { problems } = await makeUniqueSubsystem(current.value.instanceId)
+  const { problems } = await makeUniqueSuperInstance(current.value.instanceId)
   if (problems.length) notify.warning({ title: 'Not Made Unique', message: problems.join(' ') })
 }
 
 /**
- * Says what a crumb is a copy of: a subsystem's super-module, where its name differs, and how many subsystems that
+ * Says what a crumb is a copy of: a super instance's super-module, where its name differs, and how many super instances that
  * has, when more than one; for the super-module edited on its own, that it is one. Its title always names the
  * super-module, as the banner does.
  *

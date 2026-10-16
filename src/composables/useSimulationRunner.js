@@ -14,7 +14,7 @@ import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 
 /**
- * Gives what playing simulations from a view needs. The nodes are the model's (see useModelGraph): a selected subsystem
+ * Gives what playing simulations from a view needs. The nodes are the model's (see useModelGraph): a selected super instance
  * plays as the modules it expands to.
  *
  * @param {{instanceId?: import('vue').Ref<string|null>|string|null, isWholeModelOnly?: boolean}} [options] - The

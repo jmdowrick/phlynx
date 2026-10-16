@@ -21,7 +21,7 @@ vi.mock('@vue-flow/core', async (importOriginal) => ({
 }))
 
 const { useInstanceSave } = await import('../../../src/composables/useInstanceSave.js')
-const { connect, constant, module, port, subsystem, supermodule } = await import('../fixtures/hierarchy/graph.js')
+const { connect, constant, module, port, superInstance, supermodule } = await import('../fixtures/hierarchy/graph.js')
 
 const vessel = (localId, name, options = {}) =>
   module(localId, name, { ports: [port('general_ports', 'p', ['R'])], variables: [constant('R', '1')], ...options })
@@ -48,17 +48,17 @@ describe('useInstanceSave counts in the model', () => {
     edges.value = []
   })
 
-  it('counts each node once without subsystems', async () => {
+  it('counts each node once without super instances', async () => {
     const [a, b] = [vessel('a', 'a'), vessel('b', 'b')]
     nodes.value = [a, b]
     edges.value = [connect(a, b, { id: 'e0' })]
     expect(await useInstanceSave().saveInstanceEdit(saveOf(['b']))).toBe(2)
   })
 
-  it('counts a module inside a super-module once for each subsystem of it', async () => {
+  it('counts a module inside a super-module once for each super instance of it', async () => {
     const x = vessel('x', 'x', { scope: 'sm_1' })
     const sm = supermodule('sm_1', 'pair', { submoduleOrder: ['x'] })
-    nodes.value = [vessel('a', 'a'), subsystem([sm, x], 's1', 's1', 'sm_1'), subsystem([sm, x], 's2', 's2', 'sm_1'), sm, x]
+    nodes.value = [vessel('a', 'a'), superInstance([sm, x], 's1', 's1', 'sm_1'), superInstance([sm, x], 's2', 's2', 'sm_1'), sm, x]
     expect(await useInstanceSave().saveInstanceEdit(saveOf(['sm_1~x']))).toBe(3)
   })
 })

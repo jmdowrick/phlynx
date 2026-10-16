@@ -10,7 +10,7 @@ import { useModelGraph } from './useModelGraph'
 import { useSupermodules } from './useSupermodules'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { FLOW_IDS } from '../utils/constants'
-import { isSubsystem, isSupermoduleInterface, scopeOf } from '../utils/hierarchy'
+import { isSuperInstance, isSupermoduleInterface, scopeOf } from '../utils/hierarchy'
 
 // A flow without nodes or edges, such as a stub of one, reads as empty.
 const NONE = Object.freeze({ value: Object.freeze([]) })
@@ -79,7 +79,7 @@ function createCanvasLevel(flow, flowId) {
 
   // The super-module edited on its own, or null when the canvas was reached from the root.
   const editedSupermodule = ref(null)
-  // The subsystems entered, outermost first: from the root, or from the edited super-module.
+  // The super instances entered, outermost first: from the root, or from the edited super-module.
   const enteredIds = ref([])
   const viewports = new Map()
   let history = null
@@ -89,11 +89,11 @@ function createCanvasLevel(flow, flowId) {
 
   const isAtRoot = computed(() => scope.value === null)
   const isEditingSupermodule = computed(() => editedSupermodule.value !== null)
-  // The subsystems entered from the root, which pick one copy of each module shown; none while editing a super-module.
+  // The super instances entered from the root, which pick one copy of each module shown; none while editing a super-module.
   const instancePath = computed(() => (isEditingSupermodule.value ? [] : [...enteredIds.value]))
 
   /**
-   * The breadcrumb: the edited super-module, if any (instanceId null), then each subsystem entered, as `{smId,
+   * The breadcrumb: the edited super-module, if any (instanceId null), then each super instance entered, as `{smId,
    * instanceId, name, supermoduleName, supermoduleLabel, count, occurrences}` (see SupermoduleEntry). Read from the
    * store, so a rename shows at once.
    */
@@ -123,7 +123,7 @@ function createCanvasLevel(flow, flowId) {
   const scopeOfLevel = (base, ids) => (ids.length ? (findStoreNode(ids.at(-1))?.data?.smId ?? null) : base)
 
   /**
-   * Whether a level can be shown: its super-module exists, and each subsystem entered is in the scope before it.
+   * Whether a level can be shown: its super-module exists, and each super instance entered is in the scope before it.
    *
    * @param {string|null} base
    * @param {string[]} ids
@@ -134,7 +134,7 @@ function createCanvasLevel(flow, flowId) {
     let within = base
     for (const id of ids) {
       const node = findStoreNode(id)
-      if (!isSubsystem(node) || scopeOf(node) !== within || !findSupermodule(node.data.smId)) return false
+      if (!isSuperInstance(node) || scopeOf(node) !== within || !findSupermodule(node.data.smId)) return false
       within = node.data.smId
     }
     return true
@@ -162,7 +162,7 @@ function createCanvasLevel(flow, flowId) {
   /** @returns {boolean} Whether a node is in the scope shown. */
   const isShown = (node) => scopeOf(node) === scope.value
 
-  // An edit can change the super-module of a subsystem entered, as Make unique does and its undo puts back: the canvas
+  // An edit can change the super-module of a super instance entered, as Make unique does and its undo puts back: the canvas
   // follows, showing the level's scope as it is now.
   watch(
     () => (isValidLevel(editedSupermodule.value, enteredIds.value) ? scopeOfLevel(editedSupermodule.value, enteredIds.value) : scope.value),
@@ -218,7 +218,7 @@ function createCanvasLevel(flow, flowId) {
    * and shows its viewport. Not an undo step.
    *
    * @param {string|null} base - The super-module edited on its own, or null from the root.
-   * @param {string[]} ids - The subsystems entered.
+   * @param {string[]} ids - The super instances entered.
    * @param {Object} [options]
    * @param {boolean} [options.restoreViewport=true] - False when the caller moves the view itself.
    * @returns {boolean} Whether the level changed.
@@ -244,20 +244,20 @@ function createCanvasLevel(flow, flowId) {
   }
 
   /**
-   * Opens a subsystem on the canvas, which then shows its super-module's nodes.
+   * Opens a super instance on the canvas, which then shows its super-module's nodes.
    *
-   * @param {string} subsystemId - A subsystem on the canvas.
+   * @param {string} superInstanceId - A super instance on the canvas.
    * @returns {boolean} Whether it was opened.
    */
-  function enter(subsystemId) {
-    const node = findStoreNode(subsystemId)
-    if (!isSubsystem(node) || !isShown(node) || !findSupermodule(node.data.smId)) return false
+  function enter(superInstanceId) {
+    const node = findStoreNode(superInstanceId)
+    if (!isSuperInstance(node) || !isShown(node) || !findSupermodule(node.data.smId)) return false
     if (path.value.some((entry) => entry.smId === node.data.smId)) return false
-    return navigate(editedSupermodule.value, [...enteredIds.value, subsystemId])
+    return navigate(editedSupermodule.value, [...enteredIds.value, superInstanceId])
   }
 
   /**
-   * Shows a super-module on its own, not through any one subsystem of it.
+   * Shows a super-module on its own, not through any one super instance of it.
    *
    * @param {string} smId
    * @returns {boolean} Whether it is shown.
@@ -283,9 +283,9 @@ function createCanvasLevel(flow, flowId) {
   const exitOne = () => !isAtRoot.value && exitTo(path.value.length - 1)
 
   /**
-   * Shows the scope a model node is in, entering the subsystems it is expanded through from the root.
+   * Shows the scope a model node is in, entering the super instances it is expanded through from the root.
    *
-   * @param {string[]} instanceChain - The subsystems' store ids, outermost first (see useModelGraph's origin).
+   * @param {string[]} instanceChain - The super instances' store ids, outermost first (see useModelGraph's origin).
    * @param {Object} [options] - As navigate's.
    * @returns {boolean} Whether the level changed.
    */
@@ -308,7 +308,7 @@ function createCanvasLevel(flow, flowId) {
   const rootViewport = () => (isAtRoot.value ? currentViewport() : (viewports.get(ROOT) ?? currentViewport()))
 
   /**
-   * Where the canvas is, for history: the scope shown, the super-module edited on its own, and the subsystems entered.
+   * Where the canvas is, for history: the scope shown, the super-module edited on its own, and the super instances entered.
    *
    * @returns {{scope: string|null, supermodule: string|null, instancePath: string[]}}
    */
@@ -347,7 +347,7 @@ function createCanvasLevel(flow, flowId) {
   const within = () => (isEditingSupermodule.value ? null : enteredIds.value)
 
   /**
-   * Gets the model nodes some canvas nodes stand for, through the subsystems entered: a module once, a subsystem every
+   * Gets the model nodes some canvas nodes stand for, through the super instances entered: a module once, a super instance every
    * module it expands to.
    *
    * @param {Iterable<string>} ids - Store ids of canvas nodes.
@@ -359,7 +359,7 @@ function createCanvasLevel(flow, flowId) {
   const selectedModelIds = computed(() => modelIdsOf(selectedNodes.value.map((node) => node.id)))
 
   /**
-   * Gets the canvas node a model node shows as at this level: itself, or the subsystem on the canvas it is inside.
+   * Gets the canvas node a model node shows as at this level: itself, or the super instance on the canvas it is inside.
    *
    * @param {string} modelId
    * @returns {string|undefined} Undefined when it isn't at this level.
@@ -371,10 +371,10 @@ function createCanvasLevel(flow, flowId) {
     const entered = enteredIds.value
     const matches = (start) => entered.every((id, i) => ids[start + i] === id)
     if (!editedSupermodule.value) return matches(0) ? ids[entered.length] : undefined
-    // Edited on its own, the super-module's nodes show every subsystem's copies.
+    // Edited on its own, the super-module's nodes show every super instance's copies.
     for (let start = 0; start < ids.length; start++) {
       const node = start > 0 ? findStoreNode(ids[start - 1]) : null
-      const inEdited = start === 0 ? false : isSubsystem(node) && node.data.smId === editedSupermodule.value
+      const inEdited = start === 0 ? false : isSuperInstance(node) && node.data.smId === editedSupermodule.value
       if (inEdited && matches(start)) return ids[start + entered.length]
     }
     return undefined

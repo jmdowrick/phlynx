@@ -36,7 +36,7 @@ const { default: InstanceEditorDialog } = await import('../../../src/components/
 const { default: ComponentSaveAsDialog } = await import('../../../src/components/dialogs/ComponentSaveAsDialog.vue')
 const { NEW_MODULE_MATH_REF } = await import('../../../src/utils/constants.js')
 const { cycleMultiportType } = await import('../../../src/utils/multiport.js')
-const { module, subsystem, supermodule } = await import('../fixtures/hierarchy/graph.js')
+const { module, superInstance, supermodule } = await import('../fixtures/hierarchy/graph.js')
 
 const MATH_REF = 'file:decay'
 const XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
@@ -741,21 +741,21 @@ describe('InstanceEditorDialog other instances', () => {
   })
 
   /**
-   * Root module a and super-module sm_1, whose module ra shares a's math, with some subsystems of sm_1.
+   * Root module a and super-module sm_1, whose module ra shares a's math, with some super instances of sm_1.
    *
-   * @param {string[]} subsystemIds
+   * @param {string[]} superInstanceIds
    * @returns {Array} The store's nodes.
    */
-  function workspace(subsystemIds) {
+  function workspace(superInstanceIds) {
     const inner = [supermodule('sm_1', 'heart', { submoduleOrder: ['ra'] }), module('ra', 'ra', { scope: 'sm_1', data: { mathRef: MATH_REF } })]
-    return [module('a', 'a', { data: { mathRef: MATH_REF } }), ...subsystemIds.map((id) => subsystem(inner, id, id, 'sm_1')), ...inner]
+    return [module('a', 'a', { data: { mathRef: MATH_REF } }), ...superInstanceIds.map((id) => superInstance(inner, id, id, 'sm_1')), ...inner]
   }
 
   it.each([
-    { label: 'once in each of its subsystems', subsystemIds: ['dndnode_1', 'dndnode_3'], all: 3 },
-    { label: 'once without subsystems', subsystemIds: [], all: 2 },
-  ])('counts a super-module’s module $label, and switches its node on a save to all', async ({ subsystemIds, all }) => {
-    flowNodes.value = workspace(subsystemIds)
+    { label: 'once in each of its super instances', superInstanceIds: ['dndnode_1', 'dndnode_3'], all: 3 },
+    { label: 'once without super instances', superInstanceIds: [], all: 2 },
+  ])('counts a super-module’s module $label, and switches its node on a save to all', async ({ superInstanceIds, all }) => {
+    flowNodes.value = workspace(superInstanceIds)
     mountDialog()
     const editor = await open()
     await report(editor, 'init', XML)

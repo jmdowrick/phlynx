@@ -1,18 +1,18 @@
 /**
  * Structural edits of the hierarchy. Pure: each takes the store's nodes and edges and gives them as they are after it,
  * or the problems that stop it.
- *   - makeUnique: a subsystem gets its own copy of its super-module, the copy's exposed ports keeping their ids.
- *   - keepForOne: a subsystem keeps its super-module to itself, every other subsystem of it moving to a copy.
- *   - nestSelection: nodes of one scope go into a new super-module, one subsystem of it standing in their place.
- *   - unnest: a subsystem's children take its place.
+ *   - makeUnique: a super instance gets its own copy of its super-module, the copy's exposed ports keeping their ids.
+ *   - keepForOne: a super instance keeps its super-module to itself, every other super instance of it moving to a copy.
+ *   - nestSelection: nodes of one scope go into a new super-module, one super instance of it standing in their place.
+ *   - unnest: a super instance's children take its place.
  * Each leaves the model as it was: the expansion after it is the one before, but for model ids and flat names (see
- * modelIdMap). Each also gives `rewrite`, how a module's place changes: the store ids of the subsystems it is inside
+ * modelIdMap). Each also gives `rewrite`, how a module's place changes: the store ids of the super instances it is inside
  * and its own, from the root down.
  *
  * New nodes come with the ids they keep (see utils/hierarchy nextNodeId); an edge that moves gets a new id, so the
  * caller can add every new node and edge before removing the old ones.
  */
-import { buildSubsystem, buildSupermoduleInterface } from '../import/buildWorkflow'
+import { buildSuperInstance, buildSupermoduleInterface } from '../import/buildWorkflow'
 import { slotOf } from '../../utils/edges'
 import { EXPOSURE_EDGE_TYPE, HANDLE_VARIANT } from '../../utils/constants'
 import { buildGhostHandles, findMostCentralGhostHandle, getHandleId } from '../../utils/handles'
@@ -20,7 +20,7 @@ import {
   findSupermoduleCycle,
   indexByScope,
   isModelEdge,
-  isSubsystem,
+  isSuperInstance,
   isSupermoduleInterface,
   localIdOf,
   localNameProblem,
@@ -37,7 +37,7 @@ import {
 } from '../../utils/hierarchy'
 import { sanitiseName } from '../../utils/identifiers'
 import { expandHierarchy, EXPANDED_ID_SEPARATOR, LOCAL_CONSTANTS_KEY } from './expand'
-import { EXPOSED_PORT_ID_PREFIX, exposureEnds, exposureEntriesOf, indexExposures, nextExposedPortId, subsystemPorts } from './exposure'
+import { EXPOSED_PORT_ID_PREFIX, exposureEnds, exposureEntriesOf, indexExposures, nextExposedPortId, superInstancePorts } from './exposure'
 import { LEVEL_SEPARATOR } from './names'
 
 const NODE_ID_PREFIX = 'dndnode_'
@@ -210,21 +210,21 @@ function ghostUnusedHandles(copies, oldEdges, newEdges) {
 }
 
 /**
- * Rewrites the override keys of every subsystem whose keys pass through a scope: where a key's path of local ids
+ * Rewrites the override keys of every super instance whose keys pass through a scope: where a key's path of local ids
  * reaches it, `rewriteAt` gives the rest of the path as it becomes, or null when the key goes.
  *
  * @param {Array} nodes - The store before the edit.
  * @param {string} scope - A super-module's id.
  * @param {(segments: string[]) => string[]|null} rewriteAt
- * @param {Set<string>} [skip] - Subsystems left alone.
- * @returns {Map<string, Object>} Each subsystem whose overrides change, to its new overrides.
+ * @param {Set<string>} [skip] - Super instances left alone.
+ * @returns {Map<string, Object>} Each super instance whose overrides change, to its new overrides.
  */
 function rewriteOverrideKeys(nodes, scope, rewriteAt, skip = new Set()) {
   const byScope = indexByScope(nodes)
   const childOf = (smId, localId) => (byScope.get(smId) ?? []).find((node) => !isSupermoduleInterface(node) && localIdOf(node) === localId)
   const changed = new Map()
   for (const node of nodes) {
-    if (!isSubsystem(node) || skip.has(node.id) || !Object.keys(node.data?.overrides ?? {}).length) continue
+    if (!isSuperInstance(node) || skip.has(node.id) || !Object.keys(node.data?.overrides ?? {}).length) continue
     let isChanged = false
     const next = {}
     for (const [key, patches] of Object.entries(node.data.overrides)) {
@@ -238,7 +238,7 @@ function rewriteOverrideKeys(nodes, scope, rewriteAt, skip = new Set()) {
           break
         }
         const child = childOf(within, segments[i])
-        if (!isSubsystem(child)) break
+        if (!isSuperInstance(child)) break
         within = child.data.smId
       }
       if (!result) {
@@ -285,7 +285,7 @@ const withData = (nodes, changes) =>
  *
  * @param {{nodes: Array, edges: Array}} before
  * @param {{nodes: Array, edges: Array}} after
- * @param {(chain: string[]) => string[]} rewrite - A module's place before, its subsystems' and its own store ids from
+ * @param {(chain: string[]) => string[]} rewrite - A module's place before, its super instances' and its own store ids from
  *   the root down, to its place after.
  * @returns {{idMap: Map<string, string>, nameOf: (id: string) => string|undefined}} Each model id that changes to its
  *   new one, and the names of the model after.
@@ -317,7 +317,7 @@ function structureProblem(nodes) {
     return `That would make super-module "${names.get(cycle[0])?.data?.supermodule?.name ?? cycle[0]}" contain itself.`
   }
   if ([...graph.keys()].some((smId) => supermoduleDepth(graph, smId) === Infinity)) {
-    return `That would nest subsystems deeper than ${MAX_NESTING_DEPTH} levels.`
+    return `That would nest super instances deeper than ${MAX_NESTING_DEPTH} levels.`
   }
   return null
 }
@@ -326,24 +326,24 @@ function structureProblem(nodes) {
 const refused = (nodes, edges, problem) => ({ nodes, edges, problems: [problem], rewrite: (chain) => chain })
 
 /**
- * Gives one subsystem its own copy of its super-module: the interface node, every child (each keeping its local id,
- * in the copy's scope), the edges inside and the exposure edges, each exposed port keeping its id, so the subsystem's
- * couplings still name its ports. The subsystem then uses the copy; nothing else changes. Super-modules nested inside
+ * Gives one super instance its own copy of its super-module: the interface node, every child (each keeping its local id,
+ * in the copy's scope), the edges inside and the exposure edges, each exposed port keeping its id, so the super instance's
+ * couplings still name its ports. The super instance then uses the copy; nothing else changes. Super-modules nested inside
  * are shared still.
  *
  * @param {Array} nodes
  * @param {Array} edges
- * @param {string} subsystemId
+ * @param {string} superInstanceId
  * @param {Object} [options]
  * @param {string} [options.name] - The copy's name; its super-module's, made unique, by default.
  * @returns {{nodes: Array, edges: Array, problems: string[], rewrite: Function, smId?: string}} `smId` the copy's.
  */
-export function makeUnique(nodes, edges, subsystemId, { name } = {}) {
-  const subsystem = nodes.find((node) => node.id === subsystemId)
-  if (!isSubsystem(subsystem)) return refused(nodes, edges, 'That is not a subsystem.')
-  const smId = subsystem.data.smId
+export function makeUnique(nodes, edges, superInstanceId, { name } = {}) {
+  const superInstance = nodes.find((node) => node.id === superInstanceId)
+  if (!isSuperInstance(superInstance)) return refused(nodes, edges, 'That is not a super instance.')
+  const smId = superInstance.data.smId
   const supermodule = supermodulesById(nodes).get(smId)
-  if (!supermodule) return refused(nodes, edges, `Subsystem "${subsystem.data.name}" has no super-module.`)
+  if (!supermodule) return refused(nodes, edges, `Super instance "${superInstance.data.name}" has no super-module.`)
 
   const copyId = nextSupermoduleId(nodes)
   const names = new Set([...supermodulesById(nodes).values()].map((node) => node.data?.supermodule?.name))
@@ -369,12 +369,12 @@ export function makeUnique(nodes, edges, subsystemId, { name } = {}) {
   }
 
   const after = {
-    nodes: [...withData(nodes, new Map([[subsystemId, { smId: copyId }]])), ...copies.values()],
+    nodes: [...withData(nodes, new Map([[superInstanceId, { smId: copyId }]])), ...copies.values()],
     edges: [...edges, ...added],
   }
   const childIds = new Map([...copies].map(([oldId, copy]) => [oldId, copy.id]))
   const rewrite = (chain) => {
-    const at = chain.indexOf(subsystemId)
+    const at = chain.indexOf(superInstanceId)
     if (at < 0 || at + 1 >= chain.length) return chain
     return [...chain.slice(0, at + 1), childIds.get(chain[at + 1]) ?? chain[at + 1], ...chain.slice(at + 2)]
   }
@@ -382,27 +382,27 @@ export function makeUnique(nodes, edges, subsystemId, { name } = {}) {
 }
 
 /**
- * Gives one subsystem its super-module to itself, in place: every other subsystem of it moves to a copy (see
+ * Gives one super instance its super-module to itself, in place: every other super instance of it moves to a copy (see
  * makeUnique), which takes the super-module's name, circulatory_autogen identity and library source; the one keeps
- * the super-module, renamed and no longer the library's, so every id inside stays. With no other subsystem, it is only
+ * the super-module, renamed and no longer the library's, so every id inside stays. With no other super instance, it is only
  * renamed. Super-modules nested inside are shared still.
  *
  * @param {Array} nodes
  * @param {Array} edges
- * @param {string} subsystemId
+ * @param {string} superInstanceId
  * @returns {{nodes: Array, edges: Array, problems: string[], rewrite: Function, smId?: string}} `smId` the copy's, or
- *   undefined when there was no other subsystem.
+ *   undefined when there was no other super instance.
  */
-export function keepForOne(nodes, edges, subsystemId) {
-  const subsystem = nodes.find((node) => node.id === subsystemId)
-  if (!isSubsystem(subsystem)) return refused(nodes, edges, 'That is not a subsystem.')
-  const smId = subsystem.data.smId
+export function keepForOne(nodes, edges, superInstanceId) {
+  const superInstance = nodes.find((node) => node.id === superInstanceId)
+  if (!isSuperInstance(superInstance)) return refused(nodes, edges, 'That is not a super instance.')
+  const smId = superInstance.data.smId
   const definition = supermodulesById(nodes).get(smId)?.data?.supermodule
-  if (!definition) return refused(nodes, edges, `Subsystem "${subsystem.data.name}" has no super-module.`)
+  if (!definition) return refused(nodes, edges, `Super instance "${superInstance.data.name}" has no super-module.`)
 
   const names = new Set([...supermodulesById(nodes).values()].map((node) => node.data?.supermodule?.name))
   const own = { ...definition, name: claimName(definition.name, names, { scope: smId }), ca: null, source: null }
-  const others = nodes.filter((node) => isSubsystem(node) && node.data.smId === smId && node.id !== subsystemId)
+  const others = nodes.filter((node) => isSuperInstance(node) && node.data.smId === smId && node.id !== superInstanceId)
   if (!others.length) return { nodes: withData(nodes, new Map([[smId, { supermodule: own }]])), edges, problems: [], rewrite: (chain) => chain }
 
   const copy = makeUnique(nodes, edges, others[0].id, { name: definition.name })
@@ -412,7 +412,7 @@ export function keepForOne(nodes, edges, subsystemId) {
     [copy.smId, { supermodule: { ...copied, ca: definition.ca ?? null, source: definition.source ?? null } }],
     ...others.slice(1).map((node) => [node.id, { smId: copy.smId }]),
   ])
-  // Inside each subsystem moved, a module is the copy's.
+  // Inside each super instance moved, a module is the copy's.
   const moved = new Set(others.map((node) => node.id))
   const copyIdOf = new Map(
     nodes.filter((node) => scopeOf(node) === smId && !isSupermoduleInterface(node)).map((node) => [node.id, nodeIdOf(copy.smId, localIdOf(node))])
@@ -439,32 +439,32 @@ export function nestProblem(nodes, ids) {
 }
 
 /**
- * Nests nodes of one scope into a new super-module, and puts one subsystem of it where they were, at their centroid.
+ * Nests nodes of one scope into a new super-module, and puts one super instance of it where they were, at their centroid.
  *
  * - Each node moves into the new super-module's scope: a new id, its local id kept, and a name its rules allow. Its
  *   rows move with it, so its values stay its own.
  * - The edges between them move with them.
  * - An edge the selection cuts becomes two: an exposure edge from the node inside to the interface, exposing the
- *   node's ports its couplings use, and an edge between the node outside and the subsystem, whose couplings name
+ *   node's ports its couplings use, and an edge between the node outside and the super instance, whose couplings name
  *   those exposed ports in the same slots. A port several edges use is exposed once. Exposed ports are numbered, and
  *   ordered, as the edges cut come.
  * - An exposure edge of the scope's own interface from a node nested exposes it on the new super-module too, and the
- *   subsystem then exposes it, keeping its id, so the scope's subsystems are unchanged.
- * - Override keys passing through a node nested pass through the subsystem now.
+ *   super instance then exposes it, keeping its id, so the scope's super instances are unchanged.
+ * - Override keys passing through a node nested pass through the super instance now.
  *
  * @param {Array} nodes
  * @param {Array} edges
  * @param {string[]} ids - The nodes to nest.
  * @param {Object} options
- * @param {string} options.name - The super-module's and the subsystem's name.
- * @param {{x: number, y: number}} [options.position] - Where the subsystem goes; centred on the nodes by default.
- * @returns {{nodes: Array, edges: Array, problems: string[], rewrite: Function, smId?: string, subsystemId?: string}}
+ * @param {string} options.name - The super-module's and the super instance's name.
+ * @param {{x: number, y: number}} [options.position] - Where the super instance goes; centred on the nodes by default.
+ * @returns {{nodes: Array, edges: Array, problems: string[], rewrite: Function, smId?: string, superInstanceId?: string}}
  */
 export function nestSelection(nodes, edges, ids, { name, position } = {}) {
   const problem = nestProblem(nodes, ids)
   if (problem) return refused(nodes, edges, problem)
   const trimmed = (name ?? '').trim()
-  const nameProblem = localNameProblem(trimmed, { subsystem: true })
+  const nameProblem = localNameProblem(trimmed, { superInstance: true })
   if (nameProblem) return refused(nodes, edges, nameProblem)
   if ([...supermodulesById(nodes).values()].some((node) => node.data?.supermodule?.name === trimmed)) {
     return refused(nodes, edges, `A super-module is already called "${trimmed}".`)
@@ -479,8 +479,8 @@ export function nestSelection(nodes, edges, ids, { name, position } = {}) {
   const ordered = (scope ? childrenInOrder(nodes, scope) : nodes.filter((node) => scopeOf(node) === null)).filter((node) => moved.has(node.id))
 
   const smId = nextSupermoduleId(nodes)
-  const subsystemId = nodeIdAllocator(nodes, scope)()
-  const subsystemLocalId = splitNodeId(subsystemId).localId
+  const superInstanceId = nodeIdAllocator(nodes, scope)()
+  const superInstanceLocalId = splitNodeId(superInstanceId).localId
 
   // The nodes nested, in their new scope.
   const names = new Set()
@@ -500,7 +500,7 @@ export function nestSelection(nodes, edges, ids, { name, position } = {}) {
     const [isSource, isTarget] = [moved.has(edge.source), moved.has(edge.target)]
     if (!isSource && !isTarget) continue
     if (!isModelEdge(edge)) {
-      // Exposure edges inside a subsystem nested go nowhere; one to the scope's own interface is re-exposed.
+      // Exposure edges inside a super instance nested go nowhere; one to the scope's own interface is re-exposed.
       if (exposureEnds(edge, nodeById)?.smId === scope) scopeExposures.push(edge)
       continue
     }
@@ -526,7 +526,7 @@ export function nestSelection(nodes, edges, ids, { name, position } = {}) {
     return exposedByKey.get(key).id
   }
   const aliasOf = (node, port, slot) =>
-    isSubsystem(node)
+    isSuperInstance(node)
       ? { via: port.exposedPortId }
       : { portType: port.portType, label: port.label, slot: slotOf(node.data?.ports ?? [], port, slot) }
 
@@ -574,17 +574,17 @@ export function nestSelection(nodes, edges, ids, { name, position } = {}) {
     }
   })
 
-  // The subsystem, with its ports as the new super-module exposes them.
+  // The super instance, with its ports as the new super-module exposes them.
   const inside = [...nodes.filter((node) => !moved.has(node.id)), interfaceNode, ...copies.values()]
   const insideEdges = [...edges, ...inner, ...exposureEdges]
-  const ports = subsystemPorts(inside, insideEdges, smId)
+  const ports = superInstancePorts(inside, insideEdges, smId)
   const handles = buildGhostHandles()
-  const subsystemHandle = handlesBySide(handles)
+  const superInstanceHandle = handlesBySide(handles)
   // Centred on the nodes' centroid, as big as they are on average.
   const centroid = centroidOf(ordered)
   const half = (axis) => ordered.reduce((sum, node) => sum + (node.dimensions?.[axis] ?? 0), 0) / ordered.length / 2
   const at = position ?? { x: centroid.x - half('width'), y: centroid.y - half('height') }
-  const subsystem = buildSubsystem(subsystemId, trimmed, smId, { scope, ports, handles, position: { ...at } })
+  const superInstance = buildSuperInstance(superInstanceId, trimmed, smId, { scope, ports, handles, position: { ...at } })
 
   const slotOn = (port) => ports.filter((other) => other.portType === port.portType && other.label === port.label).indexOf(port)
   // An edge coupling nothing stands for no connection, so it goes. Edges from one node outside, the same way, become
@@ -598,11 +598,11 @@ export function nestSelection(nodes, edges, ids, { name, position } = {}) {
   const outerEdges = [...merged.values()].map(({ edge, side, inside: node, couplings }) => {
     const handleOf = side === 'source' ? edge.sourceHandle : edge.targetHandle
     const handleSide = sideOf(node, handleOf) ?? (side === 'source' ? 'right' : 'left')
-    const ends = { source: edge.source, target: edge.target, [side]: subsystemId }
+    const ends = { source: edge.source, target: edge.target, [side]: superInstanceId }
     return copyItem(edge, {
       id: nextEdgeId(ends.source, ends.target),
       ...ends,
-      [`${side}Handle`]: subsystemHandle(handleSide),
+      [`${side}Handle`]: superInstanceHandle(handleSide),
       data: {
         ...clone(edge.data),
         couplings: couplings.map(({ coupling, exposedPortId }) => {
@@ -613,24 +613,24 @@ export function nestSelection(nodes, edges, ids, { name, position } = {}) {
     })
   })
 
-  // The scope's own exposure edges from nodes nested now expose the subsystem's ports, keeping their ids.
+  // The scope's own exposure edges from nodes nested now expose the super instance's ports, keeping their ids.
   const scopeExposureEdges = []
   if (scopeEntries.length) {
     const first = scopeEntries[0].edge
     const [interfaceEnd, childEnd] = first.source === scope ? ['source', 'target'] : ['target', 'source']
     scopeExposureEdges.push(
       copyItem(first, {
-        id: nextEdgeId(subsystemId, scope),
-        source: subsystemId,
+        id: nextEdgeId(superInstanceId, scope),
+        source: superInstanceId,
         target: scope,
-        sourceHandle: subsystemHandle(sideOf(nodeById.get(first[childEnd]), first[`${childEnd}Handle`]) ?? 'bottom'),
+        sourceHandle: superInstanceHandle(sideOf(nodeById.get(first[childEnd]), first[`${childEnd}Handle`]) ?? 'bottom'),
         targetHandle: first[`${interfaceEnd}Handle`],
         data: { exposed: scopeEntries.map(({ entry, via }) => ({ ...clone(entry), alias: { via } })) },
       })
     )
   }
 
-  // The scope's own order lists the subsystem where the first node nested was.
+  // The scope's own order lists the super instance where the first node nested was.
   const changes = new Map()
   if (scope) {
     const movedLocalIds = new Set(ordered.map(localIdOf))
@@ -640,10 +640,10 @@ export function nestSelection(nodes, edges, ids, { name, position } = {}) {
       if (!movedLocalIds.has(localId)) return [localId]
       if (isPlaced) return []
       isPlaced = true
-      return [subsystemLocalId]
+      return [superInstanceLocalId]
     })
     changes.set(scope, { supermodule: { ...definition, submoduleOrder } })
-    for (const [id, overrides] of rewriteOverrideKeys(nodes, scope, (rest) => (movedLocalIds.has(rest[0]) ? [subsystemLocalId, ...rest] : rest), moved)) {
+    for (const [id, overrides] of rewriteOverrideKeys(nodes, scope, (rest) => (movedLocalIds.has(rest[0]) ? [superInstanceLocalId, ...rest] : rest), moved)) {
       changes.set(id, { overrides })
     }
   }
@@ -652,7 +652,7 @@ export function nestSelection(nodes, edges, ids, { name, position } = {}) {
   ghostUnusedHandles(copies, edges, newEdges)
   const removedEdges = new Set([...boundary, ...scopeExposures].map((edge) => edge.id))
   const after = {
-    nodes: [...withData(replaceNodes(nodes, moved, [subsystem]), changes), interfaceNode, ...copies.values()],
+    nodes: [...withData(replaceNodes(nodes, moved, [superInstance]), changes), interfaceNode, ...copies.values()],
     edges: [...edges.filter((edge) => !removedEdges.has(edge.id) && !moved.has(edge.source) && !moved.has(edge.target)), ...newEdges],
   }
   const structural = structureProblem(after.nodes)
@@ -660,23 +660,23 @@ export function nestSelection(nodes, edges, ids, { name, position } = {}) {
 
   const rewrite = (chain) => {
     const at = chain.findIndex((id) => moved.has(id))
-    return at < 0 ? chain : [...chain.slice(0, at), subsystemId, copies.get(chain[at]).id, ...chain.slice(at + 1)]
+    return at < 0 ? chain : [...chain.slice(0, at), superInstanceId, copies.get(chain[at]).id, ...chain.slice(at + 1)]
   }
-  return { ...after, problems: [], rewrite, smId, subsystemId }
+  return { ...after, problems: [], rewrite, smId, superInstanceId }
 }
 
 /**
- * Why a subsystem can't be un-nested, or null when it can.
+ * Why a super instance can't be un-nested, or null when it can.
  *
  * @param {Array} nodes
- * @param {string} subsystemId
+ * @param {string} superInstanceId
  * @returns {string|null}
  */
-export function unnestProblem(nodes, subsystemId) {
-  const subsystem = nodes.find((node) => node.id === subsystemId)
-  if (!isSubsystem(subsystem)) return 'That is not a subsystem.'
-  const supermodule = supermodulesById(nodes).get(subsystem.data.smId)
-  if (!supermodule) return `Subsystem "${subsystem.data.name}" has no super-module.`
+export function unnestProblem(nodes, superInstanceId) {
+  const superInstance = nodes.find((node) => node.id === superInstanceId)
+  if (!isSuperInstance(superInstance)) return 'That is not a super instance.'
+  const supermodule = supermodulesById(nodes).get(superInstance.data.smId)
+  if (!supermodule) return `Super instance "${superInstance.data.name}" has no super-module.`
   if (supermodule.data?.supermodule?.localConstants?.length) {
     return `Super-module "${supermodule.data.supermodule.name}" has local constants, which un-nesting can’t keep yet.`
   }
@@ -684,55 +684,55 @@ export function unnestProblem(nodes, subsystemId) {
 }
 
 /**
- * Un-nests a subsystem: its super-module's children take its place, as copies when other subsystems use it still, so
+ * Un-nests a super instance: its super-module's children take its place, as copies when other super instances use it still, so
  * those are unchanged.
  *
- * - Each child gets a new id in the subsystem's scope, and its name prefixed with the subsystem's (`heart__lv` at the
+ * - Each child gets a new id in the super instance's scope, and its name prefixed with the super instance's (`heart__lv` at the
  *   root, so its flat name is kept; `heart_lv` inside a super-module, whose names can't hold `__`), unique there.
- * - The subsystem's overrides are baked in: into a module's rows, or a nested subsystem's own overrides, which they win
+ * - The super instance's overrides are baked in: into a module's rows, or a nested super instance's own overrides, which they win
  *   over.
- * - The edges inside move up with them. An edge to the subsystem becomes one edge to each child its couplings reach
+ * - The edges inside move up with them. An edge to the super instance becomes one edge to each child its couplings reach
  *   through the exposed ports, the couplings naming the child's own ports in the same slots. A coupling to a port its
  *   super-module no longer exposes goes (it couples nothing).
- * - An exposure edge of the scope's interface from the subsystem exposes the children's ports themselves, keeping the
+ * - An exposure edge of the scope's interface from the super instance exposes the children's ports themselves, keeping the
  *   exposed ports' ids.
- * - The super-module goes when no other subsystem uses it.
+ * - The super-module goes when no other super instance uses it.
  *
  * @param {Array} nodes
  * @param {Array} edges
- * @param {string} subsystemId
+ * @param {string} superInstanceId
  * @returns {{nodes: Array, edges: Array, problems: string[], rewrite: Function, droppedCouplings?: number,
  *   removedSupermodule?: boolean}}
  */
-export function unnest(nodes, edges, subsystemId) {
-  const problem = unnestProblem(nodes, subsystemId)
+export function unnest(nodes, edges, superInstanceId) {
+  const problem = unnestProblem(nodes, superInstanceId)
   if (problem) return refused(nodes, edges, problem)
   const nodeById = new Map(nodes.map((node) => [node.id, node]))
-  const subsystem = nodeById.get(subsystemId)
-  const scope = scopeOf(subsystem)
-  const smId = subsystem.data.smId
+  const superInstance = nodeById.get(superInstanceId)
+  const scope = scopeOf(superInstance)
+  const smId = superInstance.data.smId
   const supermodule = supermodulesById(nodes).get(smId)
-  const isShared = nodes.some((node) => isSubsystem(node) && node.id !== subsystemId && node.data.smId === smId)
+  const isShared = nodes.some((node) => isSuperInstance(node) && node.id !== superInstanceId && node.data.smId === smId)
   const children = childrenInOrder(nodes, smId)
-  const overrides = subsystem.data.overrides ?? {}
+  const overrides = superInstance.data.overrides ?? {}
 
-  // The children, copied up into the subsystem's scope.
+  // The children, copied up into the super instance's scope.
   const nextId = nodeIdAllocator(nodes, scope)
-  const names = new Set(nodes.filter((node) => scopeOf(node) === scope && node.id !== subsystemId).map((node) => node.data?.name))
+  const names = new Set(nodes.filter((node) => scopeOf(node) === scope && node.id !== superInstanceId).map((node) => node.data?.name))
   const isPreserved = supermodule.data?.supermodule?.naming === 'preserve'
   const offset = (() => {
     const from = centroidOf(children)
-    const to = centreOf(subsystem)
+    const to = centreOf(superInstance)
     return { x: to.x - from.x, y: to.y - from.y }
   })()
   const copies = new Map()
   for (const child of children) {
     const id = nextId()
     const ownName = isPreserved ? (child.data?.originalName ?? child.data?.name) : child.data?.name
-    const joined = isPreserved ? ownName : `${subsystem.data.name}${scope ? '_' : LEVEL_SEPARATOR}${ownName}`
+    const joined = isPreserved ? ownName : `${superInstance.data.name}${scope ? '_' : LEVEL_SEPARATOR}${ownName}`
     const data = { ...clone(child.data), scope, localId: splitNodeId(id).localId, name: claimName(joined, names, { scope }) }
     const localId = localIdOf(child)
-    if (isSubsystem(child)) {
+    if (isSuperInstance(child)) {
       const prefix = `${localId}${EXPANDED_ID_SEPARATOR}`
       const inner = clone(child.data.overrides ?? {})
       for (const [key, patches] of Object.entries(overrides)) {
@@ -779,14 +779,14 @@ export function unnest(nodes, edges, subsystemId) {
     return live ? { copy, childId: port.childId, port: live, slot, alias: { portType: port.alias.portType, label: port.alias.label, slot } } : null
   }
 
-  // Each edge to the subsystem, as edges to the children its couplings reach.
+  // Each edge to the super instance, as edges to the children its couplings reach.
   let droppedCouplings = 0
   const outer = []
   const replaced = new Set()
   for (const edge of edges) {
-    if (!isModelEdge(edge) || (edge.source !== subsystemId && edge.target !== subsystemId)) continue
+    if (!isModelEdge(edge) || (edge.source !== superInstanceId && edge.target !== superInstanceId)) continue
     replaced.add(edge.id)
-    const side = edge.source === subsystemId ? 'source' : 'target'
+    const side = edge.source === superInstanceId ? 'source' : 'target'
     const byChild = new Map()
     for (const coupling of edge.data?.couplings ?? []) {
       const end = target(coupling[`${side}Port`]?.exposedPortId)
@@ -804,17 +804,17 @@ export function unnest(nodes, edges, subsystemId) {
         copyItem(edge, {
           id: nextEdgeId(ends.source, ends.target),
           ...ends,
-          [`${side}Handle`]: handle ?? claimHandle(end.copy.data.handles ?? (end.copy.data.handles = buildGhostHandles()), sideOf(subsystem, edge[`${side}Handle`]) ?? 'left'),
+          [`${side}Handle`]: handle ?? claimHandle(end.copy.data.handles ?? (end.copy.data.handles = buildGhostHandles()), sideOf(superInstance, edge[`${side}Handle`]) ?? 'left'),
           data: { ...clone(edge.data), couplings },
         })
       )
     }
   }
 
-  // The scope's own exposure edges from the subsystem now expose the children's ports, keeping their ids.
+  // The scope's own exposure edges from the super instance now expose the children's ports, keeping their ids.
   const scopeExposures = []
   for (const edge of edges) {
-    if (exposureEnds(edge, nodeById)?.child?.id !== subsystemId) continue
+    if (exposureEnds(edge, nodeById)?.child?.id !== superInstanceId) continue
     replaced.add(edge.id)
     const interfaceEnd = edge.source === scope ? 'source' : 'target'
     const byChild = new Map()
@@ -837,24 +837,24 @@ export function unnest(nodes, edges, subsystemId) {
     }
   }
 
-  // The scope's order lists the children where the subsystem was; override keys through it reach them directly.
+  // The scope's order lists the children where the super instance was; override keys through it reach them directly.
   const changes = new Map()
   const newLocalIds = new Map(children.map((child) => [localIdOf(child), copies.get(child.id).data.localId]))
   if (scope) {
     const definition = supermodulesById(nodes).get(scope).data.supermodule
     const order = definition.submoduleOrder ?? []
-    const submoduleOrder = order.includes(subsystem.data.localId)
-      ? order.flatMap((localId) => (localId === subsystem.data.localId ? [...newLocalIds.values()] : [localId]))
+    const submoduleOrder = order.includes(superInstance.data.localId)
+      ? order.flatMap((localId) => (localId === superInstance.data.localId ? [...newLocalIds.values()] : [localId]))
       : order
     changes.set(scope, { supermodule: { ...definition, submoduleOrder } })
     const rewriteAt = (rest) => {
-      if (rest[0] !== subsystem.data.localId) return rest
+      if (rest[0] !== superInstance.data.localId) return rest
       return newLocalIds.has(rest[1]) ? [newLocalIds.get(rest[1]), ...rest.slice(2)] : null
     }
-    for (const [id, next] of rewriteOverrideKeys(nodes, scope, rewriteAt, new Set([subsystemId]))) changes.set(id, { overrides: next })
+    for (const [id, next] of rewriteOverrideKeys(nodes, scope, rewriteAt, new Set([superInstanceId]))) changes.set(id, { overrides: next })
   }
 
-  const removedNodes = new Set([subsystemId])
+  const removedNodes = new Set([superInstanceId])
   if (!isShared) {
     removedNodes.add(smId)
     for (const node of nodes) if (scopeOf(node) === smId) removedNodes.add(node.id)
@@ -862,11 +862,11 @@ export function unnest(nodes, edges, subsystemId) {
   const newEdges = [...inner, ...outer, ...scopeExposures]
   ghostUnusedHandles(copies, edges, newEdges)
   const after = {
-    nodes: withData(replaceNodes(nodes, new Set([subsystemId]), [...copies.values()]).filter((node) => !removedNodes.has(node.id)), changes),
+    nodes: withData(replaceNodes(nodes, new Set([superInstanceId]), [...copies.values()]).filter((node) => !removedNodes.has(node.id)), changes),
     edges: [...edges.filter((edge) => !replaced.has(edge.id) && !removedNodes.has(edge.source) && !removedNodes.has(edge.target)), ...newEdges],
   }
   const rewrite = (chain) => {
-    const at = chain.indexOf(subsystemId)
+    const at = chain.indexOf(superInstanceId)
     if (at < 0 || at + 1 >= chain.length) return chain
     return [...chain.slice(0, at), copies.get(chain[at + 1])?.id ?? chain[at + 1], ...chain.slice(at + 2)]
   }
@@ -874,24 +874,24 @@ export function unnest(nodes, edges, subsystemId) {
 }
 
 /**
- * Gets the super-modules some nodes depend on, through their subsystems and those inside them: each one's interface
+ * Gets the super-modules some nodes depend on, through their super instances and those inside them: each one's interface
  * node, its children and the edges inside it, its exposure edges among them.
  *
  * @param {Array} nodes - Every node in the store.
  * @param {Array} edges - Every edge in the store.
  * @param {Array} from - The nodes whose dependencies are wanted.
- * @returns {{nodes: Array, edges: Array}} Copies, without what Vue Flow adds; empty when none is a subsystem.
+ * @returns {{nodes: Array, edges: Array}} Copies, without what Vue Flow adds; empty when none is a super instance.
  */
 export function supermoduleClosure(nodes, edges, from) {
   const interfaces = supermodulesById(nodes)
   const byScope = indexByScope(nodes)
   const smIds = new Set()
-  const pending = from.filter(isSubsystem).map((node) => node.data.smId)
+  const pending = from.filter(isSuperInstance).map((node) => node.data.smId)
   while (pending.length) {
     const smId = pending.pop()
     if (smIds.has(smId) || !interfaces.has(smId)) continue
     smIds.add(smId)
-    for (const node of byScope.get(smId) ?? []) if (isSubsystem(node)) pending.push(node.data.smId)
+    for (const node of byScope.get(smId) ?? []) if (isSuperInstance(node)) pending.push(node.data.smId)
   }
   const members = nodes.filter((node) => smIds.has(node.id) || smIds.has(scopeOf(node)))
   const ids = new Set(members.map((node) => node.id))
@@ -925,7 +925,7 @@ function supermoduleSignature(smId, nodes, edges) {
 
 /**
  * Hashes what a super-module holds, as supermoduleSignature describes it, leaving out what isn't its structure: its
- * name, identity and source, the ports of the subsystems inside, which follow what their super-modules expose, and
+ * name, identity and source, the ports of the super instances inside, which follow what their super-modules expose, and
  * how a model edge is drawn. Equal hashes, the same super-module.
  *
  * @param {string} smId
@@ -939,7 +939,7 @@ export function supermoduleContentHash(smId, nodes, edges) {
       const { name: _name, ca: _ca, source: _source, ...definition } = node.data?.supermodule ?? {}
       return { ...node, data: { ...node.data, supermodule: definition } }
     }
-    return isSubsystem(node) && scopeOf(node) === smId ? { ...node, data: { ...node.data, ports: undefined } } : node
+    return isSuperInstance(node) && scopeOf(node) === smId ? { ...node, data: { ...node.data, ports: undefined } } : node
   }
   const drawn = edges.map((edge) => (edge.type === EXPOSURE_EDGE_TYPE ? edge : { ...edge, type: null }))
   const text = supermoduleSignature(smId, nodes.map(structureOf), drawn)
@@ -951,13 +951,13 @@ export function supermoduleContentHash(smId, nodes, edges) {
 /**
  * Plans pasting super-modules copied with a selection (see supermoduleClosure): each one the workspace already has,
  * the same and with every one it uses the same, is reused; any other is added with a fresh id, its children's ids
- * and its name made unique, and the subsystems inside it pointed at the copies.
+ * and its name made unique, and the super instances inside it pointed at the copies.
  *
  * @param {Array} nodes - Every node in the store.
  * @param {Array} edges - Every edge in the store.
  * @param {{nodes: Array, edges: Array}} closure
  * @returns {{nodes: Array, edges: Array, smIdMap: Map<string, string>}} The nodes and edges to add, and each copied
- *   super-module's id to the one pasted subsystems use.
+ *   super-module's id to the one pasted super instances use.
  */
 export function planSupermodulePaste(nodes, edges, closure) {
   const copied = supermodulesById(closure.nodes)
@@ -985,7 +985,7 @@ export function planSupermodulePaste(nodes, edges, closure) {
     for (const node of members) {
       const data = { ...clone(node.data), scope: id, localId: isSupermoduleInterface(node) ? id : localIdOf(node) }
       if (isSupermoduleInterface(node)) data.supermodule = { ...data.supermodule, name: claimName(data.supermodule?.name ?? id, names, { scope: id }) }
-      if (isSubsystem(node)) data.smId = smIdMap.get(node.data.smId) ?? node.data.smId
+      if (isSuperInstance(node)) data.smId = smIdMap.get(node.data.smId) ?? node.data.smId
       const copy = copyItem(node, { id: idOf.get(node.id), data })
       taken.push(copy)
       added.nodes.push(copy)

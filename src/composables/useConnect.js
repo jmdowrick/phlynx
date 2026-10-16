@@ -13,7 +13,7 @@ import { detachReactivity } from '../utils/reactivity'
  * Registers the Vue Flow connect handler: validates a new connection, activates its handles,
  * asks before replacing an existing connection between the same instances, and adds the edge
  * with its resolved port couplings. A connection needing a port with no free slot is refused.
- * A subsystem connects like a module, through the ports its super-module exposes. Inside a
+ * A super instance connects like a module, through the ports its super-module exposes. Inside a
  * super-module, an exposed single-connection port is taken, by the connection from outside.
  *
  * A connection between a child of a super-module and its interface node makes an exposure edge,
@@ -57,7 +57,7 @@ export function useConnect({
   function connectExposure(connection) {
     const edge = exposure.buildExposureEdge(connection, edgeLineOptions)
     if (!edge) {
-      notify.error({ title: 'Connection Not Made', message: 'Only a module or subsystem inside a super-module connects to its interface.' })
+      notify.error({ title: 'Connection Not Made', message: 'Only a module or super instance inside a super-module connects to its interface.' })
       return
     }
     const childId = isSupermoduleInterface(findNode(connection.source)) ? connection.target : connection.source

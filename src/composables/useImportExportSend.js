@@ -42,9 +42,9 @@ import { getImportConfig } from '../utils/import'
  * @param {import('vue').Ref<Array>} options.nodes - The model's nodes.
  * @param {import('vue').Ref<Array>} options.edges - The model's edges.
  * @param {import('vue').Ref<string[]>} options.selectedNodeIds - The model nodes the canvas selection stands for.
- * @param {import('vue').Ref<Array>} [options.modelErrors] - The problems expanding subsystems found (useModelGraph's
+ * @param {import('vue').Ref<Array>} [options.modelErrors] - The problems expanding super instances found (useModelGraph's
  *   `errors`): errors stop an export, warnings are shown with it.
- * @param {import('vue').Ref<boolean>} [options.isHierarchical] - Whether the workspace has subsystems (useModelGraph's).
+ * @param {import('vue').Ref<boolean>} [options.isHierarchical] - Whether the workspace has super instances (useModelGraph's).
  * @returns {Object} The menus, the current modes and their triggers.
  */
 export function useImportExportSend({
@@ -119,7 +119,7 @@ export function useImportExportSend({
     })
 
   /**
-   * Gets the whole model to export. Problems expanding its subsystems stop the export, and their warnings are shown
+   * Gets the whole model to export. Problems expanding its super instances stop the export, and their warnings are shown
    * once, as it starts.
    *
    * @returns {{nodes: Array, edges: Array}}
@@ -133,9 +133,9 @@ export function useImportExportSend({
   }
 
   /**
-   * Names slider selections as the model exports their modules: a module inside a subsystem is renamed with any
-   * subsystem it is in, which its stored name doesn't follow. A root module's selection, and any in a workspace without
-   * subsystems, is kept as stored, as before.
+   * Names slider selections as the model exports their modules: a module inside a super instance is renamed with any
+   * super instance it is in, which its stored name doesn't follow. A root module's selection, and any in a workspace without
+   * super instances, is kept as stored, as before.
    *
    * @param {Array<Object>} selections - parameterScanConfig.selections.
    * @returns {Array<Object>}

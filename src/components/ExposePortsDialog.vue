@@ -8,8 +8,8 @@
     class="expose-ports-dialog"
   >
     <p class="dialog-hint">
-      Tick the ports of <strong>{{ childName }}</strong> to expose on every subsystem of this super-module. Drag rows to
-      order them; the order sets their slots. A label replaces the port's own on the subsystems.
+      Tick the ports of <strong>{{ childName }}</strong> to expose on every super instance of this super-module. Drag rows to
+      order them; the order sets their slots. A label replaces the port's own on the super instances.
     </p>
 
     <DataTable :value="rows" data-key="key" size="small" scrollable scroll-height="22rem" @row-reorder="onRowReorder">

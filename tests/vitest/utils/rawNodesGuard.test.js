@@ -1,6 +1,6 @@
 /**
  * Guards the split between the model and the canvas: what simulates, exports or searches the model reads
- * useModelGraph(), whose nodes have every subsystem expanded, never the store's nodes or edges. Every place in src/
+ * useModelGraph(), whose nodes have every super instance expanded, never the store's nodes or edges. Every place in src/
  * that reads the store is listed below, as a canvas use or a model use that is safe as it is, with why. A read is
  * `nodes.value`, `edges.value`, `getNodes.value` or `getEdges.value`; the flow got by `useVueFlow(FLOW_IDS.MAIN)`,
  * `useVueFlow()` or `useVueFlow(flowId)` (both the workspace's, in it); or a destructure from useVueFlow that renames
@@ -34,25 +34,25 @@ const ALLOWED = [
   {
     file: 'src/composables/useSupermodules.js',
     use: 'model-safe',
-    reason: 'Reads the super-modules’ records and counts their subsystems, each store node once, and adds subsystems.',
+    reason: 'Reads the super-modules’ records and counts their super instances, each store node once, and adds super instances.',
   },
   {
     file: 'src/composables/useModelWriter.js',
     line: 'useVueFlow(FLOW_IDS.MAIN)',
     use: 'model-safe',
-    reason: 'Writes a module’s values to its node, or as an override on the subsystem it is inside, found through the model.',
+    reason: 'Writes a module’s values to its node, or as an override on the super instance it is inside, found through the model.',
   },
   {
     file: 'src/composables/useModelWriter.js',
-    line: 'listOverrides(subsystemId, nodes.value)',
+    line: 'listOverrides(superInstanceId, nodes.value)',
     use: 'model-safe',
-    reason: 'A subsystem’s own overrides, resolved against the super-modules’ nodes, each once.',
+    reason: 'A super instance’s own overrides, resolved against the super-modules’ nodes, each once.',
   },
   {
-    file: 'src/composables/useSubsystemSync.js',
+    file: 'src/composables/useSuperInstanceSync.js',
     line: 'useVueFlow(flowId)',
     use: 'model-safe',
-    reason: 'Materialises every subsystem’s ports from its super-module’s exposure edges, each store node once.',
+    reason: 'Materialises every super instance’s ports from its super-module’s exposure edges, each store node once.',
   },
   {
     file: 'src/composables/useHierarchyOperations.js',
@@ -64,7 +64,7 @@ const ALLOWED = [
     file: 'src/composables/useExposure.js',
     line: 'useVueFlow(flowId)',
     use: 'model-safe',
-    reason: 'Reads and writes exposure edges and the couplings to subsystems, each store edge once, in every scope.',
+    reason: 'Reads and writes exposure edges and the couplings to super instances, each store edge once, in every scope.',
   },
 
   // The canvas: what it shows, selects, lays out and edits as nodes. What reads only what is shown reads
@@ -100,10 +100,10 @@ const ALLOWED = [
 
   // The canvas's edges and the flow by default or by parameter, the workspace's in it.
   { file: 'src/views/WorkspaceArea.vue', line: 'for (const edge of edges.value)', count: 2, use: 'canvas', reason: 'Indexes the canvas edges by node, and repairs loaded edges without couplings.' },
-  { file: 'src/components/CouplingEdge.vue', line: '= useVueFlow()', use: 'canvas', reason: 'Finds its end nodes, to flag couplings to ports a subsystem no longer exposes.' },
+  { file: 'src/components/CouplingEdge.vue', line: '= useVueFlow()', use: 'canvas', reason: 'Finds its end nodes, to flag couplings to ports a super instance no longer exposes.' },
   { file: 'src/components/ExposureEdge.vue', line: '= useVueFlow()', use: 'canvas', reason: 'The ends of its drawn exposure edge, whose child names the ports it exposes.' },
-  { file: 'src/components/SubsystemPanel.vue', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'The canvas edges into the selected subsystem, for its broken couplings.' },
-  { file: 'src/components/SubsystemPanel.vue', line: 'return edges.value.flatMap', use: 'canvas', reason: 'The canvas edges into the selected subsystem, for its broken couplings.' },
+  { file: 'src/components/SuperInstancePanel.vue', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'The canvas edges into the selected super instance, for its broken couplings.' },
+  { file: 'src/components/SuperInstancePanel.vue', line: 'return edges.value.flatMap', use: 'canvas', reason: 'The canvas edges into the selected super instance, for its broken couplings.' },
   { file: 'src/components/HelperLines.vue', line: '= useVueFlow()', use: 'canvas', reason: 'The viewport the helper lines are drawn over.' },
   { file: 'src/components/InstanceEditorDialog.vue', line: '= useVueFlow()', use: 'canvas', reason: 'The flow the edited node is in.' },
   { file: 'src/components/InstanceEditorDialog.vue', line: 'const names = edges.value', use: 'canvas', reason: 'Names the canvas neighbours a port connects to.' },
@@ -136,7 +136,7 @@ const ALLOWED = [
   { file: 'src/composables/useNodeDataHistory.js', line: 'useVueFlow(flowId)', use: 'canvas', reason: 'The flow whose node edits are undone.' },
   { file: 'src/composables/useNodeDataHistory.js', line: 'return edges.value.filter', use: 'canvas', reason: 'The edges an edit to some nodes may recouple.' },
   { file: 'src/composables/useWorkflowLayout.js', line: '= useVueFlow()', use: 'canvas', reason: 'Lays out the canvas.' },
-  { file: 'src/composables/useWorkspaceClipboard.js', line: 'useVueFlow(flowId)', use: 'canvas', reason: 'The flow it copies from and pastes to, with the super-modules copied subsystems depend on.' },
+  { file: 'src/composables/useWorkspaceClipboard.js', line: 'useVueFlow(flowId)', use: 'canvas', reason: 'The flow it copies from and pastes to, with the super-modules copied super instances depend on.' },
 
   // Safe for the model as they are: each store node once, as stored, which is what they need.
   {

@@ -5,7 +5,7 @@ import PrimeVue from 'primevue/config'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { FLOW_IDS } from '../../../src/utils/constants.js'
-import { exposed, exposures, module, port, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
+import { exposed, exposures, module, port, superInstance, supermodule } from '../fixtures/hierarchy/graph.js'
 
 const notifyError = vi.hoisted(() => vi.fn())
 vi.mock('../../../src/utils/notify', () => ({ notify: Object.assign(vi.fn(), { error: notifyError }) }))
@@ -25,29 +25,29 @@ const { useVueFlow } = await import('@vue-flow/core')
 const { useCanvasLevel } = await import('../../../src/composables/useCanvasLevel.js')
 const { useFlowHistoryStore } = await import('../../../src/stores/historyStore.js')
 const { useSimulationResultsStore } = await import('../../../src/stores/simulationResultsStore.js')
-const { default: SubsystemNode } = await import('../../../src/components/SubsystemNode.vue')
+const { default: SuperInstanceNode } = await import('../../../src/components/SuperInstanceNode.vue')
 const { default: InterfaceNode } = await import('../../../src/components/InterfaceNode.vue')
 
 const IN = port('entrance_ports', 'vessel', ['v_in', 'u'])
 
-/** Root: two subsystems of heart (sm_1, holding lv), and a module. */
+/** Root: two super instances of heart (sm_1, holding lv), and a module. */
 function graph() {
   const lv = module('dndnode_0', 'lv', { scope: 'sm_1', ports: [{ ...IN }] })
   const sm = supermodule('sm_1', 'heart', { ca: { module_type: 'heart', module_subtype: 'Argus2026_v01' } })
   const exposure = exposures('sm_1', [exposed('xp_in', 'dndnode_0', 'entrance_ports', 'vessel')])
   const inner = { nodes: [sm, lv], edges: exposure }
-  const left = subsystem(inner, 'dndnode_1', 'left', 'sm_1')
-  const right = subsystem(inner, 'dndnode_2', 'right', 'sm_1')
+  const left = superInstance(inner, 'dndnode_1', 'left', 'sm_1')
+  const right = superInstance(inner, 'dndnode_2', 'right', 'sm_1')
   return { nodes: [left, right, sm, lv], edges: exposure }
 }
 
-describe('SubsystemNode', () => {
+describe('SuperInstanceNode', () => {
   const flow = useVueFlow(FLOW_IDS.MAIN)
   const level = useCanvasLevel()
   let wrapper
 
   const mountNode = (id = 'dndnode_1') => {
-    wrapper = mount(SubsystemNode, {
+    wrapper = mount(SuperInstanceNode, {
       props: { id, data: flow.findNode(id).data },
       global: { plugins: [PrimeVue], directives: { tooltip: {} } },
       attachTo: document.body,
@@ -66,33 +66,33 @@ describe('SubsystemNode', () => {
     vi.useRealTimers()
   })
 
-  it('shows its name, its super-module, how many subsystems that has, and its ports', () => {
+  it('shows its name, its super-module, how many super instances that has, and its ports', () => {
     mountNode()
     expect(wrapper.find('.name-text').text()).toBe('left')
-    expect(wrapper.find('.subsystem-supermodule').text()).toBe('heart:Argus2026_v01')
-    expect(wrapper.find('.subsystem-count').text()).toBe('×2')
-    expect(wrapper.find('.subsystem-count').attributes('aria-label')).toBe('2 super instances of heart')
-    expect(wrapper.find('.subsystem-count').attributes('role')).toBe('img')
+    expect(wrapper.find('.super-instance-supermodule').text()).toBe('heart:Argus2026_v01')
+    expect(wrapper.find('.super-instance-count').text()).toBe('×2')
+    expect(wrapper.find('.super-instance-count').attributes('aria-label')).toBe('2 super instances of heart')
+    expect(wrapper.find('.super-instance-count').attributes('role')).toBe('img')
     expect(wrapper.text()).toContain('1 port')
   })
 
   it('is an instance card, with the same header, name and button, and a second card stacked behind it', () => {
     mountNode()
     const card = wrapper.find('.instance-card')
-    expect(card.classes()).toEqual(expect.arrayContaining(['instance-card', 'subsystem-card']))
+    expect(card.classes()).toEqual(expect.arrayContaining(['instance-card', 'super-instance-card']))
     // The front card is the node's only card box: no inline border or offset of its own.
     expect(card.attributes('style') ?? '').not.toMatch(/border|shadow|transform/)
     expect(card.findAll(':scope > *').map((child) => child.classes()[0])).toEqual(['card-header-actions', 'instance-name'])
     expect(card.findAll('.instance-details .detail-item')).toHaveLength(2)
-    expect(card.find('.subsystem-open').classes()).toContain('instance-button')
+    expect(card.find('.super-instance-open').classes()).toContain('instance-button')
 
     // Nested by a second edge inside the card, so nothing is drawn outside it.
-    expect(wrapper.find('.subsystem-stack').exists()).toBe(false)
+    expect(wrapper.find('.super-instance-stack').exists()).toBe(false)
   })
 
   it('opens from its Open button', async () => {
     mountNode()
-    await wrapper.find('.subsystem-open').trigger('click')
+    await wrapper.find('.super-instance-open').trigger('click')
     expect(level.scope.value).toBe('sm_1')
     expect(level.instancePath.value).toEqual(['dndnode_1'])
   })
@@ -111,8 +111,8 @@ describe('SubsystemNode', () => {
   it('says when its super-module is missing, and can’t open', () => {
     flow.removeNodes([{ ...flow.findNode('sm_1'), deletable: true }])
     mountNode()
-    expect(wrapper.find('.subsystem-supermodule--missing').exists()).toBe(true)
-    expect(wrapper.find('.subsystem-open').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.super-instance-supermodule--missing').exists()).toBe(true)
+    expect(wrapper.find('.super-instance-open').attributes('disabled')).toBeDefined()
   })
 
   it('renames as one undo step, by the rules for names inside super-modules', async () => {
