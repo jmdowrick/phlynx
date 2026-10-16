@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { orderForCa } from '../../../../src/services/export/caOrder.js'
+import { orderForCa } from '../../fixtures/ca/order.js'
 import { buildWorkflowGraph } from '../../../../src/services/import/buildWorkflow.js'
 
 const port = (portType, label, variables, multiportType = 'None') => ({ portType, label, variables, multiportType })
@@ -20,6 +20,7 @@ const MODULES = new Map([
   ['sensor:c', module('sensor:c', [port('entrance_ports', 'ctrl', ['c'])])],
   ['general:one', module('general:one', [port('general_ports', 'p', ['g'])])],
   ['general:two', module('general:two', [port('general_ports', 'p', ['g0']), port('general_ports', 'p', ['g1'])])],
+  ['artery:a', module('artery:a', [port('entrance_ports', 'vessel_port', ['v_in', 'u'])])],
   [
     'heart:vp',
     {
@@ -115,7 +116,8 @@ describe('buildWorkflowGraph port slots', () => {
 
       expect(slots).toEqual({ 'X>G': ['p:0>0'], 'G>Y': ['p:0>0'] })
       expect(conflicts).toEqual([])
-      expect(unmatched).toEqual([])
+      // CA wires every free source slot of a label other than vessel_port to the target's slot, so G's second p too.
+      expect(unmatched).toEqual(middle === 'general:two' ? ['dndnode_1--dndnode_2'] : [])
     }
   })
 
@@ -146,7 +148,7 @@ describe("buildWorkflowGraph with circulatory_autogen's heart rule", () => {
     const rows = [
       row('heart', 'heart:vp', outputs, inputs.join(' ')),
       ...[...inputs].reverse().map((name) => row(name, 'single:s', 'heart')),
-      ...outputs.split(' ').filter(Boolean).map((name) => row(name, 'vessel:v', '', 'heart')),
+      ...outputs.split(' ').filter(Boolean).map((name) => row(name, 'artery:a', '', 'heart')),
     ]
     const { slots, unmatched, nodes, ivcZeroedHearts } = build(rows, { caRules })
     const heart = nodes.find((node) => node.data.name === 'heart')

@@ -2,14 +2,16 @@ import JSZip from 'jszip'
 import Papa from 'papaparse'
 
 import { notify } from '../../utils/notify'
-import { parseMathRef, parseModuleRef, restorePorts, restoreVariables } from '../../utils/config'
+import { BASE_SUBTYPE_KEY, parseMathRef, parseModuleRef, restorePorts, restoreVariables } from '../../utils/config'
 import { PORT_TYPE_OPTIONS } from '../../utils/constants'
 import { normaliseMultiport, VOLUME_PORT } from '../../utils/multiport'
 import { isBlank } from '../../utils/variables'
 import { resolveBoundaryValues } from './boundaryValues'
 import { checkHearts, warnDeprecatedJunctions } from '../caRules'
+import { configSignature, variantSubtype } from '../caVariants'
+import { resolveInstanceVariables } from '../import/buildWorkflow'
 import { buildCaCellmlFiles, isHeart, listNamed } from './caCellml'
-import { orderForCa } from './caOrder'
+import { planCaPairing, RESIDUAL_REASONS } from './caPairing'
 
 // CA's placeholder for a value still to be given; it reads an empty cell as NaN.
 const EMPTY_VALUE = 'EMPTY_MUST_BE_FILLED'
@@ -42,14 +44,19 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
     const instance_array = []
     const allParameters = new Set()
 
-    // Rows and their out/inp lists in the order that has CA give each connection the port slots it holds here.
-    const { rows, outEdges, inpEdges, unmatched, hearts } = orderForCa(nodes, edges)
-    warnUnmatchedSlots(unmatched, nodeNameMap, hearts)
+    // The rows and their out/inp lists in the order that has CA give each connection the port slots it holds here,
+    // and each instance's ports as exported where no order does.
+    const plan = planCaPairing(nodes, edges)
+    const subtypeOf = subtypeChooser(libraryStore)
+    const variants = []
+    // The modules variants stand in for, and the instances each entry is written for.
+    const variantBases = new Map()
+    const usersOf = new Map()
 
     // --- 1. PROCESS NODES FOR CONFIG AND TOPOLOGY ---
-    for (const node of rows) {
-      const inp_instances = inpEdges.get(node.id).map((edge) => nodeNameMap.get(edge.source))
-      const out_instances = outEdges.get(node.id).map((edge) => nodeNameMap.get(edge.target))
+    for (const node of plan.rows) {
+      const inp_instances = plan.inpEdges.get(node.id).map((edge) => nodeNameMap.get(edge.source))
+      const out_instances = plan.outEdges.get(node.id).map((edge) => nodeNameMap.get(edge.target))
 
       const { moduleType, moduleSubtype } = parseModuleRef(node.data.moduleRef)
 
@@ -58,13 +65,23 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
         throw new Error(`Missing module definition '${node.data.moduleRef}' for node '${node.data.name}'`)
       }
 
-      if (!uniqueModuleConfigs.has(node.data.moduleRef)) {
-        uniqueModuleConfigs.set(node.data.moduleRef, moduleConfigEntry(node.data))
+      // Each instance's own config: one that differs from its library module's is a variant of its own (#689).
+      const entry = moduleConfigEntry({ ...node.data, ports: plan.ports.get(node.id) })
+      const subtype = subtypeOf(node.data.moduleRef, moduleData, entry)
+      if (subtype !== moduleSubtype) {
+        variants.push(node.data.name)
+        variantBases.set(node.data.moduleRef, moduleData)
       }
+      const ref = `${moduleType}:${subtype}`
+      if (!uniqueModuleConfigs.has(ref)) {
+        uniqueModuleConfigs.set(ref, subtype === moduleSubtype ? entry : asVariant(entry, subtype))
+      }
+      const written = uniqueModuleConfigs.get(ref)
+      usersOf.set(written, [...(usersOf.get(written) ?? []), node.data.name])
 
       instance_array.push({
         name: node.data.name,
-        module_subtype: moduleSubtype,
+        module_subtype: subtype,
         module_type: moduleType,
         inp_instances: inp_instances.join(' '),
         out_instances: out_instances.join(' '),
@@ -91,7 +108,10 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
       }
     }
 
+    addVariantBases(variantBases, uniqueModuleConfigs, libraryStore)
     checkHearts(instance_array)
+    reportPlan(plan, nodeNameMap)
+    noteVariants(variants)
     warnDeprecatedJunctions(instance_array.map((row) => row.module_type))
     warnMissingBoundaryValues(nodes, edges)
     addPulmonaryModule(instance_array, uniqueModuleConfigs, libraryStore)
@@ -101,7 +121,9 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
     checkMultiports(module_config)
 
     // The config's CellML, edits included; may rename component files so CA finds them.
-    const { files: cellmlFiles, missingUnits } = await buildCaCellmlFiles(fileName, module_config, libraryStore)
+    const { files: cellmlFiles, missingUnits } = await buildCaCellmlFiles(fileName, module_config, libraryStore, {
+      usersOf: (entry) => usersOf.get(entry) ?? [],
+    })
     if (missingUnits.length) {
       notify.warning({
         title: 'Missing Units',
@@ -145,25 +167,177 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
 }
 
 /**
- * Warns about connections CA couples to other port slots than they hold here, as no module order reproduces them: a
- * pairing made by hand, a connection left on a later slot when the one on an earlier slot was deleted, or heart
- * inputs on slots CA doesn't give them.
+ * Reports what the export can't make CA pair as here: fails where CA would stop, and warns about connections CA will
+ * pair differently (naming CA's rule), couplings made before their ports changed, and edges without couplings that
+ * are left out of the module array.
  *
- * @param {Array} unmatched - The edges, from orderForCa.
- * @param {Map<string, string>} nodeNames - Each node id to its name.
- * @param {Set<string>} hearts - The heart nodes' ids, from orderForCa.
+ * @param {Object} plan - From planCaPairing.
+ * @param {Map<string, string>} names - Each node id to its name.
+ * @throws {Error} naming each connection CA would stop on.
  */
-function warnUnmatchedSlots(unmatched, nodeNames, hearts) {
-  if (!unmatched.length) return
-  const names = unmatched.map((edge) => `${nodeNames.get(edge.source)} → ${nodeNames.get(edge.target)}`)
-  const isOne = unmatched.length === 1
-  const heartNote = unmatched.some((edge) => hearts.has(edge.target))
-    ? ' CA gives a heart\'s inputs its ivc, svc and pulmonary slots in order, two inputs being svc and pulmonary.'
-    : ''
-  notify.warning({
-    title: 'Connections Paired Differently',
-    message: `CA gives each connection the first free slot of a repeated port, and no module order gives ${listNamed(names)} the port slots ${isOne ? 'it holds' : 'they hold'} here, so CA will couple ${isOne ? 'it' : 'them'} differently. This follows a pairing made by hand, or deleting a connection on an earlier slot; redrawing ${isOne ? 'it' : 'them'} takes the first free slot.${heartNote}`,
+function reportPlan({ failures, residuals, stale, dropped, ports }, names) {
+  const nameOf = (edge) => `${names.get(edge.source)} → ${names.get(edge.target)}`
+  // A label as the workspace has it, which a relabelled port keeps in original.
+  const labelOf = (edge, label) =>
+    [edge.source, edge.target].flatMap((id) => ports.get(id) ?? []).find((port) => port.label === label)?.original?.label ?? label
+
+  if (failures.length) {
+    const messages = [...new Set(failures.map((failure) => describeFailure(failure, names, labelOf(failure.edge, failure.label))))]
+    throw new Error(`CA would stop on ${messages.length === 1 ? 'a connection' : `${messages.length} connections`}. ${messages.join(' ')}`)
+  }
+
+  if (residuals.length) {
+    const byReason = new Map()
+    for (const { edge, label, reason } of residuals) {
+      if (!byReason.has(reason)) byReason.set(reason, [])
+      byReason.get(reason).push(`${nameOf(edge)} (${label})`)
+    }
+    const isOne = residuals.length === 1
+    notify.warning({
+      title: 'Connections Paired Differently',
+      message: `CA will pair ${isOne ? 'a connection' : `${residuals.length} connections`} differently from here. ${[...byReason]
+        .map(([reason, items]) => `${listNamed([...new Set(items)])}: ${RESIDUAL_REASONS[reason]}.`)
+        .join(' ')}`,
+    })
+  }
+
+  if (stale.length) {
+    const changed = [...new Set(stale.filter(({ gone }) => !gone).map(({ edge }) => nameOf(edge)))]
+    const gone = [...new Set(stale.filter(({ gone }) => gone).map(({ edge }) => nameOf(edge)))]
+    const parts = [
+      changed.length && `${listNamed(changed)} ${changed.length === 1 ? 'was' : 'were'} coupled before a port changed, so CA couples the ports as they are now`,
+      gone.length && `${listNamed(gone)} ${gone.length === 1 ? 'couples a port' : 'couple ports'} that no longer exist${gone.length === 1 ? 's' : ''}, which CA leaves out`,
+    ].filter(Boolean)
+    notify.warning({
+      title: 'Stale Connections',
+      message: `${parts.join('; ')}. Reopen ${stale.length === 1 ? 'its' : 'their'} connection dialog to bring the couplings up to date.`,
+    })
+  }
+
+  if (dropped.length) {
+    const isOne = dropped.length === 1
+    notify.info({
+      title: 'Connections Left Out',
+      message: `${listNamed(dropped.map(nameOf))} ${isOne ? 'couples' : 'couple'} no ports, so the module array leaves ${isOne ? 'it' : 'them'} out: CA would couple every port label the modules share.`,
+    })
+  }
+}
+
+/**
+ * Describes where CA would stop.
+ *
+ * @param {{edge: Object, kind: string}} failure
+ * @param {Map<string, string>} names
+ * @param {string} label - The port label, as the workspace has it.
+ * @returns {string}
+ */
+function describeFailure({ edge, kind }, names, label) {
+  const [source, target] = [names.get(edge.source), names.get(edge.target)]
+  switch (kind) {
+    case 'noMatchingPort':
+      return `"${source}" and "${target}" share no port label, which CA requires of a module with both exit and general ports.`
+    case 'targetFull':
+      return `"${target}" has no free "${label}" slot left for "${source}", and CA needs one wherever connected modules share a label.`
+    case 'sourceFull':
+      return `"${source}" has no free "${label}" slot left for "${target}".`
+    case 'heartPin':
+      return `"${target}" has no heart slot for "${source}" at its place in the heart's inputs.`
+    case 'listCount':
+      return `"${source}" and "${target}" sum or multiply through "${label}" ports with different numbers of variables.`
+    default:
+      return `"${source}"'s "${label}" port has more variables than "${target}"'s, which CA reads by the source's.`
+  }
+}
+
+/**
+ * Notes the instances exported as variants of their module.
+ *
+ * @param {string[]} names
+ */
+function noteVariants(names) {
+  if (!names.length) return
+  const isOne = names.length === 1
+  notify.info({
+    title: 'Module Variants',
+    message: `${listNamed(names)} ${isOne ? 'differs' : 'differ'} from ${isOne ? 'its' : 'their'} library module, so ${isOne ? 'it is' : 'each is'} exported with a config of its own, its subtype followed by "__" and a hash of that config.`,
   })
+}
+
+/**
+ * Makes the chooser of each instance's module_subtype: the module's own for the first config equal to the library
+ * module's, else `<subtype>__<hash of its config>`.
+ *
+ * @param {Object} libraryStore
+ * @returns {(moduleRef: string, module: Object, entry: Object) => string}
+ */
+function subtypeChooser(libraryStore) {
+  const claimed = new Map()
+  const known = new Map()
+  // Each ref written so far to its config's signature, so a variant never takes a ref another config has.
+  const written = new Map()
+  return (moduleRef, module, entry) => {
+    const { moduleType, moduleSubtype } = parseModuleRef(moduleRef)
+    const signature = configSignature(entry)
+    if (!known.has(moduleRef)) known.set(moduleRef, librarySignatures(module, libraryStore))
+    if (!claimed.has(moduleRef) && known.get(moduleRef).has(signature)) claimed.set(moduleRef, signature)
+    if (claimed.get(moduleRef) === signature) {
+      written.set(moduleRef, signature)
+      return moduleSubtype
+    }
+
+    const isFree = (subtype) => (written.get(`${moduleType}:${subtype}`) ?? signature) === signature
+    let subtype = variantSubtype(moduleSubtype, signature)
+    // Two configs of a module whose hashes share their last 8 characters: the later one keeps all 11.
+    if (!isFree(subtype)) subtype = variantSubtype(moduleSubtype, signature, 11)
+    written.set(`${moduleType}:${subtype}`, signature)
+    return subtype
+  }
+}
+
+/**
+ * The signatures of a library module's config: as the library holds it, and as a new instance of it would hold it.
+ *
+ * @param {Object} module
+ * @param {Object} libraryStore
+ * @returns {Set<string>}
+ */
+function librarySignatures(module, libraryStore) {
+  const analysis = libraryStore.getMathAnalysis?.(module.mathRef) ?? null
+  const defaults = libraryStore.getMathDefaults?.(module.mathRef) ?? new Map()
+  const rows = resolveInstanceVariables(module, analysis, defaults)
+  return new Set([configSignature(moduleConfigEntry(module)), configSignature(moduleConfigEntry({ ...module, variables: rows }))])
+}
+
+/**
+ * Adds the library's own entry for each module that only variants stand in for: no row names it, but the import
+ * builds the library from it rather than from a variant. Left out where its math is missing or its component's name
+ * is another file's.
+ *
+ * @param {Map<string, Object>} bases - Module ref to library module.
+ * @param {Map<string, Object>} moduleConfigs - The config entries by ref, added to.
+ * @param {Object} libraryStore
+ */
+function addVariantBases(bases, moduleConfigs, libraryStore) {
+  for (const [moduleRef, module] of bases) {
+    if (moduleConfigs.has(moduleRef) || !libraryStore.availableMath?.has(module.mathRef)) continue
+    const entry = moduleConfigEntry(module)
+    const clashes = [...moduleConfigs.values()].some(
+      (other) => other.component_type === entry.component_type && other.component_file !== entry.component_file
+    )
+    if (!clashes) moduleConfigs.set(moduleRef, entry)
+  }
+}
+
+/**
+ * A config entry as a variant of its module: its own subtype, naming the one it stands in for.
+ *
+ * @param {Object} entry
+ * @param {string} subtype
+ * @returns {Object}
+ */
+function asVariant(entry, subtype) {
+  const { module_type, module_subtype, ...rest } = entry
+  return { module_type, module_subtype: subtype, [BASE_SUBTYPE_KEY]: module_subtype, ...rest }
 }
 
 /**
@@ -197,7 +371,7 @@ function checkMultiports(moduleConfig) {
   const rejected = []
   const volumeSums = new Set()
   for (const entry of moduleConfig) {
-    const description = `Module "${entry.module_type}:${entry.module_subtype}"`
+    const description = `Module "${entry.module_type}:${entry[BASE_SUBTYPE_KEY] ?? entry.module_subtype}"`
     for (const port of PORT_TYPE_OPTIONS.flatMap(({ value }) => entry[value] ?? [])) {
       const value = port.multi_port
       const multiplies = Array.isArray(value) && value.some((type) => typeof type === 'string' && type.toLowerCase() === 'multiply')
@@ -211,11 +385,12 @@ function checkMultiports(moduleConfig) {
         rejected.push(error.message)
       }
       if (port.port_type === VOLUME_PORT && typeof value === 'string' && value.toLowerCase() === 'sum') {
-        volumeSums.add(`${entry.module_type}:${entry.module_subtype}`)
+        volumeSums.add(`${entry.module_type}:${entry[BASE_SUBTYPE_KEY] ?? entry.module_subtype}`)
       }
     }
   }
-  if (rejected.length) throw new Error(`CA can't read ${rejected.length === 1 ? 'a port' : `${rejected.length} ports`}. ${rejected.join(' ')}`)
+  const reasons = [...new Set(rejected)]
+  if (reasons.length) throw new Error(`CA can't read ${reasons.length === 1 ? 'a port' : `${reasons.length} ports`}. ${reasons.join(' ')}`)
   if (volumeSums.size) {
     notify.warning({
       title: 'Volume Port Sum',

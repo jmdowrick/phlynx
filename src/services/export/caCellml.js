@@ -70,31 +70,38 @@ function unitsUsedBy(math) {
  * @param {Array<{module_type: string, component_file: string, component_type: string}>} moduleConfig - The config
  *   entries; each `component_file` is renamed in place where CA wouldn't find it.
  * @param {Object} libraryStore - The library, for `availableMath` and `unitDefinitions`.
+ * @param {Object} [options]
+ * @param {(entry: Object) => string[]} [options.usersOf] - The instances an entry is written for, named in errors.
  * @returns {Promise<{files: Map<string, string>, missingUnits: string[]}>} Each file's text by name, and the units no
  *   library units file defines.
  * @throws {Error} When a component has no math in the library, two files hold components of one name, or two files
  *   get the same name.
  */
-export async function buildCaCellmlFiles(fileName, moduleConfig, libraryStore) {
+export async function buildCaCellmlFiles(fileName, moduleConfig, libraryStore, { usersOf = () => [] } = {}) {
   const typesByFile = new Map()
-  const fileOfType = new Map()
-  const clashes = new Set()
-  const add = (componentFile, componentType) => {
-    const file = fileOfType.get(componentType)
-    if (file && file !== componentFile) clashes.add(componentType)
-    fileOfType.set(componentType, componentFile)
+  // Each component name to the files holding it, with the instances using each.
+  const filesOfType = new Map()
+  const add = (componentFile, componentType, users = []) => {
+    if (!filesOfType.has(componentType)) filesOfType.set(componentType, new Map())
+    const files = filesOfType.get(componentType)
+    files.set(componentFile, [...(files.get(componentFile) ?? []), ...users])
     if (!typesByFile.has(componentFile)) typesByFile.set(componentFile, new Set())
     typesByFile.get(componentFile).add(componentType)
   }
 
-  for (const entry of moduleConfig) add(entry.component_file, entry.component_type)
-  if (moduleConfig.some((entry) => isHeart(entry.module_type)) && !fileOfType.has('zero_flow')) {
+  for (const entry of moduleConfig) add(entry.component_file, entry.component_type, usersOf(entry))
+  if (moduleConfig.some((entry) => isHeart(entry.module_type)) && !filesOfType.has('zero_flow')) {
     const { componentFile, componentName } = parseMathRef(ZERO_FLOW_MATH_REF)
     if (libraryStore.availableMath.has(ZERO_FLOW_MATH_REF)) add(componentFile, componentName)
   }
 
-  if (clashes.size) {
-    throw new Error(`CA finds components by name, but several files hold ${listNamed([...clashes])}.`)
+  const clashes = [...filesOfType].filter(([, files]) => files.size > 1)
+  if (clashes.length) {
+    const described = clashes.map(([type, files]) => {
+      const where = [...files].map(([file, users]) => (users.length ? `${file} (${listNamed([...new Set(users)])})` : file))
+      return `"${type}" is in ${where.join(' and ')}`
+    })
+    throw new Error(`CA finds components by name, but ${described.join('; ')}. Give one of those components another name.`)
   }
   const mathRefs = [...typesByFile].flatMap(([file, types]) => [...types].map((type) => `${file}:${type}`))
   const missing = mathRefs.filter((mathRef) => !libraryStore.availableMath.has(mathRef))

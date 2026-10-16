@@ -1,0 +1,22 @@
+{
+ "source": {
+  "circulatory_autogen": "a9061f7fbcc67cdff89f90e4b3195459ce009084"
+ },
+ "mappings": [
+  "a_module.u = split_module.u_in",
+  "a_module.v_out = split_module.v",
+  "b_module.q = c_module.q_0",
+  "b_module.u = c_module.u_in",
+  "b_module.u_in = split_module.u",
+  "b_module.v = s1_module.v_1",
+  "b_module.v = s2_module.v_2",
+  "b_module.v = split_module.v_out_2",
+  "b_module.v_out = c_module.v",
+  "c_module.u = d_module.u_in",
+  "c_module.v = s1_module.v_2",
+  "c_module.v = s2_module.v_1",
+  "c_module.v_out = d_module.v",
+  "d_module.u = e_module.u_in",
+  "d_module.v_out = e_module.v"
+ ]
+}

@@ -1,0 +1,9 @@
+{
+ "source": {
+  "circulatory_autogen": "a9061f7fbcc67cdff89f90e4b3195459ce009084"
+ },
+ "mappings": [
+  "p_module.u = t_module.u_in",
+  "p_module.v_out = t_module.v"
+ ]
+}

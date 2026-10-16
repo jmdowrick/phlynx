@@ -415,9 +415,9 @@ function compareSplices(a, b) {
  * levels before its siblings'; on its outputs, after them. Otherwise the given order is kept. Where those orders
  * contradict each other (an edge from a subsystem to itself), the given order breaks the tie.
  *
- * This is the edges' order only. orderForCa keeps it for each row's out_instances, which CA wires by, but lists
+ * This is the edges' order only. orderCaLists keeps it for each row's out_instances, which CA wires by, but lists
  * inp_instances by row, as for a flat model, so a host row after the subsystem is listed after its siblings there.
- * CA reads a module's inp_instances for its connections only at a heart, whose inputs orderForCa orders by slot.
+ * CA reads a module's inp_instances for its connections only at a heart, whose inputs orderCaLists orders by slot.
  *
  * @param {Array<{edge: Object, depth: number}>} entries - depth: how many subsystems deep the edge was drawn.
  * @returns {Array} The edges.

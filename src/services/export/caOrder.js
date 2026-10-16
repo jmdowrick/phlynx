@@ -1,46 +1,114 @@
 /**
  * Orders a CA module array so CA wires it as PhLynx does. CA connects the rows in order, each row's out_instances in
- * order, and gives each connection the first free slot of each repeated port (see utils/edges.js), so the order of
- * rows and of out_instances decides which slot each connection takes. Which port kinds pair, and CA wiring a
- * non-vessel_port to every free slot, follow PhLynx's rules here, not CA's.
+ * order, and gives each connection the first free slot of each repeated port (see caSimulate.js), so the order of
+ * rows and of out_instances decides which slot each connection takes. Slots are counted in CA's groups: a source's
+ * exit and general ports of one label together, and a target's entrance and general ports.
  */
 import { parseModuleRef } from '../../utils/config'
-import { checkAndClaimCouplings, resolvePortCouplings, slotOf } from '../../utils/edges'
-import { caHeartInputs, HEART_PORT, heartSlotPin, isHeart } from '../caRules'
+import { slotOf } from '../../utils/edges'
+import { HEART_PORT, isHeart } from '../caRules'
+import { caPortLists } from './caSimulate'
 
 /**
- * Orders the rows, and each row's out_instances and inp_instances, so CA reproduces the slots the edges' couplings
- * hold. A row comes before another whose connection holds a later slot of a port they both connect to, and an
- * out_instance before one holding a later slot of the row's own port; inp_instances follow their slots too. A heart's
- * vessel_port inputs come first, in slot order, as CA gives its ivc, svc and pulmonary slots by place in its
+ * Lists each edge's couplings as the port slots they pair, and the couplings whose ports have changed since they
+ * were made (stale): the port at their slot now differs, or no longer exists.
+ *
+ * @param {Array} nodes - Workspace nodes.
+ * @param {Array} edges - Workspace edges.
+ * @returns {{ pairs: Map<Object, Array<{source: number, target: number}>>, stale: Array<{edge: Object,
+ *   coupling: Object, gone: boolean}> }} pairs: each edge's pairs as indices into its ends' ports, each pair once;
+ *   stale: gone when the coupling's port was not found, so it has no pair.
+ */
+export function couplingPairs(nodes, edges) {
+  const portsOf = new Map(nodes.map((node) => [node.id, node.data?.ports ?? []]))
+  const pairs = new Map()
+  const stale = []
+  for (const edge of edges) {
+    if (!portsOf.has(edge.source) || !portsOf.has(edge.target)) continue
+    const list = []
+    for (const coupling of edge.data?.couplings ?? []) {
+      const source = portIndexOf(portsOf.get(edge.source), coupling.sourcePort, coupling.sourceSlot)
+      const target = portIndexOf(portsOf.get(edge.target), coupling.targetPort, coupling.targetSlot)
+      if (source === -1 || target === -1) {
+        stale.push({ edge, coupling, gone: true })
+        continue
+      }
+      const changed =
+        differs(portsOf.get(edge.source)[source], coupling.sourcePort) || differs(portsOf.get(edge.target)[target], coupling.targetPort)
+      if (changed) stale.push({ edge, coupling, gone: false })
+      if (!list.some((pair) => pair.source === source && pair.target === target)) list.push({ source, target })
+    }
+    pairs.set(edge, list)
+  }
+  return { pairs, stale }
+}
+
+/**
+ * Gets a coupling's port's index in a node's ports, through its slot (see slotOf).
+ *
+ * @param {Array} ports
+ * @param {Object} port - The coupling's port.
+ * @param {number} [slot] - Its recorded slot.
+ * @returns {number} -1 when the slot holds no port.
+ */
+function portIndexOf(ports, port, slot) {
+  if (!port) return -1
+  const group = ports.flatMap((p, index) => (p.portType === port.portType && p.label === port.label ? [index] : []))
+  const found = slotOf(ports, port, slot)
+  return found >= 0 && found < group.length ? group[found] : -1
+}
+
+/**
+ * Whether a node's port differs from a coupling's copy of it in what the export writes.
+ *
+ * @param {Object} port
+ * @param {Object} copy
+ * @returns {boolean}
+ */
+function differs(port, copy) {
+  if (port === copy) return false
+  const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+  return !same(port.variables, copy.variables) || !same(port.multiportType, copy.multiportType) || !same(port.multiplyFactor, copy.multiplyFactor)
+}
+
+/**
+ * Orders the rows, and each row's out_instances and inp_instances, so CA reproduces the slots the edges' pairs hold.
+ * A row comes before another whose connection holds a later slot of a target group they both connect to, and an
+ * out_instance before one holding a later slot of the row's own group; inp_instances follow their slots too. A
+ * heart's vessel_port inputs come first, in slot order, as CA gives its ivc, svc and pulmonary slots by place in its
  * inp_vessels (two inputs being svc and pulmonary). Otherwise the workspace order is kept.
  *
  * @param {Array} nodes - Workspace nodes.
  * @param {Array} edges - Workspace edges.
- * @returns {{ rows: Array, outEdges: Map<string, Array>, inpEdges: Map<string, Array>, unmatched: Array,
- *   hearts: Set<string> }} rows: the nodes in order; outEdges and inpEdges: each node's edges in list order; unmatched:
- *   the edges CA still couples differently, such as a pairing made by hand that no order gives; hearts: the heart
- *   nodes' ids.
+ * @param {Object} options
+ * @param {(id: string) => Array} options.portsOf - Each node's ports, as exported.
+ * @param {Map<Object, Array<{source: number, target: number}>>} options.pairs - Each edge's slot pairs, as port
+ *   indices (see couplingPairs).
+ * @returns {{ rows: Array, outEdges: Map<string, Array>, inpEdges: Map<string, Array> }} rows: the nodes in order;
+ *   outEdges and inpEdges: each node's edges in list order.
  */
-export function orderForCa(nodes, edges) {
+export function orderCaLists(nodes, edges, { portsOf, pairs }) {
   const nodeById = new Map(nodes.map((node) => [node.id, node]))
-  const portsOf = (id) => nodeById.get(id).data.ports ?? []
-  const heartNodes = nodes.filter((node) => isHeart(parseModuleRef(node.data.moduleRef ?? '').moduleType))
-  const hearts = new Set(heartNodes.map((node) => node.id))
+  const hearts = new Set(nodes.filter((node) => isHeart(parseModuleRef(node.data?.moduleRef ?? ':').moduleType ?? '')).map((node) => node.id))
   const isHeartNode = (id) => hearts.has(id)
   const conduits = edges.filter((edge) => nodeById.has(edge.source) && nodeById.has(edge.target))
+  const groupSlots = new Map(nodes.map((node) => [node.id, mergedSlots(portsOf(node.id))]))
+  const pairsOf = (edge) => pairs.get(edge) ?? []
 
-  // Each edge's slot in each group it couples, on each side, as `portType\x00label` to index.
+  // Each edge's slot in each CA group it pairs, on each side, by label; withHeart counts a heart's pinned slots too.
   const slots = new Map(
     conduits.map((edge) => {
       const source = new Map()
       const target = new Map()
-      for (const { sourcePort, targetPort, sourceSlot, targetSlot } of edge.data?.couplings ?? []) {
-        source.set(groupKey(sourcePort), slotOf(portsOf(edge.source), sourcePort, sourceSlot))
-        if (isHeartNode(edge.target) && isHeartPort(targetPort)) continue
-        target.set(groupKey(targetPort), slotOf(portsOf(edge.target), targetPort, targetSlot))
+      const withHeart = new Map()
+      for (const pair of pairsOf(edge)) {
+        const targetPort = portsOf(edge.target)[pair.target]
+        const targetSlot = groupSlots.get(edge.target).target.get(pair.target)
+        keepFirst(source, portsOf(edge.source)[pair.source]?.label, groupSlots.get(edge.source).source.get(pair.source))
+        keepFirst(withHeart, targetPort?.label, targetSlot)
+        if (!(isHeartNode(edge.target) && isHeartPort(targetPort))) keepFirst(target, targetPort?.label, targetSlot)
       }
-      return [edge, { source, target }]
+      return [edge, { source, target, withHeart }]
     })
   )
   const edgesAt = (key, id) => conduits.filter((edge) => edge[key] === id)
@@ -62,72 +130,48 @@ export function orderForCa(nodes, edges) {
     rows.map((node) => {
       const inp = edgesAt('target', node.id).sort((a, b) => rowIndex.get(a.source) - rowIndex.get(b.source))
       if (!isHeartNode(node.id)) return [node.id, orderAfter(inp, slotPairs(inp, (edge) => slots.get(edge).target))]
-      const venous = inp.filter((edge) => edge.data?.couplings?.some(({ targetPort }) => isHeartPort(targetPort)))
+      const venous = inp.filter((edge) => pairsOf(edge).some((pair) => isHeartPort(portsOf(edge.target)[pair.target])))
       const others = inp.filter((edge) => !venous.includes(edge))
-      const slotsOf = (edge) => slotsWithHeartPort(edge, portsOf)
+      const slotsOf = (edge) => slots.get(edge).withHeart
       const venousOrder = orderAfter(venous, slotPairs(venous, slotsOf))
       return [node.id, [...venousOrder, ...orderAfter(others, slotPairs(others, slotsOf))]]
     })
   )
-
-  const unmatched = unmatchedEdges(rows, outEdges, inpEdges, portsOf, isHeartNode)
-  return { rows, outEdges, inpEdges, unmatched, hearts }
+  return { rows, outEdges, inpEdges }
 }
 
 /**
- * Connects the edges as CA does, in row and out_instances order, a heart's inputs taking the slots of their place in
- * its inp_instances, and lists the edges whose couplings come out differently from their own.
+ * Gets each port's slot in its CA group: its place among the ports of its label in the node's source list (exit then
+ * general ports) and target list (entrance then general).
  *
- * @param {Array} rows
- * @param {Map<string, Array>} outEdges
- * @param {Map<string, Array>} inpEdges
- * @param {Function} portsOf
- * @param {Function} isHeartNode
- * @returns {Array}
+ * @param {Array} ports
+ * @returns {{ source: Map<number, number>, target: Map<number, number> }} Port index to slot.
  */
-function unmatchedEdges(rows, outEdges, inpEdges, portsOf, isHeartNode) {
-  const usedPortKeys = new Set()
-  const unmatched = []
-  const describe = (edge, couplings) =>
-    couplings
-      .map(({ sourcePort, targetPort, sourceSlot, targetSlot }) => {
-        const source = slotOf(portsOf(edge.source), sourcePort, sourceSlot)
-        const target = slotOf(portsOf(edge.target), targetPort, targetSlot)
-        return `${groupKey(sourcePort)}:${source}>${groupKey(targetPort)}:${target}`
+function mergedSlots(ports) {
+  const { source, target } = caPortLists(ports)
+  const slotsIn = (list) => {
+    const counts = new Map()
+    return new Map(
+      list.map((index) => {
+        const label = ports[index].label
+        counts.set(label, (counts.get(label) ?? -1) + 1)
+        return [index, counts.get(label)]
       })
-      .sort()
-      .join('\n')
-  const heartPin = (edge) => {
-    if (!isHeartNode(edge.target)) return []
-    const inputs = caHeartInputs(inpEdges.get(edge.target).map((inp) => inp.source), outEdges.get(edge.target).length)
-    return heartSlotPin(portsOf(edge.target), inputs, edge.source)
+    )
   }
-
-  for (const node of rows) {
-    for (const edge of outEdges.get(node.id)) {
-      const options = { sourceId: edge.source, targetId: edge.target, usedPortKeys, stored: heartPin(edge) }
-      const couplings = resolvePortCouplings(portsOf(edge.source), portsOf(edge.target), options)
-      const { valid } = checkAndClaimCouplings(edge.source, edge.target, couplings, usedPortKeys)
-      if (!valid || describe(edge, couplings) !== describe(edge, edge.data?.couplings ?? [])) unmatched.push(edge)
-    }
-  }
-  return unmatched
+  return { source: slotsIn(source), target: slotsIn(target) }
 }
 
 /**
- * Gets an edge's slot in each target group, heart vessel_port included.
+ * Sets a group's slot unless it has an earlier one.
  *
- * @param {Object} edge
- * @param {Function} portsOf
- * @returns {Map<string, number>}
+ * @param {Map<string, number>} slots
+ * @param {string|undefined} label
+ * @param {number|undefined} slot
  */
-function slotsWithHeartPort(edge, portsOf) {
-  return new Map(
-    (edge.data?.couplings ?? []).map(({ targetPort, targetSlot }) => [
-      groupKey(targetPort),
-      slotOf(portsOf(edge.target), targetPort, targetSlot),
-    ])
-  )
+function keepFirst(slots, label, slot) {
+  if (label === undefined || slot === undefined) return
+  if (!slots.has(label) || slot < slots.get(label)) slots.set(label, slot)
 }
 
 /**
@@ -176,14 +220,4 @@ function orderAfter(items, pairs) {
  */
 function isHeartPort(port) {
   return port?.portType === 'entrance_ports' && port.label === HEART_PORT
-}
-
-/**
- * Keys a port's (portType, label) group.
- *
- * @param {Object} port
- * @returns {string}
- */
-function groupKey(port) {
-  return `${port.portType}\x00${port.label}`
 }

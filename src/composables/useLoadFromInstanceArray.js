@@ -42,7 +42,7 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
         nodes.value,
         progressCallback,
         store.getMathDefaults,
-        { caRules: true }
+        { caRules: true, variants: store.caVariants }
       )
 
       if (progressCallback) {

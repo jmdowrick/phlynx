@@ -112,6 +112,21 @@ describe('newConfigEntries', () => {
     expect(newConfigEntries(files, (ref) => taken.has(ref))).toEqual([fresh])
   })
 
+  it("lists a CA export's base entry once, before its variants, which add nothing more", () => {
+    const base = withFile(entry('venous:vp', {}))
+    const variant = (hash) => ({ ...withFile(entry(`venous:vp__${hash}`, {})), phlynx_base_subtype: 'vp' })
+    const files = [{ payload: [variant('aaaaaaaa'), base, variant('bbbbbbbb')] }]
+
+    expect(newConfigEntries(files, () => false)).toEqual([base])
+  })
+
+  it('lists a lone variant for the base ref it stands in for, unless the library holds that', () => {
+    const variant = { ...withFile(entry('venous:vp__aaaaaaaa', {})), phlynx_base_subtype: 'vp' }
+
+    expect(newConfigEntries([{ payload: [variant] }], () => false)).toEqual([variant])
+    expect(newConfigEntries([{ payload: [variant] }], (ref) => ref === 'venous:vp')).toEqual([])
+  })
+
   it('warns, through warnLegacyConfigs, about a config import of a Min_ junction and a terminal\'s True flow port', () => {
     vi.clearAllMocks()
     const imported = new Map([

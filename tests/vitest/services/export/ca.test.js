@@ -6,8 +6,18 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ensureLibCellmlReady } from '../../helpers/libcellml-bootstrap.js'
 
-const notified = vi.hoisted(() => ({ error: vi.fn(), warning: vi.fn() }))
+const notified = vi.hoisted(() => ({ error: vi.fn(), info: vi.fn(), warning: vi.fn() }))
 vi.mock('../../../../src/utils/notify', () => ({ notify: notified }))
+// While on, every 8-character variant name is the same, as two configs' hashes rarely are.
+const collide = vi.hoisted(() => ({ on: false }))
+vi.mock('../../../../src/services/caVariants', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    variantSubtype: (base, signature, length) =>
+      collide.on && length === undefined ? `${base}__aaaaaaaa` : actual.variantSubtype(base, signature, length),
+  }
+})
 
 const { generateExportZip } = await import('../../../../src/services/export/ca.js')
 const { caModuleFileName } = await import('../../../../src/services/export/caCellml.js')
@@ -176,6 +186,7 @@ describe('generateExportZip', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    collide.on = false
     setActivePinia(createPinia())
     library = makeLibrary()
   })
@@ -388,6 +399,11 @@ describe('generateExportZip', () => {
       )
     })
 
+    it("writes a Multiply's factor as CA's multiply_factor", async () => {
+      const port = await exportedPort({ label: 'flow_port', variables: ['v'], multiportType: 'Multiply', multiplyFactor: 2 })
+      expect(port).toMatchObject({ multi_port: 'Multiply', multiply_factor: 2 })
+    })
+
     it("doesn't warn about a volume_port's list sum, CA's sum over every connection", async () => {
       const port = await exportedPort({ label: 'volume_port', variables: ['q_C'], multiportType: ['sum'] })
       expect(port.multi_port).toEqual(['sum'])
@@ -449,15 +465,61 @@ describe('generateExportZip', () => {
       expect(notified.warning).not.toHaveBeenCalledWith(pairedDifferently)
     })
 
-    it('warns about a pairing made by hand, or a slot a deleted connection freed, that no order reproduces', async () => {
+    it('gives the slot a deleted connection freed a label of its own, in a variant of that instance, where no order skips it', async () => {
       const a = vessel('a')
-      await rowsOf([split, a], [conduit(split, a, 1, 0)])
-      expect(notified.warning).toHaveBeenCalledWith(
-        expect.objectContaining({
-          title: 'Connections Paired Differently',
-          message: expect.stringMatching(/s → a.*deleting a connection on an earlier slot/),
-        })
+      const files = await readZip(await generateExportZip('heart', [split, a], [conduit(split, a, 1, 0)], library))
+      const rows = Object.fromEntries(moduleArrayOf(files).map((row) => [row.name, row.module_subtype]))
+      const entry = JSON.parse(files['modules/heart_module_config.json']).find((config) => config.module_subtype === rows.s)
+      expect(rows.s).toMatch(/^vp__[0-9a-z]{8}$/)
+      expect(entry.phlynx_base_subtype).toBe('vp')
+      expect(entry.exit_ports).toEqual([
+        { port_type: 'vessel_port__1', variables: ['v_in'], phlynx_label: 'vessel_port' },
+        { port_type: 'vessel_port', variables: ['u'] },
+      ])
+      expect(notified.warning).not.toHaveBeenCalledWith(pairedDifferently)
+    })
+
+    it('fails where CA would stop, naming the connection', async () => {
+      const hub = nodeWithPorts('h', [{ label: 'link', portType: 'exit_ports', variables: ['a', 'b'], multiportType: 'True' }])
+      const short = nodeWithPorts('y', [{ label: 'link', portType: 'entrance_ports', variables: ['c'], multiportType: 'None' }])
+      const long = nodeWithPorts('z', [{ label: 'link', portType: 'entrance_ports', variables: ['d', 'e'], multiportType: 'None' }])
+      const edge = (target) => ({
+        id: `h--${target.id}`,
+        source: 'h',
+        target: target.id,
+        data: { couplings: [{ sourcePort: hub.data.ports[0], targetPort: target.data.ports[0], sourceSlot: 0, targetSlot: 0 }] },
+      })
+      await expect(generateExportZip('heart', [hub, short, long], [edge(short), edge(long)], library)).rejects.toThrow(
+        `CA would stop on a connection. "h"'s "link" port has more variables than "y"'s, which CA reads by the source's.`
       )
+    })
+
+    it('warns about couplings made before their ports changed, and leaves out edges coupling nothing CA would couple', async () => {
+      const [a, b, c] = [vessel('a'), vessel('b'), vessel('c')]
+      const stale = conduit(split, a, 0, 0)
+      stale.data.couplings[0].sourcePort = { ...stale.data.couplings[0].sourcePort, multiportType: 'True' }
+      const empty = { id: 's--b', source: 's', target: 'b', data: { couplings: [] } }
+      const rows = await rowsOf([split, a, b, c], [stale, empty, conduit(split, c, 1, 0)])
+      expect(rows.s).toBe(' | a c')
+      expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ title: 'Stale Connections', message: expect.stringContaining('s → a') }))
+      expect(notified.info).toHaveBeenCalledWith(expect.objectContaining({ title: 'Connections Left Out', message: expect.stringContaining('s → b') }))
+    })
+
+    it("names CA's rule for each connection it pairs differently", async () => {
+      const link = (portType, variable, multiportType = 'None') => ({ label: 'link', portType, variables: [variable], multiportType })
+      const x = nodeWithPorts('x', [link('exit_ports', 'a')])
+      const [y, z] = [nodeWithPorts('y', [link('general_ports', 'b')]), nodeWithPorts('z', [link('entrance_ports', 'c', 'True')])]
+      const edge = (target) => ({
+        id: `x--${target.id}`,
+        source: 'x',
+        target: target.id,
+        data: { couplings: [{ sourcePort: x.data.ports[0], targetPort: target.data.ports[0], sourceSlot: 0, targetSlot: 0 }] },
+      })
+      await generateExportZip('heart', [x, y, z], [edge(y), edge(z)], library)
+      expect(notified.warning).toHaveBeenCalledWith({
+        title: 'Connections Paired Differently',
+        message: 'CA will pair a connection differently from here. x → z (link): CA pairs every slot that shares a label across a connection.',
+      })
     })
 
     it('reads the slots of couplings saved before slots were recorded from their ports', async () => {
@@ -577,7 +639,37 @@ describe('generateExportZip', () => {
     library.addMath('other_modules.cellml:vp_simple_type', VP_MATH)
     library.addModule({ moduleRef: 'other:vp', mathRef: 'other_modules.cellml:vp_simple_type', ports: [], variables: [] })
     const other = { id: 'o', data: { name: 'o', moduleRef: 'other:vp', mathRef: 'other_modules.cellml:vp_simple_type', ports: [], variables: [] } }
-    await expect(generateExportZip('heart', [nodeWith('vp', []), other], [], library)).rejects.toThrow('vp_simple_type')
+    await expect(generateExportZip('heart', [nodeWith('vp', []), other], [], library)).rejects.toThrow(
+      'CA finds components by name, but "vp_simple_type" is in BG_modules.cellml (vp) and other_modules.cellml (o).'
+    )
+  })
+
+  it("names the instances whose own math shares a component's name with another file's", async () => {
+    library.addMath('other_modules.cellml:vp_simple_type', VP_MATH)
+    const moved = { ...nodeWith('b', []), data: { ...nodeWith('b', []).data, mathRef: 'other_modules.cellml:vp_simple_type' } }
+    await expect(generateExportZip('heart', [nodeWith('a', []), moved], [], library)).rejects.toThrow(
+      '"vp_simple_type" is in BG_modules.cellml (a) and other_modules.cellml (b)'
+    )
+  })
+
+  it('gives a variant whose name another config already has the longer hash', async () => {
+    collide.on = true
+    const row = (units) => ({ name: 'C', type: 'constant', units, value: '1' })
+    const files = await readZip(await generateExportZip('heart', [nodeWith('a', [row('m3_per_J')]), nodeWith('b', [row('J_per_m3')])], [], library))
+    const subtypes = Object.fromEntries(moduleArrayOf(files).map((r) => [r.name, r.module_subtype]))
+    expect(subtypes.a).toBe('vp__aaaaaaaa')
+    expect(subtypes.b).toMatch(/^vp__[0-9a-z]{11}$/)
+    const refs = JSON.parse(files['modules/heart_module_config.json']).map((entry) => entry.module_subtype)
+    expect(refs).toEqual(expect.arrayContaining([subtypes.a, subtypes.b]))
+  })
+
+  it("writes the library's own entry for a module only variants use, which no row names", async () => {
+    const row = { name: 'C', type: 'constant', units: 'm3_per_J', value: '1' }
+    const files = await readZip(await generateExportZip('heart', [nodeWith('a', [row])], [], library))
+    const entries = JSON.parse(files['modules/heart_module_config.json'])
+    expect(entries.map((entry) => entry.module_subtype)).toEqual([moduleArrayOf(files)[0].module_subtype, 'vp'])
+    expect(entries[1]).toMatchObject({ module_type: 'arterial_simple', variables_and_units: [] })
+    expect(entries[1].phlynx_base_subtype).toBeUndefined()
   })
 
   it('gives files CA assembles into a model libCellML parses', async () => {

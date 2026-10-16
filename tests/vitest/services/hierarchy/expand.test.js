@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { orderForCa } from '../../../../src/services/export/caOrder.js'
+import { orderForCa } from '../../fixtures/ca/order.js'
 import { expandHierarchy, subsystemPorts } from '../../../../src/services/hierarchy/expand.js'
 import { EXPOSURE_EDGE_TYPE } from '../../../../src/utils/constants.js'
 import { connect, constant, exposed, module, port, shuffled, subsystem, supermodule } from '../../fixtures/hierarchy/graph.js'
