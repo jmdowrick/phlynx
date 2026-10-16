@@ -577,6 +577,7 @@ import { MiniMap } from '@vue-flow/minimap'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
+import { provideFlowHistory } from '../composables/useFlowHistoryFor'
 import { getUndoRedoAction, useFlowHistory } from '../composables/useFlowHistory'
 import { useConnect } from '../composables/useConnect'
 import { useCellmlDrop } from '../composables/useCellmlDrop'
@@ -793,7 +794,7 @@ const notifyMultiFileResults = (
 const libraryStore = useLibraryStore()
 const sessionMetadataStore = useSessionMetadataStore()
 const inspectionModuleStore = useInspectionModuleStore()
-const historyStore = useFlowHistoryStore()
+const historyStore = provideFlowHistory(useFlowHistoryStore())
 const simulationSettingsStore = useSimulationSettingsStore()
 const omexStore = useOmexStore()
 const nodeThemeStore = useNodeThemeStore()

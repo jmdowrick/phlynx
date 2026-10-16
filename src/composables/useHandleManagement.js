@@ -1,15 +1,21 @@
 import { nextTick, ref } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
-import { useFlowHistoryStore } from '../stores/historyStore'
+import { useFlowHistoryFor } from './useFlowHistoryFor'
 import { HANDLE_VARIANT } from '../utils/constants'
 import { findMostCentralGhostHandle, getHandleId, getHandleUidFromHandleId } from '../utils/handles'
 import { detachReactivity } from '../utils/reactivity'
 
 const pendingGhostRevert = ref(null)
 
-export function useHandleManagement() {
+/**
+ * Manages handle variants on nodes, recording changes into the given or injected undo stack.
+ *
+ * @param {Object} [options]
+ * @param {Object} [options.history] - The undo stack to record into; defaults to useFlowHistoryFor().
+ */
+export function useHandleManagement({ history } = {}) {
   const { getNodes, updateNodeData, updateNodeInternals, edges } = useVueFlow()
-  const historyStore = useFlowHistoryStore()
+  const historyStore = useFlowHistoryFor(history)
 
   async function setHandleVariant(nodeId, handleUid, variant, { trackHistory = true } = {}) {
     const node = getNodes.value.find((n) => n.id === nodeId)

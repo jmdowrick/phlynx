@@ -1,6 +1,6 @@
 import { useVueFlow } from '@vue-flow/core'
 import { useLibraryStore } from '../stores/libraryStore'
-import { useFlowHistoryStore } from '../stores/historyStore'
+import { useFlowHistoryFor } from './useFlowHistoryFor'
 import { useGtm } from './useGtm'
 import { useClearWorkspace } from '../composables/useClearWorkspace'
 import { buildWorkflowGraph } from '../services/import/buildWorkflow'
@@ -18,6 +18,7 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
   const { trackEvent } = useGtm()
   const { clearWorkspace } = useClearWorkspace()
   const { prepareLayout } = useWorkflowLayout({ fitViewParams })
+  const history = useFlowHistoryFor()
 
   /**
    * Replaces the workspace with a CA module array's modules and connections.
@@ -63,11 +64,11 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
 
       // 2. Add nodes as a single undoable batch so this import is not split into
       //    separate node and edge history entries.
-      useFlowHistoryStore().startBatch()
+      history.startBatch()
       try {
         addNodes(result.pendingInstances)
       } finally {
-        useFlowHistoryStore().endBatch()
+        history.endBatch()
       }
 
       // 3. Await the layout completion

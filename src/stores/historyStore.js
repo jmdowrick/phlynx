@@ -13,6 +13,8 @@ export function createHistory() {
   const pointer = ref(-1)
   const working = ref(false)
   const lastChangeWasAdd = ref(false)
+  // Depth of withoutHistory calls in progress.
+  const suppressedDepth = ref(0)
 
   // Batching related controls.
   let batchTimer = null
@@ -24,7 +26,7 @@ export function createHistory() {
 
   const canUndo = computed(() => pointer.value >= 0)
   const canRedo = computed(() => pointer.value < stack.value.length - 1)
-  const isUndoRedoing = computed(() => working.value)
+  const isUndoRedoing = computed(() => working.value || suppressedDepth.value > 0)
   const pointerIndex = computed(() => pointer.value)
   const lastCommandHadOffsetApplied = computed(() => {
     if (pendingCommands.value.length) {
@@ -50,6 +52,16 @@ export function createHistory() {
     lastChangeWasAdd.value = value
   }
 
+  /**
+   * Whether `command` is still waiting to be committed, so it can still be changed.
+   *
+   * @param {Object} command
+   * @returns {boolean}
+   */
+  function isPending(command) {
+    return pendingCommands.value.includes(command)
+  }
+
   function replaceLastCommand(command) {
     if (pendingCommands.value.length) {
       pendingCommands.value[pendingCommands.value.length - 1] = command
@@ -70,7 +82,7 @@ export function createHistory() {
   }
 
   function addCommand(command) {
-    if (working.value) {
+    if (isUndoRedoing.value) {
       return
     }
 
@@ -136,6 +148,11 @@ export function createHistory() {
   }
 
   async function executeAndAddCommand(command) {
+    if (suppressedDepth.value > 0) {
+      await command.redo()
+      return
+    }
+
     working.value = true
 
     try {
@@ -149,6 +166,36 @@ export function createHistory() {
     } finally {
       working.value = false
     }
+  }
+
+  /**
+   * Runs `fn` without recording: commits pending commands first, then ignores every change and
+   * command until `fn` (sync or async) settles. For changes that are not edits, like navigation.
+   * Inside a manual batch nothing is committed, so the batch still ends as one step.
+   *
+   * @param {Function} fn
+   * @returns {*} What `fn` returns.
+   */
+  function withoutHistory(fn) {
+    if (!isManualBatching.value) commitBatch()
+    lastChangeWasAdd.value = false
+    suppressedDepth.value++
+
+    const restore = () => {
+      suppressedDepth.value--
+    }
+    let result
+    try {
+      result = fn()
+    } catch (error) {
+      restore()
+      throw error
+    }
+    if (typeof result?.then === 'function') {
+      return Promise.resolve(result).finally(restore)
+    }
+    restore()
+    return result
   }
 
   async function undo() {
@@ -187,6 +234,7 @@ export function createHistory() {
     clear,
     endBatch,
     executeAndAddCommand,
+    isPending,
     isUndoRedoing,
     lastChangeWasAdd,
     lastChangeWasAddSetter,
@@ -196,6 +244,7 @@ export function createHistory() {
     replaceLastCommand,
     startBatch,
     undo,
+    withoutHistory,
   }
 }
 

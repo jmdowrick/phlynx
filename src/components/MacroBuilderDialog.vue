@@ -92,7 +92,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, nextTick, markRaw } from 'vue'
+import { computed, ref, watch, nextTick, markRaw, reactive } from 'vue'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
@@ -131,6 +131,8 @@ import { detachReactivity } from '../utils/reactivity'
 import { waitUntilStable } from '../utils/layout'
 import { getHandleUidFromHandleId } from '../utils/handles'
 import { useClearWorkspace } from '../composables/useClearWorkspace.js'
+import { provideFlowHistory } from '../composables/useFlowHistoryFor'
+import { createHistory } from '../stores/historyStore'
 
 const { addEdges, removeEdges, edges,  onEdgeChange,
   findNode, nodes, onNodeChange, removeNodes,
@@ -138,8 +140,11 @@ const { addEdges, removeEdges, edges,  onEdgeChange,
   onDragLeave, updateNodeInternals, getSelectedNodes } =
   useVueFlow(FLOW_IDS.MACRO)
 
+// The builder's own stack, so its edits never land in the workspace's undo history.
+const history = provideFlowHistory(reactive(createHistory()))
+
 const { confirm } = useConfirmDialog()
-const { clearWorkspace } = useClearWorkspace(FLOW_IDS.MACRO)
+const { clearWorkspace } = useClearWorkspace(FLOW_IDS.MACRO, { history })
 
 const previousNodes = new Set()
 const { onDrop, isGhostSetupOpen, pendingGhostNodeId } = useDragAndDrop(previousNodes, FLOW_IDS.MACRO)
@@ -152,7 +157,7 @@ const {
   confirmActivation,
   activateHandle,
   addHandle: addHandleToNode,
-} = useHandleManagement()
+} = useHandleManagement({ history })
 
 const libraryStore = useLibraryStore()
 
@@ -331,9 +336,13 @@ async function onDialogShow() {
 watch(
   () => props.modelValue,
   (newVal) => {
-    newVal
-      ? libraryStore.addModule(GHOST_MODULE_DEFINITION)
-      : libraryStore.removeModule(GHOST_MODULE_REF)
+    if (newVal) {
+      libraryStore.addModule(GHOST_MODULE_DEFINITION)
+    } else {
+      libraryStore.removeModule(GHOST_MODULE_REF)
+      // The builder has no undo, so its stack is only a sink; drop it rather than let it grow.
+      history.clear()
+    }
   }
 )
 

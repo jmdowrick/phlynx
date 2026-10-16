@@ -1,5 +1,5 @@
 import { useVueFlow } from '@vue-flow/core'
-import { useFlowHistoryStore } from '../stores/historyStore'
+import { useFlowHistoryFor } from './useFlowHistoryFor'
 import { useLibraryStore } from '../stores/libraryStore'
 import { FLOW_IDS } from '../utils/constants'
 import { detachReactivity } from '../utils/reactivity'
@@ -46,11 +46,13 @@ export function useFlowHistory({
 }) {
   const { addEdges, addNodes, applyNodeChanges, applyEdgeChanges, findEdge, findNode, nodes, removeEdges, removeNodes } =
     useVueFlow(flowId)
-  const historyStore = useFlowHistoryStore()
+  const historyStore = useFlowHistoryFor()
   const libraryStore = useLibraryStore()
 
   const activeInteractionBuffer = new Map()
   const undoRedoSelection = false
+  // The latest recorded add: its command, the node snapshots it restores and the visible ids still to be measured.
+  let lastAdd = null
 
   const createSelectCommand = (changes, findFn) => {
     return {
@@ -113,20 +115,20 @@ export function useFlowHistory({
   }
 
   const processDimensionChange = (c, buffer) => {
-    if (historyStore.lastChangeWasAdd) {
+    // Only the added node's own first measurement re-records the add, and only while the add is
+    // still pending; hidden nodes are never measured.
+    if (historyStore.lastChangeWasAdd && lastAdd?.visibleIds.has(c.id)) {
       historyStore.lastChangeWasAddSetter(false)
-      if (!historyStore.lastCommandHadOffsetApplied) {
-        const node = snapshotNode(c)
+      const node = snapshotNode(c)
+      if (historyStore.isPending(lastAdd.command) && lastAdd.command.offset !== 'applied' && node) {
         node.position = {
           x: node.position.x - node.dimensions.width / 2,
           y: node.position.y - node.dimensions.height / 2,
         }
-        historyStore.replaceLastCommand({
-          type: 'add',
-          offset: 'applied',
-          undo: () => removeNodes(node.id),
-          redo: () => addNodes(node),
-        })
+        // Rewrites the add in place, so the rest of its nodes and any later commands are kept.
+        const index = lastAdd.nodes.findIndex((n) => n.id === node.id)
+        lastAdd.nodes[index] = node
+        lastAdd.command.offset = 'applied'
       }
     } else if (c.dimensions === undefined && buffer.has(c.id)) {
       const startSnapshot = buffer.get(c.id)
@@ -229,18 +231,25 @@ export function useFlowHistory({
     if (addChanges.length) {
       const nodesToAdd = addChanges.map((c) => c.node)
       const idsToRemove = addChanges.map((c) => c.node.id)
-
-      historyStore.lastChangeWasAddSetter(true)
-      historyStore.addCommand({
+      const command = {
         type: 'add',
         offset: 'not-applied',
         undo: () => removeNodes(idsToRemove),
         redo: () => addNodes(nodesToAdd),
-      })
+      }
+      const visibleIds = new Set(nodesToAdd.filter((n) => !n.hidden).map((n) => n.id))
+
+      if (visibleIds.size) {
+        lastAdd = { command, nodes: nodesToAdd, visibleIds }
+        historyStore.lastChangeWasAddSetter(true)
+      }
+      historyStore.addCommand(command)
     }
     if (removeChanges.length) {
       const nodesToRestore = removeChanges.map((change) => change.node)
       const idsToRemove = new Set(removeChanges.map((change) => change.node.id))
+      // Globals are cleaned up against the nodes left now, so re-iding a node (nest, un-nest) must add
+      // the copy before removing the original.
       const remainingNodes = nodes.value.filter((n) => !idsToRemove.has(n.id))
       const removedConstants = libraryStore.cleanupUnusedGlobalConstants(remainingNodes)
       historyStore.addCommand({

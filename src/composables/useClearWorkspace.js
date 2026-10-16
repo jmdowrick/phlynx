@@ -1,7 +1,7 @@
 import { useVueFlow } from '@vue-flow/core'
 import { nextTick } from 'vue'
 
-import { useFlowHistoryStore } from '../stores/historyStore'
+import { useFlowHistoryFor } from './useFlowHistoryFor'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
@@ -14,11 +14,18 @@ import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
 
 import { FLOW_IDS } from '../utils/constants'
 
-export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
+/**
+ * Clears a flow and, for the main flow, resets the app stores.
+ *
+ * @param {string} [flowId=FLOW_IDS.MAIN] - Only the main flow also resets the app stores.
+ * @param {Object} [options]
+ * @param {Object} [options.history] - The undo stack to record into; defaults to useFlowHistoryFor().
+ */
+export function useClearWorkspace(flowId = FLOW_IDS.MAIN, { history: ownHistory } = {}) {
   const { nodes, edges, setViewport, getViewport } = useVueFlow(flowId)
 
   const libraryStore = useLibraryStore()
-  const history = useFlowHistoryStore()
+  const history = useFlowHistoryFor(ownHistory)
   const inspectionStore = useInspectionModuleStore()
   const simStore = useSimulationSettingsStore()
   const omexStore = useOmexStore()

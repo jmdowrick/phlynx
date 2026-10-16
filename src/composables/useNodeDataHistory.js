@@ -1,5 +1,5 @@
 import { useVueFlow } from '@vue-flow/core'
-import { useFlowHistoryStore } from '../stores/historyStore'
+import { useFlowHistoryFor } from './useFlowHistoryFor'
 import { useLibraryStore } from '../stores/libraryStore'
 import { FLOW_IDS } from '../utils/constants'
 import { detachReactivity } from '../utils/reactivity'
@@ -15,7 +15,7 @@ const isSame = (value, otherValue) => JSON.stringify(value) === JSON.stringify(o
  */
 export function useNodeDataHistory(flowId = FLOW_IDS.MAIN) {
   const { nodes, edges, findNode, findEdge, updateNodeData } = useVueFlow(flowId)
-  const history = useFlowHistoryStore()
+  const history = useFlowHistoryFor()
   const libraryStore = useLibraryStore()
 
   /**

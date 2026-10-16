@@ -144,6 +144,90 @@ describe('useFlowHistory', () => {
       await history.redo()
       expect(nodes.value[0].position).toEqual({ x: 150, y: 70 })
     })
+
+    const ids = () => nodes.value.map((n) => n.id)
+    const hidden = () => createNode('h', { hidden: true })
+    const visible = () => createNode('v', { position: { x: 200, y: 100 } })
+    const measure = (id) => onNodeChange([{ type: 'dimensions', id, dimensions: { width: 100, height: 60 } }])
+
+    it('undoes a hidden and a visible add made in one batch together', async () => {
+      history.startBatch()
+      onNodeChange([{ type: 'add', item: visible() }])
+      onNodeChange([{ type: 'add', item: hidden() }])
+      measure('v')
+      history.endBatch()
+
+      await history.undo()
+      expect(nodes.value).toEqual([])
+      await history.redo()
+      expect(ids()).toEqual(['v', 'h'])
+      expect(nodes.value[0].position).toEqual({ x: 150, y: 70 })
+    })
+
+    it('keeps every node of one add when the visible one is measured', async () => {
+      onNodeChange([
+        { type: 'add', item: hidden() },
+        { type: 'add', item: visible() },
+      ])
+      measure('v')
+      commit()
+
+      await history.undo()
+      expect(nodes.value).toEqual([])
+      await history.redo()
+      expect(ids()).toEqual(['h', 'v'])
+      expect(nodes.value[1].position).toEqual({ x: 150, y: 70 })
+    })
+
+    it('does not rewrite a hidden add when another node is measured', async () => {
+      nodes.value = [createNode('a')]
+      onNodeChange([{ type: 'add', item: hidden() }])
+      measure('a')
+      commit()
+
+      await history.undo()
+      expect(ids()).toEqual(['a'])
+      await history.redo()
+      expect(ids()).toEqual(['a', 'h'])
+    })
+
+    it('centres a visible add only on its own measurement', async () => {
+      nodes.value = [createNode('a', { position: { x: 10, y: 20 } })]
+      onNodeChange([{ type: 'add', item: visible() }])
+      measure('a')
+      measure('v')
+      commit()
+
+      await history.undo()
+      await history.redo()
+      expect(nodes.value[0].position).toEqual({ x: 10, y: 20 })
+      expect(nodes.value[1].position).toEqual({ x: 150, y: 70 })
+    })
+
+    it('leaves a committed add alone when its node is measured afterwards', async () => {
+      history.startBatch()
+      onNodeChange([{ type: 'add', item: visible() }])
+      history.endBatch()
+      measure('v')
+
+      await history.undo()
+      await history.redo()
+      expect(nodes.value[0].position).toEqual({ x: 200, y: 100 })
+    })
+
+    it('keeps a later command in the same batch when the added node is measured', async () => {
+      onNodeChange([{ type: 'add', item: visible() }])
+      onEdgeChange([{ type: 'add', item: { id: 'e1', source: 'v', target: 'v' } }])
+      measure('v')
+      commit()
+
+      await history.undo()
+      expect(nodes.value).toEqual([])
+      expect(edges.value).toEqual([])
+      await history.redo()
+      expect(edges.value.map((e) => e.id)).toEqual(['e1'])
+      expect(nodes.value[0].position).toEqual({ x: 150, y: 70 })
+    })
   })
 
   describe('deleting an instance', () => {
@@ -184,6 +268,27 @@ describe('useFlowHistory', () => {
       expect(libraryStore.getGlobalConstant('k')).toBeTruthy()
       await history.redo()
       expect(libraryStore.getGlobalConstant('k')).toBeFalsy()
+    })
+
+    // Re-iding a node (nest, un-nest) must add the copy before removing the original, or the
+    // remove's cleanup drops globals only the copy uses.
+    it('keeps a global the re-added copy uses when the copy is added before the original is removed', async () => {
+      const libraryStore = useLibraryStore()
+      libraryStore.assignGlobalConstant('k', '1', 'dimensionless', null)
+      const uses = { data: { name: 'a', variables: [{ name: 'k' }] } }
+      nodes.value = [createNode('a', uses)]
+
+      history.startBatch()
+      onNodeChange([{ type: 'add', item: createNode('a2', uses) }])
+      onNodeChange([{ type: 'remove', id: 'a' }])
+      history.endBatch()
+      expect(libraryStore.getGlobalConstant('k')).toBeTruthy()
+
+      await history.undo()
+      expect(libraryStore.getGlobalConstant('k')).toBeTruthy()
+      await history.redo()
+      expect(nodes.value.map((n) => n.id)).toEqual(['a2'])
+      expect(libraryStore.getGlobalConstant('k')).toBeTruthy()
     })
   })
 
