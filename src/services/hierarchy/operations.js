@@ -1,0 +1,935 @@
+/**
+ * Structural edits of the hierarchy. Pure: each takes the store's nodes and edges and gives them as they are after it,
+ * or the problems that stop it.
+ *   - makeUnique: a subsystem gets its own copy of its super-module, the copy's exposed ports keeping their ids.
+ *   - nestSelection: nodes of one scope go into a new super-module, one subsystem of it standing in their place.
+ *   - unnest: a subsystem's children take its place.
+ * Each leaves the model as it was: the expansion after it is the one before, but for model ids and flat names (see
+ * modelIdMap). Each also gives `rewrite`, how a module's place changes: the store ids of the subsystems it is inside
+ * and its own, from the root down.
+ *
+ * New nodes come with the ids they keep (see utils/hierarchy nextNodeId); an edge that moves gets a new id, so the
+ * caller can add every new node and edge before removing the old ones.
+ */
+import { buildSubsystem, buildSupermoduleInterface } from '../import/buildWorkflow'
+import { slotOf } from '../../utils/edges'
+import { EXPOSURE_EDGE_TYPE, HANDLE_VARIANT } from '../../utils/constants'
+import { buildGhostHandles, findMostCentralGhostHandle, getHandleId } from '../../utils/handles'
+import {
+  findSupermoduleCycle,
+  indexByScope,
+  isModelEdge,
+  isSubsystem,
+  isSupermoduleInterface,
+  localIdOf,
+  localNameProblem,
+  MAX_NESTING_DEPTH,
+  nextSequentialId,
+  nextSupermoduleId,
+  nodeIdOf,
+  scopeOf,
+  splitNodeId,
+  supermoduleDependencies,
+  supermoduleDepth,
+  supermodulesById,
+  toLocalName,
+} from '../../utils/hierarchy'
+import { sanitiseName } from '../../utils/identifiers'
+import { expandHierarchy, EXPANDED_ID_SEPARATOR, LOCAL_CONSTANTS_KEY } from './expand'
+import { EXPOSED_PORT_ID_PREFIX, exposureEnds, exposureEntriesOf, indexExposures, nextExposedPortId, subsystemPorts } from './exposure'
+import { LEVEL_SEPARATOR } from './names'
+
+const NODE_ID_PREFIX = 'dndnode_'
+// What Vue Flow adds to nodes and edges as it draws them, never copied.
+const RUNTIME_FIELDS = [
+  'selected',
+  'dragging',
+  'resizing',
+  'computedPosition',
+  'handleBounds',
+  'dimensions',
+  'isParent',
+  'events',
+  'hidden',
+  'initialized',
+  'sourceNode',
+  'targetNode',
+  'sourceX',
+  'sourceY',
+  'targetX',
+  'targetY',
+]
+
+/** @returns {*} A deep copy of plain data. */
+const clone = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)))
+
+/** @returns {Object} A node or edge without what Vue Flow adds, copied, with some fields replaced. */
+function copyItem(item, fields) {
+  const plain = Object.fromEntries(Object.entries(item).filter(([field]) => !RUNTIME_FIELDS.includes(field)))
+  return { ...clone(plain), ...fields }
+}
+
+/** @returns {{x: number, y: number}} A node's centre. */
+function centreOf(node) {
+  const width = node.dimensions?.width ?? node.width ?? 0
+  const height = node.dimensions?.height ?? node.height ?? 0
+  return { x: (node.position?.x ?? 0) + width / 2, y: (node.position?.y ?? 0) + height / 2 }
+}
+
+/** @returns {{x: number, y: number}} The mean of the nodes' centres. */
+function centroidOf(nodes) {
+  const centres = nodes.map(centreOf)
+  const mean = (axis) => centres.reduce((sum, centre) => sum + centre[axis], 0) / Math.max(1, centres.length)
+  return { x: mean('x'), y: mean('y') }
+}
+
+/**
+ * Hands out new edge ids, `<source>--<target>` as a drawn connection's, then `--2`, `--3`, … past those taken.
+ *
+ * @param {Array} edges - Every edge in the store, whose ids stay taken.
+ * @returns {(source: string, target: string) => string}
+ */
+function edgeIdAllocator(edges) {
+  const taken = new Set(edges.map((edge) => edge.id))
+  return (source, target) => {
+    const base = `${source}--${target}`
+    let id = base
+    for (let n = 2; taken.has(id); n++) id = `${base}--${n}`
+    taken.add(id)
+    return id
+  }
+}
+
+/**
+ * Hands out new local ids in a scope, past every one it has and every one handed out.
+ *
+ * @param {Array} nodes - Every node in the store.
+ * @param {string|null} scope
+ * @returns {() => string} The next node id in the scope.
+ */
+function nodeIdAllocator(nodes, scope) {
+  const taken = scope
+    ? nodes.filter((node) => scopeOf(node) === scope && !isSupermoduleInterface(node)).map(localIdOf)
+    : nodes.map((node) => node.id)
+  return () => {
+    const localId = nextSequentialId(taken, NODE_ID_PREFIX)
+    taken.push(localId)
+    return nodeIdOf(scope, localId)
+  }
+}
+
+/** @returns {() => string} Hands out exposed port ids past every one the store names (see nextExposedPortId). */
+function exposedPortIdAllocator(nodes, edges) {
+  let next = Number(nextExposedPortId(nodes, edges).slice(EXPOSED_PORT_ID_PREFIX.length))
+  return () => `${EXPOSED_PORT_ID_PREFIX}${next++}`
+}
+
+/**
+ * Makes a name one names inside a super-module may have (see localNameProblem), and free among `taken`, which it then
+ * joins.
+ *
+ * @param {string} name
+ * @param {Set<string>} taken
+ * @param {Object} [options]
+ * @param {string|null} [options.scope] - Where it goes: at the root, a name is kept as it is.
+ * @returns {string}
+ */
+function claimName(name, taken, { scope = null } = {}) {
+  const base = !scope || !localNameProblem(name, { scope }) ? name : toLocalName(sanitiseName(name))
+  let free = base
+  for (let n = 2; taken.has(free); n++) free = `${base}_${n}`
+  taken.add(free)
+  return free
+}
+
+/** @returns {Array} A super-module's children, in expansion order: its submoduleOrder, then the rest in store order. */
+function childrenInOrder(nodes, smId) {
+  const members = nodes.filter((node) => scopeOf(node) === smId && !isSupermoduleInterface(node))
+  const order = supermodulesById(nodes).get(smId)?.data?.supermodule?.submoduleOrder ?? []
+  const byLocalId = new Map(members.map((node) => [localIdOf(node), node]))
+  return [...new Set([...order.map((localId) => byLocalId.get(localId)).filter(Boolean), ...members])]
+}
+
+/**
+ * Turns a ghost handle of a node's handles on, for an edge to attach to: the most central ghost on a side, else a
+ * handle already on there, else a new one.
+ *
+ * @param {Array} handles - The node's handles, changed in place.
+ * @param {string} side
+ * @returns {string} Its handle id.
+ */
+function claimHandle(handles, side) {
+  const ghost = findMostCentralGhostHandle(side, handles)
+  if (ghost) {
+    ghost.variant = HANDLE_VARIANT.DEFAULT
+    return getHandleId(ghost)
+  }
+  const existing = handles.find((handle) => handle.side === side)
+  if (existing) return getHandleId(existing)
+  const handle = { uid: crypto.randomUUID(), side, name: '', variant: HANDLE_VARIANT.DEFAULT }
+  handles.push(handle)
+  return getHandleId(handle)
+}
+
+/** @returns {string|undefined} The side a node's handle is on. */
+const sideOf = (node, handleId) => node?.data?.handles?.find((handle) => getHandleId(handle) === handleId)?.side
+
+/**
+ * Hands out one handle per side of a new node, each shared by every edge on that side.
+ *
+ * @param {Array} handles - The node's handles, changed in place.
+ * @returns {(side: string) => string} A side's handle id.
+ */
+function handlesBySide(handles) {
+  const claimed = new Map()
+  return (side) => {
+    if (!claimed.has(side)) claimed.set(side, claimHandle(handles, side))
+    return claimed.get(side)
+  }
+}
+
+/**
+ * Turns back into ghosts the handles of copied nodes that the edges they lost used and the edges they have don't.
+ *
+ * @param {Map<string, Object>} copies - Each copied node's old id to its copy, whose handles are changed in place.
+ * @param {Array} oldEdges - The edges at the old nodes.
+ * @param {Array} newEdges - The edges after, at the copies.
+ */
+function ghostUnusedHandles(copies, oldEdges, newEdges) {
+  const used = (edges, id) =>
+    new Set(edges.flatMap((edge) => [edge.source === id && edge.sourceHandle, edge.target === id && edge.targetHandle]).filter(Boolean))
+  for (const [oldId, copy] of copies) {
+    const before = used(oldEdges, oldId)
+    const after = used(newEdges, copy.id)
+    for (const handle of copy.data?.handles ?? []) {
+      const id = getHandleId(handle)
+      if (before.has(id) && !after.has(id)) handle.variant = HANDLE_VARIANT.GHOST
+    }
+  }
+}
+
+/**
+ * Rewrites the override keys of every subsystem whose keys pass through a scope: where a key's path of local ids
+ * reaches it, `rewriteAt` gives the rest of the path as it becomes, or null when the key goes.
+ *
+ * @param {Array} nodes - The store before the edit.
+ * @param {string} scope - A super-module's id.
+ * @param {(segments: string[]) => string[]|null} rewriteAt
+ * @param {Set<string>} [skip] - Subsystems left alone.
+ * @returns {Map<string, Object>} Each subsystem whose overrides change, to its new overrides.
+ */
+function rewriteOverrideKeys(nodes, scope, rewriteAt, skip = new Set()) {
+  const byScope = indexByScope(nodes)
+  const childOf = (smId, localId) => (byScope.get(smId) ?? []).find((node) => !isSupermoduleInterface(node) && localIdOf(node) === localId)
+  const changed = new Map()
+  for (const node of nodes) {
+    if (!isSubsystem(node) || skip.has(node.id) || !Object.keys(node.data?.overrides ?? {}).length) continue
+    let isChanged = false
+    const next = {}
+    for (const [key, patches] of Object.entries(node.data.overrides)) {
+      const segments = key.split(EXPANDED_ID_SEPARATOR)
+      let result = segments
+      let within = node.data.smId
+      for (let i = 0; i < segments.length && segments[i] !== LOCAL_CONSTANTS_KEY; i++) {
+        if (within === scope) {
+          const rest = rewriteAt(segments.slice(i))
+          result = rest && [...segments.slice(0, i), ...rest]
+          break
+        }
+        const child = childOf(within, segments[i])
+        if (!isSubsystem(child)) break
+        within = child.data.smId
+      }
+      if (!result) {
+        isChanged = true
+        continue
+      }
+      const newKey = result.join(EXPANDED_ID_SEPARATOR)
+      if (newKey !== key) isChanged = true
+      next[newKey] = { ...next[newKey], ...clone(patches) }
+    }
+    if (isChanged) changed.set(node.id, next)
+  }
+  return changed
+}
+
+/**
+ * Replaces some nodes of a list: those listed go, and the nodes given take the place of the first of them.
+ *
+ * @param {Array} nodes
+ * @param {Set<string>} removed - Ids.
+ * @param {Array} inPlace - The nodes put where the first removed was; at the end when none was there.
+ * @returns {Array}
+ */
+function replaceNodes(nodes, removed, inPlace) {
+  const at = nodes.findIndex((node) => removed.has(node.id))
+  const kept = nodes.filter((node) => !removed.has(node.id))
+  const before = at < 0 ? kept.length : nodes.slice(0, at).filter((node) => !removed.has(node.id)).length
+  return [...kept.slice(0, before), ...inPlace, ...kept.slice(before)]
+}
+
+/**
+ * Applies data changes to some nodes of a list.
+ *
+ * @param {Array} nodes
+ * @param {Map<string, Object>} changes - Node id to the data fields it gets.
+ * @returns {Array}
+ */
+const withData = (nodes, changes) =>
+  nodes.map((node) => (changes.has(node.id) ? { ...node, data: { ...node.data, ...changes.get(node.id) } } : node))
+
+/**
+ * Finds where each model node goes in an edit: expands the store before and after, and pairs each module with the one
+ * its place (see `rewrite`) becomes.
+ *
+ * @param {{nodes: Array, edges: Array}} before
+ * @param {{nodes: Array, edges: Array}} after
+ * @param {(chain: string[]) => string[]} rewrite - A module's place before, its subsystems' and its own store ids from
+ *   the root down, to its place after.
+ * @returns {{idMap: Map<string, string>, nameOf: (id: string) => string|undefined}} Each model id that changes to its
+ *   new one, and the names of the model after.
+ */
+export function modelIdMap(before, after, rewrite) {
+  const from = expandHierarchy(before.nodes, before.edges)
+  const to = expandHierarchy(after.nodes, after.edges)
+  const placeOf = (origin) => [...origin.instanceChain, origin.mainId]
+  const byPlace = new Map(to.nodes.map((node) => [placeOf(to.origin.get(node.id)).join('\0'), node.id]))
+  const idMap = new Map()
+  for (const node of from.nodes) {
+    const id = byPlace.get(rewrite(placeOf(from.origin.get(node.id))).join('\0'))
+    if (id !== undefined && id !== node.id) idMap.set(node.id, id)
+  }
+  return { idMap, nameOf: to.nameOf }
+}
+
+/**
+ * Why a structural edit's result can't be kept: a super-module that would contain itself, or nest too deep.
+ *
+ * @param {Array} nodes - The store after it.
+ * @returns {string|null}
+ */
+function structureProblem(nodes) {
+  const graph = supermoduleDependencies(nodes)
+  const cycle = findSupermoduleCycle(graph)
+  if (cycle) {
+    const names = supermodulesById(nodes)
+    return `That would make super-module "${names.get(cycle[0])?.data?.supermodule?.name ?? cycle[0]}" contain itself.`
+  }
+  if ([...graph.keys()].some((smId) => supermoduleDepth(graph, smId) === Infinity)) {
+    return `That would nest subsystems deeper than ${MAX_NESTING_DEPTH} levels.`
+  }
+  return null
+}
+
+/** @returns {Object} A failed edit: the store as it is, and why. */
+const refused = (nodes, edges, problem) => ({ nodes, edges, problems: [problem], rewrite: (chain) => chain })
+
+/**
+ * Gives one subsystem its own copy of its super-module: the interface node, every child (each keeping its local id,
+ * in the copy's scope), the edges inside and the exposure edges, each exposed port keeping its id, so the subsystem's
+ * couplings still name its ports. The subsystem then uses the copy; nothing else changes. Super-modules nested inside
+ * are shared still.
+ *
+ * @param {Array} nodes
+ * @param {Array} edges
+ * @param {string} subsystemId
+ * @param {Object} [options]
+ * @param {string} [options.name] - The copy's name; its super-module's, made unique, by default.
+ * @returns {{nodes: Array, edges: Array, problems: string[], rewrite: Function, smId?: string}} `smId` the copy's.
+ */
+export function makeUnique(nodes, edges, subsystemId, { name } = {}) {
+  const subsystem = nodes.find((node) => node.id === subsystemId)
+  if (!isSubsystem(subsystem)) return refused(nodes, edges, 'That is not a subsystem.')
+  const smId = subsystem.data.smId
+  const supermodule = supermodulesById(nodes).get(smId)
+  if (!supermodule) return refused(nodes, edges, `Subsystem "${subsystem.data.name}" has no super-module.`)
+
+  const copyId = nextSupermoduleId(nodes)
+  const names = new Set([...supermodulesById(nodes).values()].map((node) => node.data?.supermodule?.name))
+  const copyName = name ?? claimName(supermodule.data.supermodule.name, names, { scope: copyId })
+  const copies = new Map([[smId, copyItem(supermodule, { id: copyId })]])
+  copies.get(smId).data = {
+    ...copies.get(smId).data,
+    scope: copyId,
+    localId: copyId,
+    supermodule: { ...copies.get(smId).data.supermodule, name: copyName, ca: null, source: null },
+  }
+  for (const child of nodes.filter((node) => scopeOf(node) === smId && !isSupermoduleInterface(node))) {
+    const id = nodeIdOf(copyId, localIdOf(child))
+    copies.set(child.id, copyItem(child, { id, data: { ...clone(child.data), scope: copyId, localId: localIdOf(child) } }))
+  }
+
+  const nextEdgeId = edgeIdAllocator(edges)
+  const added = []
+  for (const edge of edges) {
+    if (!copies.has(edge.source) || !copies.has(edge.target)) continue
+    const [source, target] = [copies.get(edge.source).id, copies.get(edge.target).id]
+    added.push(copyItem(edge, { id: nextEdgeId(source, target), source, target }))
+  }
+
+  const after = {
+    nodes: [...withData(nodes, new Map([[subsystemId, { smId: copyId }]])), ...copies.values()],
+    edges: [...edges, ...added],
+  }
+  const childIds = new Map([...copies].map(([oldId, copy]) => [oldId, copy.id]))
+  const rewrite = (chain) => {
+    const at = chain.indexOf(subsystemId)
+    if (at < 0 || at + 1 >= chain.length) return chain
+    return [...chain.slice(0, at + 1), childIds.get(chain[at + 1]) ?? chain[at + 1], ...chain.slice(at + 2)]
+  }
+  return { ...after, problems: [], rewrite, smId: copyId }
+}
+
+/**
+ * Why some canvas nodes can't be nested, or null when they can: none at all, an interface node among them, or nodes
+ * of more than one scope.
+ *
+ * @param {Array} nodes - Every node in the store.
+ * @param {string[]} ids
+ * @returns {string|null}
+ */
+export function nestProblem(nodes, ids) {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  const selected = ids.map((id) => nodeById.get(id))
+  if (!selected.length || selected.some((node) => !node)) return 'Select the nodes to nest.'
+  if (selected.some(isSupermoduleInterface)) return 'A super-module’s interface node can’t be nested.'
+  if (new Set(selected.map(scopeOf)).size > 1) return 'The nodes to nest must all be in one scope.'
+  return null
+}
+
+/**
+ * Nests nodes of one scope into a new super-module, and puts one subsystem of it where they were, at their centroid.
+ *
+ * - Each node moves into the new super-module's scope: a new id, its local id kept, and a name its rules allow. Its
+ *   rows move with it, so its values stay its own.
+ * - The edges between them move with them.
+ * - An edge the selection cuts becomes two: an exposure edge from the node inside to the interface, exposing the
+ *   node's ports its couplings use, and an edge between the node outside and the subsystem, whose couplings name
+ *   those exposed ports in the same slots. A port several edges use is exposed once. Exposed ports are numbered, and
+ *   ordered, as the edges cut come.
+ * - An exposure edge of the scope's own interface from a node nested exposes it on the new super-module too, and the
+ *   subsystem then exposes it, keeping its id, so the scope's subsystems are unchanged.
+ * - Override keys passing through a node nested pass through the subsystem now.
+ *
+ * @param {Array} nodes
+ * @param {Array} edges
+ * @param {string[]} ids - The nodes to nest.
+ * @param {Object} options
+ * @param {string} options.name - The super-module's and the subsystem's name.
+ * @param {{x: number, y: number}} [options.position] - Where the subsystem goes; centred on the nodes by default.
+ * @returns {{nodes: Array, edges: Array, problems: string[], rewrite: Function, smId?: string, subsystemId?: string}}
+ */
+export function nestSelection(nodes, edges, ids, { name, position } = {}) {
+  const problem = nestProblem(nodes, ids)
+  if (problem) return refused(nodes, edges, problem)
+  const trimmed = (name ?? '').trim()
+  const nameProblem = localNameProblem(trimmed, { subsystem: true })
+  if (nameProblem) return refused(nodes, edges, nameProblem)
+  if ([...supermodulesById(nodes).values()].some((node) => node.data?.supermodule?.name === trimmed)) {
+    return refused(nodes, edges, `A super-module is already called "${trimmed}".`)
+  }
+
+  const moved = new Set(ids)
+  const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  const scope = scopeOf(nodeById.get(ids[0]))
+  if (nodes.some((node) => scopeOf(node) === scope && !moved.has(node.id) && node.data?.name === trimmed)) {
+    return refused(nodes, edges, `"${trimmed}" is already used here.`)
+  }
+  const ordered = (scope ? childrenInOrder(nodes, scope) : nodes.filter((node) => scopeOf(node) === null)).filter((node) => moved.has(node.id))
+
+  const smId = nextSupermoduleId(nodes)
+  const subsystemId = nodeIdAllocator(nodes, scope)()
+  const subsystemLocalId = splitNodeId(subsystemId).localId
+
+  // The nodes nested, in their new scope.
+  const names = new Set()
+  const copies = new Map()
+  for (const node of ordered) {
+    const id = nodeIdOf(smId, localIdOf(node))
+    const data = { ...clone(node.data), scope: smId, localId: localIdOf(node), name: claimName(node.data?.name ?? localIdOf(node), names, { scope: smId }) }
+    copies.set(node.id, copyItem(node, { id, data }))
+  }
+
+  const nextEdgeId = edgeIdAllocator(edges)
+  const nextXp = exposedPortIdAllocator(nodes, edges)
+  const inner = []
+  const boundary = []
+  const scopeExposures = []
+  for (const edge of edges) {
+    const [isSource, isTarget] = [moved.has(edge.source), moved.has(edge.target)]
+    if (!isSource && !isTarget) continue
+    if (!isModelEdge(edge)) {
+      // Exposure edges inside a subsystem nested go nowhere; one to the scope's own interface is re-exposed.
+      if (exposureEnds(edge, nodeById)?.smId === scope) scopeExposures.push(edge)
+      continue
+    }
+    if (isSource && isTarget) {
+      const [source, target] = [copies.get(edge.source).id, copies.get(edge.target).id]
+      inner.push(copyItem(edge, { id: nextEdgeId(source, target), source, target }))
+    } else {
+      boundary.push(edge)
+    }
+  }
+
+  // Exposed ports, one for each port of a node nested that the boundary uses, in the order the boundary uses them.
+  const exposedByKey = new Map()
+  const exposedOf = new Map() // node id → its entries
+  const expose = (node, alias, label) => {
+    const key = `${node.id}\0${alias.via != null ? `via:${alias.via}` : `${alias.portType}:${alias.label}#${alias.slot}`}`
+    if (!exposedByKey.has(key)) {
+      const entry = { id: nextXp(), alias, order: exposedByKey.size, ...(label && { label }) }
+      exposedByKey.set(key, entry)
+      if (!exposedOf.has(node.id)) exposedOf.set(node.id, [])
+      exposedOf.get(node.id).push(entry)
+    }
+    return exposedByKey.get(key).id
+  }
+  const aliasOf = (node, port, slot) =>
+    isSubsystem(node)
+      ? { via: port.exposedPortId }
+      : { portType: port.portType, label: port.label, slot: slotOf(node.data?.ports ?? [], port, slot) }
+
+  const allEdges = [...boundary, ...scopeExposures].sort((a, b) => edges.indexOf(a) - edges.indexOf(b))
+  const boundaryPlans = []
+  const scopeEntries = []
+  for (const edge of allEdges) {
+    if (isModelEdge(edge)) {
+      const side = moved.has(edge.source) ? 'source' : 'target'
+      const inside = nodeById.get(edge[side])
+      const couplings = (edge.data?.couplings ?? []).map((coupling) => ({
+        coupling,
+        exposedPortId: expose(inside, aliasOf(inside, coupling[`${side}Port`], coupling[`${side}Slot`])),
+      }))
+      boundaryPlans.push({ edge, side, inside, couplings })
+    } else {
+      const { child } = exposureEnds(edge, nodeById)
+      for (const entry of exposureEntriesOf(edge)) {
+        const alias = entry.alias?.via != null ? { via: entry.alias.via } : { portType: entry.alias.portType, label: entry.alias.label, slot: entry.alias.slot ?? 0 }
+        scopeEntries.push({ edge, entry, via: expose(child, alias) })
+      }
+    }
+  }
+
+  // The new super-module: its interface, left of the nodes nested, and its exposure edges.
+  const left = Math.min(...ordered.map((node) => node.position?.x ?? 0))
+  const interfaceNode = buildSupermoduleInterface(
+    smId,
+    { name: trimmed, submoduleOrder: ordered.map(localIdOf) },
+    { x: left - 300, y: centroidOf(ordered).y }
+  )
+  const interfaceHandle = handlesBySide(interfaceNode.data.handles)
+  const exposureEdges = [...exposedOf].map(([oldId, entries]) => {
+    const child = copies.get(oldId)
+    const firstUse = allEdges.find((edge) => edge.source === oldId || edge.target === oldId)
+    const childHandle = firstUse && (firstUse.source === oldId ? firstUse.sourceHandle : firstUse.targetHandle)
+    return {
+      id: nextEdgeId(child.id, smId),
+      type: EXPOSURE_EDGE_TYPE,
+      source: child.id,
+      target: smId,
+      ...(childHandle && { sourceHandle: childHandle }),
+      targetHandle: interfaceHandle('right'),
+      data: { exposed: entries },
+    }
+  })
+
+  // The subsystem, with its ports as the new super-module exposes them.
+  const inside = [...nodes.filter((node) => !moved.has(node.id)), interfaceNode, ...copies.values()]
+  const insideEdges = [...edges, ...inner, ...exposureEdges]
+  const ports = subsystemPorts(inside, insideEdges, smId)
+  const handles = buildGhostHandles()
+  const subsystemHandle = handlesBySide(handles)
+  // Centred on the nodes' centroid, as big as they are on average.
+  const centroid = centroidOf(ordered)
+  const half = (axis) => ordered.reduce((sum, node) => sum + (node.dimensions?.[axis] ?? 0), 0) / ordered.length / 2
+  const at = position ?? { x: centroid.x - half('width'), y: centroid.y - half('height') }
+  const subsystem = buildSubsystem(subsystemId, trimmed, smId, { scope, ports, handles, position: { ...at } })
+
+  const slotOn = (port) => ports.filter((other) => other.portType === port.portType && other.label === port.label).indexOf(port)
+  // An edge coupling nothing stands for no connection, so it goes. Edges from one node outside, the same way, become
+  // one, as a connection drawn between two nodes is (their couplings in the order the edges came).
+  const merged = new Map()
+  for (const plan of boundaryPlans.filter(({ couplings }) => couplings.length)) {
+    const key = `${plan.side}\0${plan.side === 'source' ? plan.edge.target : plan.edge.source}`
+    if (merged.has(key)) merged.get(key).couplings.push(...plan.couplings)
+    else merged.set(key, { ...plan, couplings: [...plan.couplings] })
+  }
+  const outerEdges = [...merged.values()].map(({ edge, side, inside: node, couplings }) => {
+    const handleOf = side === 'source' ? edge.sourceHandle : edge.targetHandle
+    const handleSide = sideOf(node, handleOf) ?? (side === 'source' ? 'right' : 'left')
+    const ends = { source: edge.source, target: edge.target, [side]: subsystemId }
+    return copyItem(edge, {
+      id: nextEdgeId(ends.source, ends.target),
+      ...ends,
+      [`${side}Handle`]: subsystemHandle(handleSide),
+      data: {
+        ...clone(edge.data),
+        couplings: couplings.map(({ coupling, exposedPortId }) => {
+          const port = ports.find((candidate) => candidate.exposedPortId === exposedPortId)
+          return port ? { ...clone(coupling), [`${side}Port`]: clone(port), [`${side}Slot`]: slotOn(port) } : clone(coupling)
+        }),
+      },
+    })
+  })
+
+  // The scope's own exposure edges from nodes nested now expose the subsystem's ports, keeping their ids.
+  const scopeExposureEdges = []
+  if (scopeEntries.length) {
+    const first = scopeEntries[0].edge
+    const [interfaceEnd, childEnd] = first.source === scope ? ['source', 'target'] : ['target', 'source']
+    scopeExposureEdges.push(
+      copyItem(first, {
+        id: nextEdgeId(subsystemId, scope),
+        source: subsystemId,
+        target: scope,
+        sourceHandle: subsystemHandle(sideOf(nodeById.get(first[childEnd]), first[`${childEnd}Handle`]) ?? 'bottom'),
+        targetHandle: first[`${interfaceEnd}Handle`],
+        data: { exposed: scopeEntries.map(({ entry, via }) => ({ ...clone(entry), alias: { via } })) },
+      })
+    )
+  }
+
+  // The scope's own order lists the subsystem where the first node nested was.
+  const changes = new Map()
+  if (scope) {
+    const movedLocalIds = new Set(ordered.map(localIdOf))
+    const definition = supermodulesById(nodes).get(scope).data.supermodule
+    let isPlaced = false
+    const submoduleOrder = (definition.submoduleOrder ?? []).flatMap((localId) => {
+      if (!movedLocalIds.has(localId)) return [localId]
+      if (isPlaced) return []
+      isPlaced = true
+      return [subsystemLocalId]
+    })
+    changes.set(scope, { supermodule: { ...definition, submoduleOrder } })
+    for (const [id, overrides] of rewriteOverrideKeys(nodes, scope, (rest) => (movedLocalIds.has(rest[0]) ? [subsystemLocalId, ...rest] : rest), moved)) {
+      changes.set(id, { overrides })
+    }
+  }
+
+  const newEdges = [...inner, ...exposureEdges, ...outerEdges, ...scopeExposureEdges]
+  ghostUnusedHandles(copies, edges, newEdges)
+  const removedEdges = new Set([...boundary, ...scopeExposures].map((edge) => edge.id))
+  const after = {
+    nodes: [...withData(replaceNodes(nodes, moved, [subsystem]), changes), interfaceNode, ...copies.values()],
+    edges: [...edges.filter((edge) => !removedEdges.has(edge.id) && !moved.has(edge.source) && !moved.has(edge.target)), ...newEdges],
+  }
+  const structural = structureProblem(after.nodes)
+  if (structural) return refused(nodes, edges, structural)
+
+  const rewrite = (chain) => {
+    const at = chain.findIndex((id) => moved.has(id))
+    return at < 0 ? chain : [...chain.slice(0, at), subsystemId, copies.get(chain[at]).id, ...chain.slice(at + 1)]
+  }
+  return { ...after, problems: [], rewrite, smId, subsystemId }
+}
+
+/**
+ * Why a subsystem can't be un-nested, or null when it can.
+ *
+ * @param {Array} nodes
+ * @param {string} subsystemId
+ * @returns {string|null}
+ */
+export function unnestProblem(nodes, subsystemId) {
+  const subsystem = nodes.find((node) => node.id === subsystemId)
+  if (!isSubsystem(subsystem)) return 'That is not a subsystem.'
+  const supermodule = supermodulesById(nodes).get(subsystem.data.smId)
+  if (!supermodule) return `Subsystem "${subsystem.data.name}" has no super-module.`
+  if (supermodule.data?.supermodule?.localConstants?.length) {
+    return `Super-module "${supermodule.data.supermodule.name}" has local constants, which un-nesting can’t keep yet.`
+  }
+  return null
+}
+
+/**
+ * Un-nests a subsystem: its super-module's children take its place, as copies when other subsystems use it still, so
+ * those are unchanged.
+ *
+ * - Each child gets a new id in the subsystem's scope, and its name prefixed with the subsystem's (`heart__lv` at the
+ *   root, so its flat name is kept; `heart_lv` inside a super-module, whose names can't hold `__`), unique there.
+ * - The subsystem's overrides are baked in: into a module's rows, or a nested subsystem's own overrides, which they win
+ *   over.
+ * - The edges inside move up with them. An edge to the subsystem becomes one edge to each child its couplings reach
+ *   through the exposed ports, the couplings naming the child's own ports in the same slots. A coupling to a port its
+ *   super-module no longer exposes goes (it couples nothing).
+ * - An exposure edge of the scope's interface from the subsystem exposes the children's ports themselves, keeping the
+ *   exposed ports' ids.
+ * - The super-module goes when no other subsystem uses it.
+ *
+ * @param {Array} nodes
+ * @param {Array} edges
+ * @param {string} subsystemId
+ * @returns {{nodes: Array, edges: Array, problems: string[], rewrite: Function, droppedCouplings?: number,
+ *   removedSupermodule?: boolean}}
+ */
+export function unnest(nodes, edges, subsystemId) {
+  const problem = unnestProblem(nodes, subsystemId)
+  if (problem) return refused(nodes, edges, problem)
+  const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  const subsystem = nodeById.get(subsystemId)
+  const scope = scopeOf(subsystem)
+  const smId = subsystem.data.smId
+  const supermodule = supermodulesById(nodes).get(smId)
+  const isShared = nodes.some((node) => isSubsystem(node) && node.id !== subsystemId && node.data.smId === smId)
+  const children = childrenInOrder(nodes, smId)
+  const overrides = subsystem.data.overrides ?? {}
+
+  // The children, copied up into the subsystem's scope.
+  const nextId = nodeIdAllocator(nodes, scope)
+  const names = new Set(nodes.filter((node) => scopeOf(node) === scope && node.id !== subsystemId).map((node) => node.data?.name))
+  const isPreserved = supermodule.data?.supermodule?.naming === 'preserve'
+  const offset = (() => {
+    const from = centroidOf(children)
+    const to = centreOf(subsystem)
+    return { x: to.x - from.x, y: to.y - from.y }
+  })()
+  const copies = new Map()
+  for (const child of children) {
+    const id = nextId()
+    const ownName = isPreserved ? (child.data?.originalName ?? child.data?.name) : child.data?.name
+    const joined = isPreserved ? ownName : `${subsystem.data.name}${scope ? '_' : LEVEL_SEPARATOR}${ownName}`
+    const data = { ...clone(child.data), scope, localId: splitNodeId(id).localId, name: claimName(joined, names, { scope }) }
+    const localId = localIdOf(child)
+    if (isSubsystem(child)) {
+      const prefix = `${localId}${EXPANDED_ID_SEPARATOR}`
+      const inner = clone(child.data.overrides ?? {})
+      for (const [key, patches] of Object.entries(overrides)) {
+        if (!key.startsWith(prefix)) continue
+        const rest = key.slice(prefix.length)
+        inner[rest] = { ...inner[rest] }
+        for (const [variable, patch] of Object.entries(patches)) inner[rest][variable] = { ...inner[rest][variable], ...clone(patch) }
+      }
+      data.overrides = inner
+    } else if (overrides[localId]) {
+      data.variables = (data.variables ?? []).map((row) => (overrides[localId][row.name] ? { ...row, ...clone(overrides[localId][row.name]) } : row))
+    }
+    const position = { x: (child.position?.x ?? 0) + offset.x, y: (child.position?.y ?? 0) + offset.y }
+    copies.set(child.id, copyItem(child, { id, position, data }))
+  }
+
+  const nextEdgeId = edgeIdAllocator(edges)
+  const inner = []
+  for (const edge of edges) {
+    if (!isModelEdge(edge) || !copies.has(edge.source) || !copies.has(edge.target)) continue
+    const [source, target] = [copies.get(edge.source).id, copies.get(edge.target).id]
+    inner.push(copyItem(edge, { id: nextEdgeId(source, target), source, target }))
+  }
+
+  // Each exposed port, to the child port it aliases.
+  const exposed = new Map((indexExposures(nodes, edges).get(smId) ?? []).map((port) => [port.id, port]))
+  const exposureHandleOf = new Map()
+  for (const edge of edges) {
+    const ends = exposureEnds(edge, nodeById)
+    if (ends?.smId !== smId) continue
+    exposureHandleOf.set(ends.child.id, edge.source === ends.child.id ? edge.sourceHandle : edge.targetHandle)
+  }
+  const target = (exposedPortId) => {
+    const port = exposed.get(exposedPortId)
+    const copy = port && copies.get(port.childId)
+    if (!copy) return null
+    const group = (alias) => (copy.data.ports ?? []).filter((candidate) => candidate.portType === alias.portType && candidate.label === alias.label)
+    if (port.alias.via != null) {
+      const live = (copy.data.ports ?? []).find((candidate) => candidate.exposedPortId === port.alias.via)
+      return live ? { copy, childId: port.childId, port: live, slot: group(live).indexOf(live), alias: { via: port.alias.via } } : null
+    }
+    const slot = port.alias.slot ?? 0
+    const live = group(port.alias)[slot]
+    return live ? { copy, childId: port.childId, port: live, slot, alias: { portType: port.alias.portType, label: port.alias.label, slot } } : null
+  }
+
+  // Each edge to the subsystem, as edges to the children its couplings reach.
+  let droppedCouplings = 0
+  const outer = []
+  const replaced = new Set()
+  for (const edge of edges) {
+    if (!isModelEdge(edge) || (edge.source !== subsystemId && edge.target !== subsystemId)) continue
+    replaced.add(edge.id)
+    const side = edge.source === subsystemId ? 'source' : 'target'
+    const byChild = new Map()
+    for (const coupling of edge.data?.couplings ?? []) {
+      const end = target(coupling[`${side}Port`]?.exposedPortId)
+      if (!end) {
+        droppedCouplings++
+        continue
+      }
+      if (!byChild.has(end.copy.id)) byChild.set(end.copy.id, { end, couplings: [] })
+      byChild.get(end.copy.id).couplings.push({ ...clone(coupling), [`${side}Port`]: clone(end.port), [`${side}Slot`]: end.slot })
+    }
+    for (const [copyId, { end, couplings }] of byChild) {
+      const ends = { source: edge.source, target: edge.target, [side]: copyId }
+      const handle = exposureHandleOf.get(end.childId)
+      outer.push(
+        copyItem(edge, {
+          id: nextEdgeId(ends.source, ends.target),
+          ...ends,
+          [`${side}Handle`]: handle ?? claimHandle(end.copy.data.handles ?? (end.copy.data.handles = buildGhostHandles()), sideOf(subsystem, edge[`${side}Handle`]) ?? 'left'),
+          data: { ...clone(edge.data), couplings },
+        })
+      )
+    }
+  }
+
+  // The scope's own exposure edges from the subsystem now expose the children's ports, keeping their ids.
+  const scopeExposures = []
+  for (const edge of edges) {
+    if (exposureEnds(edge, nodeById)?.child?.id !== subsystemId) continue
+    replaced.add(edge.id)
+    const interfaceEnd = edge.source === scope ? 'source' : 'target'
+    const byChild = new Map()
+    for (const entry of exposureEntriesOf(edge)) {
+      const end = target(entry.alias?.via)
+      if (!end) continue
+      if (!byChild.has(end.copy.id)) byChild.set(end.copy.id, { end, entries: [] })
+      byChild.get(end.copy.id).entries.push({ ...clone(entry), alias: end.alias })
+    }
+    for (const [copyId, { end, entries }] of byChild) {
+      scopeExposures.push({
+        ...copyItem(edge, {}),
+        id: nextEdgeId(copyId, scope),
+        source: copyId,
+        target: scope,
+        sourceHandle: exposureHandleOf.get(end.childId),
+        targetHandle: edge[`${interfaceEnd}Handle`],
+        data: { exposed: entries },
+      })
+    }
+  }
+
+  // The scope's order lists the children where the subsystem was; override keys through it reach them directly.
+  const changes = new Map()
+  const newLocalIds = new Map(children.map((child) => [localIdOf(child), copies.get(child.id).data.localId]))
+  if (scope) {
+    const definition = supermodulesById(nodes).get(scope).data.supermodule
+    const order = definition.submoduleOrder ?? []
+    const submoduleOrder = order.includes(subsystem.data.localId)
+      ? order.flatMap((localId) => (localId === subsystem.data.localId ? [...newLocalIds.values()] : [localId]))
+      : order
+    changes.set(scope, { supermodule: { ...definition, submoduleOrder } })
+    const rewriteAt = (rest) => {
+      if (rest[0] !== subsystem.data.localId) return rest
+      return newLocalIds.has(rest[1]) ? [newLocalIds.get(rest[1]), ...rest.slice(2)] : null
+    }
+    for (const [id, next] of rewriteOverrideKeys(nodes, scope, rewriteAt, new Set([subsystemId]))) changes.set(id, { overrides: next })
+  }
+
+  const removedNodes = new Set([subsystemId])
+  if (!isShared) {
+    removedNodes.add(smId)
+    for (const node of nodes) if (scopeOf(node) === smId) removedNodes.add(node.id)
+  }
+  const newEdges = [...inner, ...outer, ...scopeExposures]
+  ghostUnusedHandles(copies, edges, newEdges)
+  const after = {
+    nodes: withData(replaceNodes(nodes, new Set([subsystemId]), [...copies.values()]).filter((node) => !removedNodes.has(node.id)), changes),
+    edges: [...edges.filter((edge) => !replaced.has(edge.id) && !removedNodes.has(edge.source) && !removedNodes.has(edge.target)), ...newEdges],
+  }
+  const rewrite = (chain) => {
+    const at = chain.indexOf(subsystemId)
+    if (at < 0 || at + 1 >= chain.length) return chain
+    return [...chain.slice(0, at), copies.get(chain[at + 1])?.id ?? chain[at + 1], ...chain.slice(at + 2)]
+  }
+  return { ...after, problems: [], rewrite, droppedCouplings, removedSupermodule: !isShared }
+}
+
+/**
+ * Gets the super-modules some nodes depend on, through their subsystems and those inside them: each one's interface
+ * node, its children and the edges inside it, its exposure edges among them.
+ *
+ * @param {Array} nodes - Every node in the store.
+ * @param {Array} edges - Every edge in the store.
+ * @param {Array} from - The nodes whose dependencies are wanted.
+ * @returns {{nodes: Array, edges: Array}} Copies, without what Vue Flow adds; empty when none is a subsystem.
+ */
+export function supermoduleClosure(nodes, edges, from) {
+  const interfaces = supermodulesById(nodes)
+  const byScope = indexByScope(nodes)
+  const smIds = new Set()
+  const pending = from.filter(isSubsystem).map((node) => node.data.smId)
+  while (pending.length) {
+    const smId = pending.pop()
+    if (smIds.has(smId) || !interfaces.has(smId)) continue
+    smIds.add(smId)
+    for (const node of byScope.get(smId) ?? []) if (isSubsystem(node)) pending.push(node.data.smId)
+  }
+  const members = nodes.filter((node) => smIds.has(node.id) || smIds.has(scopeOf(node)))
+  const ids = new Set(members.map((node) => node.id))
+  return {
+    nodes: members.map((node) => copyItem(node, {})),
+    edges: edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target)).map((edge) => copyItem(edge, {})),
+  }
+}
+
+/**
+ * Describes a super-module by what makes it what it is: its definition, its children and its edges, by local id,
+ * leaving out where things are drawn.
+ *
+ * @param {string} smId
+ * @param {Array} nodes
+ * @param {Array} edges
+ * @returns {string}
+ */
+function supermoduleSignature(smId, nodes, edges) {
+  const members = nodes.filter((node) => node.id === smId || scopeOf(node) === smId)
+  const localOf = new Map(members.map((node) => [node.id, isSupermoduleInterface(node) ? '' : localIdOf(node)]))
+  const content = ({ handles: _handles, ...data }) => data
+  return JSON.stringify({
+    nodes: members.map((node) => [localOf.get(node.id), node.type, content(node.data ?? {})]).sort((a, b) => a[0].localeCompare(b[0])),
+    edges: edges
+      .filter((edge) => localOf.has(edge.source) && localOf.has(edge.target))
+      .map((edge) => [localOf.get(edge.source), localOf.get(edge.target), edge.type ?? null, edge.data ?? null])
+      .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+  })
+}
+
+/**
+ * Plans pasting super-modules copied with a selection (see supermoduleClosure): each one the workspace already has,
+ * the same and with every one it uses the same, is reused; any other is added with a fresh id, its children's ids
+ * and its name made unique, and the subsystems inside it pointed at the copies.
+ *
+ * @param {Array} nodes - Every node in the store.
+ * @param {Array} edges - Every edge in the store.
+ * @param {{nodes: Array, edges: Array}} closure
+ * @returns {{nodes: Array, edges: Array, smIdMap: Map<string, string>}} The nodes and edges to add, and each copied
+ *   super-module's id to the one pasted subsystems use.
+ */
+export function planSupermodulePaste(nodes, edges, closure) {
+  const copied = supermodulesById(closure.nodes)
+  const graph = supermoduleDependencies(closure.nodes)
+  const existing = supermodulesById(nodes)
+  const smIdMap = new Map()
+  const taken = [...nodes]
+  const names = new Set([...existing.values()].map((node) => node.data?.supermodule?.name))
+  const added = { nodes: [], edges: [] }
+  const nextEdgeId = edgeIdAllocator([...edges, ...closure.edges])
+
+  const visit = (smId, visiting = new Set()) => {
+    if (smIdMap.has(smId) || visiting.has(smId) || !copied.has(smId)) return
+    visiting.add(smId)
+    for (const inner of graph.get(smId) ?? []) visit(inner, visiting)
+    const depsReused = [...(graph.get(smId) ?? [])].every((inner) => !copied.has(inner) || smIdMap.get(inner) === inner)
+    if (depsReused && existing.has(smId) && supermoduleSignature(smId, nodes, edges) === supermoduleSignature(smId, closure.nodes, closure.edges)) {
+      smIdMap.set(smId, smId)
+      return
+    }
+    const id = nextSupermoduleId(taken)
+    smIdMap.set(smId, id)
+    const members = closure.nodes.filter((node) => node.id === smId || scopeOf(node) === smId)
+    const idOf = new Map(members.map((node) => [node.id, isSupermoduleInterface(node) ? id : nodeIdOf(id, localIdOf(node))]))
+    for (const node of members) {
+      const data = { ...clone(node.data), scope: id, localId: isSupermoduleInterface(node) ? id : localIdOf(node) }
+      if (isSupermoduleInterface(node)) data.supermodule = { ...data.supermodule, name: claimName(data.supermodule?.name ?? id, names, { scope: id }) }
+      if (isSubsystem(node)) data.smId = smIdMap.get(node.data.smId) ?? node.data.smId
+      const copy = copyItem(node, { id: idOf.get(node.id), data })
+      taken.push(copy)
+      added.nodes.push(copy)
+    }
+    for (const edge of closure.edges) {
+      if (!idOf.has(edge.source) || !idOf.has(edge.target)) continue
+      const [source, target] = [idOf.get(edge.source), idOf.get(edge.target)]
+      added.edges.push(copyItem(edge, { id: nextEdgeId(source, target), source, target }))
+    }
+  }
+  for (const smId of copied.keys()) visit(smId)
+  return { ...added, smIdMap }
+}

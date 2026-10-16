@@ -2,7 +2,7 @@
  * The canvas level: which scope the canvas shows and how it was reached, from the root or editing a super-module on
  * its own. Nodes outside the scope shown are hidden (never saved); navigating is never an undo step.
  */
-import { computed, effectScope, nextTick, ref } from 'vue'
+import { computed, effectScope, nextTick, ref, watch } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
 import { useActiveCanvas } from './useActiveCanvas'
@@ -161,6 +161,22 @@ function createCanvasLevel(flow, flowId) {
 
   /** @returns {boolean} Whether a node is in the scope shown. */
   const isShown = (node) => scopeOf(node) === scope.value
+
+  // An edit can change the super-module of a subsystem entered, as Make unique does and its undo puts back: the canvas
+  // follows, showing the level's scope as it is now.
+  watch(
+    () => (isValidLevel(editedSupermodule.value, enteredIds.value) ? scopeOfLevel(editedSupermodule.value, enteredIds.value) : scope.value),
+    (next) => {
+      if (next === scope.value) return
+      const follow = () => {
+        scope.value = next
+        syncVisibility()
+      }
+      const recorder = history ?? (flowId === FLOW_IDS.MAIN ? useFlowHistoryStore() : null)
+      if (recorder) recorder.withoutHistory(follow)
+      else follow()
+    }
+  )
 
   /** Deselects every node and edge, those off the canvas too. */
   function deselectAll() {

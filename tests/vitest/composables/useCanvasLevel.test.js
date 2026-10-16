@@ -315,6 +315,35 @@ describe('useCanvasLevel', () => {
       expect(supermodules.supermoduleNameProblem('heart')).toMatch('already called')
     })
 
+    it('renames a super-module as one undo step, its subsystems keeping their names', async () => {
+      supermodules.createEmptySubsystem('lung', { x: 0, y: 0 })
+      await expect(supermodules.renameSupermodule('sm_1', 'heart', { history })).resolves.toBe(false)
+      await expect(supermodules.renameSupermodule('sm_1', 'lung', { history })).rejects.toThrow('already called')
+
+      await expect(supermodules.renameSupermodule('sm_1', 'pump', { history })).resolves.toBe(true)
+      commit()
+      expect(flow.findNode('sm_1').data.supermodule.name).toBe('pump')
+      expect(flow.findNode('dndnode_1').data.name).toBe('heart')
+      expect(history.pointerIndex).toBe(1)
+      await history.undo()
+      expect(flow.findNode('sm_1').data.supermodule.name).toBe('heart')
+    })
+
+    it('deletes an unused super-module and its nodes as one undo step', async () => {
+      const { smId, subsystemId } = supermodules.createEmptySubsystem('lung', { x: 0, y: 0 })
+      flow.removeNodes([subsystemId])
+      commit()
+      expect(supermodules.find(smId).count).toBe(0)
+      const steps = history.pointerIndex
+
+      supermodules.deleteSupermodule(smId)
+      commit()
+      expect(flow.findNode(smId)).toBeUndefined()
+      expect(history.pointerIndex).toBe(steps + 1)
+      await history.undo()
+      expect(flow.findNode(smId).hidden).toBe(true)
+    })
+
     it('places another subsystem, but never one that would contain itself', () => {
       expect(supermodules.addSubsystem('sm_1', { x: 0, y: 0 })).toBe('dndnode_3')
       expect(flow.findNode('dndnode_3').data).toMatchObject({ name: 'heart_2', smId: 'sm_1' })

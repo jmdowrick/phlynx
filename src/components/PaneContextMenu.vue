@@ -12,9 +12,11 @@
         <li
           v-for="item in items"
           :key="item.label"
-          class="context-menu__item"
+          :class="['context-menu__item', { 'context-menu__item--disabled': item.disabled }]"
           role="menuitem"
-          @click="select(item)"
+          :aria-disabled="item.disabled ? 'true' : undefined"
+          :title="item.title"
+          @click.stop="select(item)"
         >
           <component
             v-if="item.icon && typeof item.icon !== 'string'"
@@ -40,7 +42,7 @@ const props = defineProps({
   items: {
     type: Array,
     required: true,
-    // Each item: { label: string, action: () => void, icon?: Component | string }
+    // Each item: { label: string, action: () => void, icon?: Component | string, disabled?: boolean, title?: string }
   },
   closeDelay: {
     type: Number,
@@ -66,6 +68,7 @@ function close() {
 }
 
 function select(item) {
+  if (item.disabled) return
   item.action()
   close()
 }
@@ -141,6 +144,14 @@ defineExpose({ open, close })
   /* Hover background and primary active text color */
   background-color: var(--p-content-hover-background, var(--surface-hover, #f3f4f6));
   color: var(--p-primary-color, var(--primary-color, #3b82f6));
+}
+
+/* An item that can't be used here: shown, with why on hover, but inert. */
+.context-menu__item--disabled,
+.context-menu__item--disabled:hover {
+  background-color: transparent;
+  color: var(--p-text-muted-color, #9ca3af);
+  cursor: default;
 }
 
 .context-menu__icon {

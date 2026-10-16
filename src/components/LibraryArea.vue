@@ -72,6 +72,29 @@
                         v-tooltip.top="'Edit super-module'"
                         @click.stop="canvasLevel.editSupermodule(entry.id)"
                       />
+                      <Button
+                        icon="pi pi-tag"
+                        severity="secondary"
+                        text
+                        rounded
+                        size="small"
+                        class="mlc__preview-btn"
+                        :aria-label="`Rename super-module ${entry.name}`"
+                        v-tooltip.top="'Rename super-module'"
+                        @click.stop="openRename(entry)"
+                      />
+                      <Button
+                        icon="pi pi-trash"
+                        severity="secondary"
+                        text
+                        rounded
+                        size="small"
+                        class="mlc__preview-btn"
+                        :aria-label="`Delete super-module ${entry.name}`"
+                        :disabled="entry.count > 0"
+                        v-tooltip.top="entry.count > 0 ? 'Used by a subsystem, so it can’t be deleted' : 'Delete super-module'"
+                        @click.stop="deleteSupermodule(entry.id)"
+                      />
                     </div>
                   </div>
                   <div v-if="entry.label !== entry.name" class="mlc__supermodule-label">{{ entry.label }}</div>
@@ -210,6 +233,13 @@
     </div>
 
     <ModulePreviewDialog v-model="showPreview" :module-data="previewTarget" />
+    <NewSubsystemDialog
+      v-model="renameTarget.visible"
+      mode="rename"
+      :sm-id="renameTarget.smId"
+      :initial-name="renameTarget.name"
+      @confirm="onRenameConfirm"
+    />
   </div>
 </template>
 
@@ -233,6 +263,8 @@ import { useActiveCanvas } from '../composables/useActiveCanvas'
 import { useCanvasLevel } from '../composables/useCanvasLevel'
 import { useSupermodules } from '../composables/useSupermodules'
 import ModulePreviewDialog from './ModulePreviewDialog.vue'
+import NewSubsystemDialog from './dialogs/NewSubsystemDialog.vue'
+import { notify } from '../utils/notify'
 import { GHOST_MODULE_REF, NEW_MODULE_REF } from '../utils/constants.js'
 
 const props = defineProps({
@@ -297,7 +329,7 @@ function cardMatches(card, q) {
 }
 
 // The super-modules listed, matching the filter, and whether each can be placed on the canvas shown.
-const { supermodules, canPlace } = useSupermodules()
+const { supermodules, canPlace, deleteSupermodule, renameSupermodule } = useSupermodules()
 const { scope: canvasScope } = useActiveCanvas()
 const canvasLevel = useCanvasLevel()
 
@@ -307,6 +339,23 @@ const filteredSupermodules = computed(() => {
   if (!q) return supermodules.value
   return supermodules.value.filter((entry) => `${entry.name} ${entry.label}`.toLowerCase().includes(q))
 })
+
+// The super-module the rename dialog renames.
+const renameTarget = reactive({ visible: false, smId: null, name: '' })
+
+/** Asks for a super-module's new name. */
+function openRename(entry) {
+  Object.assign(renameTarget, { visible: true, smId: entry.id, name: entry.name })
+}
+
+/** @param {string} name - Checked by the dialog. */
+async function onRenameConfirm(name) {
+  try {
+    await renameSupermodule(renameTarget.smId, name, { history })
+  } catch (error) {
+    notify.error({ title: 'Not Renamed', message: error.message })
+  }
+}
 
 /** @returns {boolean} Whether a subsystem of a super-module can go on the canvas shown, without a cycle. */
 const canPlaceHere = (smId) => canPlace(canvasScope.value, smId)

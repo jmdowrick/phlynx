@@ -17,9 +17,9 @@ describe('NewSubsystemDialog', () => {
   let wrapper
 
   /** Mounts the dialog open, its content kept in place rather than teleported. */
-  async function mountDialog() {
+  async function mountDialog(props = {}) {
     wrapper = mount(NewSubsystemDialog, {
-      props: { modelValue: true },
+      props: { modelValue: true, ...props },
       global: { plugins: [PrimeVue], stubs: { teleport: true } },
     })
     await nextTick()
@@ -61,5 +61,23 @@ describe('NewSubsystemDialog', () => {
     await createButton().trigger('click')
     expect(wrapper.emitted('confirm')).toEqual([['left_heart']])
     expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
+  })
+
+  it('renames a super-module, offering its own name and refusing another’s', async () => {
+    await mountDialog({ mode: 'rename', smId: 'sm_1', initialName: 'subsystem_2' })
+    expect(input().element.value).toBe('subsystem_2')
+    expect(hint().text()).toBe('Its subsystems keep their own names.')
+    const rename = wrapper.findAll('button').find((button) => button.text() === 'Rename')
+    // A canvas node's name doesn't count for a super-module renamed.
+    await input().setValue('subsystem')
+    expect(rename.attributes('disabled')).toBeUndefined()
+    await rename.trigger('click')
+    expect(wrapper.emitted('confirm')).toEqual([['subsystem']])
+  })
+
+  it('names what a selection is nested into', async () => {
+    await mountDialog({ mode: 'nest' })
+    expect(wrapper.text()).toContain('Nest Selection')
+    expect(wrapper.findAll('button').some((button) => button.text() === 'Nest')).toBe(true)
   })
 })

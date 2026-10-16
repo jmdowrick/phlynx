@@ -274,16 +274,45 @@ describe('useWorkspaceClipboard', () => {
         expect(emit).toHaveBeenCalledWith('add', expect.objectContaining({ severity: 'warn', summary: 'Not Pasted' }))
       })
 
-      it('refuses to paste a subsystem whose super-module is gone, as in another window', async () => {
+      it('copies the super-modules a subsystem depends on, and reuses one the workspace has the same', async () => {
         nodes.value.push(buildSubsystem('dndnode_9', 'heart', 'sm_1'))
         select(['dndnode_9'])
         await clipboard.copySelection()
-        nodes.value = nodes.value.filter((node) => node.id !== 'sm_1')
-        const before = nodes.value.map((node) => node.id)
+        const payload = JSON.parse(systemClipboard.text)
+        expect(payload.supermodules.nodes.map((node) => node.id)).toEqual(['sm_1~dndnode_0', 'sm_1~dndnode_1', 'sm_1'])
+        expect(payload.supermodules.edges.map((edge) => edge.id)).toEqual(['edge_2'])
 
+        const before = nodes.value.length
         await clipboard.pasteSelection()
-        expect(nodes.value.map((node) => node.id)).toEqual(before)
-        expect(emit).toHaveBeenCalledWith('add', expect.objectContaining({ severity: 'warn', summary: 'Not Pasted' }))
+        expect(nodes.value).toHaveLength(before + 1)
+        expect(pasted().map(({ id, data }) => [id, data.smId])).toEqual([['dndnode_10', 'sm_1']])
+      })
+
+      it('pastes a super-module gone, as in another window, or changed since, afresh with its own ids', async () => {
+        nodes.value.push(buildSubsystem('dndnode_9', 'heart', 'sm_1'))
+        select(['dndnode_9'])
+        await clipboard.copySelection()
+
+        // Changed since: pasted beside the one there, its name made unique.
+        findNode('sm_1~dndnode_0').data.name = 'D2'
+        await clipboard.pasteSelection()
+        expect(pasted().map(({ id, data }) => [id, data.smId])).toEqual([['dndnode_10', 'sm_2']])
+        expect(findNode('sm_2').data.supermodule.name).toBe('heart_2')
+        expect(nodes.value.filter((node) => node.data.scope === 'sm_2').map((node) => [node.id, node.data.localId, node.data.name])).toEqual([
+          ['sm_2~dndnode_0', 'dndnode_0', 'D'],
+          ['sm_2~dndnode_1', 'dndnode_1', 'E'],
+          ['sm_2', 'sm_2', undefined],
+        ])
+        expect(edges.value.filter((edge) => edge.source.startsWith('sm_2~')).map((edge) => [edge.source, edge.target])).toEqual([
+          ['sm_2~dndnode_0', 'sm_2~dndnode_1'],
+        ])
+
+        // Gone, as in another window: pasted with the subsystem.
+        nodes.value = nodes.value.filter((node) => node.id !== 'sm_1' && node.data.scope !== 'sm_1' && node.data.scope !== 'sm_2' && node.id !== 'sm_2')
+        await clipboard.pasteSelection()
+        const smId = pasted()[0].data.smId
+        expect(findNode(smId).data.supermodule.name).toBe('heart')
+        expect(emit).not.toHaveBeenCalledWith('add', expect.objectContaining({ summary: 'Not Pasted' }))
       })
     })
   })

@@ -28,6 +28,15 @@
       <span>
         Editing super-module '{{ current.supermoduleName }}' — changes apply to {{ sharedCount }} subsystems
       </span>
+      <Button
+        v-if="current.instanceId !== null"
+        label="Make unique"
+        size="small"
+        text
+        class="banner-action"
+        v-tooltip.bottom="{ value: `Give '${current.name}' its own copy of the super-module`, showDelay: 300 }"
+        @click="makeUnique"
+      />
     </div>
   </div>
 </template>
@@ -36,13 +45,18 @@
 /**
  * Where the canvas is: Model, then each subsystem entered (or the super-module edited on its own), the last the one
  * shown. Earlier entries go back there, and Escape goes up one level. While the super-module shown has more than one
- * copy in the model, a banner says an edit changes them all.
+ * copy in the model, a banner says an edit changes them all, and, reached through a subsystem, offers to give that
+ * subsystem its own copy.
  */
 import { computed } from 'vue'
+import Button from 'primevue/button'
+import vTooltip from 'primevue/tooltip'
 
 import { useActiveDocumentListeners } from '../composables/useActiveDocumentListeners'
 import { useCanvasLevel } from '../composables/useCanvasLevel'
+import { useHierarchyOperations } from '../composables/useHierarchyOperations'
 import { shouldIgnoreShortcut } from '../composables/useWorkspaceClipboard'
+import { notify } from '../utils/notify'
 
 const props = defineProps({
   // While a dialog or another use of Escape is open, Escape leaves the level as it is.
@@ -56,6 +70,13 @@ const { isAtRoot, path, exitTo, exitOne } = useCanvasLevel()
 
 const current = computed(() => path.value.at(-1))
 const sharedCount = computed(() => current.value?.occurrences ?? 0)
+const { makeUniqueSubsystem } = useHierarchyOperations()
+
+/** Gives the subsystem shown its own copy of its super-module; the canvas then shows the copy. */
+async function makeUnique() {
+  const { problems } = await makeUniqueSubsystem(current.value.instanceId)
+  if (problems.length) notify.warning({ title: 'Not Made Unique', message: problems.join(' ') })
+}
 
 /**
  * Says what a crumb is a copy of: a subsystem's super-module, where its name differs, and how many subsystems that
@@ -187,6 +208,11 @@ useActiveDocumentListeners({ keydown: onKeydown })
   border-radius: 6px;
   background: color-mix(in srgb, var(--p-orange-500) 12%, var(--p-content-background));
   color: var(--p-text-color);
+  font-size: 12px;
+}
+
+.banner-action {
+  padding: 0 6px;
   font-size: 12px;
 }
 </style>

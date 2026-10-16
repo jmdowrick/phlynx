@@ -5,12 +5,14 @@ from playwright.sync_api import sync_playwright, expect
 try:
     from .config import BASE_URL, HEADLESS_MODE
     from .test_workspace import (
-        EDGE, FIXTURE_NODE_COUNT, NODE, centre, drag, node_by_name, read_resource, undo, wait_for_settled_transform,
+        EDGE, FIXTURE_NODE_COUNT, NODE, centre, drag, node_by_name, read_resource, shift_drag_select, undo,
+        wait_for_settled_transform,
     )
 except ImportError:
     from config import BASE_URL, HEADLESS_MODE
     from test_workspace import (
-        EDGE, FIXTURE_NODE_COUNT, NODE, centre, drag, node_by_name, read_resource, undo, wait_for_settled_transform,
+        EDGE, FIXTURE_NODE_COUNT, NODE, centre, drag, node_by_name, read_resource, shift_drag_select, undo,
+        wait_for_settled_transform,
     )
 
 
@@ -219,6 +221,64 @@ class TestSubsystems(unittest.TestCase):
         self.assertEqual(len(couplings), 1)
         self.assertEqual(couplings[0]["source"], "membrane_voltage")
         self.assertTrue(couplings[0]["exposedPortId"].startswith("xp_"))
+
+
+    # ---------- nesting and un-nesting -----------
+
+    def test_nest_unnest_undo(self):
+        page = self.page
+        self.open_workspace()
+
+        # Two connected modules, nested into one subsystem in their place.
+        shift_drag_select(page, ["var_SN", "axon_SN"])
+        expect(page.locator(f"{NODE}.selected")).to_have_count(2)
+        # A box selection is right-clicked over the rectangle drawn around it.
+        page.locator(".vue-flow__nodesselection-rect").click(button="right")
+        page.locator(".context-menu__item", has_text="Nest Selection (2)").click()
+        dialog = page.get_by_role("dialog", name="Nest Selection")
+        dialog.locator("#new-subsystem-name").fill("nerve")
+        dialog.get_by_role("button", name="Nest").click()
+        expect(dialog).to_be_hidden()
+
+        subsystem = page.locator(SUBSYSTEM)
+        expect(subsystem).to_have_count(1)
+        expect(subsystem.locator(".name-text")).to_have_text("nerve")
+        expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT - 1)
+        expect(page.locator(SUPERMODULE_CARD).locator(".mlc__card-name")).to_have_text(["nerve"])
+        # The edge cut by the selection now joins soma_SN and the subsystem.
+        expect(page.locator(EDGE)).to_have_count(1)
+
+        # Inside are the two modules, joined as they were, and the interface they are exposed on.
+        subsystem.get_by_role("button", name="Open subsystem").click()
+        expect(page.locator(CRUMB)).to_have_text(["Model", "nerve"])
+        expect(page.locator(INTERFACE)).to_have_count(1)
+        expect(page.locator(NODE)).to_have_count(3)
+        expect(node_by_name(page, "var_SN")).to_have_count(1)
+        expect(node_by_name(page, "axon_SN")).to_have_count(1)
+        page.keyboard.press("Escape")
+        expect(page.locator(BREADCRUMB)).to_have_count(0)
+
+        # Un-nest puts the modules back, named by their place, and the super-module goes.
+        wait_for_settled_transform(page)
+        page.locator(SUBSYSTEM).click(button="right")
+        page.locator(".context-menu__item", has_text="Un-nest").click()
+        expect(page.locator(SUBSYSTEM)).to_have_count(0)
+        expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT)
+        expect(node_by_name(page, "nerve__var_SN")).to_have_count(1)
+        expect(node_by_name(page, "nerve__axon_SN")).to_have_count(1)
+        expect(page.locator(EDGE)).to_have_count(2)
+        expect(page.locator(SUPERMODULE_CARD)).to_have_count(0)
+
+        # Each is one undo step: the subsystem comes back, then the modules as they were.
+        undo(page)
+        expect(page.locator(SUBSYSTEM)).to_have_count(1)
+        expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT - 1)
+        undo(page)
+        expect(page.locator(SUBSYSTEM)).to_have_count(0)
+        expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT)
+        expect(node_by_name(page, "var_SN")).to_have_count(1)
+        expect(page.locator(EDGE)).to_have_count(2)
+        expect(page.locator(SUPERMODULE_CARD)).to_have_count(0)
 
 
 if __name__ == "__main__":
