@@ -43,13 +43,22 @@ describe('checkResourcesAreLoaded with super-modules', () => {
     expect([...status.missingResources.math]).toEqual(['valve.cellml:valve'])
   })
 
-  it('refuses, for now, a module array that instantiates a super-module, known or not', () => {
+  it('takes a module array that instantiates a super-module, and asks for the parameter files it names', () => {
     const loaded = store([['chamber:v', 'c:c'], ['valve:pp', 'c:c'], ['clock:c', 'c:c']], [heart, pacer], ['c:c'])
-    const status = checkResourcesAreLoaded([rec('heart', 'heart', 'v1')], loaded)
-    expect(status.warnings).toEqual([])
-    expect(status.resourcesAreLoaded).toBe(false)
+    const status = checkResourcesAreLoaded([rec('heart', 'heart', 'v1', { parameterisation: 'rest' })], loaded)
+    expect(status.errors).toEqual([])
     expect(status.supermoduleInstances).toEqual(['heart (heart:v1)'])
-    expect(status.errors[0]).toContain('supported in the next step')
+    expect([...status.missingResources.parameterisations]).toEqual(['heart:v1 parameterisations/rest/rest_parameters.csv'])
+    expect(status.resourcesAreLoaded).toBe(false)
+
+    const path = 'lib/heart/versions/v1/parameterisations/rest/rest_parameters.csv'
+    const found = checkResourcesAreLoaded([rec('heart', 'heart', 'v1', { parameterisation: 'rest' })], {
+      ...loaded,
+      caParameterFiles: new Map([[path, []]]),
+    })
+    expect(found.resourcesAreLoaded).toBe(true)
+    // An entry's default parameterisation is read when it is there, as CA reads it, so it is not asked for.
+    expect(checkResourcesAreLoaded([rec('heart', 'heart', 'v1')], { ...loaded, availableSupermodules: new Map([['heart:v1', { ...heart, default_parameterisation: 'default' }], ['pacer:s', pacer]]) }).resourcesAreLoaded).toBe(true)
 
     const unknown = rec('neuron', 'neuron', 'sym', { per_submodule_inputs: { soma: ['x'] } })
     expect(checkResourcesAreLoaded([unknown], store([], [])).supermoduleInstances).toEqual(['neuron (neuron:sym)'])

@@ -37,7 +37,7 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
   const { addNodes, onNodesInitialized, screenToFlowCoordinate, updateNode } = useVueFlow(flowId)
   const { scope, nodes: canvasNodes, nextNodeId } = useActiveCanvas(flowId)
   const store = useLibraryStore()
-  const { addSubsystem } = useSupermodules(flowId)
+  const { addSubsystem, placeLibrarySupermodule } = useSupermodules(flowId)
 
   const isGhostSetupOpen = ref(false)
   const pendingGhostNodeId = ref(null)
@@ -47,14 +47,15 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
   })
 
   /**
-   * Starts dragging a module, or a super-module (`{smId}`) to place another subsystem of.
+   * Starts dragging a module, a super-module (`{smId}`) to place another subsystem of, or a library super-module
+   * (`{caSupermodule: moduleRef}`).
    *
    * @param {DragEvent} event
-   * @param {Object} module - A library module, or `{smId}`.
+   * @param {Object} module - A library module, `{smId}` or `{caSupermodule}`.
    */
   function onDragStart(event, module) {
     if (event.dataTransfer) {
-      event.dataTransfer.setData('application/vueflow', module.moduleRef ?? module.smId)
+      event.dataTransfer.setData('application/vueflow', module.moduleRef ?? module.smId ?? module.caSupermodule)
       event.dataTransfer.effectAllowed = 'move'
     }
 
@@ -169,6 +170,12 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
       x: event.clientX,
       y: event.clientY,
     })
+
+    if (moduleData.caSupermodule) {
+      return placeLibrarySupermodule(moduleData.caSupermodule, position).then((id) => {
+        if (!id) notify.warning({ title: 'Not Placed', message: 'This super-module would then contain itself, so it can’t go here.' })
+      }, (error) => notify.error({ title: 'Not Placed', message: error.message }))
+    }
 
     if (moduleData.smId) {
       if (!addSubsystem(moduleData.smId, position)) {

@@ -18,7 +18,7 @@
     <!-- Collections -->
     <div ref="scrollEl" class="mlc__scroll">
       <!-- The workspace's super-modules: drag one to place another subsystem of it, or edit it on its own. -->
-      <div v-if="filteredSupermodules.length > 0" class="mlc__group mlc__group--supermodules">
+      <div v-if="filteredSupermodules.length + filteredLibrarySupermodules.length > 0" class="mlc__group mlc__group--supermodules">
         <button
           class="mlc__group-header"
           :class="{ 'is-open': activeCollapseNames.includes(SUPERMODULE_GROUP) }"
@@ -26,7 +26,12 @@
         >
           <i class="pi pi-chevron-right mlc__group-chevron" />
           <span class="mlc__group-name"><span class="mlc__group-name-text">Super-modules</span></span>
-          <Tag severity="secondary" rounded class="mlc__group-count" :value="filteredSupermodules.length" />
+          <Tag
+            severity="secondary"
+            rounded
+            class="mlc__group-count"
+            :value="filteredSupermodules.length + filteredLibrarySupermodules.length"
+          />
         </button>
 
         <transition name="slide">
@@ -98,6 +103,30 @@
                     </div>
                   </div>
                   <div v-if="entry.label !== entry.name" class="mlc__supermodule-label">{{ entry.label }}</div>
+                </div>
+              </div>
+            </div>
+            <!-- The library's circulatory_autogen super-modules: dropping one makes it a workspace super-module, or
+                 reuses the one made from it. -->
+            <div
+              v-for="entry in filteredLibrarySupermodules"
+              :key="`library:${entry.moduleRef}`"
+              class="mlc__card mlc__card--supermodule mlc__card--draggable"
+              :data-library-supermodule="entry.moduleRef"
+              draggable="true"
+              @dragstart="handleLibrarySupermoduleDragStart($event, entry)"
+              @dragend="handleDragEnd"
+            >
+              <div class="mlc__card-inner">
+                <div class="mlc__card-body">
+                  <div class="mlc__card-header">
+                    <i class="pi pi-sitemap mlc__supermodule-icon" aria-hidden="true" />
+                    <span class="mlc__card-name" :title="entry.description">{{ entry.name }}</span>
+                    <div class="mlc__card-actions">
+                      <Tag severity="secondary" rounded class="mlc__badge" value="library" />
+                    </div>
+                  </div>
+                  <div class="mlc__supermodule-label">{{ entry.moduleRef }}</div>
                 </div>
               </div>
             </div>
@@ -329,7 +358,7 @@ function cardMatches(card, q) {
 }
 
 // The super-modules listed, matching the filter, and whether each can be placed on the canvas shown.
-const { supermodules, canPlace, deleteSupermodule, renameSupermodule } = useSupermodules()
+const { supermodules, librarySupermodules, canPlace, deleteSupermodule, renameSupermodule } = useSupermodules()
 const { scope: canvasScope } = useActiveCanvas()
 const canvasLevel = useCanvasLevel()
 
@@ -338,6 +367,13 @@ const filteredSupermodules = computed(() => {
   const q = filterText.value.toLowerCase().trim()
   if (!q) return supermodules.value
   return supermodules.value.filter((entry) => `${entry.name} ${entry.label}`.toLowerCase().includes(q))
+})
+
+const filteredLibrarySupermodules = computed(() => {
+  if (!props.showSupermodules || props.selectable) return []
+  const q = filterText.value.toLowerCase().trim()
+  if (!q) return librarySupermodules.value
+  return librarySupermodules.value.filter((entry) => `${entry.name} ${entry.moduleRef}`.toLowerCase().includes(q))
 })
 
 // The super-module the rename dialog renames.
@@ -421,6 +457,18 @@ function handleSupermoduleDragStart(event, entry) {
   isDragging.value = true
   event.dataTransfer.effectAllowed = 'copy'
   onDragStart(event, { smId: entry.id })
+}
+
+/**
+ * Starts dragging a library super-module, which becomes a workspace super-module where it is dropped.
+ *
+ * @param {DragEvent} event
+ * @param {{moduleRef: string}} entry
+ */
+function handleLibrarySupermoduleDragStart(event, entry) {
+  isDragging.value = true
+  event.dataTransfer.effectAllowed = 'copy'
+  onDragStart(event, { caSupermodule: entry.moduleRef })
 }
 
 function handleDragEnd() {

@@ -1576,13 +1576,18 @@ async function onImportConfirm(importPayload, updateProgress) {
     }
 
     try {
-      const { ivcZeroedHearts } = await loadFromInstanceArray({ instances }, (current, total, statusMessage) => {
-        if (updateProgress) {
-          updateProgress(`${statusMessage || 'Loading instance array...'} (${current}/${total})`)
+      // A later file's value wins, as when the files are loaded one after another.
+      const parameters = [...(parametersFiles?.values() ?? [])].reverse().flatMap((data) => Array.from(data.payload ?? []))
+      const { ivcZeroedHearts, parametersApplied } = await loadFromInstanceArray(
+        { instances, parameters, source: instanceArrayFiles.keys().next().value },
+        (current, total, statusMessage) => {
+          if (updateProgress) {
+            updateProgress(`${statusMessage || 'Loading instance array...'} (${current}/${total})`)
+          }
         }
-      })
+      )
 
-      if (parametersFiles) {
+      if (parametersFiles && !parametersApplied) {
         for (const [filename, data] of parametersFiles) {
           // CA ignores the ivc flow of a heart it feeds from zero_flow.
           loadParametersData(withoutZeroedIvcRows(data.payload, ivcZeroedHearts), filename, { notify: false })

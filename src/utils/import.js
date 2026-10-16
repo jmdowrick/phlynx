@@ -11,6 +11,7 @@ import {
   toInstanceRows,
 } from '../services/import/caModuleArray'
 import { moduleRefOf, normaliseModuleConfig, resolveModuleRefs } from '../services/import/caModuleConfig'
+import { findParameterFile, referencedParameterFiles } from '../services/import/caParameters'
 
 /** Columns a parameters CSV must have. */
 const PARAMETER_COLUMNS = ['variable_name', 'units', 'value', 'data_reference']
@@ -99,13 +100,18 @@ export async function collectEntry(entry, path, depth, maxDepth, results) {
  * Checks that the library holds what a module array's rows use: each component module and its math, through every
  * super-module they instantiate, whose submodules are what is asked for.
  *
+ * Super-module instances also need the parameter files CA reads for them (see caParameters
+ * referencedParameterFiles): each one named outright is asked for.
+ *
  * @param {Object[]} requestedModules - The rows.
- * @param {Object} store - availableModules, availableMath, and optionally caVariants, availableSupermodules and
- *   supermoduleErrors (problems found while staging super-modules).
+ * @param {Object} store - availableModules, availableMath, and optionally caVariants, availableSupermodules,
+ *   supermoduleErrors (problems found while staging super-modules), caParameterFiles (path -> rows) and
+ *   caConfigPaths (moduleRef -> config path).
  * @returns {{warnings: string[], errors: string[], resourcesAreLoaded: boolean,
- *   missingResources: {modules: Set<string>, math: Set<string>}, supermoduleInstances: string[]}}
- *   `supermoduleInstances` lists the rows that are super-module instances, as `name (type:subtype)`; such an array
- *   is not imported yet, so they are errors.
+ *   missingResources: {modules: Set<string>, math: Set<string>, parameterisations: Set<string>},
+ *   supermoduleInstances: string[]}} `supermoduleInstances` lists the rows that are super-module instances, as
+ *   `name (type:subtype)`, which are imported as subsystems; `parameterisations` the parameter files missing, as
+ *   `type:subtype parameterisations/<name>/<name>_parameters.csv`.
  */
 export const checkResourcesAreLoaded = (requestedModules, store) => {
   const warnings = []
@@ -113,6 +119,7 @@ export const checkResourcesAreLoaded = (requestedModules, store) => {
   const missingResources = {
     modules: new Set(),
     math: new Set(),
+    parameterisations: new Set(),
   }
 
   if (!requestedModules || requestedModules.length === 0) {
@@ -139,11 +146,12 @@ export const checkResourcesAreLoaded = (requestedModules, store) => {
   const supermoduleInstances = rows
     .filter((row) => supermodules.has(moduleRefOf(row.module_type, row.module_subtype)) || looksLikeSupermoduleInstance(row))
     .map((row) => `${row.name} (${moduleRefOf(row.module_type, row.module_subtype)})`)
-  if (supermoduleInstances.length) {
-    errors.push(
-      `This module array instantiates super-modules: ${supermoduleInstances.join(', ')}. Importing super-module ` +
-        `instances as subsystems is supported in the next step; for now, import a flattened module array.`
-    )
+  const parameterFiles = store.caParameterFiles ?? new Map()
+  const configPaths = store.caConfigPaths ?? new Map()
+  for (const { entry, request, required, label } of referencedParameterFiles(rows, supermodules)) {
+    if (required && !findParameterFile(parameterFiles.keys(), configPaths, entry, request)) {
+      missingResources.parameterisations.add(label)
+    }
   }
 
   // Generate warnings
@@ -153,6 +161,10 @@ export const checkResourcesAreLoaded = (requestedModules, store) => {
 
   if (missingResources.math.size > 0) {
     warnings.push(`Missing math: ${[...missingResources.math].join(', ')}`)
+  }
+
+  if (missingResources.parameterisations.size > 0) {
+    warnings.push(`Missing parameter files: ${[...missingResources.parameterisations].join(', ')}`)
   }
 
   return {
