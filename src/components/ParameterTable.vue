@@ -34,7 +34,7 @@
         <Select
           v-model="bulkTypeValue"
           size="small"
-          :options="PARAMETER_TYPE_OPTIONS"
+          :options="bulkTypeOptions"
           optionLabel="label"
           optionValue="value"
           placeholder="Select type..."
@@ -207,7 +207,7 @@ import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { hasValueCell, isBlank, setLinkedUnits, valuePlaceholder } from '../utils/variables'
 import { useVirtualScrollerOptions } from '../composables/useVirtualScrollerOptions'
 import { isValueMissing, isTypeFixed as isRowTypeFixed, typeOptionsFor as rowTypeOptionsFor } from '../utils/parameterRows'
-import { PARAMETER_TYPE_OPTIONS, NO_ACCESS } from '../utils/constants'
+import { LOCAL_CONSTANT_TYPE_OPTION, PARAMETER_TYPE_OPTIONS, NO_ACCESS } from '../utils/constants'
 import { cleanName, getUniqueName } from '../utils/identifiers'
 import { isInitialisable } from '../services/math/variableKinds'
 
@@ -232,6 +232,8 @@ const props = defineProps({
   mathReferences: { type: Set, default: () => new Set() },
   /** (typed) => units suggestions for the Units field, as SanitisedInput's `suggest`; null for none. */
   suggestUnits: { type: Function, default: null },
+  /** The local constants the module's super-module declares, which a row of one of their names can be bound to. */
+  localConstantNames: { type: Set, default: () => new Set() },
 })
 
 const { confirm } = useConfirmDialog()
@@ -616,7 +618,9 @@ const filteredParameterRows = computed(() => {
 // ── Row types ────────────────────────────────────────────────────────────────
 
 const isTypeFixed = (row) => isRowTypeFixed(row, props.variableKinds)
-const typeOptionsFor = (row) => rowTypeOptionsFor(row, props.variableKinds)
+const typeOptionsFor = (row) => rowTypeOptionsFor(row, props.variableKinds, props.localConstantNames)
+// Local constant only where the super-module declares any; applyBulkType skips rows that can't take it.
+const bulkTypeOptions = computed(() => (props.localConstantNames.size ? [...PARAMETER_TYPE_OPTIONS, LOCAL_CONSTANT_TYPE_OPTION] : PARAMETER_TYPE_OPTIONS))
 
 /** Applies the bulk type to the selected rows, skipping any row that can't take it. */
 function applyBulkType() {

@@ -1,6 +1,7 @@
 import { findVoiNames, inferType, isEmpty, isNumericLiteral } from './variables.js'
 import { analyzeMathXml } from '../services/math/analyzeMath.js'
 import { resolveBoundaryValues } from '../services/export/boundaryValues.js'
+import { emittedLocalConstantName } from '../services/hierarchy/localConstants.js'
 import { couplingConflicts, multiplyFactor, variableTypes } from './multiport.js'
 import {
   STANDARD_UNITS,
@@ -1163,7 +1164,7 @@ export function generateFlattenedModel(
       const analysis = libraryStore.getMathAnalysis?.(mathRef) ?? analyzeMathXml(modelString)
       const voiNames = findVoiNames(analysis)
       for (const v of node.data.variables ?? []) {
-        if (v.type === 'global_constant' || isSetAsConstant(node.id, v)) voiNames.delete(v.name)
+        if (v.type === 'global_constant' || v.localConstant || isSetAsConstant(node.id, v)) voiNames.delete(v.name)
       }
       voiVariables.push({ component: originalComponent, voiNames, hasOde: analysis?.voi?.length > 0 })
 
@@ -1196,6 +1197,17 @@ export function generateFlattenedModel(
               addVariableToParameterComponent(model, variable, globalParameterComponent, {
                 ...v,
                 name: variable.name(),
+              })
+            } else {
+              missingValues.push(`${node.data.name}.${variable.name()}`)
+            }
+          } else if (nodeVariable.type === 'local_constant') {
+            // One constant per super instance, which every row bound to it is connected to.
+            if (nodeVariable.localConstant && !isEmpty(nodeVariable.value)) {
+              addVariableToParameterComponent(model, variable, parameterComponent, {
+                name: emittedLocalConstantName(nodeVariable.name, nodeVariable.localConstant.owner),
+                value: nodeVariable.value,
+                units: nodeVariable.localConstant.units || nodeVariable.units,
               })
             } else {
               missingValues.push(`${node.data.name}.${variable.name()}`)

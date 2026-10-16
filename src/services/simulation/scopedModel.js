@@ -243,7 +243,7 @@ export function checkScope(scope, libraryStore, { suppliedKeys = new Set() } = {
         if (scoped.missing.get(node.id)?.has(row.name)) {
           if (!suppliedKeys.has(`${node.id}::${row.name}`)) zeroedBoundaries.push(entry)
         }
-        else if (row.type === 'constant' && isEmpty(row.value)) missingValues.push({ ...entry, kind: 'constant' })
+        else if ((row.type === 'constant' || row.type === 'local_constant') && isEmpty(row.value)) missingValues.push({ ...entry, kind: 'constant' })
         else if (row.type === 'global_constant' && isEmpty(libraryStore.getGlobalConstant(row.name)?.value)) {
           missingValues.push({ ...entry, kind: 'global_constant' })
         }

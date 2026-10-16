@@ -12,6 +12,7 @@ import { checkHearts, instanceNames, warnDeprecatedJunctions } from '../caRules'
 import { configSignature, variantSubtype } from '../caVariants'
 import { resolveInstanceVariables } from '../import/buildWorkflow'
 import { expandHierarchy } from '../hierarchy/expand'
+import { asConstants } from '../hierarchy/localConstants'
 import { buildCaCellmlFiles, isHeart, listNamed } from './caCellml'
 import { parameterisationPath, PARAMETER_COLUMNS, planNativeExport } from './caNative'
 import { planCaPairing, RESIDUAL_REASONS } from './caPairing'
@@ -112,9 +113,9 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
 /**
  * Builds the flat (Mode A) export of a model: its rows, in the order and with the lists that have CA pair each
  * connection as here, each instance's config entry (a variant of its module where it differs, #689), and its
- * parameter rows.
+ * parameter rows, a local constant's value written for each row bound to it.
  *
- * @param {Array} nodes - The model's nodes.
+ * @param {Array} modelNodes - The model's nodes.
  * @param {Array} edges - The model's edges.
  * @param {Object} libraryStore
  * @returns {{plan: Object, nodeNameMap: Map<string, string>, rows: Array<{id: string, name: string, module_type: string,
@@ -123,7 +124,12 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
  *   parametersOf: Map<string, Object[]>}} parametersOf: each row's parameter rows, by its node id.
  * @throws {Error} for a node whose module the library doesn't have.
  */
-export function buildFlatExport(nodes, edges, libraryStore) {
+export function buildFlatExport(modelNodes, edges, libraryStore) {
+  // CA has no local constants: each row bound to one is a constant of its own, with the value it has there.
+  const nodes = modelNodes.map((node) => {
+    const variables = asConstants(node.data?.variables)
+    return variables === node.data?.variables ? node : { ...node, data: { ...node.data, variables } }
+  })
   // Create a map for quick lookup of node names
   const nodeNameMap = new Map()
   for (const node of nodes) {

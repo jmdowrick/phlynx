@@ -20,4 +20,13 @@ describe('parameter row types', () => {
     expect(values(typeOptionsFor({ name: 'k', type: 'constant' }))).not.toContain('variable')
     expect(values(typeOptionsFor({ name: 'x', type: 'variable' }))).toContain('variable')
   })
+
+  it('offers local constant only for a row its super-module declares, or one bound already', () => {
+    const declared = new Set(['k'])
+    expect(values(typeOptionsFor({ name: 'k', type: 'constant' }, null, declared))).toContain('local_constant')
+    expect(values(typeOptionsFor({ name: 'm', type: 'constant' }, null, declared))).not.toContain('local_constant')
+    expect(values(typeOptionsFor({ name: 'k', type: 'constant' }))).not.toContain('local_constant')
+    expect(values(typeOptionsFor({ name: 'z', type: 'local_constant' }))).toContain('local_constant')
+    expect(values(typeOptionsFor({ name: 'k', type: 'variable' }, null, declared))).not.toContain('local_constant')
+  })
 })

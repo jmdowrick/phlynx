@@ -1,5 +1,5 @@
 /** Pure helpers for parameter-table rows, shared by the parameter table, the instance editor and the sidebar. */
-import { PARAMETER_TYPE_OPTIONS, VALUE_REQUIRED_TYPES } from './constants'
+import { LOCAL_CONSTANT_TYPE_OPTION, PARAMETER_TYPE_OPTIONS, VALUE_REQUIRED_TYPES } from './constants'
 import { cleanName } from './identifiers'
 import { isBlank } from './variables'
 
@@ -41,12 +41,15 @@ export function isTypeFixed(row, variableKinds = null) {
 }
 
 /**
- * Lists the types a row can take.
+ * Lists the types a row can take: local constant too where its super-module declares one of its name, or it is one.
  *
  * @param {Object} row
  * @param {Map<string, string>|null} [variableKinds]
- * @returns {Array} Options from PARAMETER_TYPE_OPTIONS.
+ * @param {Set<string>} [localConstantNames] - The local constants its super-module declares.
+ * @returns {Array} Options from PARAMETER_TYPE_OPTIONS, and LOCAL_CONSTANT_TYPE_OPTION.
  */
-export function typeOptionsFor(row, variableKinds = null) {
-  return isTypeFixed(row, variableKinds) ? PARAMETER_TYPE_OPTIONS : PARAMETER_ONLY_TYPE_OPTIONS
+export function typeOptionsFor(row, variableKinds = null, localConstantNames = new Set()) {
+  const options = isTypeFixed(row, variableKinds) ? PARAMETER_TYPE_OPTIONS : PARAMETER_ONLY_TYPE_OPTIONS
+  const canBeLocal = row.type === LOCAL_CONSTANT_TYPE_OPTION.value || (!isTypeFixed(row, variableKinds) && localConstantNames.has(row.name))
+  return canBeLocal ? [...options, LOCAL_CONSTANT_TYPE_OPTION] : options
 }

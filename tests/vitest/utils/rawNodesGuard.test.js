@@ -49,6 +49,18 @@ const ALLOWED = [
     reason: 'A super instance’s own overrides, resolved against the super-modules’ nodes, each once.',
   },
   {
+    file: 'src/composables/useModelWriter.js',
+    line: 'planRetypeBinding(nodes.value',
+    use: 'model-safe',
+    reason: 'Finds the super instances’ overrides of a row a write binds to a local constant, each store node once.',
+  },
+  {
+    file: 'src/composables/useInstanceSave.js',
+    line: 'planRetypeBinding(nodes.value',
+    use: 'model-safe',
+    reason: 'Finds the super instances’ overrides of a row a save binds to a local constant, each store node once.',
+  },
+  {
     file: 'src/composables/useSuperInstanceSync.js',
     line: 'useVueFlow(flowId)',
     use: 'model-safe',
@@ -59,6 +71,11 @@ const ALLOWED = [
     line: 'useVueFlow(flowId)',
     use: 'model-safe',
     reason: 'Nests, un-nests and makes unique across every scope, each store node and edge once, keeping the model it expands to.',
+  },
+  {
+    file: 'src/composables/useLocalConstants.js',
+    use: 'model-safe',
+    reason: 'Reads and writes a super-module’s local constants, the rows bound to them and the overrides of them, each store node once.',
   },
   {
     file: 'src/composables/useExposure.js',
@@ -80,7 +97,8 @@ const ALLOWED = [
     use: 'model-safe',
     reason: 'The native circulatory_autogen export writes the super-modules themselves, checked against the model they expand to.',
   },
-  { file: 'src/components/ContextSidebar.vue', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'Whether a box selection is under way.' },
+  { file: 'src/components/ContextSidebar.vue', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'Whether a box selection is under way, and the local constants of the shown node’s super-module.' },
+  { file: 'src/components/LocalConstantsPanel.vue', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'The selected interface node’s local constants.' },
   { file: 'src/components/NodeColourPanel.vue', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'Colours the canvas nodes selected (useActiveCanvas).' },
   { file: 'src/components/InstanceEditorDialog.vue', line: 'const nameOf', use: 'canvas', reason: 'Names the canvas neighbours a port connects to.' },
   { file: 'src/composables/useSelectionAutoRun.js', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'Whether a box selection is under way.' },
@@ -112,6 +130,7 @@ const ALLOWED = [
   { file: 'src/components/SuperInstancePanel.vue', line: 'return edges.value.flatMap', use: 'canvas', reason: 'The canvas edges into the selected super instance, for its broken couplings.' },
   { file: 'src/components/HelperLines.vue', line: '= useVueFlow()', use: 'canvas', reason: 'The viewport the helper lines are drawn over.' },
   { file: 'src/components/InstanceEditorDialog.vue', line: '= useVueFlow()', use: 'canvas', reason: 'The flow the edited node is in.' },
+  { file: 'src/components/InstanceEditorDialog.vue', line: 'const byId = (id) => nodes.value', use: 'canvas', reason: 'The edited node’s super-module, for the local constants its rows can be bound to.' },
   { file: 'src/components/InstanceEditorDialog.vue', line: 'const names = edges.value', use: 'canvas', reason: 'Names the canvas neighbours a port connects to.' },
   { file: 'src/components/InstanceEditorDialog.vue', line: 'multiportSummary(props.id', use: 'canvas', reason: 'Summarises the instance’s Sum and Multiply couplings by its canvas edges.' },
   { file: 'src/composables/useNodeChrome.js', line: '= useVueFlow()', use: 'canvas', reason: 'The flow the node card is drawn in.' },
