@@ -9,6 +9,7 @@ import {
   registerSupermodule,
   supermoduleTemplate,
 } from '../services/import/caModuleConfig'
+import { parameterFileLoader } from '../services/import/caParameters'
 import {
   AFFINE_UNIT_CONVERSIONS,
   GENERATED_UNITS_FILE,
@@ -61,6 +62,10 @@ export const useLibraryStore = defineStore('library', () => {
   const caVariants = ref(new Map())
   // moduleRef -> circulatory_autogen super-module template (see caModuleConfig.supermoduleTemplate). Saved.
   const availableSupermodules = ref(new Map())
+  // circulatory_autogen parameter files dropped with their configs, path -> rows, and the path each config was dropped
+  // at, by moduleRef, so a super-module's parameterisations are found next to it (see caParameters.js). Never saved.
+  const caParameterFiles = ref(new Map())
+  const caConfigPaths = ref(new Map())
 
   // mathRef -> Map of the values that came with that math when it was added. They only seed new
   // instances: an existing instance's rows never read them, so math and parameters stay separate.
@@ -125,6 +130,8 @@ export const useLibraryStore = defineStore('library', () => {
     mathLayouts.value.clear()
     caVariants.value.clear()
     availableSupermodules.value.clear()
+    caParameterFiles.value.clear()
+    caConfigPaths.value.clear()
     availableMathAnalysis.clear()
     pendingAnalysis.clear()
   }
@@ -240,6 +247,22 @@ export const useLibraryStore = defineStore('library', () => {
     } catch {
       return null
     }
+  }
+
+  /**
+   * Keeps circulatory_autogen parameter files and where configs were dropped, for the super-modules that read them.
+   *
+   * @param {Map<string, Object[]>|Array} files - path -> rows.
+   * @param {Map<string, string>|Array} [configPaths] - moduleRef -> config path.
+   */
+  function addCaParameterFiles(files, configPaths = []) {
+    for (const [path, rows] of files) caParameterFiles.value.set(path, rows)
+    for (const [moduleRef, path] of configPaths) caConfigPaths.value.set(moduleRef, path)
+  }
+
+  /** @returns {import('../services/import/caSupermodules').ParameterLoader} A loader over the files kept. */
+  function caParameterLoader() {
+    return parameterFileLoader(caParameterFiles.value, caConfigPaths.value)
   }
 
   /**
@@ -703,6 +726,8 @@ export const useLibraryStore = defineStore('library', () => {
     availableUnits,
     caVariants,
     availableSupermodules,
+    caParameterFiles,
+    caConfigPaths,
 
     // Derived State 
     globalVariables,
@@ -716,6 +741,8 @@ export const useLibraryStore = defineStore('library', () => {
     addConfigFile,
     addModule,
     addSupermodule,
+    addCaParameterFiles,
+    caParameterLoader,
     addMathFile,
     createModuleForMath,
     addMath,

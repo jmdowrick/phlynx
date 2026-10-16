@@ -76,7 +76,10 @@ function fileEntry(name, text) {
 }
 
 function folderEntry(name, files) {
-  const children = Object.entries(files).map(([fileName, text]) => fileEntry(fileName, text))
+  // A value that is itself an object of files is a folder inside.
+  const children = Object.entries(files).map(([fileName, text]) =>
+    typeof text === 'string' ? fileEntry(fileName, text) : folderEntry(fileName, text)
+  )
   return {
     name,
     isFile: false,
@@ -361,10 +364,6 @@ describe('ImportDialog single-type dialogs', () => {
 })
 
 describe('ImportDialog JSON module arrays and super-modules', () => {
-  const MODULES_JSON = JSON.stringify([
-    { name: 'svc', module_type: 'heart', module_subtype: 'simple', out_instances: ['pump'] },
-    { name: 'pump', module_type: 'pump', module_subtype: 'v1', per_submodule_inputs: { inlet: ['svc'] } },
-  ])
   const SUPERMODULE_JSON = JSON.stringify([
     {
       module_type: 'pump',
@@ -374,19 +373,63 @@ describe('ImportDialog JSON module arrays and super-modules', () => {
     },
   ])
 
-  it("asks for a super-module's leaf configs, and explains that its instances are not imported yet", async () => {
+  const VALVE_JSON = JSON.stringify([
+    {
+      entrance_ports: [{ port_type: 'vessel_port', variables: ['v'] }],
+      exit_ports: [],
+      general_ports: [],
+      module_type: 'valve',
+      module_subtype: 'pp',
+      module_format: 'cellml',
+      component_file: 'valve.cellml',
+      component_type: 'valve_pp',
+    },
+  ])
+  const PUMP_PARAMETERS_CSV = 'variable_name,units,value,data_reference\ninlet/v,m3_per_s,2,ref\n'
+
+  it("asks for a super-module's leaf configs and parameter files, then imports it", async () => {
     mountDialog()
     const { 'modules.csv': _csv, ...rest } = FOLDER_FILES
-    const files = { ...rest, 'model_module_array.json': MODULES_JSON, 'pump_modules_config.json': SUPERMODULE_JSON }
+    const instance = JSON.stringify([
+      { name: 'svc', module_type: 'heart', module_subtype: 'simple', out_instances: ['pump'] },
+      { name: 'pump', module_type: 'pump', module_subtype: 'v1', parameterisation: 'rest', per_submodule_inputs: { inlet: ['svc'] } },
+    ])
+    const files = { ...rest, 'model_module_array.json': instance, 'pump_modules_config.json': SUPERMODULE_JSON }
     await drop(dropEvent(folderEntry('model', files)))
 
     expect(fileNames(IMPORT_KEYS.INSTANCE_ARRAY)).toEqual(['model_module_array.json'])
-    expect(fileNames(IMPORT_KEYS.MODULE_CONFIG)).toEqual(['config.json', 'pump_modules_config.json'])
     const readiness = wrapper.vm.importReadiness
     expect([...readiness.missingResources.modules]).toEqual(['valve:pp'])
+    expect([...readiness.missingResources.parameterisations]).toEqual(['pump:v1 parameterisations/rest/rest_parameters.csv'])
     expect(readiness.supermoduleInstances).toEqual(['pump (pump:v1)'])
-    expect(wrapper.text()).toContain('Cannot Import This Module Array')
-    expect(wrapper.text()).toContain('supported in the next step')
+    expect(readiness.errors).toEqual([])
     expect(importButton().attributes('disabled')).toBeDefined()
+
+    // The parameterisation is found next to the super-module's config, three levels down.
+    const more = {
+      ...files,
+      'valve_config.json': VALVE_JSON,
+      'valve.cellml': '<model name="valve_pp"/>',
+      parameterisations: { rest: { 'rest_parameters.csv': PUMP_PARAMETERS_CSV } },
+    }
+    await drop(dropEvent(folderEntry('model', more)))
+    expect(wrapper.vm.importReadiness.resourcesAreLoaded).toBe(true)
+    expect(wrapper.text()).not.toContain('Cannot Import This Module Array')
+    expect(fileNames(IMPORT_KEYS.PARAMETER)).toEqual(['parameters.csv'])
+    expect(importButton().attributes('disabled')).toBeUndefined()
+
+    const { useLibraryStore } = await import('../../../src/stores/libraryStore')
+    const library = useLibraryStore()
+    // Reading the CellML for real needs libcellml.
+    vi.spyOn(library, 'addMathFile').mockImplementation(() => 0)
+    await wrapper.vm.handleConfirm()
+    await flushPromises()
+    const [[payload]] = wrapper.emitted('confirm')
+    expect([...payload.get(IMPORT_KEYS.INSTANCE_ARRAY).keys()]).toEqual(['model_module_array.json'])
+    expect(library.availableSupermodules.has('pump:v1')).toBe(true)
+    expect(library.caConfigPaths.get('pump:v1')).toBe('model/pump_modules_config.json')
+    expect(library.caParameterLoader()(library.availableSupermodules.get('pump:v1'), { parameterisation: 'rest' })).toEqual([
+      { variable_name: 'inlet/v', units: 'm3_per_s', value: '2', data_reference: 'ref' },
+    ])
   })
 })

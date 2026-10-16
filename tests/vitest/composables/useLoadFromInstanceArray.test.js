@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   addNodes: vi.fn(),
+  addEdges: vi.fn(),
+  importCaModuleArray: vi.fn(),
+  layoutSupermoduleScopes: vi.fn(),
   clearWorkspace: vi.fn(),
   trackEvent: vi.fn(),
   prepareLayout: vi.fn(),
@@ -13,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@vue-flow/core', async (importOriginal) => ({
   ...(await importOriginal()),
-  useVueFlow: () => ({ nodes: { value: [] }, addNodes: mocks.addNodes }),
+  useVueFlow: () => ({ nodes: { value: [] }, addNodes: mocks.addNodes, addEdges: mocks.addEdges }),
 }))
 vi.mock('../../../src/stores/libraryStore', () => ({ useLibraryStore: () => mocks.store }))
 vi.mock('../../../src/stores/historyStore', () => ({ useFlowHistoryStore: () => mocks.history }))
@@ -26,6 +29,8 @@ vi.mock('../../../src/composables/useWorkflowLayout', () => ({
   useWorkflowLayout: () => ({ prepareLayout: mocks.prepareLayout }),
 }))
 vi.mock('../../../src/services/import/buildWorkflow', () => ({ buildWorkflowGraph: mocks.buildWorkflowGraph }))
+vi.mock('../../../src/services/import/caFold', () => ({ importCaModuleArray: mocks.importCaModuleArray }))
+vi.mock('../../../src/services/layouts/scopes', () => ({ layoutSupermoduleScopes: mocks.layoutSupermoduleScopes }))
 
 import { useLoadFromInstanceArray } from '../../../src/composables/useLoadFromInstanceArray.js'
 
@@ -57,7 +62,7 @@ describe('useLoadFromInstanceArray', () => {
   it("returns the hearts whose ivc flow CA's rule zeroed, for the parameters load to keep", async () => {
     mocks.buildWorkflowGraph.mockReturnValue({ pendingInstances: [], pendingEdges: [], conflicts: [], ivcZeroedHearts: ['heart'] })
 
-    await expect(useLoadFromInstanceArray().loadFromInstanceArray({ instances: [] })).resolves.toEqual({ ivcZeroedHearts: ['heart'] })
+    await expect(useLoadFromInstanceArray().loadFromInstanceArray({ instances: [] })).resolves.toEqual({ ivcZeroedHearts: ['heart'], parametersApplied: false })
   })
 
   it('warns once about the deprecated junction types the module array uses', async () => {
@@ -86,5 +91,50 @@ describe('useLoadFromInstanceArray', () => {
     await useLoadFromInstanceArray().loadFromInstanceArray({ instances: [] })
 
     expect(mocks.notify.warning).not.toHaveBeenCalled()
+  })
+  it('imports a module array with super-modules as subsystems, its parameters applied', async () => {
+    const loader = vi.fn()
+    Object.assign(mocks.store, {
+      availableSupermodules: new Map([['heart:v1', {}]]),
+      caVariants: new Map(),
+      caParameterLoader: () => loader,
+      assignGlobalConstant: vi.fn(),
+    })
+    const nodes = [
+      { id: 'dndnode_0', data: { scope: null }, hidden: false },
+      { id: 'sm_0', data: { scope: 'sm_0' }, hidden: true },
+      { id: 'sm_0~dndnode_0', data: { scope: 'sm_0' }, hidden: true },
+    ]
+    const rootEdge = { id: 'r', source: 'dndnode_0', target: 'dndnode_0' }
+    const scopeEdge = { id: 's', source: 'sm_0~dndnode_0', target: 'sm_0' }
+    mocks.importCaModuleArray.mockReturnValue({
+      nodes,
+      edges: [rootEdge, scopeEdge],
+      globals: [{ name: 'R', value: '8', units: 'J', data_reference: 'ref' }],
+      conflicts: [],
+      skipped: [{ nodeName: 'heart_lv', name: 'q' }],
+      warnings: ['forked'],
+    })
+    const instances = [{ name: 'heart', module_type: 'heart', module_subtype: 'v1' }]
+    const parameters = [{ variable_name: 'heart/lv/E', value: '1' }]
+
+    const result = await useLoadFromInstanceArray().loadFromInstanceArray({ instances, parameters, source: 'a.json' })
+
+    expect(result).toEqual({ ivcZeroedHearts: [], parametersApplied: true })
+    expect(mocks.buildWorkflowGraph).not.toHaveBeenCalled()
+    expect(mocks.importCaModuleArray).toHaveBeenCalledWith(instances, expect.objectContaining({ supermodules: mocks.store.availableSupermodules }), {
+      source: 'a.json',
+      load: loader,
+      hostRows: parameters,
+      currentNodes: [],
+    })
+    expect(mocks.store.assignGlobalConstant).toHaveBeenCalledWith('R', '8', 'J', 'ref')
+    expect(mocks.layoutSupermoduleScopes).toHaveBeenCalledWith(nodes, [rootEdge, scopeEdge])
+    expect(mocks.addNodes).toHaveBeenCalledWith(nodes)
+    expect(mocks.addEdges).toHaveBeenCalledWith([scopeEdge])
+    expect(mocks.prepareLayout).toHaveBeenCalledWith([rootEdge], null)
+    expect(mocks.notify.warning).toHaveBeenCalledWith(expect.objectContaining({ message: 'forked' }))
+    expect(mocks.notify.warning).toHaveBeenCalledWith(expect.objectContaining({ title: 'Some Parameters Not Applied', message: expect.stringContaining('heart_lv.q') }))
+    delete mocks.store.availableSupermodules
   })
 })

@@ -11,7 +11,9 @@ Expected outputs of circulatory_autogen (CA) for the JS port of its module-array
   (`LICENSE-circulatory-autogen-modules`); the module configs are marked CC0-1.0. `library/` holds, unchanged and at
   their paths in that repository, the `3compartment_supermodules` and `SN_simple_supermodules` system models (module
   array and parameters) and the super-module configs they use (heart `Argus2026_v01`; neuron, soma and varicosity
-  `sympathetic`) with their default parameterisations.
+  `sympathetic`) with their default parameterisations, and the component module versions those use (CellML, units,
+  config and the parameterisations the super-modules name), which
+  `tests/vitest/integration/caSupermoduleImport.integration.test.js` imports.
 
 `expected.json` is written by `regen.py`, which runs CA's own `normalise_vessel_records`,
 `normalise_module_config_entry`, `expand_supermodules` and `merge_default_parameters` on every fixture. CA joins

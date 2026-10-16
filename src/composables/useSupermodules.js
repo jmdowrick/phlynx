@@ -8,8 +8,11 @@ import { useVueFlow } from '@vue-flow/core'
 
 import { useActiveCanvas } from './useActiveCanvas'
 import { useFlowHistoryFor } from './useFlowHistoryFor'
-import { indexExposures, portResolver, subsystemPorts } from '../services/hierarchy/exposure'
+import { indexExposures, nextExposedPortId, portResolver, subsystemPorts } from '../services/hierarchy/exposure'
 import { buildSubsystem, buildSupermoduleInterface } from '../services/import/buildWorkflow'
+import { importCaModuleArray, templateHash } from '../services/import/caFold'
+import { layoutSupermoduleScopes } from '../services/layouts/scopes'
+import { useLibraryStore } from '../stores/libraryStore'
 import { FLOW_IDS } from '../utils/constants'
 import {
   canPlaceSubsystem,
@@ -286,8 +289,69 @@ function createCatalogue(flow, flowId) {
     return id
   }
 
+  // The library's circulatory_autogen super-modules, which the palette places as workspace super-modules.
+  const librarySupermodules = computed(() =>
+    [...useLibraryStore().availableSupermodules.values()].map((template) => ({
+      moduleRef: template.moduleRef,
+      name: template.module_type,
+      description: template.description ?? template.moduleRef,
+    }))
+  )
+
+  /**
+   * Places a subsystem of a library super-module, as one undo step: of the workspace super-module made from it when
+   * there is one, made from the same definition (its moduleRef and content hash); else of a new one, built as a module
+   * array of one instance of it is (see caFold.importCaModuleArray), with every super-module nested in it. It exposes
+   * nothing until the user exposes ports. Global constants its parameterisation sets are added when not set already.
+   *
+   * @param {string} moduleRef
+   * @param {{x: number, y: number}} position - In flow coordinates.
+   * @param {Object} [options]
+   * @param {Object} [options.history] - The undo stack to record into; the workspace's by default.
+   * @returns {Promise<string|null>} The new subsystem's id, or null when it can't be placed here.
+   */
+  async function placeLibrarySupermodule(moduleRef, position, { history = useFlowHistoryFor() } = {}) {
+    const library = useLibraryStore()
+    const template = library.availableSupermodules.get(moduleRef)
+    if (!template) return null
+    const hash = templateHash(moduleRef, library.availableSupermodules)
+    const made = allNodes().find((node) => {
+      const source = isSupermoduleInterface(node) ? node.data?.supermodule?.source : null
+      return source?.moduleRef === moduleRef && source.hash === hash && !source.fork
+    })
+    if (made) return addSubsystem(made.id, position)
+
+    const { module_type, module_subtype } = template
+    const built = importCaModuleArray(
+      [{ name: module_type, module_type, module_subtype, inp_instances: [], out_instances: [] }],
+      {
+        supermodules: library.availableSupermodules,
+        modules: library.availableModules,
+        getMathAnalysis: library.getMathAnalysis,
+        getMathDefaults: library.getMathDefaults,
+      },
+      { source: moduleRef, load: library.caParameterLoader(), currentNodes: allNodes(), nextExposedPortId: nextExposedPortId(allNodes(), allEdges()) }
+    )
+    const instance = built.nodes.find((node) => !node.hidden)
+    const nodes = built.nodes.filter((node) => node.hidden)
+    await layoutSupermoduleScopes(nodes, built.edges)
+    for (const { name, value, units, data_reference } of built.globals) {
+      if (!library.getGlobalConstant(name)) library.assignGlobalConstant(name, value, units, data_reference)
+    }
+    history.startBatch()
+    try {
+      flow.addNodes(nodes)
+      flow.addEdges(built.edges)
+      return addSubsystem(instance.data.smId, position)
+    } finally {
+      history.endBatch()
+    }
+  }
+
   return {
     supermodules,
+    librarySupermodules,
+    placeLibrarySupermodule,
     find,
     countOf,
     canPlace,
