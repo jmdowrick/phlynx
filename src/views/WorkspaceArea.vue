@@ -513,7 +513,7 @@
 
   <CreateInspectionModuleDialog
     v-model="inspectionModuleDialogVisible"
-    :nodes="nodes"
+    :nodes="modelNodes"
     :editing-module="editingInspectionModule"
     :existing-modules="inspectionModuleStore.modules"
     @confirm="handleCreateInspectionModule"
@@ -521,10 +521,10 @@
 
   <MacroBuilderDialog v-model="macroBuilderDialogVisible" @generate="onMacroBuilderGenerate" />
 
-  <SimulationFloatingViewer :nodes="nodes" :is-canvas-shown="route.name === 'workspace'" />
-  <SimSettingsDialog v-model="simSettingsDialog.visible" :section="simSettingsDialog.section" :nodes="nodes" />
+  <SimulationFloatingViewer :nodes="modelNodes" :is-canvas-shown="route.name === 'workspace'" />
+  <SimSettingsDialog v-model="simSettingsDialog.visible" :section="simSettingsDialog.section" :nodes="modelNodes" />
 
-  <ProtocolDialog v-model="protocolDialog.visible" :nodes="nodes" />
+  <ProtocolDialog v-model="protocolDialog.visible" :nodes="modelNodes" />
 
   <SettingsDialog v-model="settingsDialogVisible" />
 
@@ -604,6 +604,7 @@ import { prepareCellmlImport } from '../services/import/prepareCellml'
 import { useGtm } from '../composables/useGtm'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useImportExportSend } from '../composables/useImportExportSend'
+import { useModelGraph } from '../composables/useModelGraph'
 
 import LibraryArea from '../components/LibraryArea.vue'
 import ResizableLibraryPanel from '../components/ResizableLibraryPanel.vue'
@@ -676,7 +677,12 @@ import {
 } from '../utils/constants'
 import { resolveEdgeCouplings } from '../utils/edges'
 import { parseParametersFile } from '../utils/import'
-import { applyParameterValues, applyParametersToNodes, skippedParametersMessage } from '../utils/parameters'
+import {
+  applyParameterValues,
+  applyParametersToModel,
+  nestedParametersMessage,
+  skippedParametersMessage,
+} from '../utils/parameters'
 import { detachReactivity } from '../utils/reactivity'
 import { saveWithDialog, stripExtension } from '../utils/save'
 
@@ -728,6 +734,17 @@ const {
   viewport,
   vueFlowRef,
 } = useVueFlow(FLOW_IDS.MAIN)
+// What simulation, export, search and parameter import read: the store's nodes with subsystems expanded.
+const {
+  graph: modelGraph,
+  modelNodes,
+  modelEdges,
+  errors: modelErrors,
+  isHierarchical,
+  expandSelection,
+  findModelNode,
+  rootIdOf,
+} = useModelGraph()
 const { processMacroGeneration } = useMacroGenerator()
 const { confirm } = useConfirmDialog()
 const toast = useToast()
@@ -874,7 +891,7 @@ const {
   onSearchBlur,
   onSearchKeydown,
   getNodeClass,
-} = useWorkspaceSearch({ nodes, findNode, zoomToNode })
+} = useWorkspaceSearch({ nodes: modelNodes, findNode: findModelNode, zoomToNode, canvasIdOf: rootIdOf })
 
 /**
  * Names a matched variable with its kind, such as `R (global)`.
@@ -913,15 +930,17 @@ const {
   triggerCurrentSend,
 } = useImportExportSend({
   libcellml,
-  nodes,
-  edges,
+  nodes: modelNodes,
+  edges: modelEdges,
   importDialogVisible,
   exportDialogVisible,
   currentImportConfig,
   onExportConfirm,
   hasModelChanged,
   snapshotFlowState,
-  selectedNodeIds: computed(() => getSelectedNodes.value.map((node) => node.id)),
+  selectedNodeIds: computed(() => expandSelection(getSelectedNodes.value.map((node) => node.id))),
+  modelErrors,
+  isHierarchical,
 })
 
 const cellMlExportTooltip = computed(() => {
@@ -1122,13 +1141,13 @@ const { loadCellMLFiles, onDragOver, onDrop } = useCellmlDrop({
 
 const loadParametersData = async (content, filename, { notify: shouldNotify = true, trackEvents = true } = {}) => {
   try {
-    const variableCatalogue = new Set(nodes.value.flatMap((node) => node.data.variables.map((v) => v.name.trim())))
+    const variableCatalogue = new Set(modelNodes.value.flatMap((node) => node.data.variables.map((v) => v.name.trim())))
 
-    // A loaded value never changes a row's type; a computed row's value isn't applied.
-    const { variablesById, updated: totalLocal, skipped } = applyParametersToNodes(nodes.value, Array.from(content))
-    for (const node of nodes.value) {
-      if (variablesById.has(node.id)) node.data.variables = variablesById.get(node.id)
-    }
+    // Matched by the model's names; only root modules take values, by their own ids. A loaded value never changes a
+    // row's type; a computed row's value isn't applied.
+    const loaded = applyParametersToModel(modelGraph.value, Array.from(content))
+    const { variablesById, updated: totalLocal, skipped, nested } = loaded
+    for (const [id, variables] of variablesById) findNode(id).data.variables = variables
 
     const globalConstants = Array.from(content)
       .filter((entry) => variableCatalogue.has(entry.variable_name.trimEnd()))
@@ -1148,6 +1167,9 @@ const loadParametersData = async (content, filename, { notify: shouldNotify = tr
     // Told even when a batch load quiets its other messages, as these values are dropped.
     if (skipped.length) {
       notify.warning({ title: 'Some Parameters Not Applied', message: skippedParametersMessage(skipped) })
+    }
+    if (nested.updated) {
+      notify.warning({ title: 'Some Parameters Not Applied', message: nestedParametersMessage(nested.updated, nested.paths) })
     }
 
     if (shouldNotify && totalUpdated > 0) {
@@ -1453,7 +1475,7 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
   if (paramsForIdExtra) {
     try {
       const rows = parseParamsForId(paramsForIdExtra.entry.payload)
-      const { selections, warnings } = resolveParamsForIdRows(rows, nodes.value, libraryStore.getGlobalConstant)
+      const { selections, warnings } = resolveParamsForIdRows(rows, modelNodes.value, libraryStore.getGlobalConstant)
       if (selections.length) {
         let scanConfig = simulationSettingsStore.parameterScanConfig
         for (const selection of selections) scanConfig = putSlider(scanConfig, selection)
@@ -1861,7 +1883,7 @@ function simulateLabelFor(id) {
  * @param {string} id
  */
 function simulateFromNode(id) {
-  const scope = [...simulationScopeFor(id)].sort()
+  const scope = expandSelection(simulationScopeFor(id)).sort()
   // The canvas selection becomes what runs, so the Simulation tab doesn't see it as changed.
   if (!getSelectedNodes.value.some((node) => node.id === id)) {
     removeSelectedNodes(getSelectedNodes.value)

@@ -533,9 +533,11 @@ import { useGtm } from '../composables/useGtm'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useMathSession } from '../composables/useMathSession'
 import { useAppSettings } from '../composables/useAppSettings'
+import { useModelGraph } from '../composables/useModelGraph'
 
 import { isInitialisable } from '../services/math/variableKinds'
 import { resolveBoundaryValues } from '../services/export/boundaryValues'
+import { expandHierarchy } from '../services/hierarchy/expand'
 import {
   createSinglePlotConfig,
   getNodePlotEntries,
@@ -583,7 +585,9 @@ const simulationSettingsStore = useSimulationSettingsStore()
 const history = reactive(createHistory())
 
 const { trackEvent } = useGtm()
+// The canvas, which the edit previews and saves into, and the model, which plots and counts read.
 const { nodes, edges } = useVueFlow()
+const { modelNodes, mainIdOf } = useModelGraph()
 const { confirm } = useConfirmDialog()
 const { settings: appSettings } = useAppSettings()
 
@@ -923,7 +927,8 @@ function hasTimeVaryingInitialiser(row) {
 
 /**
  * Where this instance's rows get their values, from resolveBoundaryValues, using the rows and complete ports as
- * edited here against the rest of the canvas. Couplings are previewed as save would recompute them.
+ * edited here against the rest of the canvas. Couplings are previewed as save would recompute them, and the values
+ * resolved in the model that leaves, its subsystems expanded; the instance is a root module, its own model node.
  */
 const connection = computed(() => {
   const rows = parameterRows.value
@@ -935,9 +940,10 @@ const connection = computed(() => {
   const canvasEdges = (edges.value ?? []).map((edge) =>
     couplings.has(edge.id) ? { ...edge, data: { ...edge.data, couplings: couplings.get(edge.id) } } : edge
   )
+  const model = expandHierarchy(canvasNodes, canvasEdges)
   let resolved
   try {
-    resolved = resolveBoundaryValues(canvasNodes, canvasEdges)
+    resolved = resolveBoundaryValues(model.nodes, model.edges)
   } catch {
     return { status: new Map(), ignored: new Set(), emptySums: new Set() } // a malformed multiport, which export reports
   }
@@ -1089,7 +1095,7 @@ watch(getEditorPlotNames, (names) => {
  */
 function followSavedNames(plotConfig) {
   const renamed = new Map(trackedNames.value.map(({ savedName, name }) => [savedName, name]))
-  return resolvePlotConfig(renamePlotVariables(plotConfig, props.id, renamed), nodes.value)
+  return resolvePlotConfig(renamePlotVariables(plotConfig, props.id, renamed), modelNodes.value)
 }
 
 /**
@@ -1111,7 +1117,7 @@ function showPlotNotice(text) {
  */
 function plotClickedVariable(name) {
   if (activeTab.value !== 'plot' || rightCollapsed.value || !isAutoUpdate.value) return
-  const node = nodes.value.find((candidate) => candidate.id === props.id)
+  const node = modelNodes.value.find((candidate) => candidate.id === props.id)
   const row = node?.data?.variables?.find((candidate) => candidate.name === name)
   if (!row) {
     if (parameterRows.value.some((candidate) => candidate.name === name)) showPlotNotice(`Save to plot ${name}`)
@@ -1176,12 +1182,21 @@ const railAriaLabel = computed(() => {
 const componentFile = computed(() => props.mathRef?.split(':')[0])
 const componentName = computed(() => props.mathRef?.split(':')[1])
 
+// The canvas nodes a save switches to the new math with this one, a module inside a super-module once for all its
+// subsystems.
 const siblings = computed(() => {
   if (!componentName.value || !componentFile.value) return []
   return nodes.value.filter((n) => n.id !== props.id && n.data?.mathRef === props.mathRef).map((n) => n.id)
 })
 
-const siblingCount = computed(() => siblings.value.length)
+// How many other instances use the math: counted in the model, where each subsystem has its own, and a sibling that
+// reaches no model node (in a super-module without subsystems) once. None exactly when there are no siblings.
+const siblingCount = computed(() => {
+  if (!componentName.value || !componentFile.value) return 0
+  const expanded = modelNodes.value.filter((node) => mainIdOf(node.id) !== props.id && node.data?.mathRef === props.mathRef)
+  const reached = new Set(expanded.map((node) => mainIdOf(node.id)))
+  return expanded.length + siblings.value.filter((id) => !reached.has(id)).length
+})
 
 // ── Watchers & Handlers ──────────────────────────────────────────────────────
 let openRequestId = 0
@@ -1630,7 +1645,7 @@ async function handleSave(options) {
     }
   }
 
-  const updateAll = applyToAll.value || siblingCount.value === 0
+  const updateAll = applyToAll.value || siblings.value.length === 0
 
   trackEvent('editor_action', {
     category: 'Editor',

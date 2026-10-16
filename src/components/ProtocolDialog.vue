@@ -64,6 +64,7 @@ import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
+  // The model's nodes (see useModelGraph).
   nodes: { type: Array, default: () => [] },
 })
 const emit = defineEmits(['update:modelValue'])

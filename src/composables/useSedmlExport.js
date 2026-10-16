@@ -4,10 +4,10 @@
  * must be able to plan the run; when it can't, the export says why. A sweep isn't exported yet.
  */
 import { computed, ref, watch } from 'vue'
-import { useVueFlow } from '@vue-flow/core'
 import { nameExperiment } from '@physiomelinks/protocol-kit'
 
 import { useAppSettings } from './useAppSettings'
+import { useModelGraph } from './useModelGraph'
 import { useSimulation } from './useSimulation'
 import { generateProtocolZip, generateSedmlZip } from '../services/export/protocolExport'
 import { buildProtocolSedml } from '../services/export/protocolSedml'
@@ -19,7 +19,7 @@ import { ALL_EXPERIMENTS, useProtocolStore } from '../stores/protocolStore'
 import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
-import { FLOW_IDS, ZIP_FILE_TYPES } from '../utils/constants'
+import { ZIP_FILE_TYPES } from '../utils/constants'
 import { notify } from '../utils/notify'
 import { getFileHandle, saveWithDialog, stripExtension } from '../utils/save'
 
@@ -35,7 +35,7 @@ const INSPECTION = { id: '__inspection_modules__', name: 'Inspection modules' }
  *   `isProtocol` whether it exports the protocol's run; `reason` says why it can't export, or is null.
  */
 export function useSedmlExport() {
-  const { nodes } = useVueFlow(FLOW_IDS.MAIN)
+  const { modelNodes } = useModelGraph()
   const { prepareProtocolExport, prepareRunExport } = useSimulation()
   const protocolStore = useProtocolStore()
   const resultsStore = useSimulationResultsStore()
@@ -53,7 +53,7 @@ export function useSedmlExport() {
 
   const reason = computed(() => {
     if (resultsStore.status === 'running') return 'Export the run as SED-ML once it finishes'
-    if (!nodes.value.length) return 'Add instances to export their run as SED-ML'
+    if (!modelNodes.value.length) return 'Add instances to export their run as SED-ML'
     if (isSweep.value) return 'A sweep can’t be exported as SED-ML yet: switch back to the time course to export it'
     if (isProtocol.value && (protocolStore.validation.errors.length || !protocolStore.view)) return 'Fix the protocol’s errors to export its run as SED-ML'
     // The last run's plan couldn't be made.
@@ -76,7 +76,7 @@ export function useSedmlExport() {
   function collectTraces(source) {
     const plotConfig = simulationSettingsStore.plotConfig
     // Instances renamed or removed since are as the results view shows them.
-    const resolved = resolvePlotConfig(plotConfig, nodes.value)
+    const resolved = resolvePlotConfig(plotConfig, modelNodes.value)
     const resolvedByKey = new Map(resolved.selections.map((selection) => [selection.key, selection]))
     const outputs = source.inspectionOutputs ?? []
     const outputsById = new Map(outputs.map((output) => [output.id, output]))

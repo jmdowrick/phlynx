@@ -276,6 +276,7 @@ const props = defineProps({
   modelValue: Boolean,
   // The section to open on: 'plots', 'sliders' or 'sweep', or 'time' or 'parameters' (the solver).
   section: { type: String, default: null },
+  // The model's nodes (see useModelGraph).
   nodes: {
     type: Array,
     default: () => [],

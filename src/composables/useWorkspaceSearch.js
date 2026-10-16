@@ -1,5 +1,7 @@
 /**
  * The workspace search: finds instances by name or (with `var:`) by variable, highlights them and steps through them.
+ * It searches the model (see useModelGraph), so modules inside subsystems are found too; the canvas shows each match
+ * as the node holding it (`canvasIdOf`), and `reveal` brings a match into view.
  */
 import { computed, ref, watch } from 'vue'
 
@@ -9,12 +11,21 @@ import { SEARCH_MODES, findWorkspaceMatches, parseSearchQuery } from '../utils/w
  * Builds the search state for a workspace.
  *
  * @param {Object} options
- * @param {import('vue').Ref<Array<Object>>} options.nodes - The workspace's nodes.
- * @param {Function} options.findNode - Gets a node by id.
- * @param {Function} options.zoomToNode - Centres the view on a node by id.
+ * @param {import('vue').Ref<Array<Object>>} options.nodes - The model's nodes.
+ * @param {Function} options.findNode - Gets a model node by id.
+ * @param {Function} options.zoomToNode - Centres the view on a canvas node by id.
+ * @param {(id: string) => string} [options.canvasIdOf] - The canvas node a model node shows as; itself by default.
+ * @param {(id: string) => void} [options.reveal] - Brings a model node into view; by default, zooms to the canvas node
+ *   it shows as.
  * @returns {Object} The query, its matches, and the actions the search bar binds to.
  */
-export function useWorkspaceSearch({ nodes, findNode, zoomToNode }) {
+export function useWorkspaceSearch({
+  nodes: modelNodes,
+  findNode,
+  zoomToNode,
+  canvasIdOf = (id) => id,
+  reveal = (id) => zoomToNode(canvasIdOf(id)),
+}) {
   const searchQuery = ref('')
   const matches = ref([])
   // -1 until the user steps to a match.
@@ -27,6 +38,8 @@ export function useWorkspaceSearch({ nodes, findNode, zoomToNode }) {
   const isActive = computed(() => parsedQuery.value.term !== '')
   const matchIds = computed(() => matches.value.map((match) => match.nodeId))
   const matchingNodeIds = computed(() => new Set(matchIds.value))
+  // The canvas nodes showing a match.
+  const matchingCanvasIds = computed(() => new Set(matchIds.value.map(canvasIdOf)))
   const matchCount = computed(() => (isActive.value ? matches.value.length : null))
   const matchingNodesList = computed(() =>
     matches.value.map((match) => ({ node: findNode(match.nodeId), variables: match.variables })).filter((match) => match.node)
@@ -41,7 +54,7 @@ export function useWorkspaceSearch({ nodes, findNode, zoomToNode }) {
    */
   const runSearch = ({ keepCurrent = false } = {}) => {
     const currentId = matchIds.value[currentMatchIndex.value]
-    matches.value = findWorkspaceMatches(nodes.value, parsedQuery.value)
+    matches.value = findWorkspaceMatches(modelNodes.value, parsedQuery.value)
     currentMatchIndex.value = keepCurrent ? matchIds.value.indexOf(currentId) : -1
   }
 
@@ -51,14 +64,14 @@ export function useWorkspaceSearch({ nodes, findNode, zoomToNode }) {
   }
 
   /**
-   * Makes a match current and zooms to it.
+   * Makes a match current and brings it into view.
    *
    * @param {number} index
    */
   const selectMatch = (index) => {
     if (index < 0 || index >= matchIds.value.length) return
     currentMatchIndex.value = index
-    zoomToNode(matchIds.value[index])
+    reveal(matchIds.value[index])
   }
 
   const cycleToNextMatch = () => {
@@ -119,14 +132,14 @@ export function useWorkspaceSearch({ nodes, findNode, zoomToNode }) {
   }
 
   /**
-   * Gets the class that highlights or dims a node while a search is active.
+   * Gets the class that highlights or dims a canvas node while a search is active.
    *
    * @param {{id: string}} props - The node's slot props.
    * @returns {string}
    */
   const getNodeClass = (props) => {
     if (!isActive.value) return ''
-    return matchingNodeIds.value.has(props.id) ? 'node-search-match' : 'node-search-dimmed'
+    return matchingCanvasIds.value.has(props.id) ? 'node-search-match' : 'node-search-dimmed'
   }
 
   // Emptying the box offers the modes again.
@@ -146,7 +159,7 @@ export function useWorkspaceSearch({ nodes, findNode, zoomToNode }) {
     () => {
       if (!isActive.value) return ''
       const isVarMode = parsedQuery.value.mode === 'var'
-      return nodes.value
+      return modelNodes.value
         .map((n) => {
           const key = `${n.id}|${n.data?.name}|${n.data?.moduleRef}|${n.data?.mathRef}`
           if (!isVarMode) return key

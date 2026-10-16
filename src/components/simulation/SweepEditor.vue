@@ -159,7 +159,6 @@
  * which keeps it as a draft.
  */
 import { computed, nextTick, ref, useId, watch } from 'vue'
-import { useVueFlow } from '@vue-flow/core'
 
 import Button from 'primevue/button'
 import InputNumber from 'primevue/inputnumber'
@@ -170,6 +169,7 @@ import SelectButton from 'primevue/selectbutton'
 
 import InfoTip from './InfoTip.vue'
 import VariablePathPicker from './VariablePathPicker.vue'
+import { useModelGraph } from '../../composables/useModelGraph'
 import { resolveBoundaryValues } from '../../services/export/boundaryValues'
 import { resolveScope } from '../../services/simulation/scopedModel'
 import {
@@ -189,10 +189,9 @@ import { buildVariableIndex } from '../../services/simulation/variableIndex'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../../stores/simulationSettingsStore'
-import { FLOW_IDS } from '../../utils/constants'
 
 const props = defineProps({
-  // Every node in the workspace: any of their parameters can be swept.
+  // Every node in the model (see useModelGraph): any of their parameters can be swept.
   nodes: { type: Array, default: () => [] },
   // The nodes play simulates next, or null for all of them. A boundary condition connected only from outside them
   // uses its own value there, so it can be swept. Left out where the scope isn't known, as in Simulation Settings,
@@ -204,7 +203,7 @@ const sweep = defineModel('sweep', { type: Object, default: null })
 
 const libraryStore = useLibraryStore()
 const resultsStore = useSimulationResultsStore()
-const { edges } = useVueFlow(FLOW_IDS.MAIN)
+const { modelEdges } = useModelGraph()
 const id = useId()
 
 const label = computed(() => (sweep.value ? sweepLabel(sweep.value) : ''))
@@ -231,7 +230,7 @@ const scopeIds = computed(() => (props.playScopeNodeIds?.length ? props.playScop
 const isLastRunThisScope = computed(() => JSON.stringify(resultsStore.scopeNodeIds ?? null) === JSON.stringify(scopeIds.value))
 const isBoundarySweep = computed(() => [sweep.value, sweep.value?.family].some((target) => target?.type === 'boundary_condition'))
 // The scope's nodes and the edges inside it: only what the picker or a boundary condition's sweep needs.
-const scope = computed(() => (isAdding.value || isBoundarySweep.value ? resolveScope(scopeIds.value, props.nodes, edges.value) : null))
+const scope = computed(() => (isAdding.value || isBoundarySweep.value ? resolveScope(scopeIds.value, props.nodes, modelEdges.value) : null))
 // The boundary conditions nothing connected in the scope supplies, whose own values a sweep can vary. For the whole
 // model, this also leaves out what export ignores.
 const boundaryValues = computed(() => (scope.value ? resolveBoundaryValues(scope.value.nodes, scope.value.internalEdges) : null))

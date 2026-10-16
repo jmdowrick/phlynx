@@ -230,6 +230,21 @@ describe('useImportExportSend selection exports', () => {
     expect(addInfo.modified).toBe(true)
   })
 
+  it('keeps a slider’s stored name in a workspace without subsystems, whatever its id', async () => {
+    nodes.value = [{ ...createNode('old/id'), data: { ...createNode('old/id').data, name: 'renamed' } }]
+    edges.value = []
+    useSimulationSettingsStore().setParameterScanConfig({
+      selections: [{ key: 'old/id::k', nodeId: 'old/id', nodeName: 'stored', parameterName: 'k', min: 0, default: 1, max: 2 }],
+    })
+    const { exportMenuItems, currentExportMode } = setup()
+
+    await menuItem(exportMenuItems, 'OpenCOR').command()
+    await currentExportMode.value.action('model')
+
+    const [, , simData] = generateOmexArchive.mock.calls.at(-1)
+    expect(simData.parameterScanConfig.selections.map((selection) => selection.nodeName)).toEqual(['stored'])
+  })
+
   it('builds the whole model’s archive as before', async () => {
     const { exportMenuItems, currentExportMode } = setup()
 
