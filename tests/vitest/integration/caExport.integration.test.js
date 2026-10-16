@@ -28,7 +28,7 @@ const { generateFlattenedModel } = await import('../../../src/utils/cellml.js')
 const { compareCanonical } = await import('../../../src/services/testing/modelCompare.js')
 const { loadBundledLibrary, moduleFactory } = await import('../fixtures/hierarchy/equivalence.js')
 const { connect } = await import('../fixtures/hierarchy/graph.js')
-const { arrayFromExport, connect: coupled } = await import('../fixtures/ca/workspace.js')
+const { arrayFromExport, connect: coupled, moduleArrayRows } = await import('../fixtures/ca/workspace.js')
 
 const USER_MATH_REF = 'User_modules.cellml:pv_simple_copy_type'
 // The same math in a file CA wouldn't find, which the export writes as USER_MATH_REF's.
@@ -47,7 +47,7 @@ async function readZip(blob) {
 }
 
 const exported = async (nodes, edges, library) => readZip(await generateExportZip('model', nodes, edges, library))
-const moduleArray = (files) => Papa.parse(files['model_module_array.csv'], { header: true, skipEmptyLines: true }).data
+const moduleArray = (files) => moduleArrayRows(files['model_module_array.json'])
 const moduleConfig = (files) => JSON.parse(files['modules/model_module_config.json'])
 
 /**
@@ -144,7 +144,7 @@ function instancesOf(nodes) {
  * @returns {Array<string>}
  */
 function caCouplingsOf(files) {
-  const array = arrayFromExport(files['model_module_array.csv'], moduleConfig(files))
+  const array = arrayFromExport(files['model_module_array.json'], moduleConfig(files))
   const { rows: nodes, byId } = array
   const { pairs, errors } = simulateCaPairing(array)
   expect(errors.filter((error) => error.kind !== 'misaligned')).toEqual([])
@@ -286,7 +286,7 @@ describe('the CA export of a customised workspace', () => {
     const files = await exported(workspace.nodes, workspace.edges, library)
     const imported = reimport(files)
     const again = await exported(imported.nodes, imported.edges, imported.library)
-    expect(again['model_module_array.csv']).toBe(files['model_module_array.csv'])
+    expect(again['model_module_array.json']).toBe(files['model_module_array.json'])
     expect(moduleConfig(again)).toEqual(moduleConfig(files))
   })
 
@@ -355,7 +355,7 @@ describe('the CA export of a customised workspace', () => {
     }
 
     const again = await exported(imported.nodes, imported.edges, imported.library)
-    expect(again['model_module_array.csv']).toBe(files['model_module_array.csv'])
+    expect(again['model_module_array.json']).toBe(files['model_module_array.json'])
     expect(again['modules/model_module_config.json']).toBe(files['modules/model_module_config.json'])
   })
 
@@ -368,7 +368,7 @@ describe('the CA export of a customised workspace', () => {
 
     const imported = reimport(files)
     const again = await exported(imported.nodes, imported.edges, imported.library)
-    expect(again['model_module_array.csv']).toBe(files['model_module_array.csv'])
+    expect(again['model_module_array.json']).toBe(files['model_module_array.json'])
     expect(moduleConfig(again)).toEqual(moduleConfig(files))
   })
 })

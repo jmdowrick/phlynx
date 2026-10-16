@@ -23,7 +23,7 @@ import { useOmexStore } from '../stores/omexStore'
 import { useProtocolStore } from '../stores/protocolStore'
 
 import { createCellMLDataFragment, generateOmexArchive, createOmexDataFragment } from '../services/compress'
-import { generateExportZip } from '../services/export/ca'
+import { CA_ARRAY_FORMATS, generateExportZip } from '../services/export/ca'
 import { summariseExpansionErrors } from '../services/hierarchy/errors'
 import { isNestedModelId } from '../services/hierarchy/expand'
 import { resolvePlotConfig } from '../services/simulation/plotSelections'
@@ -219,6 +219,30 @@ export function useImportExportSend({
     action: (finalName) => generateOmexArchiveAction(finalName, resolveSelectionScope()),
   })
 
+  /**
+   * The Circulatory Autogen export, its module array written in a format of CA_ARRAY_FORMATS.
+   *
+   * @param {string} key
+   * @param {string} label
+   * @param {string} arrayFormat
+   * @returns {Object}
+   */
+  const caExportOption = (key, label, arrayFormat) => ({
+    key,
+    label,
+    icon: 'pi pi-box',
+    disabled: libcellml.status !== 'ready',
+    suffix: '.zip',
+    fileTypes: ZIP_FILE_TYPES,
+    message: 'Generating and zipping CA files.',
+    // CA's own checks, such as its one heart, run on the model's rows.
+    action: (finalName) => {
+      const model = buildWholeModel()
+      return generateExportZip(finalName, model.nodes, model.edges, libraryStore, protocolStore.source?.entry.payload ?? null, { arrayFormat })
+    },
+    successMessage: () => 'Circulatory Autogen export zip generated.',
+  })
+
   const exportOptions = computed(() => [
     {
       key: EXPORT_KEYS.CELLML,
@@ -249,21 +273,8 @@ export function useImportExportSend({
         ])
       },
     },
-    {
-      key: EXPORT_KEYS.CA,
-      label: 'Circulatory Autogen',
-      icon: 'pi pi-box',
-      disabled: libcellml.status !== 'ready',
-      suffix: '.zip',
-      fileTypes: ZIP_FILE_TYPES,
-      message: 'Generating and zipping CA files.',
-      // CA's own checks, such as its one heart, run on the model's rows.
-      action: (finalName) => {
-        const model = buildWholeModel()
-        return generateExportZip(finalName, model.nodes, model.edges, libraryStore, protocolStore.source?.entry.payload ?? null)
-      },
-      successMessage: () => 'Circulatory Autogen export zip generated.',
-    },
+    caExportOption(EXPORT_KEYS.CA, 'Circulatory Autogen', CA_ARRAY_FORMATS.JSON),
+    caExportOption(EXPORT_KEYS.CA_CSV, 'Circulatory Autogen (legacy CSV)', CA_ARRAY_FORMATS.CSV),
     {
       key: EXPORT_KEYS.OMEX,
       label: 'OpenCOR',

@@ -14,12 +14,12 @@ vi.setConfig({ testTimeout: 120000 })
 const notified = vi.hoisted(() => ({ error: vi.fn(), info: vi.fn(), success: vi.fn(), warning: vi.fn() }))
 vi.mock('../../../src/utils/notify', () => ({ notify: notified }))
 
-const { generateExportZip } = await import('../../../src/services/export/ca.js')
+const { CA_ARRAY_FORMATS, generateExportZip } = await import('../../../src/services/export/ca.js')
 const { simulateCaPairing } = await import('../../../src/services/export/caSimulate.js')
 const { useLibraryStore } = await import('../../../src/stores/libraryStore.js')
 const { loadBundledLibrary } = await import('../fixtures/hierarchy/equivalence.js')
 const { addGoldenMath, couplingMappings, goldenWorkspace, terminalWorkspace } = await import('../fixtures/ca/golden.js')
-const { arrayFromExport } = await import('../fixtures/ca/workspace.js')
+const { arrayFromExport, moduleArrayRows } = await import('../fixtures/ca/workspace.js')
 
 /**
  * Pairs a module array's slots as the simulator says CA does, as the variable mappings CA writes between modules: each
@@ -54,6 +54,7 @@ describe.each([
   const read = (file) => fs.readFileSync(path.resolve(process.cwd(), 'tests/resources/ca', dir, file), 'utf8')
   const reference = JSON.parse(read('ca-connections.json'))
   let files
+  let jsonFiles
   let workspace
   let warnings
 
@@ -65,14 +66,25 @@ describe.each([
     setUp(library)
     workspace = build(library)
     notified.warning.mockClear()
-    const zip = await JSZip.loadAsync(await (await generateExportZip('golden', workspace.nodes, workspace.edges, library)).arrayBuffer())
-    files = Object.fromEntries(await Promise.all(Object.keys(zip.files).filter((name) => !zip.files[name].dir).map(async (name) => [name, await zip.file(name).async('string')])))
+    const exported = async (arrayFormat) => {
+      const zip = await JSZip.loadAsync(await (await generateExportZip('golden', workspace.nodes, workspace.edges, library, null, { arrayFormat })).arrayBuffer())
+      return Object.fromEntries(await Promise.all(Object.keys(zip.files).filter((name) => !zip.files[name].dir).map(async (name) => [name, await zip.file(name).async('string')])))
+    }
+    files = await exported(CA_ARRAY_FORMATS.CSV)
     warnings = notified.warning.mock.calls.map(([warning]) => warning).filter((warning) => warning.title === 'Connections Paired Differently')
+    jsonFiles = await exported(CA_ARRAY_FORMATS.JSON)
   }, 120000)
 
   it('is of the export as it is now; otherwise regenerate it with the script', () => {
     expect(files['golden_module_array.csv']).toBe(read('golden_module_array.csv'))
     expect(JSON.parse(files['modules/golden_module_config.json'])).toEqual(JSON.parse(read('modules/golden_module_config.json')))
+  })
+
+  it('writes the same records to the JSON module array, and the same other files', () => {
+    expect(Object.keys(jsonFiles).sort()).toEqual(Object.keys(files).map((name) => name.replace(/_module_array\.csv$/, '_module_array.json')).sort())
+    expect(files['golden_module_array.json']).toBeUndefined()
+    expect(moduleArrayRows(jsonFiles['golden_module_array.json'])).toEqual(moduleArrayRows(read('golden_module_array.csv')))
+    for (const name of Object.keys(files).filter((name) => !name.endsWith('_module_array.csv'))) expect(jsonFiles[name]).toBe(files[name])
   })
 
   it("couples in CA the variables the workspace's couplings do, but for those the export warns of", () => {

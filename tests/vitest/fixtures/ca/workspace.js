@@ -5,6 +5,7 @@
 import Papa from 'papaparse'
 
 import { normaliseConfig } from '../../../../src/utils/config.js'
+import { normaliseModuleRecords, toInstanceRows } from '../../../../src/services/import/caModuleArray.js'
 import { slotOf } from '../../../../src/utils/edges.js'
 import { couplingPairs } from '../../../../src/services/export/caOrder.js'
 import { comparePairs, simulateCaPairing, simulateImportPairing } from '../../../../src/services/export/caSimulate.js'
@@ -75,16 +76,27 @@ export function changedPorts(plan) {
 }
 
 /**
+ * An exported module array's rows as the import reads them, inp/out names space-separated.
+ *
+ * @param {string} arrayText - JSON records, or the legacy CSV.
+ * @returns {Object[]}
+ */
+export function moduleArrayRows(arrayText) {
+  if (arrayText.trimStart().startsWith('[')) return toInstanceRows(normaliseModuleRecords(JSON.parse(arrayText), 'module array'))
+  return Papa.parse(arrayText, { header: true, skipEmptyLines: true }).data
+}
+
+/**
  * Reads an exported module array and config back as the simulators read a module array.
  *
- * @param {string} arrayCsv - The module array.
+ * @param {string} arrayText - The module array, JSON or the legacy CSV.
  * @param {Array} config - The module config's entries.
  * @returns {{ rows: Array, outEdges: Map<string, Array>, inpEdges: Map<string, Array>, portsOf: Function,
  *   byId: Map<string, Object> }} rows: a node per row, its id its name, its ports its config entry's.
  */
-export function arrayFromExport(arrayCsv, config) {
+export function arrayFromExport(arrayText, config) {
   const entries = new Map(config.map((entry) => [`${entry.module_type}:${entry.module_subtype}`, entry]))
-  const lines = Papa.parse(arrayCsv, { header: true, skipEmptyLines: true }).data
+  const lines = moduleArrayRows(arrayText)
   const rows = lines.map((line) => {
     const entry = entries.get(`${line.module_type}:${line.module_subtype}`)
     const data = { name: line.name, moduleRef: `${line.module_type}:${line.module_subtype}`, mathRef: `${entry.component_file}:${entry.component_type}` }
