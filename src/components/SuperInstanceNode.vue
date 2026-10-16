@@ -23,7 +23,10 @@
           </div>
           <div class="detail-item">
             <i class="pi pi-arrows-h detail-icon"></i>
-            <span class="detail-value">{{ portCount }} port{{ portCount === 1 ? '' : 's' }}</span>
+            <span
+              class="detail-value super-instance-ports"
+              v-tooltip.top="{ value: portsTooltip, showDelay: 300 }"
+            >{{ portCount }} port{{ portCount === 1 ? '' : 's' }}</span>
           </div>
         </div>
         <div style="flex-grow: 1; min-width: 1.5em"></div>
@@ -82,7 +85,7 @@
 <script setup>
 /**
  * A super instance on the canvas: one instance of a super-module. Shows its name, its super-module and how many super instances
- * that has, and its ports; double-click or Open shows the super-module's nodes, as this super instance's.
+ * that has, and its ports, each with the child it is on; double-click or Open shows the super-module's nodes, as this super instance's.
  */
 import { computed } from 'vue'
 import { NodeResizer } from '@vue-flow/node-resizer'
@@ -91,6 +94,7 @@ import Button from 'primevue/button'
 import NodeHandles from './NodeHandles.vue'
 import SanitisedInput from './SanitisedInput.vue'
 import { useCanvasLevel } from '../composables/useCanvasLevel'
+import { ownedLabel, useExposedPortOwners } from '../composables/useExposure'
 import { useNodeChrome } from '../composables/useNodeChrome'
 import { useSupermodules } from '../composables/useSupermodules'
 import { sanitiseName } from '../utils/identifiers'
@@ -136,10 +140,16 @@ const {
 })
 const canvasLevel = useCanvasLevel(flowId)
 const { find } = useSupermodules(flowId)
+const ownersOf = useExposedPortOwners(flowId)
 
 // Its super-module's entry: name, label and super instance count; undefined when missing.
 const supermodule = computed(() => find(props.data.smId))
 const portCount = computed(() => props.data.ports?.length ?? 0)
+// Its ports, in order, each with the child it is on, so two of the same name read apart.
+const portsTooltip = computed(() => {
+  const owners = ownersOf(props.data.smId)
+  return (props.data.ports ?? []).map((port) => ownedLabel(owners.get(port.exposedPortId), port.label)).join(', ')
+})
 const countLabel = computed(() => {
   const count = supermodule.value?.count ?? 0
   return `${count} super instance${count === 1 ? '' : 's'} of ${supermodule.value?.name ?? 'this super-module'}`

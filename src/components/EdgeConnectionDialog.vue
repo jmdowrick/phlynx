@@ -108,6 +108,7 @@
                     side="source"
                     :port="data.port"
                     :variables="sourceNode.data.variables"
+                    :owner="sourceOwners.get(data.port.exposedPortId) ?? null"
                     :is-connected="data.isConnected"
                     :is-taken-elsewhere="data.isTakenElsewhere"
                     :is-valid-target="validConnectUids.has(data.port._uid)"
@@ -124,6 +125,7 @@
                     side="target"
                     :port="data.port"
                     :variables="targetNode.data.variables"
+                    :owner="targetOwners.get(data.port.exposedPortId) ?? null"
                     :is-connected="data.isConnected"
                     :is-taken-elsewhere="data.isTakenElsewhere"
                     :is-valid-target="validConnectUids.has(data.port._uid)"
@@ -222,6 +224,7 @@ import Dialog from 'primevue/dialog'
 import Chip from 'primevue/chip'
 import { FLOW_IDS, ROW_H, NODE_W, PAD } from '../utils/constants'
 import { isSingleConnection, slotOf } from '../utils/edges'
+import { isSuperInstance } from '../utils/hierarchy'
 import { isCompatible } from '../utils/ports'
 import { detachReactivity } from '../utils/reactivity'
 import { waitUntilStable } from '../utils/layout'
@@ -229,6 +232,7 @@ import { waitUntilStable } from '../utils/layout'
 import MultiportKey from './MultiportKey.vue'
 import PortRow from './PortRow.vue'
 import { useEdgeCouplings } from '../composables/useEdgeCouplings'
+import { useExposedPortOwners } from '../composables/useExposure'
 import { usePortDrag } from '../composables/usePortDrag'
 import { useConnectionAutoscroll } from '../composables/useConnectionAutoscroll'
 
@@ -258,6 +262,14 @@ const visible = computed({
 const isFlowReady = ref(false)
 
 const { getViewport, setViewport, updateNodeInternals } = useVueFlow(FLOW_IDS.EDGE)
+
+// The children a super instance's exposed ports are on, so two of the same name read apart; empty for a module.
+const portOwnersOf = useExposedPortOwners(FLOW_IDS.MAIN)
+const ownersOf = (node) => (isSuperInstance(node) ? portOwnersOf(node.data.smId) : new Map())
+// A super instance's ports are what its super-module exposes, so no port is added on its side here.
+const canAddPort = (side) => !isSuperInstance(side === 'source' ? props.sourceNode : props.targetNode)
+const sourceOwners = computed(() => ownersOf(props.sourceNode))
+const targetOwners = computed(() => ownersOf(props.targetNode))
 
 const swapDialog = ref({ visible: false, resolve: null })
 
@@ -333,7 +345,7 @@ const flowNodes = computed(() => {
 
   const nodes = [...srcNodes, ...tgtNodes]
 
-  ;['source', 'target'].forEach((side) => {
+  ;['source', 'target'].filter(canAddPort).forEach((side) => {
     const config = SIDE_CONFIG[side]
     const ports = side === 'source' ? localSrcPorts.value : localTgtPorts.value
     nodes.push({
@@ -388,6 +400,7 @@ function buildPortNodes(ports, connectedUids, side) {
 
 function isValidConnection(connection) {
   if (connection.source === 'ghost-src' && connection.target === 'ghost-tgt') return false
+  if ((connection.source === 'ghost-src' && !canAddPort('source')) || (connection.target === 'ghost-tgt' && !canAddPort('target'))) return false
   if (connection.source === 'ghost-src' || connection.target === 'ghost-tgt') return true
   const sUid = (connection.source || '').replace('src-', '')
   const tUid = (connection.target || '').replace('tgt-', '')
@@ -564,6 +577,8 @@ function buildPayload() {
           variables: sp.variables,
           multiportType: sp.multiportType,
           multiplyFactor: sp.multiplyFactor,
+          // A super instance's port is the exposed port it names, so it rebinds by id (see exposure.js)
+          ...(sp.exposedPortId != null && { exposedPortId: sp.exposedPortId }),
         },
         targetPort: {
           portType: tp.portType,
@@ -571,6 +586,8 @@ function buildPayload() {
           variables: tp.variables,
           multiportType: tp.multiportType,
           multiplyFactor: tp.multiplyFactor,
+          // A super instance's port is the exposed port it names, so it rebinds by id (see exposure.js)
+          ...(tp.exposedPortId != null && { exposedPortId: tp.exposedPortId }),
         },
         sourceSlot: slotOf(localSrcPorts.value, sp),
         targetSlot: slotOf(localTgtPorts.value, tp),

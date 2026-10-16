@@ -12,6 +12,7 @@ import { useVueFlow } from '@vue-flow/core'
 import { useFlowHistoryFor } from './useFlowHistoryFor'
 import { useModelGraph } from './useModelGraph'
 import { useSuperInstanceSync } from './useSuperInstanceSync'
+import { useSupermodules } from './useSupermodules'
 import {
   exposablePorts,
   exposureEnds,
@@ -42,6 +43,50 @@ export function describeUnexposeImpact(plan) {
   const connections = plan.connections === 1 ? '1 connection' : `${plan.connections} connections`
   const superInstances = plan.superInstances.length === 1 ? '1 super instance' : `${plan.superInstances.length} super instances`
   return `This affects ${connections} in ${superInstances}.`
+}
+
+/**
+ * Names the child an exposed port is on: its node's name, else the local id its alias names. For a port exposed `via`
+ * a nested super instance, that super instance; the breadcrumb gives the deeper context.
+ *
+ * @param {Object} exposed - An ExposedPort (see exposure.js indexExposures).
+ * @param {Map<string, Object>} nodeById
+ * @returns {string}
+ */
+const ownerNameOf = (exposed, nodeById) => nodeById.get(exposed.childId)?.data?.name ?? exposed.alias.child
+
+/**
+ * Maps a super-module's exposed ports to the children they are on, so two of the same name read apart.
+ *
+ * @param {Array} nodes
+ * @param {Array<Object>} exposedPorts - The super-module's ExposedPorts (see exposure.js indexExposures).
+ * @returns {Map<string, string>} Exposed port id to its owner's name.
+ */
+export function exposedPortOwners(nodes, exposedPorts) {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  return new Map(exposedPorts.map((exposed) => [exposed.id, ownerNameOf(exposed, nodeById)]))
+}
+
+/**
+ * Words an exposed port with its owner, as `<owner> · <label>`; the label alone without one.
+ *
+ * @param {string|null|undefined} owner
+ * @param {string} label
+ * @returns {string}
+ */
+export const ownedLabel = (owner, label) => (owner ? `${owner} · ${label}` : label)
+
+/**
+ * Gives a flow's lookup of the children super-modules' exposed ports are on (see exposedPortOwners), for the canvas and
+ * the connection dialog to show beside their labels.
+ *
+ * @param {string} [flowId=FLOW_IDS.MAIN]
+ * @returns {(smId: string) => Map<string, string>} Exposed port id to its owner's name; empty for an unknown smId.
+ */
+export function useExposedPortOwners(flowId = FLOW_IDS.MAIN) {
+  const flow = useVueFlow(flowId)
+  const { exposedPortsOf } = useSupermodules(flowId)
+  return (smId) => exposedPortOwners((flow.nodes ?? NONE).value, exposedPortsOf(smId))
 }
 
 /**
@@ -114,7 +159,7 @@ function createExposure(flow, flowId, history, handles) {
       label: exposed.label ?? null,
       ownLabel: exposed.alias.label ?? null,
       childId: exposed.childId,
-      childName: nodeById.get(exposed.childId)?.data?.name ?? exposed.alias.child,
+      childName: ownerNameOf(exposed, nodeById),
       edgeId: exposed.edgeId,
       via: exposed.alias.via ?? null,
       port: resolve(smId, exposed.id),

@@ -11,6 +11,7 @@ import { buildGhostHandles } from '../../../src/utils/handles.js'
 import {
   assertNodeId,
   canPlaceSuperInstance,
+  connectionPortWrites,
   edgeScopeProblem,
   findSupermoduleCycle,
   indexByScope,
@@ -274,5 +275,15 @@ describe('super-module occurrences', () => {
   it('counts nothing through a cycle', () => {
     const nodes = [sm('sm_1'), sm('sm_2'), instance('sm_1~a', 'sm_2', 'sm_1'), instance('sm_2~b', 'sm_1', 'sm_2')]
     expect(Object.fromEntries(supermoduleOccurrences(nodes))).toEqual({ sm_1: 0, sm_2: 0 })
+  })
+})
+
+describe('connectionPortWrites', () => {
+  it('writes a module’s ports back, never a super instance’s', () => {
+    const moduleNode = { id: 'dndnode_0', type: 'moduleNode', data: {} }
+    const superInstanceNode = { id: 'dndnode_1', type: SUPER_INSTANCE_NODE_TYPE, data: { smId: 'sm_1' } }
+    const ports = [{ label: 'vessel' }]
+    expect(connectionPortWrites([[moduleNode, ports], [superInstanceNode, [{ label: 'edited' }]]])).toEqual([['dndnode_0', ports]])
+    expect(connectionPortWrites([[superInstanceNode, []], [undefined, []]])).toEqual([])
   })
 })

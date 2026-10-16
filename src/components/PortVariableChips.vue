@@ -7,7 +7,7 @@
         :key="name"
         :port="port"
         :name="name"
-        :editable="isMultiport(port)"
+        :editable="!readonly && isMultiport(port)"
         :invalid="invalid"
         @change="$emit('change')"
       />
@@ -29,7 +29,7 @@
           :key="name"
           :port="port"
           :name="name"
-          :editable="isMultiport(port)"
+          :editable="!readonly && isMultiport(port)"
           :invalid="invalid"
           @change="$emit('change')"
         />
@@ -50,6 +50,8 @@ defineProps({
   limit: { type: Number, default: Infinity },
   // Flags a Multiply factor left blank.
   invalid: { type: Boolean, default: false },
+  // Shows the chips without letting them be edited.
+  readonly: { type: Boolean, default: false },
 })
 
 defineEmits(['change'])

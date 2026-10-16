@@ -1,7 +1,10 @@
 import { ref, computed } from 'vue'
-import { TARGET_COMPATIBLE } from '../utils/constants'
+import { useVueFlow } from '@vue-flow/core'
+import { FLOW_IDS, TARGET_COMPATIBLE } from '../utils/constants'
 import { detachReactivity } from '../utils/reactivity'
-import { isSingleConnection, slotOf } from '../utils/edges'
+import { isSingleConnection, portKey, slotOf } from '../utils/edges'
+import { scopeOf } from '../utils/hierarchy'
+import { exposedSlotKeys } from '../services/hierarchy/exposure'
 import { isCompatible, findPort } from '../utils/ports'
 import { isMultiport } from '../utils/multiport'
 
@@ -12,6 +15,10 @@ export function useEdgeCouplings(props, askSwapIntent) {
   const localSubgraph = ref(new Map())
   const portUsage = new Map()
   const takenElsewhereUids = ref(new Set())
+  // The single-connection ports a super-module exposes, held from outside it: never evicted, as no edge here holds them.
+  const exposedUids = new Set()
+  // The workspace, whose exposure edges say which of a super-module's ports are exposed.
+  const workspace = useVueFlow(FLOW_IDS.MAIN)
 
   // Fast lookup Map to avoid sequential linear lookups
   const portLookup = computed(() => {
@@ -32,6 +39,11 @@ export function useEdgeCouplings(props, askSwapIntent) {
       ...p,
       _uid: p._uid || `${nodeId}_${crypto.randomUUID()}`,
     }))
+  }
+
+  /** Marks taken the ports sibling edges hold, and those exposed. */
+  const refreshTaken = () => {
+    takenElsewhereUids.value = new Set([...portUsage.keys(), ...exposedUids])
   }
 
   function indexSiblingPorts() {
@@ -60,7 +72,24 @@ export function useEdgeCouplings(props, askSwapIntent) {
         }
       }
     }
-    takenElsewhereUids.value = new Set(portUsage.keys())
+    indexExposedPorts()
+    refreshTaken()
+  }
+
+  /** Records the ends' single-connection ports their super-module exposes, which a connection from outside takes. */
+  function indexExposedPorts() {
+    exposedUids.clear()
+    const nodes = workspace.nodes?.value ?? []
+    const edges = workspace.edges?.value ?? []
+    const ends = [[props.sourceNode, localSrcPorts.value], [props.targetNode, localTgtPorts.value]]
+    for (const [node, ports] of ends) {
+      const scope = scopeOf(node)
+      if (!scope) continue
+      const held = exposedSlotKeys(nodes, edges, scope)
+      for (const port of ports) {
+        if (held.has(portKey(node.id, 'in', port, slotOf(ports, port)))) exposedUids.add(port._uid)
+      }
+    }
   }
 
   function initLocalState() {
@@ -126,6 +155,7 @@ export function useEdgeCouplings(props, askSwapIntent) {
   }
 
   async function evictHandle(port, nodeUid, side, newCouplings) {
+    if (exposedUids.has(nodeUid)) return null
     if (isSingleConnection(port)) {
       const localConn = newCouplings.find(c => (side === 'source' ? c.srcUid : c.tgtUid) === nodeUid)
       if (localConn) {
@@ -144,17 +174,18 @@ export function useEdgeCouplings(props, askSwapIntent) {
   async function swapConnections(port, oldUid, newUid, side, couplings) {
     const localConn = couplings.find((c) => (side === 'source' ? c.srcUid : c.tgtUid) === newUid)
     
+    if (exposedUids.has(newUid)) return null
     if (!localConn) {
       if (isSingleConnection(port) && takenElsewhereUids.value.has(newUid)) {
         const intent = await askSwapIntent(true)
         if (intent === 'cancel') return null
         const result = evictForeignHandle(port, side)
-        takenElsewhereUids.value = new Set(portUsage.keys())
+        refreshTaken()
         if (result && intent === 'swap') {
           const { partnerPort, partnerSlot, edgeId } = result
           const oldPort = side === 'target' ? tgtByUid(oldUid) : srcByUid(oldUid)
           if (oldPort) rehomeForeignHandle(oldPort, partnerPort, partnerSlot, edgeId, side)
-          takenElsewhereUids.value = new Set(portUsage.keys())
+          refreshTaken()
         }
       }
       return couplings

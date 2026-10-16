@@ -80,8 +80,10 @@ const ALLOWED = [
   {
     file: 'src/composables/useExposure.js',
     line: 'useVueFlow(flowId)',
+    count: 2,
     use: 'model-safe',
-    reason: 'Reads and writes exposure edges and the couplings to super instances, each store edge once, in every scope.',
+    reason:
+      'Reads and writes exposure edges and the couplings to super instances, each store edge once, in every scope; names the children exposed ports are on.',
   },
 
   // The canvas: what it shows, selects, lays out and edits as nodes. What reads only what is shown reads
@@ -131,8 +133,10 @@ const ALLOWED = [
   { file: 'src/components/HelperLines.vue', line: '= useVueFlow()', use: 'canvas', reason: 'The viewport the helper lines are drawn over.' },
   { file: 'src/components/InstanceEditorDialog.vue', line: '= useVueFlow()', use: 'canvas', reason: 'The flow the edited node is in.' },
   { file: 'src/components/InstanceEditorDialog.vue', line: 'const byId = (id) => nodes.value', use: 'canvas', reason: 'The edited node’s super-module, for the local constants its rows can be bound to.' },
-  { file: 'src/components/InstanceEditorDialog.vue', line: 'const names = edges.value', use: 'canvas', reason: 'Names the canvas neighbours a port connects to.' },
-  { file: 'src/components/InstanceEditorDialog.vue', line: 'multiportSummary(props.id', use: 'canvas', reason: 'Summarises the instance’s Sum and Multiply couplings by its canvas edges.' },
+  { file: 'src/components/InstanceEditorDialog.vue', line: 'if (!modelId) return { nodeId: props.id, edges: edges.value', use: 'canvas', reason: 'Outside a super instance, its ports’ connections are the canvas edges, as stored.' },
+  { file: 'src/components/InstanceEditorDialog.vue', line: 'const scope = scopeOf(nodes.value.find', use: 'canvas', reason: 'The super-module the edited node is a child of, edited on its own.' },
+  { file: 'src/components/InstanceEditorDialog.vue', line: 'return exposedPortsOf(scope, nodes.value', use: 'canvas', reason: 'The ports that super-module exposes, from its exposure edges, each stored once.' },
+  { file: 'src/composables/useEdgeCouplings.js', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'The exposure edges saying which ports of a super-module are exposed.' },
   { file: 'src/composables/useNodeChrome.js', line: '= useVueFlow()', use: 'canvas', reason: 'The flow the node card is drawn in.' },
   { file: 'src/composables/useNodeHandles.js', line: '= useVueFlow()', use: 'canvas', reason: 'The flow the node\'s handles are drawn in.' },
   { file: 'src/composables/useNodeHandles.js', line: 'const connectedEdges', use: 'canvas', reason: 'The edges on a handle being removed.' },

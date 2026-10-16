@@ -715,6 +715,7 @@ import { takeInputFile } from '../utils/misc'
 import { bindLibCellML, processCellMLData, loadParametersFromCellML } from '../utils/cellml'
 import { edgeLineOptions, FLOW_IDS, IMPORT_KEYS, NEW_INSTANCE_MODULE_REF } from '../utils/constants'
 import { resolveEdgeCouplings } from '../utils/edges'
+import { connectionPortWrites } from '../utils/hierarchy'
 import { parseParametersFile } from '../utils/import'
 import {
   applyParametersToModel,
@@ -1820,8 +1821,8 @@ function onEdgeConnectionConfirm({
     keys: ['ports'],
     edgeIds: findIncidentEdgeIds(nodeIds),
     apply: () => {
-      updateNodeData(sourceNodeId, { ports: sourcePorts })
-      updateNodeData(targetNodeId, { ports: targetPorts })
+      const ends = [[findNode(sourceNodeId), sourcePorts], [findNode(targetNodeId), targetPorts]]
+      for (const [id, ports] of connectionPortWrites(ends)) updateNodeData(id, { ports })
 
       const activeEdge = findEdge(edgeDialogActiveEdge.value?.id)
       if (activeEdge) {

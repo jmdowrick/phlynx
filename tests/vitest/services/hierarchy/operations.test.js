@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { expandHierarchy } from '../../../../src/services/hierarchy/expand.js'
 import { indexExposures } from '../../../../src/services/hierarchy/exposure.js'
 import { makeUnique, modelIdMap, nestProblem, nestSelection, unnest } from '../../../../src/services/hierarchy/operations.js'
+import { HANDLE_VARIANT } from '../../../../src/utils/constants.js'
+import { buildGhostHandles, getHandleId } from '../../../../src/utils/handles.js'
 import { isSuperInstance, isSupermoduleInterface } from '../../../../src/utils/hierarchy.js'
 import { connect, constant, exposed, exposures, module, port, shuffled, superInstance, supermodule } from '../../fixtures/hierarchy/graph.js'
 
@@ -19,14 +21,17 @@ function chain() {
   return { nodes, edges: [0, 1, 2].map((i) => connect(nodes[i], nodes[i + 1], { used })) }
 }
 
-/** Three terminals feeding one vein's summing inlet, which drains to an outlet. */
-function fanIn() {
-  const terms = [0, 1, 2].map((i) => vessel(`dndnode_${i}`, `t${i}`))
-  const vein = module('dndnode_3', 'vein', { ports: [{ ...SUM_IN }, { ...OUT }], variables: [constant('C', '2')] })
-  const out = vessel('dndnode_4', 'out')
+/** Some terminals (three by default) feeding one vein's summing inlet, which drains to an outlet. */
+function fanIn(count = 3) {
+  const terms = Array.from({ length: count }, (_, i) => vessel(`dndnode_${i}`, `t${i}`))
+  const vein = module(`dndnode_${count}`, 'vein', { ports: [{ ...SUM_IN }, { ...OUT }], variables: [constant('C', '2')] })
+  const out = vessel(`dndnode_${count + 1}`, 'out')
   const used = new Set()
   return { nodes: [...terms, vein, out], edges: [...terms.map((term) => connect(term, vein, { used })), connect(vein, out, { used })] }
 }
+
+/** @returns {Array} The active handles of a node's on a side. */
+const activeOn = (node, side) => node.data.handles.filter((handle) => handle.side === side && handle.variant !== HANDLE_VARIANT.GHOST)
 
 /** Root a → heart (sm_1: ra → lv) → b, heart overriding lv's R. */
 function heart() {
@@ -188,6 +193,47 @@ describe('nestSelection', () => {
     }
   })
 
+  it('gives the super instance one handle per outside neighbour', () => {
+    const g = fanIn()
+    const after = nestSelection(g.nodes, g.edges, ['dndnode_3', 'dndnode_4'], { name: 'veins' })
+    const superInstanceNode = after.nodes.find((node) => node.id === after.superInstanceId)
+    const into = after.edges.filter((edge) => edge.target === after.superInstanceId).map((edge) => edge.targetHandle)
+    expect(new Set(into).size).toBe(3)
+    expect(activeOn(superInstanceNode, 'left').map(getHandleId).sort()).toEqual([...into].sort())
+  })
+
+  it('gives the interface one handle per child exposed', () => {
+    const g = chain()
+    const after = nestSelection(g.nodes, g.edges, ['dndnode_1', 'dndnode_2'], { name: 'mid' })
+    const interfaceNode = after.nodes.find((node) => node.id === after.smId)
+    const handles = after.edges.filter((edge) => edge.target === after.smId).map((edge) => edge.targetHandle)
+    expect(handles).toHaveLength(2)
+    expect(new Set(handles).size).toBe(2)
+    expect(activeOn(interfaceNode, 'right').map(getHandleId).sort()).toEqual([...handles].sort())
+  })
+
+  it('orders the super instance handles on a side as its neighbours are drawn', () => {
+    const g = fanIn()
+    g.nodes.slice(0, 3).forEach((term, i) => (term.position = { x: 0, y: 100 * i }))
+    const after = nestSelection(g.nodes, g.edges, ['dndnode_3', 'dndnode_4'], { name: 'veins' })
+    const superInstanceNode = after.nodes.find((node) => node.id === after.superInstanceId)
+    const slotOf = (id) => superInstanceNode.data.handles.find((handle) => getHandleId(handle) === id).slotIndex
+    const slots = ['dndnode_0', 'dndnode_1', 'dndnode_2'].map((id) => slotOf(after.edges.find((edge) => edge.source === id).targetHandle))
+    expect([...slots].sort((a, b) => a - b)).toEqual(slots)
+  })
+
+  it('adds a handle, with a slot, when a side has no ghosts left', () => {
+    const g = fanIn(6)
+    const after = nestSelection(g.nodes, g.edges, ['dndnode_6', 'dndnode_7'], { name: 'veins' })
+    const superInstanceNode = after.nodes.find((node) => node.id === after.superInstanceId)
+    const left = superInstanceNode.data.handles.filter((handle) => handle.side === 'left')
+    expect(left).toHaveLength(6)
+    expect(left.every((handle) => handle.variant !== HANDLE_VARIANT.GHOST)).toBe(true)
+    expect(left.map((handle) => handle.slotIndex).sort()).toEqual([0, 1, 2, 3, 4, 5])
+    expect(new Set(after.edges.filter((edge) => edge.target === after.superInstanceId).map((edge) => edge.targetHandle)).size).toBe(6)
+    expectSameModel(g, after)
+  })
+
   it('refuses an interface node, nodes of two scopes, a name in use and nothing at all', () => {
     const g = heart()
     expect(nestProblem(g.nodes, [])).toMatch(/Select/)
@@ -234,6 +280,58 @@ describe('unnest', () => {
     expect(after.nodes.filter(isSuperInstance).map((node) => node.id)).toEqual(['dndnode_0', 'dndnode_2'])
     const idMap = expectSameModel(g, after)
     expect([...idMap.keys()]).toEqual(['dndnode_1/s'])
+  })
+
+  it('gives each edge it restores at a child a handle of its own', () => {
+    const g = fanIn()
+    const vein = g.nodes.find((node) => node.data.name === 'vein')
+    vein.data.handles = buildGhostHandles()
+    const left = vein.data.handles.filter((handle) => handle.side === 'left')
+    g.edges.filter((edge) => edge.target === vein.id).forEach((edge, i) => {
+      left[i].variant = HANDLE_VARIANT.DEFAULT
+      edge.targetHandle = getHandleId(left[i])
+    })
+    const nested = nestSelection(g.nodes, g.edges, [vein.id, 'dndnode_4'], { name: 'veins' })
+    const back = unnest(nested.nodes, nested.edges, nested.superInstanceId)
+    expect(back.problems).toEqual([])
+    const copy = back.nodes.find((node) => node.data.name === 'veins__vein')
+    const into = back.edges.filter((edge) => edge.target === copy.id).map((edge) => edge.targetHandle)
+    expect(into).toHaveLength(3)
+    expect(new Set(into).size).toBe(3)
+    expect(activeOn(copy, 'left').map(getHandleId).sort()).toEqual([...into].sort())
+  })
+
+  it('restores each edge at a child on the side it met the super instance', () => {
+    const g = fanIn(2)
+    const vein = g.nodes.find((node) => node.data.name === 'vein')
+    vein.data.handles = buildGhostHandles()
+    // The outflow first in the store, so the exposure edge takes a right handle.
+    g.edges = [g.edges[2], g.edges[0], g.edges[1]]
+    const [left, right] = ['left', 'right'].map((side) => vein.data.handles.filter((handle) => handle.side === side))
+    g.edges[0].sourceHandle = getHandleId(right[2])
+    right[2].variant = HANDLE_VARIANT.DEFAULT
+    g.edges.slice(1).forEach((edge, i) => {
+      edge.targetHandle = getHandleId(left[i])
+      left[i].variant = HANDLE_VARIANT.DEFAULT
+    })
+    const nested = nestSelection(g.nodes, g.edges, [vein.id], { name: 'veins' })
+    const back = unnest(nested.nodes, nested.edges, nested.superInstanceId)
+    const copy = back.nodes.find((node) => node.data.name === 'veins__vein')
+    const sideOf = (id) => copy.data.handles.find((handle) => getHandleId(handle) === id)?.side
+    expect(back.edges.filter((edge) => edge.target === copy.id).map((edge) => sideOf(edge.targetHandle))).toEqual(['left', 'left'])
+    expect(back.edges.filter((edge) => edge.source === copy.id).map((edge) => sideOf(edge.sourceHandle))).toEqual(['right'])
+  })
+
+  it('gives a scope re-exposure edge it restores a handle of its own', () => {
+    const g = twoLevel()
+    const after = unnest(g.nodes, g.edges, 'sm_1~bed')
+    const cap = after.nodes.find((node) => node.data.name === 'bed_cap')
+    const reexposure = after.edges.find((edge) => edge.source === cap.id && edge.target === 'sm_1')
+    const fromArt = after.edges.find((edge) => edge.target === cap.id && edge.source === 'sm_1~art')
+    expect(reexposure.sourceHandle).toBeTruthy()
+    expect(reexposure.sourceHandle).not.toBe(fromArt.targetHandle)
+    const handle = cap.data.handles.find((candidate) => getHandleId(candidate) === reexposure.sourceHandle)
+    expect(handle.variant).not.toBe(HANDLE_VARIANT.GHOST)
   })
 
   it('undoes a nest: the model, every row and coupling, as it was, whatever the edge order', () => {

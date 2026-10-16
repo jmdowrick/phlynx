@@ -10,7 +10,8 @@ vi.mock('../../../src/utils/notify', () => ({ notify }))
 const { useCanvasDelete } = await import('../../../src/composables/useCanvasDelete.js')
 const { useCanvasLevel } = await import('../../../src/composables/useCanvasLevel.js')
 const { useConnect } = await import('../../../src/composables/useConnect.js')
-const { useExposure } = await import('../../../src/composables/useExposure.js')
+const { exposedPortOwners, ownedLabel, useExposure } = await import('../../../src/composables/useExposure.js')
+const { indexExposures } = await import('../../../src/services/hierarchy/exposure.js')
 const { useFlowHistory } = await import('../../../src/composables/useFlowHistory.js')
 const { useFlowHistoryStore } = await import('../../../src/stores/historyStore.js')
 const { useInspectionModuleStore } = await import('../../../src/stores/inspectionModuleStore.js')
@@ -304,5 +305,30 @@ describe('exposing ports through exposure edges', () => {
       await history.undo()
       expect(edgeIds()).toEqual(expect.arrayContaining(['e0', 'sm_1~a--sm_1']))
     })
+  })
+})
+
+describe('exposedPortOwners', () => {
+  it('names the child each exposed port is on, so two of one name read apart', () => {
+    const a = vessel('a', 'left', { scope: 'sm_1' })
+    const b = vessel('b', 'right', { scope: 'sm_1' })
+    const sm = supermodule('sm_1', 'twins')
+    const edges = exposures('sm_1', [exposed('xp_0', 'a', 'entrance_ports', 'vessel'), exposed('xp_1', 'b', 'entrance_ports', 'vessel')])
+    const nodes = [sm, a, b]
+    const owners = exposedPortOwners(nodes, indexExposures(nodes, edges).get('sm_1'))
+    expect([...owners]).toEqual([['xp_0', 'left'], ['xp_1', 'right']])
+    expect(ownedLabel(owners.get('xp_1'), 'vessel')).toBe('right · vessel')
+    expect(ownedLabel(undefined, 'vessel')).toBe('vessel')
+  })
+
+  it('names the nested super instance a port is exposed via, not the child deeper in', () => {
+    const cap = vessel('cap', 'cap', { scope: 'sm_2' })
+    const bedsm = supermodule('sm_2', 'bedsm')
+    const bedExposure = exposures('sm_2', [exposed('xp_in', 'cap', 'entrance_ports', 'vessel')])
+    const heart = superInstance({ nodes: [bedsm, cap], edges: bedExposure }, 'bed', 'heart', 'sm_2', { scope: 'sm_1' })
+    const limb = supermodule('sm_1', 'limb')
+    const edges = [...exposures('sm_1', [exposed('xp_u', 'bed', 'entrance_ports', 'vessel', { via: 'xp_in' })]), ...bedExposure]
+    const nodes = [limb, heart, bedsm, cap]
+    expect(exposedPortOwners(nodes, indexExposures(nodes, edges).get('sm_1')).get('xp_u')).toBe('heart')
   })
 })

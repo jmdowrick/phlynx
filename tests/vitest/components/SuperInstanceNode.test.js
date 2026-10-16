@@ -76,6 +76,15 @@ describe('SuperInstanceNode', () => {
     expect(wrapper.text()).toContain('1 port')
   })
 
+  it('lists its ports on hover, each with the child it is on', () => {
+    const tooltip = { mounted: (el, { value }) => (el.dataset.tooltip = value?.value ?? '') }
+    wrapper = mount(SuperInstanceNode, {
+      props: { id: 'dndnode_1', data: flow.findNode('dndnode_1').data },
+      global: { plugins: [PrimeVue], directives: { tooltip } },
+    })
+    expect(wrapper.find('.super-instance-ports').attributes('data-tooltip')).toBe('lv · vessel')
+  })
+
   it('is an instance card, with the same header, name and button, and a second card stacked behind it', () => {
     mountNode()
     const card = wrapper.find('.instance-card')
@@ -173,7 +182,7 @@ describe('InterfaceNode', () => {
       props: { id: node.id, data: { ...node.data, handles: [{ uid: 'h1', side: 'left', name: '', variant: 'ghost' }] } },
     })
     expect(wrapper.find('.interface-name').text()).toBe('heart')
-    expect(wrapper.findAll('.interface-port-list li').map((item) => item.text())).toEqual(['vesselentrance_ports'])
+    expect(wrapper.findAll('.interface-port-list li').map((item) => item.text())).toEqual(['lv · vesselentrance_ports'])
     expect(wrapper.findAll('.handle-stub')).toHaveLength(1)
   })
 
