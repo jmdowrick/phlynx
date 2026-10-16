@@ -114,6 +114,7 @@ describe('useLoadFromInstanceArray', () => {
       conflicts: [],
       skipped: [{ nodeName: 'heart_lv', name: 'q' }],
       warnings: ['forked'],
+      positioned: new Set(['sm_9']),
     })
     const instances = [{ name: 'heart', module_type: 'heart', module_subtype: 'v1' }]
     const parameters = [{ variable_name: 'heart/lv/E', value: '1' }]
@@ -129,7 +130,8 @@ describe('useLoadFromInstanceArray', () => {
       currentNodes: [],
     })
     expect(mocks.store.assignGlobalConstant).toHaveBeenCalledWith('R', '8', 'J', 'ref')
-    expect(mocks.layoutSupermoduleScopes).toHaveBeenCalledWith(nodes, [rootEdge, scopeEdge])
+    // A super-module whose config gave its layout keeps it.
+    expect(mocks.layoutSupermoduleScopes).toHaveBeenCalledWith(nodes, [rootEdge, scopeEdge], { keep: new Set(['sm_9']) })
     expect(mocks.addNodes).toHaveBeenCalledWith(nodes)
     expect(mocks.addEdges).toHaveBeenCalledWith([scopeEdge])
     expect(mocks.prepareLayout).toHaveBeenCalledWith([rootEdge], null)

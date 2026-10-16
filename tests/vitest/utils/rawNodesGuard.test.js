@@ -74,6 +74,12 @@ const ALLOWED = [
   { file: 'src/views/WorkspaceArea.vue', line: 'const somethingAvailable', use: 'canvas', reason: 'Whether there is anything to save, clear or lay out.' },
   { file: 'src/views/WorkspaceArea.vue', line: 'for (const node of nodes.value)', use: 'canvas', reason: 'Normalises the ports of loaded nodes.' },
   { file: 'src/views/WorkspaceArea.vue', line: 'resolveEdgeCouplings(nodes.value', use: 'canvas', reason: 'Repairs loaded edges without couplings.' },
+  {
+    file: 'src/views/WorkspaceArea.vue',
+    line: 'storeGraph: () => ({ nodes: nodes.value',
+    use: 'model-safe',
+    reason: 'The native circulatory_autogen export writes the super-modules themselves, checked against the model they expand to.',
+  },
   { file: 'src/components/ContextSidebar.vue', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'Whether a box selection is under way.' },
   { file: 'src/components/NodeColourPanel.vue', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'Colours the canvas nodes selected (useActiveCanvas).' },
   { file: 'src/components/InstanceEditorDialog.vue', line: 'const nameOf', use: 'canvas', reason: 'Names the canvas neighbours a port connects to.' },

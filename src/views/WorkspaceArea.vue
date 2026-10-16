@@ -573,6 +573,7 @@
   />
 
   <SupermoduleEditDialog />
+  <CaIdentityDialog />
 </template>
 
 <script>
@@ -638,6 +639,7 @@ import { useModelGraph } from '../composables/useModelGraph'
 import { useRevealModelNode } from '../composables/useRevealModelNode'
 import { useModelWriter } from '../composables/useModelWriter'
 import { useSupermodules } from '../composables/useSupermodules'
+import { useCaIdentityPrompt } from '../composables/useCaIdentityPrompt'
 import { useCanvasDelete } from '../composables/useCanvasDelete'
 import { useHierarchyOperations } from '../composables/useHierarchyOperations'
 
@@ -648,6 +650,7 @@ import CouplingEdge from '../components/CouplingEdge.vue'
 import ExposureEdge from '../components/ExposureEdge.vue'
 import ExposePortsDialog from '../components/ExposePortsDialog.vue'
 import SupermoduleEditDialog from '../components/dialogs/SupermoduleEditDialog.vue'
+import CaIdentityDialog from '../components/dialogs/CaIdentityDialog.vue'
 import { useExposure } from '../composables/useExposure'
 import { isExposureEdge } from '../services/hierarchy/exposure'
 import InstanceNode from '../components/InstanceNode.vue'
@@ -782,6 +785,7 @@ const { nodes: canvasNodes, edges: canvasEdges, selectedNodes: canvasSelectedNod
 // Which scope the canvas shows, and the model nodes its selection stands for.
 const canvasLevel = useCanvasLevel()
 const supermoduleCatalogue = useSupermodules()
+const caIdentityPrompt = useCaIdentityPrompt()
 const { writeVariables } = useModelWriter()
 const { processMacroGeneration } = useMacroGenerator()
 const { confirm } = useConfirmDialog()
@@ -1002,6 +1006,8 @@ const {
   selectedNodeIds: canvasLevel.selectedModelIds,
   modelErrors,
   isHierarchical,
+  storeGraph: () => ({ nodes: nodes.value, edges: edges.value }),
+  caIdentities: { ask: caIdentityPrompt.ask, save: (identities) => supermoduleCatalogue.setCaIdentities(identities) },
 })
 
 const cellMlExportTooltip = computed(() => {

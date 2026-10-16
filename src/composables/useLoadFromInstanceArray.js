@@ -54,7 +54,7 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
     if (folded.skipped.length) {
       notify.warning({ title: 'Some Parameters Not Applied', message: escapeHtml(skippedParametersMessage(folded.skipped)) })
     }
-    await layoutSupermoduleScopes(folded.nodes, folded.edges)
+    await layoutSupermoduleScopes(folded.nodes, folded.edges, { keep: folded.positioned })
     const rootIds = new Set(folded.nodes.filter((node) => !node.hidden).map((node) => node.id))
     const isRoot = (edge) => rootIds.has(edge.source) && rootIds.has(edge.target)
     return {

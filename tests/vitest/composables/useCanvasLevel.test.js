@@ -329,6 +329,20 @@ describe('useCanvasLevel', () => {
       expect(flow.findNode('sm_1').data.supermodule.name).toBe('heart')
     })
 
+    it("gives super-modules their circulatory_autogen identities as one undo step", async () => {
+      const { smId } = supermodules.createEmptySuperModule('lung', { x: 0, y: 0 })
+      commit()
+      const steps = history.pointerIndex
+      const identities = new Map([['sm_1', { module_type: 'heart', module_subtype: 'phlynx_v1' }], [smId, { module_type: 'lung', module_subtype: 'phlynx_v1' }]])
+      await expect(supermodules.setCaIdentities(identities, { history })).resolves.toBe(true)
+      commit()
+      expect([flow.findNode('sm_1').data.supermodule.ca, flow.findNode(smId).data.supermodule.ca]).toEqual([...identities.values()])
+      expect(history.pointerIndex).toBe(steps + 1)
+      await expect(supermodules.setCaIdentities(identities, { history })).resolves.toBe(false)
+      await history.undo()
+      expect([flow.findNode('sm_1').data.supermodule.ca, flow.findNode(smId).data.supermodule.ca]).toEqual([null, null])
+    })
+
     it('deletes an unused super-module and its nodes as one undo step', async () => {
       const { smId, superInstanceId } = supermodules.createEmptySuperModule('lung', { x: 0, y: 0 })
       flow.removeNodes([superInstanceId])

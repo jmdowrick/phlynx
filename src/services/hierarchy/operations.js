@@ -931,9 +931,12 @@ function supermoduleSignature(smId, nodes, edges) {
  * @param {string} smId
  * @param {Array} nodes
  * @param {Array} edges
+ * @param {Object} [options]
+ * @param {boolean} [options.exposure=true] - Whether what it exposes counts; circulatory_autogen has no interface, so
+ *   its identity doesn't follow it.
  * @returns {string} Eight hex digits.
  */
-export function supermoduleContentHash(smId, nodes, edges) {
+export function supermoduleContentHash(smId, nodes, edges, { exposure = true } = {}) {
   const structureOf = (node) => {
     if (node.id === smId) {
       const { name: _name, ca: _ca, source: _source, ...definition } = node.data?.supermodule ?? {}
@@ -941,7 +944,9 @@ export function supermoduleContentHash(smId, nodes, edges) {
     }
     return isSuperInstance(node) && scopeOf(node) === smId ? { ...node, data: { ...node.data, ports: undefined } } : node
   }
-  const drawn = edges.map((edge) => (edge.type === EXPOSURE_EDGE_TYPE ? edge : { ...edge, type: null }))
+  const drawn = edges
+    .filter((edge) => exposure || edge.type !== EXPOSURE_EDGE_TYPE)
+    .map((edge) => (edge.type === EXPOSURE_EDGE_TYPE ? edge : { ...edge, type: null }))
   const text = supermoduleSignature(smId, nodes.map(structureOf), drawn)
   let hash = 0x811c9dc5
   for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0
