@@ -207,6 +207,72 @@ export function assertNodeId(node) {
   }
 }
 
+// What an id may not hold outside a super-module (see nodeIdProblem).
+const UNSAFE_IN_IDS = /\/|::|~/g
+
+/**
+ * Gives an id that is free, adding `_<n>` to it until it is, and takes it.
+ *
+ * @param {string} id
+ * @param {Set<string>} taken - Ids in use; the one given is added.
+ * @returns {string}
+ */
+function claimId(id, taken) {
+  let free = id
+  for (let n = 2; taken.has(free); n++) free = `${id}_${n}`
+  taken.add(free)
+  return free
+}
+
+/**
+ * Rewrites root node ids that break the id rules (see nodeIdProblem), as older files and snapshots may hold: each
+ * `/`, `::` or `~` becomes `_`, and the edges that end at them follow. A root edge's id holding those is rewritten too,
+ * so no root edge reads as an expanded one. Nodes inside super-modules, and the edges that end at them or at an
+ * interface node (whose `${source}--${target}` ids hold `~`), are left alone, their ids set when they were made.
+ *
+ * @param {Array} nodes
+ * @param {Array} edges
+ * @returns {{nodes: Array, edges: Array, idMap: Map<string, string>, edgeIdMap: Map<string, string>}} The nodes and
+ *   edges (the arrays given when nothing changed), and each rewritten node and edge id's new id.
+ */
+export function rewriteUnsafeIds(nodes, edges) {
+  const atRoot = (node) => scopeOf(node) === null && !isSupermoduleInterface(node)
+  const isUnsafe = (node) => atRoot(node) && nodeIdProblem(node.id) !== null
+  const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  // An end missing from the nodes counts as a root one.
+  const endAtRoot = (id) => !nodeById.has(id) || atRoot(nodeById.get(id))
+  const isUnsafeEdge = (edge) =>
+    typeof edge.id === 'string' &&
+    endAtRoot(edge.source) &&
+    endAtRoot(edge.target) &&
+    edge.id.replace(UNSAFE_IN_IDS, '') !== edge.id
+  const idMap = new Map()
+  const edgeIdMap = new Map()
+  if (!nodes.some(isUnsafe) && !edges.some(isUnsafeEdge)) return { nodes, edges, idMap, edgeIdMap }
+
+  const safeText = (id) => String(id ?? '').replace(UNSAFE_IN_IDS, '_') || 'node'
+  const takenNodeIds = new Set(nodes.filter((node) => !isUnsafe(node)).map((node) => node.id))
+  for (const node of nodes) if (isUnsafe(node)) idMap.set(node.id, claimId(safeText(node.id), takenNodeIds))
+  const takenEdgeIds = new Set(edges.filter((edge) => !isUnsafeEdge(edge)).map((edge) => edge.id))
+  for (const edge of edges) if (isUnsafeEdge(edge)) edgeIdMap.set(edge.id, claimId(safeText(edge.id), takenEdgeIds))
+
+  const renamed = (id) => idMap.get(id) ?? id
+  return {
+    nodes: nodes.map((node) => {
+      if (!idMap.has(node.id)) return node
+      const data = node.data?.localId != null ? { ...node.data, localId: idMap.get(node.id) } : node.data
+      return { ...node, id: idMap.get(node.id), ...(data && { data }) }
+    }),
+    edges: edges.map((edge) =>
+      edgeIdMap.has(edge.id) || idMap.has(edge.source) || idMap.has(edge.target)
+        ? { ...edge, id: edgeIdMap.get(edge.id) ?? edge.id, source: renamed(edge.source), target: renamed(edge.target) }
+        : edge
+    ),
+    idMap,
+    edgeIdMap,
+  }
+}
+
 // Kept out of names inside super-modules (and of subsystem names): path, scope, key and override separators, and the
 // level separator of flat names.
 const RESERVED_IN_NAMES = ['/', SCOPE_SEPARATOR, '::', '@', '__']

@@ -258,6 +258,110 @@ describe('migrateWorkspace', () => {
   })
 })
 
+describe('migrateWorkspace from 1.2.0', () => {
+  const at120 = (flow, extra = {}) => ({
+    id: 'phlynx-project',
+    version: '1.2.0',
+    flow: { viewport: { x: 1, y: 2, zoom: 1 }, ...flow },
+    store: { availableMath: [] },
+    simulation: { simulationSettings: {}, plotConfig: {}, parameterScanConfig: {} },
+    inspectionModules: [],
+    ...extra,
+  })
+  const withoutPlace = (nodes) => nodes.map(({ data: { scope: _scope, localId: _localId, ...data }, ...node }) => ({ ...node, data }))
+
+  it('changes the SN workspace only by putting every node at the root', () => {
+    const doc = readFixture('v1-2-0/sn_simple.json')
+    const migrated = migrateWorkspace(structuredClone(doc))
+
+    expect(migrated.flow.nodes.map(({ id, data }) => [id, data.scope, data.localId])).toEqual(doc.flow.nodes.map(({ id }) => [id, null, id]))
+    expect({ ...migrated, flow: { ...migrated.flow, nodes: withoutPlace(migrated.flow.nodes) } }).toEqual({ ...doc, version: PHLYNX_PROJECT_VERSION })
+  })
+
+  it('keeps a scope and local id a node has', () => {
+    const migrated = migrateWorkspace(at120({ nodes: [{ id: 'n1', data: { name: 'n', scope: null, localId: 'n1' } }], edges: [] }))
+    expect(migrated.flow.nodes[0].data).toEqual({ name: 'n', scope: null, localId: 'n1' })
+  })
+
+  it('rewrites ids that break the id rules, with the edges and saved selections that name them, and notes each', () => {
+    const nodeOf = (id) => ({ id, data: { name: `name ${id}` } })
+    const selection = (nodeId, variableName) => ({ key: `${nodeId}::${variableName}`, nodeId, nodeName: `name ${nodeId}`, variableName })
+    const doc = at120(
+      {
+        nodes: ['a/b', 'c::d', 'e~f', 'a_b', 'ok'].map(nodeOf),
+        edges: [
+          { id: 'a/b--c::d', source: 'a/b', target: 'c::d', sourceHandle: 'handle_1', targetHandle: 'handle_2', data: { couplings: [] } },
+          { id: 'ok--e~f', source: 'ok', target: 'e~f', data: { couplings: [] } },
+          { id: 'ok--a_b', source: 'ok', target: 'a_b', data: { couplings: [] } },
+        ],
+      },
+      {
+        simulation: {
+          simulationSettings: { sweep: { ...selection('a/b', 'k'), family: { ...selection('c::d', 'k'), values: [1, 2] } } },
+          plotConfig: { selections: [selection('e~f', 'V'), selection('ok', 'V')], groupedSelections: [[selection('a/b', 'V')]] },
+          parameterScanConfig: { selections: [selection('c::d', 'R')] },
+        },
+        inspectionModules: [{ id: 'insp-1', name: 'probe', variables: [{ key: 'a/b::q', nodeId: 'a/b', nodeName: 'name a/b', variableName: 'q' }] }],
+      }
+    )
+    const notes = []
+    const migrated = migrateWorkspace(doc, { notes })
+
+    expect(migrated.flow.nodes.map(({ id, data }) => [id, data.localId, data.name])).toEqual([
+      ['a_b_2', 'a_b_2', 'name a/b'],
+      ['c_d', 'c_d', 'name c::d'],
+      ['e_f', 'e_f', 'name e~f'],
+      ['a_b', 'a_b', 'name a_b'],
+      ['ok', 'ok', 'name ok'],
+    ])
+    expect(migrated.flow.edges.map(({ id, source, target, sourceHandle }) => [id, source, target, sourceHandle])).toEqual([
+      ['a_b--c_d', 'a_b_2', 'c_d', 'handle_1'],
+      ['ok--e_f', 'ok', 'e_f', undefined],
+      ['ok--a_b', 'ok', 'a_b', undefined],
+    ])
+    const { sweep } = migrated.simulation.simulationSettings
+    expect([sweep.key, sweep.nodeId, sweep.family.key, sweep.family.nodeId]).toEqual(['a_b_2::k', 'a_b_2', 'c_d::k', 'c_d'])
+    expect(migrated.simulation.plotConfig.selections.map(({ key, nodeId }) => [key, nodeId])).toEqual([
+      ['e_f::V', 'e_f'],
+      ['ok::V', 'ok'],
+    ])
+    expect(migrated.simulation.plotConfig.groupedSelections[0][0]).toMatchObject({ key: 'a_b_2::V', nodeId: 'a_b_2' })
+    expect(migrated.simulation.parameterScanConfig.selections[0]).toMatchObject({ key: 'c_d::R', nodeId: 'c_d' })
+    expect(migrated.inspectionModules[0].variables[0]).toMatchObject({ key: 'a_b_2::q', nodeId: 'a_b_2', nodeName: 'name a/b' })
+    expect(notes).toEqual([
+      'Node id "a/b" is now "a_b_2": ids can\'t hold "/", "::" or "~".',
+      'Node id "c::d" is now "c_d": ids can\'t hold "/", "::" or "~".',
+      'Node id "e~f" is now "e_f": ids can\'t hold "/", "::" or "~".',
+    ])
+  })
+
+  it('renames object keys that name an old id, and keeps a name that reads as one', () => {
+    const doc = at120(
+      { nodes: [{ id: 'a/b', data: { name: 'a/b' } }], edges: [] },
+      {
+        simulation: {
+          simulationSettings: {},
+          plotConfig: { 'a/b::V': { colour: 'red', nodeId: 'a/b', nodeName: 'a/b' }, 'a/b': { label: 'a/b' } },
+          parameterScanConfig: {},
+        },
+      }
+    )
+    const migrated = migrateWorkspace(doc)
+
+    expect(migrated.flow.nodes[0]).toMatchObject({ id: 'a_b', data: { name: 'a/b', localId: 'a_b' } })
+    expect(migrated.simulation.plotConfig).toEqual({
+      'a_b::V': { colour: 'red', nodeId: 'a_b', nodeName: 'a/b' },
+      a_b: { label: 'a/b' },
+    })
+  })
+
+  it('notes nothing when every id keeps the rules', () => {
+    const notes = []
+    migrateWorkspace(readFixture('v1-2-0/sn_simple.json'), { notes })
+    expect(notes).toEqual([])
+  })
+})
+
 describe('detectVersion', () => {
   it('reads the version from each envelope', () => {
     expect(detectVersion({ version: '1.1.0' })).toBe('1.1.0')

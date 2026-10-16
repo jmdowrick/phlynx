@@ -599,6 +599,8 @@ export const useLibraryStore = defineStore('library', () => {
       globalConstants: Array.from(globalConstants.value.entries()),
       mathDefaults: Array.from(mathDefaults.value.entries(), ([mathRef, values]) => [mathRef, Array.from(values)]),
       mathLayouts: Array.from(mathLayouts.value.entries()),
+      // Reserved in format 1.3.0 for circulatory_autogen super-module templates (H9); none are kept yet.
+      availableSupermodules: [],
     }
   }
 

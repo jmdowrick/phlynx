@@ -5,7 +5,7 @@ import { useLibraryStore } from '../stores/libraryStore'
 import { useOmexStore } from '../stores/omexStore'
 import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
-import { buildWorkspaceFile } from '../services/workspaceFile'
+import { buildWorkspaceFile, withoutHidden } from '../services/workspaceFile'
 import { migrateWorkspace } from '../services/workspaceMigrator'
 import { JSON_FILE_TYPES } from '../utils/constants'
 import { notify } from '../utils/notify'
@@ -84,7 +84,7 @@ export function useWorkspaceSaveLoad({
   }
 
   /**
-   * Collects all state and creates blob from it.
+   * Collects all state and creates blob from it. Nodes and edges are saved without `hidden` (see buildWorkspaceFile).
    */
   function createSaveBlob() {
     const saveState = buildWorkspaceFile({
@@ -114,7 +114,8 @@ export function useWorkspaceSaveLoad({
   }
 
   /**
-   * Restores the application state from a loaded workspace. Errors are rethrown for the caller to report.
+   * Restores the application state from a loaded workspace. Errors are rethrown for the caller to report. No node or
+   * edge is loaded `hidden`, whatever the file holds, and ids the migration rewrote are reported.
    */
   async function applyWorkspaceState(loadedState, { source = 'json' } = {}) {
     const { clearWorkspace } = useClearWorkspace()
@@ -126,13 +127,14 @@ export function useWorkspaceSaveLoad({
       }
 
       // Handles legacy formats if needed
-      const migratedState = migrateWorkspace(loadedState)
+      const notes = []
+      const migratedState = migrateWorkspace(loadedState, { notes })
 
       // Clear the current Vue Flow state without creating a history step for this load action.
       await clearWorkspace({ recordHistory: false })
 
       setViewport(migratedState.flow.viewport)
-      fromObject(migratedState.flow)
+      fromObject(withoutHidden(migratedState.flow))
 
       // Rebuild the edge index so the EdgeConnectionDialog subgraph is correct.
       rebuildNodeEdgeIndex()
@@ -153,6 +155,7 @@ export function useWorkspaceSaveLoad({
       notify.success({
         title: 'Workflow loaded successfully!',
       })
+      if (notes.length) notify.warning({ title: 'Workflow updated', message: notes.join('\n') })
     } catch (error) {
       trackEvent('workflow_load_action', {
         category: 'Workflow',

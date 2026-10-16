@@ -14,6 +14,7 @@ import {
   nextNodeId,
   nextSupermoduleId,
   nodeIdProblem,
+  rewriteUnsafeIds,
   splitNodeId,
   supermoduleDependencies,
   supermoduleDepth,
@@ -163,5 +164,56 @@ describe('super-module dependencies', () => {
     const deep = supermoduleDependencies([...ids.map((id) => sm(id)), ...ids.slice(1).map((id, i) => instance(`${ids[i]}~x`, id, ids[i]))])
     expect(supermoduleDepth(deep, 'sm_1')).toBe(MAX_NESTING_DEPTH)
     expect(supermoduleDepth(deep, 'sm_0')).toBe(Infinity)
+  })
+})
+
+describe('rewriteUnsafeIds', () => {
+  it('gives back the nodes and edges as they are when every id keeps the rules', () => {
+    const nodes = [{ id: 'dndnode_0', data: {} }, { id: 'sm_1~a', data: { scope: 'sm_1' } }]
+    const edges = [{ id: 'e', source: 'dndnode_0', target: 'dndnode_0' }]
+    const rewritten = rewriteUnsafeIds(nodes, edges)
+    expect(rewritten.nodes).toBe(nodes)
+    expect(rewritten.edges).toBe(edges)
+    expect(rewritten.idMap.size).toBe(0)
+  })
+
+  it('rewrites root ids, a free one each, and leaves nodes and edges inside super-modules alone', () => {
+    const nodes = [
+      { id: 'a/b', data: { localId: 'a/b' } },
+      { id: 'a_b', data: {} },
+      { id: 'sm_1', type: SUPERMODULE_INTERFACE_NODE_TYPE, data: { scope: 'sm_1' } },
+      { id: 'sm_1~c', data: { scope: 'sm_1' } },
+    ]
+    const edges = [
+      { id: 'a/b--a_b', source: 'a/b', target: 'a_b' },
+      { id: 'sm_1~c--sm_1~d', source: 'sm_1~c', target: 'sm_1~d' },
+      { id: 'sm_1~c--sm_1', type: 'exposure', source: 'sm_1~c', target: 'sm_1' },
+    ]
+    const { nodes: renamed, edges: rewired, idMap, edgeIdMap } = rewriteUnsafeIds(nodes, edges)
+
+    expect(renamed.map((node) => [node.id, node.data.localId])).toEqual([
+      ['a_b_2', 'a_b_2'],
+      ['a_b', undefined],
+      ['sm_1', undefined],
+      ['sm_1~c', undefined],
+    ])
+    expect(rewired).toEqual([{ id: 'a_b--a_b', source: 'a_b_2', target: 'a_b' }, edges[1], edges[2]])
+    expect(Object.fromEntries(idMap)).toEqual({ 'a/b': 'a_b_2' })
+    expect(Object.fromEntries(edgeIdMap)).toEqual({ 'a/b--a_b': 'a_b--a_b' })
+  })
+
+  it('leaves a whole nested store as it is, its internal and exposure edges’ ids holding "~"', () => {
+    const nodes = [
+      { id: 'sm_1', type: SUPERMODULE_INTERFACE_NODE_TYPE, data: { scope: 'sm_1' } },
+      { id: 'sm_1~a', data: { scope: 'sm_1' } },
+      { id: 'sm_1~b', data: { scope: 'sm_1' } },
+    ]
+    const edges = [
+      { id: 'sm_1~a--sm_1~b', source: 'sm_1~a', target: 'sm_1~b' },
+      { id: 'sm_1~b--sm_1', type: 'exposure', source: 'sm_1~b', target: 'sm_1' },
+    ]
+    const rewritten = rewriteUnsafeIds(nodes, edges)
+    expect(rewritten.nodes).toBe(nodes)
+    expect(rewritten.edges).toBe(edges)
   })
 })

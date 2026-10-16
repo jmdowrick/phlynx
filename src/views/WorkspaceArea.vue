@@ -650,11 +650,10 @@ import { useFloatingViewer } from '../composables/useFloatingViewer'
 import { useActiveDocumentListeners } from '../composables/useActiveDocumentListeners'
 import { useWorkspaceSearch } from '../composables/useWorkspaceSearch'
 import { SEARCH_MODES, variableKindLabel } from '../utils/workspaceSearch'
-import { scopeFlowObject } from '../services/simulation/scopedModel'
 import { relayoutNodes } from '../services/layouts/physics'
 import { extractSimData as extractSimDataFromSedml } from '../services/import/sedml'
 import { extractSimData as extractSimDataFromSimulationJson } from '../services/import/simulation'
-import { buildInstance } from '../services/import/buildWorkflow'
+import { buildFlowSnapshot, hashFlowSnapshot, restoreFlowSnapshot } from '../services/flowSnapshot'
 
 import { notify } from '../utils/notify'
 import { getHelperLines } from '../utils/helperLines'
@@ -665,22 +664,17 @@ import { useColorScheme } from '../composables/useColorScheme'
 import { useAppSettings } from '../composables/useAppSettings'
 import { useNodeThemeStore } from '../stores/nodeThemeStore'
 import { categoryColour } from '../utils/nodeThemes'
-import { cyrb53, takeInputFile } from '../utils/misc'
-import { buildGhostHandles, normaliseHandleSlots } from '../utils/handles'
+import { takeInputFile } from '../utils/misc'
 import { bindLibCellML, processCellMLData, loadParametersFromCellML } from '../utils/cellml'
 import {
   edgeLineOptions,
   FLOW_IDS,
   IMPORT_KEYS,
   NEW_INSTANCE_MODULE_REF,
-  NUM_GHOST_HANDLES_TOP_BOT,
-  NUM_GHOST_HANDLES_LEFT_RIGHT,
-  PHLYNX_PROJECT_VERSION,
 } from '../utils/constants'
 import { resolveEdgeCouplings } from '../utils/edges'
 import { parseParametersFile } from '../utils/import'
 import {
-  applyParameterValues,
   applyParametersToModel,
   nestedParametersMessage,
   skippedParametersMessage,
@@ -918,7 +912,13 @@ watch(currentMatchIndex, async () => {
 const allNodeNames = computed(() => canvasNodes.value.map((n) => n.data.name))
 const somethingAvailable = computed(() => nodes.value.length > 0)
 const somethingSelected = computed(() => getSelectedNodes.value.length > 0)
-const hasModelChanged = computed(() => cyrb53(snapshotFlowState()) !== omexStore.archiveHash)
+/**
+ * Hashes the whole store's (hierarchical) snapshot, which shows nothing of what the canvas shows or selects.
+ *
+ * @returns {number}
+ */
+const hashModel = () => hashFlowSnapshot(buildFlowSnapshot(toObject(), { library: libraryStore }))
+const hasModelChanged = computed(() => hashModel() !== omexStore.archiveHash)
 
 const {
   currentExportMode,
@@ -1254,23 +1254,10 @@ async function loadFlowSnapshot(fileName, flowSnapshot, parameterData = {}, { no
   const snapshotMathLibrary =
     flowSnapshot.mathLibrary && typeof flowSnapshot.mathLibrary === 'object' ? flowSnapshot.mathLibrary : {}
 
-  let nodeNameToIdMap = new Map()
   const globalValues = new Map()
-  const skippedParameters = []
-  // Convert nodeData to nodes format expected by the workspace.
-  const nodes = flowSnapshot.nodeData.map((snapshotNode) => {
+  /** Resolves a module's math from the snapshot's math library, moving older math's values into its rows. */
+  const prepareNode = (snapshotNode) => {
     let node = snapshotNode
-    // Update variables with parameter data if available.
-    if (parameterData[node.data.name]) {
-      const paramVars = parameterData[node.data.name]
-      const result = applyParameterValues(node.data.variables, (name) =>
-        paramVars.find((p) => p.name.trimEnd() === name)
-      )
-      node.data.variables = result.variables
-      skippedParameters.push(...result.skipped.map((name) => ({ nodeName: node.data.name, name })))
-    }
-    // Resolve math from the snapshot math library. Older snapshots keep values in the math, which
-    // move into the node's rows here.
     let nodeMathFromSnapshot =
       node.data?.mathHash in snapshotMathLibrary ? snapshotMathLibrary[node.data.mathHash] : undefined
     if (nodeMathFromSnapshot) {
@@ -1289,16 +1276,17 @@ async function loadFlowSnapshot(fileName, flowSnapshot, parameterData = {}, { no
           message: `The math for node "${node.data.name}" does not match the math in the library store. The library version will be used.`,
         })
       }
-      // Remove imported math payloads from runtime node data once the store value is authoritative.
-      delete node.data.mathHash
-    } else {
+    } else if (nodeMathFromSnapshot) {
       // Put math from the snapshot into the library store.
-      if (nodeMathFromSnapshot) {
-        libraryStore.addMath(node.data.mathRef, nodeMathFromSnapshot)
-      }
-      delete node.data.mathHash
+      libraryStore.addMath(node.data.mathRef, nodeMathFromSnapshot)
     }
+    // Remove imported math payloads from runtime node data once the store value is authoritative.
+    delete node.data.mathHash
     return node
+  }
+  const { nodes, edges, nodeNameToIdMap, skippedParameters } = restoreFlowSnapshot(flowSnapshot, {
+    parameterData,
+    prepareNode,
   })
 
   // Clear the current workspace before loading the new snapshot without creating
@@ -1308,18 +1296,8 @@ async function loadFlowSnapshot(fileName, flowSnapshot, parameterData = {}, { no
 
   historyStore.startBatch()
   try {
-    const newNodes = nodes.map((node) => {
-      nodeNameToIdMap.set(node.data.name, node.id)
-      const allHandles = normaliseHandleSlots([
-        ...node.data.handles,
-        ...buildGhostHandles(NUM_GHOST_HANDLES_TOP_BOT, NUM_GHOST_HANDLES_LEFT_RIGHT, node.data.handles),
-      ])
-
-      return buildInstance(node.id, node.data.name, node.type, node.data, allHandles, node.position)
-    })
-
-    addNodes(newNodes)
-    addEdges(flowSnapshot.edges)
+    addNodes(nodes)
+    addEdges(edges)
     const currentLastSaveName = sessionMetadataStore.lastSaveName
     sessionMetadataStore.setLastSaveName(stripExtension(fileName))
     historyStore.addCommand({
@@ -1497,7 +1475,7 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
     }
   }
 
-  omexStore.setHash(cyrb53(snapshotFlowState()))
+  omexStore.setHash(hashModel())
   omexStore.setArchive({
     archiveName: fileName,
     archiveType: result.fileType,
@@ -1996,58 +1974,14 @@ function recomputeMissingCouplings() {
 
 /**
  * Snapshots the flow (nodes, edges, math and global parameters) as JSON, for OMEX archives and for
- * detecting changes since one was imported.
+ * detecting changes since one was imported (see services/flowSnapshot.js): the whole store, super-modules
+ * included, or a part of the model flattened.
  *
- * @param {string[]|null} [nodeIds] - Only these nodes and the edges between them, or every node.
+ * @param {string[]|null} [nodeIds] - The model ids of a scope's nodes, or null for the whole model.
  * @returns {string} The snapshot JSON.
  */
 function snapshotFlowState(nodeIds = null) {
-  const flowState = scopeFlowObject(toObject(), nodeIds)
-  const mathLibrary = new Map()
-
-  const nodeData = flowState.nodes.map((node) => {
-    const { handles, ...restData } = node.data ?? {}
-    const slimNode = {
-      id: node.id,
-      data: {
-        ...restData,
-        handles: handles?.filter((handle) => handle.variant !== 'ghost') ?? [],
-      },
-      position: node.position,
-      dimensions: node.dimensions,
-      type: node.type,
-    }
-
-    if (slimNode.data?.mathRef) {
-      const mathRef = slimNode.data.mathRef
-      const mathText = libraryStore.availableMath.get(mathRef)
-      if (mathText) {
-        const baseHash = libraryStore.getMathHashByRef(mathRef) ?? libraryStore.createMathHash(mathText)
-        let mathHash = baseHash
-        let collisionIndex = 1
-
-        while (mathLibrary.has(mathHash) && mathLibrary.get(mathHash) !== mathText) {
-          mathHash = `${baseHash}_${collisionIndex++}`
-        }
-
-        mathLibrary.set(mathHash, mathText)
-        slimNode.data.mathHash = mathHash
-      }
-    }
-
-    return slimNode
-  })
-
-  const mathLibraryObject = Object.fromEntries([...mathLibrary.entries()].sort(([a], [b]) => a.localeCompare(b)))
-
-  return JSON.stringify({
-    id: 'phlynx-flow-snapshot',
-    version: PHLYNX_PROJECT_VERSION,
-    nodeData,
-    edges: flowState.edges,
-    mathLibrary: mathLibraryObject,
-    globalParameters: Array.from(libraryStore.globalVariables.entries()),
-  })
+  return JSON.stringify(buildFlowSnapshot(toObject(), { nodeIds, library: libraryStore }))
 }
 
 const { handleSaveWorkspace, onSaveConfirm, applyWorkspaceState } = useWorkspaceSaveLoad({

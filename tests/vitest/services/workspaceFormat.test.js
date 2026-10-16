@@ -11,8 +11,14 @@ const FIXTURE_DIR = path.join(RESOURCES_DIR, `v${PHLYNX_PROJECT_VERSION.replaceA
 const SHAPE_FILE = path.join(RESOURCES_DIR, 'shapes', `${PHLYNX_PROJECT_VERSION}.json`)
 const ERAS = fs.readdirSync(RESOURCES_DIR).filter((name) => name === 'legacy' || /^v\d+-\d+-\d+$/.test(name))
 
-// Objects keyed by data (e.g. node ids) rather than by field name; their keys aren't part of the format.
-const MAP_PATHS = new Set(['simulation.plotConfig', 'simulation.parameterScanConfig'])
+// Objects keyed by data (e.g. node ids) rather than by field name; their keys aren't part of the format. A subsystem's
+// overrides are keyed by local id path ('@' for local constants), then by variable.
+const MAP_PATHS = new Set([
+  'simulation.plotConfig',
+  'simulation.parameterScanConfig',
+  'flow.nodes[].data.overrides',
+  'flow.nodes[].data.overrides{*}',
+])
 
 const SHAPE_CHANGED = `The saved workspace file's shape no longer matches format ${PHLYNX_PROJECT_VERSION}.
 Any change to the saved file needs a new format version: bump PHLYNX_PROJECT_VERSION and add a

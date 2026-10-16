@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const notify = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
+const notify = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn() }))
 const save = vi.hoisted(() => ({ legacyDownload: vi.fn(), saveFileHandle: vi.fn(), writeFileHandle: vi.fn() }))
 const trackEvent = vi.hoisted(() => vi.fn())
 const clearWorkspace = vi.hoisted(() => vi.fn())
@@ -273,5 +273,35 @@ describe('applyWorkspaceState', () => {
 
     // The 1.1.0 -> 1.2.0 step restores the solver settings older files were run with.
     expect(useSimulationSettingsStore().simulationSettings.maxSteps).toBe(500)
+  })
+
+  it('loads no node or edge hidden, whatever the file holds', async () => {
+    await view.applyWorkspaceState({
+      id: PHLYNX_PROJECT_IDENTIFIER,
+      version: PHLYNX_PROJECT_VERSION,
+      flow: { nodes: [{ id: 'n1', hidden: true, data: { scope: 'sm_1' } }], edges: [{ id: 'e1', hidden: true }] },
+      store: {},
+    })
+
+    const [loaded] = flow.fromObject.mock.calls[0]
+    expect(loaded.nodes).toEqual([{ id: 'n1', data: { scope: 'sm_1' } }])
+    expect(loaded.edges).toEqual([{ id: 'e1' }])
+  })
+
+  it('warns of the ids an older file had to have rewritten', async () => {
+    await view.applyWorkspaceState({
+      id: PHLYNX_PROJECT_IDENTIFIER,
+      version: '1.2.0',
+      flow: { nodes: [{ id: 'a/b', data: {} }], edges: [] },
+      store: {},
+    })
+
+    expect(flow.fromObject.mock.calls[0][0].nodes.map((node) => node.id)).toEqual(['a_b'])
+    expect(notify.warning).toHaveBeenCalledWith({ title: 'Workflow updated', message: expect.stringContaining('"a/b" is now "a_b"') })
+  })
+
+  it('warns of nothing when no id was rewritten', async () => {
+    await view.applyWorkspaceState({ id: PHLYNX_PROJECT_IDENTIFIER, version: '1.2.0', flow: FLOW, store: {} })
+    expect(notify.warning).not.toHaveBeenCalled()
   })
 })
