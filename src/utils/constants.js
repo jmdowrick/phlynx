@@ -132,6 +132,12 @@ export const VALUE_REQUIRED_TYPES = new Set(['constant', 'global_constant'])
 export const MAX_VISIBLE_TAGS = 1
 
 export const MAIN_NODE_TYPE = 'instanceNode'
+/** A subsystem: one instance of a super-module, placed like a module. */
+export const SUBSYSTEM_NODE_TYPE = 'subsystemNode'
+/** A super-module's interface node, which holds its definition (data.supermodule). */
+export const SUPERMODULE_INTERFACE_NODE_TYPE = 'subsystemInterface'
+/** An edge showing a super-module child's port exposed on its interface; drawn only, never part of the model. */
+export const EXPOSURE_EDGE_TYPE = 'exposure'
 export const GHOST_NODE_TYPE = 'ghostNode'
 export const GHOST_MODULE_FILENAME = 'ghost_modules.cellml'
 export const GHOST_MATH_REF = `${GHOST_MODULE_FILENAME}:ghost`

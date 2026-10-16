@@ -1,5 +1,6 @@
 import { useVueFlow } from "@vue-flow/core"
 import { FLOW_IDS } from "./constants"
+import { nextSequentialId } from "./hierarchy"
 
 const { getNodes } = useVueFlow(FLOW_IDS.MAIN)
 
@@ -28,19 +29,7 @@ export function generateUniqueInstanceName(currentName, existingNames) {
  * @returns {string} Unique node ID.
  */
 export function getId(nodeIds, prefix = 'dndnode_') {
-  // Find the highest existing ID
-  let maxId = -1
-  nodeIds.forEach((nodeId) => {
-    if (nodeId.startsWith(prefix)) {
-      const numPart = parseInt(nodeId.split('_')[1], 10)
-      if (!isNaN(numPart) && numPart > maxId) {
-        maxId = numPart
-      }
-    }
-  })
-
-  // Return the next ID in the sequence
-  return `${prefix}${maxId + 1}`
+  return nextSequentialId(nodeIds, prefix)
 }
 
 export function findAnyNode() {

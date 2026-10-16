@@ -1,5 +1,12 @@
 import { getHandleId, buildHandles, buildGhostHandles } from '../../utils/handles'
-import { MAIN_NODE_TYPE, SOURCE_HANDLE_TYPE, TARGET_HANDLE_TYPE } from '../../utils/constants'
+import {
+  MAIN_NODE_TYPE,
+  SOURCE_HANDLE_TYPE,
+  SUBSYSTEM_NODE_TYPE,
+  SUPERMODULE_INTERFACE_NODE_TYPE,
+  TARGET_HANDLE_TYPE,
+} from '../../utils/constants'
+import { assertNodeId, splitNodeId } from '../../utils/hierarchy'
 import { resolvePortCouplings, checkAndClaimCouplings } from '../../utils/edges'
 import { getId as getNextNodeId } from '../../utils/nodes'
 import { getPortVariables, reconcileRows } from '../math/reconcileRows'
@@ -59,6 +66,86 @@ export function buildInstance(
       handles,
     },
   }
+}
+
+/**
+ * Builds a subsystem: one instance of a super-module, standing in its scope like a module.
+ *
+ * @param {string} nodeId - From nextNodeId(scope): `<scope>~<localId>` inside a super-module.
+ * @param {string} name - Its local name, which prefixes its children's flat names.
+ * @param {string} smId - Its super-module's id.
+ * @param {Object} [options]
+ * @param {string|null} [options.scope=null] - The super-module it is a child of; null at the root.
+ * @param {Array} [options.ports=[]] - Its ports, each a copy of the child port an exposed port aliases with its
+ *   exposedPortId and label (see subsystemPorts).
+ * @param {Array} [options.handles=[]]
+ * @param {Object} [options.overrides={}] - Values set on this instance: `{ <localId path>: { <variable>: { value } } }`,
+ *   paths of local ids below it joined with '/'. Local constants (H13) are kept under '@' for its own super-module's
+ *   and `<localId path>/@` for a nested subsystem's.
+ * @param {Object|null} [options.position=null]
+ * @returns {Object}
+ * @throws {Error} When nodeId is not in scope (see assertNodeId).
+ */
+export function buildSubsystem(nodeId, name, smId, { scope = null, ports = [], handles = [], overrides = {}, position = null } = {}) {
+  const node = {
+    id: nodeId,
+    type: SUBSYSTEM_NODE_TYPE,
+    position: position ?? { x: 100, y: 100 },
+    data: {
+      scope,
+      localId: scope ? splitNodeId(nodeId).localId : nodeId,
+      name,
+      smId,
+      overrides,
+      ports,
+      handles,
+    },
+  }
+  assertNodeId(node)
+  return node
+}
+
+/**
+ * Builds a super-module's interface node, which holds its definition and is the only record of it. It lives in the
+ * super-module's own scope, its id the super-module's, and can't be deleted from the canvas.
+ *
+ * @param {string} smId - From nextSupermoduleId.
+ * @param {Object} supermodule
+ * @param {string} supermodule.name
+ * @param {{module_type: string, module_subtype: string}|null} [supermodule.ca=null] - Its circulatory_autogen
+ *   identity, once it has one.
+ * @param {string[]} [supermodule.submoduleOrder=[]] - Its children's local ids, in expansion and CA submodule order.
+ * @param {Array<{id: string, alias: {child: string, portType?: string, label?: string, slot?: number, via?: string},
+ *   label?: string}>} [supermodule.exposedPorts=[]] - In order. Each aliases one whole port of a child: the slot-th
+ *   (portType, label) port of a module, or, through via, an exposed port of a subsystem, when only child and via
+ *   count (the port is read through via). Variables and multiport are read from the child port, never copied.
+ * @param {Array} [supermodule.localConstants=[]] - Constants its top-level children share, `{name, units, value,
+ *   data_reference}`; an instance overrides them under '@', an outer one under `<localId path>/@`.
+ * @param {'prefixed'|'preserve'} [supermodule.naming='prefixed'] - Whether its children's flat names are prefixed
+ *   with the instance's, or keep their own (for a CellML encapsulation import with one instance).
+ * @param {Object|null} [supermodule.source=null] - Where it came from, for CA or CellML import.
+ * @param {Object|null} [position=null]
+ * @returns {Object}
+ * @throws {Error} When smId breaks the id rules (see assertNodeId).
+ */
+export function buildSupermoduleInterface(
+  smId,
+  { name, ca = null, submoduleOrder = [], exposedPorts = [], localConstants = [], naming = 'prefixed', source = null },
+  position = null
+) {
+  const node = {
+    id: smId,
+    type: SUPERMODULE_INTERFACE_NODE_TYPE,
+    deletable: false,
+    position: position ?? { x: 0, y: 0 },
+    data: {
+      scope: smId,
+      localId: smId,
+      supermodule: { name, ca, submoduleOrder, exposedPorts, localConstants, naming, source },
+    },
+  }
+  assertNodeId(node)
+  return node
 }
 
 function buildInstances(instanceRefs, availableModules, getMathAnalysis, currentNodes, progressCallback, getMathDefaults) {
