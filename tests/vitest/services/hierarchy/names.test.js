@@ -10,7 +10,7 @@ import {
   toPath,
 } from '../../../../src/services/hierarchy/names.js'
 import { localNameProblem } from '../../../../src/utils/hierarchy.js'
-import { exposed, module, subsystem, supermodule } from '../../fixtures/hierarchy/graph.js'
+import { exposed, exposures, module, subsystem, supermodule } from '../../fixtures/hierarchy/graph.js'
 
 describe('flat names and paths', () => {
   it('joins levels with "__" in flat names and "/" in paths', () => {
@@ -69,9 +69,10 @@ describe('resolveName', () => {
   function graph(naming) {
     const self = module('self', 'self', { scope: 'sm_1', data: { originalName: 'fast_sodium_current' } })
     const gate = module('gate', 'm_gate', { scope: 'sm_1', data: { originalName: 'fast_sodium_current_m_gate' } })
-    const sm = supermodule('sm_1', 'wrap', { submoduleOrder: ['self', 'gate'], naming, exposedPorts: [exposed('xp', 'self', 'general_ports', 'V')] })
-    const cell = subsystem([sm, self, gate], 'dndnode_1', 'cell', 'sm_1')
-    return expandHierarchy([module('dndnode_0', 'membrane'), cell, sm, self, gate], [])
+    const sm = supermodule('sm_1', 'wrap', { submoduleOrder: ['self', 'gate'], naming })
+    const exposure = exposures('sm_1', [exposed('xp', 'self', 'general_ports', 'V')])
+    const cell = subsystem({ nodes: [sm, self, gate], edges: exposure }, 'dndnode_1', 'cell', 'sm_1')
+    return expandHierarchy([module('dndnode_0', 'membrane'), cell, sm, self, gate], exposure)
   }
 
   it('finds a prefixed module by its flat name or its path', () => {

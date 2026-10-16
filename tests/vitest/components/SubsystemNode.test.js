@@ -5,7 +5,7 @@ import PrimeVue from 'primevue/config'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { FLOW_IDS } from '../../../src/utils/constants.js'
-import { exposed, module, port, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
+import { exposed, exposures, module, port, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
 
 const notifyError = vi.hoisted(() => vi.fn())
 vi.mock('../../../src/utils/notify', () => ({ notify: Object.assign(vi.fn(), { error: notifyError }) }))
@@ -33,14 +33,12 @@ const IN = port('entrance_ports', 'vessel', ['v_in', 'u'])
 /** Root: two subsystems of heart (sm_1, holding lv), and a module. */
 function graph() {
   const lv = module('dndnode_0', 'lv', { scope: 'sm_1', ports: [{ ...IN }] })
-  const sm = supermodule('sm_1', 'heart', {
-    ca: { module_type: 'heart', module_subtype: 'Argus2026_v01' },
-    exposedPorts: [exposed('xp_in', 'dndnode_0', 'entrance_ports', 'vessel')],
-  })
-  const inner = [sm, lv]
+  const sm = supermodule('sm_1', 'heart', { ca: { module_type: 'heart', module_subtype: 'Argus2026_v01' } })
+  const exposure = exposures('sm_1', [exposed('xp_in', 'dndnode_0', 'entrance_ports', 'vessel')])
+  const inner = { nodes: [sm, lv], edges: exposure }
   const left = subsystem(inner, 'dndnode_1', 'left', 'sm_1')
   const right = subsystem(inner, 'dndnode_2', 'right', 'sm_1')
-  return { nodes: [left, right, ...inner], edges: [] }
+  return { nodes: [left, right, sm, lv], edges: exposure }
 }
 
 describe('SubsystemNode', () => {
@@ -147,16 +145,26 @@ describe('SubsystemNode', () => {
 })
 
 describe('InterfaceNode', () => {
-  const render = (data) => mount(InterfaceNode, { props: { id: 'sm_1', data } })
+  const flow = useVueFlow(FLOW_IDS.MAIN)
+  const render = (node) => mount(InterfaceNode, { props: { id: node.id, data: node.data } })
 
-  it('names its super-module and counts its exposed ports', () => {
-    const wrapper = render(graph().nodes.find((node) => node.id === 'sm_1').data)
+  beforeEach(async () => {
+    setActivePinia(createPinia())
+    await flow.fromObject(graph())
+  })
+
+  it('names its super-module and lists the ports its exposure edges expose, with generic handles', () => {
+    const node = flow.findNode('sm_1')
+    const wrapper = mount(InterfaceNode, {
+      props: { id: node.id, data: { ...node.data, handles: [{ uid: 'h1', side: 'left', name: '', variant: 'ghost' }] } },
+    })
     expect(wrapper.find('.interface-name').text()).toBe('heart')
-    expect(wrapper.find('.interface-ports').text()).toBe('1 exposed port')
+    expect(wrapper.findAll('.interface-port-list li').map((item) => item.text())).toEqual(['vesselentrance_ports'])
+    expect(wrapper.findAll('.handle-stub')).toHaveLength(1)
   })
 
   it('says when nothing is exposed yet', () => {
-    const wrapper = render(supermodule('sm_2', 'lung').data)
+    const wrapper = render(supermodule('sm_2', 'lung'))
     expect(wrapper.find('.interface-name').text()).toBe('lung')
     expect(wrapper.find('.interface-ports').text()).toBe('No exposed ports yet')
   })

@@ -74,7 +74,7 @@ describe('an OMEX archive of a nested workspace', () => {
 
     expect(snapshot.snapshotKind).toBe(SNAPSHOT_KIND.HIERARCHICAL)
     expect(restored.nodes.map((node) => [node.id, node.type])).toEqual(nested.nodes.map((node) => [node.id, node.type]))
-    expect(restored.edges.map((edge) => edge.id)).toEqual(['e0', 'e1', 'sm_1~art--sm_1~bed'])
+    expect(restored.edges.map((edge) => edge.id)).toEqual(['e0', 'e1', 'sm_1~art--sm_1~bed', 'sm_1~art--sm_1', 'sm_1~bed--sm_1', 'sm_2~cap--sm_2'])
     for (const node of nested.nodes.filter((candidate) => candidate.type !== 'instanceNode')) {
       expect(restored.nodes.find((candidate) => candidate.id === node.id).data).toEqual(node.data)
     }

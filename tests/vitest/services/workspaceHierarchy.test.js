@@ -45,7 +45,7 @@ describe('saving and loading a nested workspace', () => {
     expect(byId.get('sm_1')).toMatchObject({ type: 'subsystemInterface', deletable: false })
     expect(byId.get('sm_1').data.supermodule.localConstants).toEqual([{ name: 'g', units: 'dimensionless', value: '1', data_reference: null }])
     expect(byId.get('dndnode_1').data.overrides).toEqual({ a: { k: { value: '2' } }, '@': { g: { value: '3' } } })
-    expect(loaded.flow.edges.find((edge) => edge.type === 'exposure').data).toEqual({ exposedPortId: 'xp_out' })
+    expect(loaded.flow.edges.filter((edge) => edge.type === 'exposure').map((edge) => edge.data.exposed.map((entry) => entry.id))).toEqual([['xp_in'], ['xp_out']])
     expect(modelOf(loaded.flow)).toEqual(modelOf(flow))
   })
 

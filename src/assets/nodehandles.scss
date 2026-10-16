@@ -1,0 +1,70 @@
+/* A node's handles (NodeHandles), the same on every node. */
+.vue-flow__handle.handle--default {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--p-text-color);
+  opacity: 1;
+}
+
+.vue-flow__handle.handle--ghost {
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  opacity: 0;
+  pointer-events: auto;
+}
+
+.vue-flow__handle.handle--ghost:hover,
+.vue-flow__handle.handle--ghost.valid {
+  background-color: rgba(34, 197, 94, 0.15);
+  border-color: #22c55e;  
+  border-style: solid;
+  opacity: 1;
+}
+
+.vue-flow__handle.handle--ghost.handle--inert {
+  pointer-events: none;
+}
+
+/* Base appearance for the popover */
+.delete-handle-popover-btn {
+  position: absolute;
+  background-color: var(--p-content-background);
+  box-shadow: 0 4px 10px color-mix(in srgb, var(--p-text-color) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--p-text-color) 10%, transparent);
+  z-index: 20;
+  cursor: pointer;
+}
+
+/* Position for Top handles (Appears above) */
+.popover-top {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, calc(-100% - 14px));
+}
+
+/* Position for Bottom handles (Appears below) */
+.popover-bottom {
+  top: 50%;
+  left: 50%;
+  /* Pushes it down */
+  transform: translate(-50%, 14px);
+}
+
+/* Position for Left handles (Appears to the left) */
+.popover-left {
+  top: 50%;
+  left: 50%;
+  transform: translate(calc(-100% - 14px), -50%);
+}
+
+/* Position for Right handles (Appears to the right) */
+.popover-right {
+  top: 50%;
+  left: 50%;
+  transform: translate(14px, -50%);
+}
+

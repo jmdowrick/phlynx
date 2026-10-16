@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useActiveCanvas } from '../../../src/composables/useActiveCanvas.js'
 import { FLOW_IDS } from '../../../src/utils/constants.js'
-import { connect, exposed, module, port, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
+import { connect, exposed, exposures, module, port, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
 
 // Flows stubbed by id, as other suites stub Vue Flow; the rest are Vue Flow's own.
 const stubs = vi.hoisted(() => new Map())
@@ -29,16 +29,14 @@ function flatGraph() {
 function heartGraph() {
   const ra = vessel('dndnode_7', 'ra', { scope: 'sm_1' })
   const lv = vessel('dndnode_8', 'lv', { scope: 'sm_1' })
-  const sm = supermodule('sm_1', 'heart', {
-    submoduleOrder: ['dndnode_7', 'dndnode_8'],
-    exposedPorts: [exposed('xp_in', 'dndnode_7', 'entrance_ports', 'vessel'), exposed('xp_out', 'dndnode_8', 'exit_ports', 'vessel')],
-  })
+  const sm = supermodule('sm_1', 'heart', { submoduleOrder: ['dndnode_7', 'dndnode_8'] })
+  const exposure = exposures('sm_1', [exposed('xp_in', 'dndnode_7', 'entrance_ports', 'vessel'), exposed('xp_out', 'dndnode_8', 'exit_ports', 'vessel')])
   const inner = [sm, ra, lv]
-  const heart = subsystem(inner, 'dndnode_1', 'heart', 'sm_1')
+  const heart = subsystem({ nodes: inner, edges: exposure }, 'dndnode_1', 'heart', 'sm_1')
   const a = vessel('dndnode_0', 'a')
   const b = vessel('dndnode_2', 'b')
   const used = new Set()
-  const edges = [connect(a, heart, { used, id: 'e_in' }), connect(heart, b, { used, id: 'e_out' }), connect(ra, lv, { id: 'e_int' })]
+  const edges = [connect(a, heart, { used, id: 'e_in' }), connect(heart, b, { used, id: 'e_out' }), connect(ra, lv, { id: 'e_int' }), ...exposure]
   return { nodes: [a, heart, b, ...inner], edges }
 }
 
@@ -98,7 +96,8 @@ describe('useActiveCanvas', () => {
     show(heartGraph())
     scope.value = 'sm_1'
     expect(ids(nodes.value)).toEqual(['sm_1', 'sm_1~dndnode_7', 'sm_1~dndnode_8'])
-    expect(ids(edges.value)).toEqual(['e_int'])
+    // Exposure edges too, drawn to the interface.
+    expect(ids(edges.value)).toEqual(['e_int', 'sm_1~dndnode_7--sm_1', 'sm_1~dndnode_8--sm_1'])
     expect(findNode('dndnode_0')).toBeUndefined()
     expect(nextNodeId()).toBe('sm_1~dndnode_9')
   })

@@ -3,7 +3,7 @@
  * constants, a subsystem with overrides (its '@' included), an internal edge and an exposure edge.
  */
 import { expandHierarchy } from '../../../../src/services/hierarchy/expand.js'
-import { connect, constant, exposed, module, port, subsystem, supermodule } from './graph.js'
+import { connect, constant, exposed, exposures, module, port, subsystem, supermodule } from './graph.js'
 
 /** A handle. */
 export const handle = (uid, type, side, variant = 'default') => ({ uid, type, side, variant, slotIndex: 0, name: '' })
@@ -21,18 +21,26 @@ export const vessel = (localId, name, scope = null) =>
   })
 
 /**
- * src → p1 → sink at the root, p1 a subsystem of 'pair' (a → b inside), which exposes a's entrance and b's exit, with
- * an exposure edge drawn for b's.
+ * src → p1 → sink at the root, p1 a subsystem of 'pair' (a → b inside), whose exposure edges expose a's entrance and
+ * b's exit.
  */
 export function nestedGraph() {
   const a = vessel('a', 'a', 'sm_1')
   const b = vessel('b', 'b', 'sm_1')
   const sm = supermodule('sm_1', 'pair', {
     submoduleOrder: ['a', 'b'],
-    exposedPorts: [exposed('xp_in', 'a', 'entrance_ports', 'vessel'), exposed('xp_out', 'b', 'exit_ports', 'vessel')],
     localConstants: [{ name: 'g', units: 'dimensionless', value: '1', data_reference: null }],
   })
-  const p1 = subsystem([sm, a, b], 'dndnode_1', 'p1', 'sm_1', { overrides: { a: { k: { value: '2' } }, '@': { g: { value: '3' } } } })
+  sm.data.handles = [handle('sm_1_in', 'target', 'left'), handle('sm_1_out', 'source', 'right')]
+  // As the canvas draws them, from each child's handle to the interface's.
+  const [toA, toB] = exposures('sm_1', [exposed('xp_in', 'a', 'entrance_ports', 'vessel'), exposed('xp_out', 'b', 'exit_ports', 'vessel')])
+  const exposure = [
+    { ...toA, sourceHandle: 'handle_a_out', targetHandle: 'handle_sm_1_in' },
+    { ...toB, sourceHandle: 'handle_b_out', targetHandle: 'handle_sm_1_in' },
+  ]
+  const p1 = subsystem({ nodes: [sm, a, b], edges: exposure }, 'dndnode_1', 'p1', 'sm_1', {
+    overrides: { a: { k: { value: '2' } }, '@': { g: { value: '3' } } },
+  })
   p1.data.handles = [handle('p1_in', 'target', 'left'), handle('p1_out', 'source', 'right')]
   const src = vessel('dndnode_0', 'src')
   const sink = vessel('dndnode_2', 'sink')
@@ -42,7 +50,7 @@ export function nestedGraph() {
     withHandles(connect(p1, sink, { id: 'e1' }), 'handle_p1_out', 'handle_dndnode_2_in'),
     // As the app ids them: `${source}--${target}`, and an exposure edge's port after.
     withHandles(connect(a, b), 'handle_a_out', 'handle_b_in'),
-    { id: 'sm_1~b--sm_1--xp_out', type: 'exposure', source: b.id, sourceHandle: 'handle_b_out', target: 'sm_1', data: { exposedPortId: 'xp_out' } },
+    ...exposure,
   ]
   return { nodes: [src, p1, sink, sm, a, b], edges }
 }

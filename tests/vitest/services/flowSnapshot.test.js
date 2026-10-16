@@ -7,7 +7,7 @@ import { buildFlowSnapshot, hashFlowSnapshot, restoreFlowSnapshot, SNAPSHOT_KIND
 import { expandHierarchy } from '../../../src/services/hierarchy/expand.js'
 import { scopeFlowObject } from '../../../src/services/simulation/scopedModel.js'
 import { getHandleId } from '../../../src/utils/handles.js'
-import { connect, exposed, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
+import { connect, exposed, exposures, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
 import { modelOf, nestedGraph, vessel } from '../fixtures/hierarchy/saveFormat.js'
 
 const library = {
@@ -36,7 +36,7 @@ describe('buildFlowSnapshot', () => {
 
     expect(snapshot).toMatchObject({ id: 'phlynx-flow-snapshot', version: '1.3.0', snapshotKind: SNAPSHOT_KIND.HIERARCHICAL })
     expect(snapshot.nodeData.map((node) => [node.id, node.type])).toEqual(flow.nodes.map((node) => [node.id, node.type]))
-    expect(snapshot.edges.map((edge) => edge.id)).toEqual(['e0', 'e1', 'sm_1~a--sm_1~b', 'sm_1~b--sm_1--xp_out'])
+    expect(snapshot.edges.map((edge) => edge.id)).toEqual(['e0', 'e1', 'sm_1~a--sm_1~b', 'sm_1~a--sm_1', 'sm_1~b--sm_1'])
     expect(snapshot.nodeData.find((node) => node.id === 'sm_1').data.supermodule).toEqual(flow.nodes[3].data.supermodule)
     expect(snapshot.nodeData.find((node) => node.id === 'dndnode_1').data.overrides).toEqual(flow.nodes[1].data.overrides)
     expect(snapshot.nodeData.find((node) => node.id === 'sm_1~a').data).toMatchObject({ scope: 'sm_1', localId: 'a', mathHash: 'm_hash' })
@@ -146,6 +146,22 @@ describe('restoreFlowSnapshot', () => {
     expect(snapshotOf(restoreFlowSnapshot(JSON.parse(second)))).toBe(second)
   })
 
+  it('gives a subsystem or interface node without handles ghost handles, as a load does', () => {
+    const snapshot = roundTrip(nestedGraph())
+    for (const node of snapshot.nodeData) {
+      if (node.type === 'subsystemNode') delete node.data.handles
+      if (node.type === 'subsystemInterface') node.data.handles = []
+    }
+    const restored = restoreFlowSnapshot(snapshot)
+    const hierarchy = restored.nodes.filter((node) => ['subsystemNode', 'subsystemInterface'].includes(node.type))
+
+    expect(hierarchy.length).toBeGreaterThan(1)
+    for (const node of hierarchy) {
+      expect(node.data.handles.length).toBeGreaterThan(0)
+      expect(node.data.handles.every((handle) => handle.variant === 'ghost')).toBe(true)
+    }
+  })
+
   it('restores a hierarchical snapshot to the same model, subsystem and interface data kept verbatim', () => {
     const flow = nestedGraph()
     const restored = restoreFlowSnapshot(roundTrip(flow))
@@ -156,7 +172,10 @@ describe('restoreFlowSnapshot', () => {
     expect(byId.get('sm_1')).toMatchObject({ type: 'subsystemInterface', deletable: false, data: flow.nodes[3].data })
     expect(byId.get('sm_1~a').data).toMatchObject({ scope: 'sm_1', localId: 'a', name: 'a' })
     expect(byId.get('sm_1~a').data.mathHash).toBeUndefined()
-    expect(restored.edges.find((edge) => edge.id === 'sm_1~b--sm_1--xp_out')).toMatchObject({ type: 'exposure', data: { exposedPortId: 'xp_out' } })
+    expect(restored.edges.find((edge) => edge.id === 'sm_1~b--sm_1')).toMatchObject({
+      type: 'exposure',
+      data: { exposed: [{ id: 'xp_out', alias: { portType: 'exit_ports', label: 'vessel', slot: 0 }, order: 1 }] },
+    })
     expect(modelOf(restored)).toEqual(modelOf(flow))
   })
 
@@ -223,13 +242,15 @@ describe('restoreFlowSnapshot', () => {
 describe('scopeFlowObject', () => {
   it('keeps every super-module a kept subsystem uses, through others too', () => {
     const inner = vessel('c', 'c', 'sm_2')
-    const innerSm = supermodule('sm_2', 'inner', { submoduleOrder: ['c'], exposedPorts: [exposed('xp_c', 'c', 'exit_ports', 'vessel')] })
+    const innerSm = supermodule('sm_2', 'inner', { submoduleOrder: ['c'] })
+    const innerExposure = exposures('sm_2', [exposed('xp_c', 'c', 'exit_ports', 'vessel')])
     const flow = nestedGraph()
-    const nestedSub = subsystem([innerSm, inner], 'n', 'n', 'sm_2', { scope: 'sm_1' })
+    const nestedSub = subsystem({ nodes: [innerSm, inner], edges: innerExposure }, 'n', 'n', 'sm_2', { scope: 'sm_1' })
     flow.nodes.push(nestedSub, innerSm, inner)
+    flow.edges.push(...innerExposure)
 
     const scoped = scopeFlowObject(flow, ['dndnode_1'])
     expect(scoped.nodes.map((node) => node.id)).toEqual(['dndnode_1', 'sm_1', 'sm_1~a', 'sm_1~b', 'sm_1~n', 'sm_2', 'sm_2~c'])
-    expect(scoped.edges.map((edge) => edge.id)).toEqual(['sm_1~a--sm_1~b', 'sm_1~b--sm_1--xp_out'])
+    expect(scoped.edges.map((edge) => edge.id)).toEqual(['sm_1~a--sm_1~b', 'sm_1~a--sm_1', 'sm_1~b--sm_1', 'sm_2~c--sm_2'])
   })
 })

@@ -172,11 +172,11 @@ describe('a nested graph exports as the flat graph it stands for', () => {
     const scopeEdges = nested.edges.filter((edge) => scope.some((node) => node.id === edge.source))
     const junction = scope.find((node) => node.data.name === 'j')
     const internal = scopeEdges.find((edge) => edge.id === 'e_int')
-    expect(scopeEdges.map((edge) => edge.id)).toEqual(['x0', 'e_int'])
+    expect(scopeEdges.map((edge) => edge.id)).toEqual(['sm_1~j--sm_1', 'e_int'])
 
     // Recomputing the junction's couplings over the scope's model edges keeps the internal edge on its first slot,
     // and never couples the exposure edge, which unfiltered would be resolved like a model edge.
-    expect([...previewCouplings(junction.id, junction.data.ports, scope, scopeEdges).keys()]).toContain('x0')
+    expect([...previewCouplings(junction.id, junction.data.ports, scope, scopeEdges).keys()]).toContain('sm_1~j--sm_1')
     const recomputed = previewCouplings(junction.id, junction.data.ports, scope, scopeEdges.filter(isModelEdge))
     expect([...recomputed.keys()]).toEqual(['e_int'])
     expect(recomputed.get('e_int')).toEqual(internal.data.couplings)

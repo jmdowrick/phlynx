@@ -102,7 +102,17 @@
           <TabPanel value="params">
             <h4 class="context-section-title">Instance Parameters</h4>
             <section class="context-section context-section--params">
-              <template v-if="selectedNode && !isMultipleSelected">
+              <template v-if="selectedNode && !isMultipleSelected && isSupermoduleInterface(selectedNode)">
+                <h4 class="context-section-title">
+                  Exposed ports of {{ selectedNode.data?.supermodule?.name ?? selectedNode.id }}
+                </h4>
+                <ExposedPortList :sm-id="selectedNode.id" />
+              </template>
+              <template v-else-if="selectedNode && !isMultipleSelected && isSubsystem(selectedNode)">
+                <h4 class="context-section-title">{{ selectedNode.data?.name }}</h4>
+                <SubsystemPanel :node="selectedNode" />
+              </template>
+              <template v-else-if="selectedNode && !isMultipleSelected">
                 <h4 class="context-section-title">
                   {{ `${parameterRowsNode?.data?.name ?? selectedNode.data?.name}` || 'Selected Instance' }}
                   <span class="context-count">({{ parameterRows.length }})</span>
@@ -118,6 +128,20 @@
                   />
                   <InputIcon v-if="parameterSearch" class="search-clear-input pi pi-times-circle" @click="clearSearch"/>
                 </IconField>
+
+                <div v-if="parameterMode !== 'root'" class="edit-target">
+                  <span class="edit-target-label">Edits apply to</span>
+                  <SelectButton
+                    v-model="editTarget"
+                    :options="editTargetOptions"
+                    option-label="label"
+                    option-value="value"
+                    option-disabled="disabled"
+                    :allow-empty="false"
+                    size="small"
+                    aria-label="Edits apply to"
+                  />
+                </div>
 
                 <div v-if="!parameterRowsNode" />
 
@@ -139,7 +163,35 @@
                     :virtualScrollerOptions="parameterVirtualScrollerOptions"
                     class="p-datatable-sm parameters-table"
                   >
-                    <Column field="name" bodyClass="small-text-col" header="Name" style="min-width: 90px" />
+                    <Column field="name" bodyClass="small-text-col" header="Name" style="min-width: 90px">
+                      <template #body="slotProps">
+                        <span>{{ slotProps.data.name }}</span>
+                        <!-- Inside a subsystem: where the value comes from -->
+                        <div v-if="parameterMode === 'instance'" class="param-source">
+                          <Tag
+                            :value="slotProps.data.chip"
+                            :severity="CHIP_SEVERITY[slotProps.data.chip]"
+                            class="param-chip"
+                            v-tooltip.top="slotProps.data.statusText ? { value: slotProps.data.statusText, showDelay: 300 } : null"
+                          />
+                          <Button
+                            v-if="slotProps.data.chip === 'overridden'"
+                            icon="pi pi-undo"
+                            text
+                            rounded
+                            size="small"
+                            severity="secondary"
+                            class="param-reset"
+                            :aria-label="`Reset ${slotProps.data.name}`"
+                            v-tooltip.left="{ value: 'Back to the super-module’s value', showDelay: 300 }"
+                            @click="resetRow(parameterRowsNode, slotProps.data.name)"
+                          />
+                        </div>
+                        <div v-else-if="parameterMode === 'supermodule' && slotProps.data.summary" class="param-aggregate">
+                          {{ slotProps.data.summary }}
+                        </div>
+                      </template>
+                    </Column>
                     <Column field="value" header="Value" style="min-width: 70px">
                       <template #body="slotProps">
                         <InputText
@@ -159,7 +211,7 @@
                         <Select
                           v-model="slotProps.data.type"
                           :options="typeOptionsFor(slotProps.data)"
-                          :disabled="isTypeFixed(slotProps.data)"
+                          :disabled="isTypeFixed(slotProps.data) || isOverrideTarget"
                           optionLabel="label"
                           optionValue="value"
                           size="small"
@@ -268,6 +320,8 @@ import { useVueFlow } from '@vue-flow/core'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
+import SelectButton from 'primevue/selectbutton'
+import Tag from 'primevue/tag'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Tabs from 'primevue/tabs'
@@ -286,13 +340,16 @@ import { detachReactivity } from '../utils/reactivity'
 import { hasValueCell, valuePlaceholder } from '../utils/variables'
 
 import { useActiveCanvas } from '../composables/useActiveCanvas'
-import { useModelWriter } from '../composables/useModelWriter'
 import { useNodeDataHistory } from '../composables/useNodeDataHistory'
 import { useResizableAside } from '../composables/useResizableAside'
 import { useVirtualScrollerOptions } from '../composables/useVirtualScrollerOptions'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import NodeColourPanel from './NodeColourPanel.vue'
+import ExposedPortList from './ExposedPortList.vue'
+import SubsystemPanel from './SubsystemPanel.vue'
+import { useParameterContext } from '../composables/useParameterContext'
+import { isSubsystem, isSupermoduleInterface } from '../utils/hierarchy'
 
 const props = defineProps({
   initialWidth: {
@@ -344,8 +401,8 @@ const inspectionModuleStore = useInspectionModuleStore()
 
 const { userSelectionActive } = useVueFlow(FLOW_IDS.MAIN)
 const { selectedNodes } = useActiveCanvas()
-const { writeValue } = useModelWriter()
 const { recordEdit } = useNodeDataHistory(FLOW_IDS.MAIN)
+const { contextOf, rowsOf, provenanceOf, targetFor, writeRow, resetRow, graph: modelGraph } = useParameterContext()
 
 const selectedNode = computed(() => selectedNodes.value[0] || null)
 
@@ -474,20 +531,52 @@ watch(selectedNode, () => {
 const { virtualScrollerOptions: parameterVirtualScrollerOptions, tableKey: parameterTableKey } =
   useVirtualScrollerOptions(parameterRows)
 
+// ── Inside subsystems: where a value comes from, and where an edit goes ──────
+const CHIP_SEVERITY = { default: 'secondary', overridden: 'info', ignored: 'warn' }
+
+// 'root', 'instance' (a subsystem entered from the root) or 'supermodule' (a super-module edited on its own).
+const parameterMode = computed(() => contextOf(parameterRowsNode.value).mode)
+// Edits inside a subsystem are its own by default.
+const editTarget = ref('instance')
+const editTargetOptions = computed(() => [
+  { label: 'This subsystem', value: 'instance', disabled: parameterMode.value === 'supermodule' },
+  { label: 'Super-module default', value: 'supermodule' },
+])
+// Whether an edit is this subsystem's override, which sets only a value.
+const isOverrideTarget = computed(() => parameterMode.value === 'instance' && editTarget.value === 'instance')
+
+watch(parameterMode, (mode) => {
+  editTarget.value = mode === 'supermodule' ? 'supermodule' : 'instance'
+})
+
+/** @returns {string} A value's #686 status in words, and the value it would have without this subsystem's override. */
+function statusTextOf(info) {
+  const parts = []
+  if (info.status?.state) parts.push(info.status.state)
+  if (info.isOverridden) parts.push(`super-module value ${info.inherited ?? '–'}`)
+  return parts.join('; ')
+}
+
 /**
- * Build detached sidebar rows from a node's variables, showing the shared value for global constants.
+ * Build detached sidebar rows from a node's variables, showing the shared value for global constants. Inside a
+ * subsystem, the values are the model's there, each with where it comes from.
  * @param {Object} node - Selected Vue Flow node.
  * @returns {Array<Object>} Parameter rows.
  */
 function buildParameterRows(node) {
-  return detachReactivity(node.data?.variables || []).map((row) => ({
-    name: row.name,
-    value: row.type === 'global_constant' ? libraryStore.getGlobalConstant(row.name)?.value : row.value,
-    units: row.units,
-    type: row.type,
-    access: row.access,
-    data_reference: row.data_reference,
-  }))
+  const provenance = provenanceOf(node)
+  return detachReactivity(rowsOf(node)).map((row) => {
+    const info = provenance.get(row.name)
+    return {
+      name: row.name,
+      value: row.type === 'global_constant' ? libraryStore.getGlobalConstant(row.name)?.value : row.value,
+      units: row.units,
+      type: row.type,
+      access: row.access,
+      data_reference: row.data_reference,
+      ...(info && { chip: info.chip, statusText: info.chip ? statusTextOf(info) : '', summary: info.summary }),
+    }
+  })
 }
 
 // Rows are only built while visible, never mid box-select, and after the next paint so a click-then-drag stays smooth.
@@ -521,6 +610,11 @@ watch(
   }
 )
 
+// Inside a subsystem, the rows are the model's, which an override or an undo of one changes.
+watch(modelGraph, () => {
+  if (parameterMode.value !== 'root' && parameterRowsNode.value) parameterRows.value = buildParameterRows(parameterRowsNode.value)
+})
+
 // Undo or redo of a global constant changes only the store, so refresh the shown values in place.
 watch(
   () => libraryStore.globalVariables,
@@ -543,26 +637,32 @@ function persistParameterRow(row, { isValueEdit }) {
   const node = parameterRowsNode.value
   if (!node) return
 
-  recordEdit({
-    type: 'edit-parameters',
-    nodeIds: [node.id],
-    keys: ['variables'],
-    apply: () => {
-      if (row.type === 'global_constant') {
-        // Keep the shared units and reference, so one node's fields don't replace them.
-        const shared = libraryStore.getGlobalConstant(row.name)
-        libraryStore.assignGlobalConstant(
-          row.name,
-          row.value,
-          shared?.units ?? row.units,
-          shared?.data_reference ?? row.data_reference,
-          isValueEdit
-        )
-      }
-      // Merge only what the sidebar edits, so saved fields it doesn't show (e.g. stateRole, initialiser) survive.
-      lastWrittenVariables = writeValue(node.id, row.name, { value: row.value, type: row.type })
-    },
-  })
+  const assignGlobal =
+    row.type === 'global_constant'
+      ? () => {
+          // Keep the shared units and reference, so one node's fields don't replace them.
+          const shared = libraryStore.getGlobalConstant(row.name)
+          libraryStore.assignGlobalConstant(
+            row.name,
+            row.value,
+            shared?.units ?? row.units,
+            shared?.data_reference ?? row.data_reference,
+            isValueEdit
+          )
+        }
+      : null
+  // A subsystem's own value of a global constant is the shared one: only that changes.
+  if (assignGlobal && isOverrideTarget.value) {
+    recordEdit({ type: 'edit-global-constant', nodeIds: [], keys: [], apply: assignGlobal })
+    return
+  }
+  // Merge only what the sidebar edits, so saved fields it doesn't show (e.g. stateRole, initialiser) survive.
+  lastWrittenVariables = writeRow(
+    node,
+    row.name,
+    { value: row.value, type: row.type },
+    { target: targetFor(node, editTarget.value), alsoApply: assignGlobal }
+  )
 }
 
 function handleParameterValueChange(row) {
@@ -580,6 +680,39 @@ function handleParameterTypeChange(row) {
 </script>
 
 <style scoped>
+.edit-target {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 13px;
+}
+
+.edit-target-label {
+  color: var(--p-text-muted-color);
+}
+
+.param-source {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.param-chip {
+  font-size: 10px;
+  padding: 0 0.3rem;
+}
+
+.param-reset {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.param-aggregate {
+  font-size: 12px;
+  color: var(--p-text-muted-color);
+}
+
 .resizable-context-panel {
   display: flex;
   flex-shrink: 0;

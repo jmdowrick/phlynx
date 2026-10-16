@@ -5,21 +5,28 @@
       <span class="interface-title">Interface</span>
     </div>
     <div class="interface-name">{{ supermoduleName }}</div>
-    <div class="interface-ports">
-      <template v-if="exposedPorts.length">
-        {{ exposedPorts.length }} exposed port{{ exposedPorts.length === 1 ? '' : 's' }}
-      </template>
-      <template v-else>No exposed ports yet</template>
-    </div>
+    <ol v-if="ports.length" class="interface-port-list" :aria-label="`Ports of ${supermoduleName}`">
+      <li v-for="port in ports" :key="port.exposedPortId">
+        <span class="interface-port-label">{{ port.label }}</span>
+        <span class="interface-port-type">{{ port.portType }}</span>
+      </li>
+    </ol>
+    <div v-else class="interface-ports">No exposed ports yet</div>
+
+    <NodeHandles :id="id" :handles="data.handles" :selected="selected" />
   </div>
 </template>
 
 <script setup>
 /**
- * A super-module's interface node: the record of the super-module, shown inside it. A placeholder card for now, naming
- * the super-module and counting its exposed ports; it can't be deleted from the canvas.
+ * A super-module's interface node: the record of the super-module, shown inside it. Names the super-module and lists,
+ * in order, the ports its exposure edges expose, as its subsystems get them. Its handles are only where exposure edges
+ * attach, as on any node; it can't be deleted from the canvas.
  */
 import { computed } from 'vue'
+
+import NodeHandles from './NodeHandles.vue'
+import { useSupermodules } from '../composables/useSupermodules'
 
 const props = defineProps({
   id: {
@@ -33,16 +40,21 @@ const props = defineProps({
   data: {
     type: Object,
     required: true,
-  }, // { scope, localId, supermodule: { name, exposedPorts, … } }
+  }, // { scope, localId, supermodule: { name, … }, handles }
 })
 
+const { portsOf } = useSupermodules()
+
 const supermoduleName = computed(() => props.data.supermodule?.name ?? props.id)
-const exposedPorts = computed(() => props.data.supermodule?.exposedPorts ?? [])
+const ports = computed(() => portsOf(props.id))
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
+@import '../assets/vueflowhandle.css';
+
 .interface-node {
-  min-width: 160px;
+  min-width: 200px;
+  min-height: 90px;
   padding: 0.5rem 0.75rem;
   border: 2px dashed color-mix(in srgb, var(--p-text-color) 30%, transparent);
   border-radius: 10px;
@@ -74,6 +86,24 @@ const exposedPorts = computed(() => props.data.supermodule?.exposedPorts ?? [])
   margin: 0.25rem 0;
   font-weight: 600;
   font-size: 1.05rem;
+}
+
+.interface-port-list {
+  margin: 0.25rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.75rem;
+  text-align: left;
+}
+
+.interface-port-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.interface-port-type {
+  color: color-mix(in srgb, var(--p-text-color) 60%, transparent);
 }
 
 .interface-ports {

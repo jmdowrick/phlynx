@@ -6,7 +6,7 @@ import {
   PHLYNX_PROJECT_IDENTIFIER,
 } from '../utils/constants'
 import { normalisePorts, normaliseVariables, uniqueModuleRef } from '../utils/config'
-import { buildGhostHandles, findMostCentralGhostHandle } from '../utils/handles'
+import { buildGhostHandles, findMostCentralGhostHandle, withHierarchyHandles } from '../utils/handles'
 import { rewriteUnsafeIds } from '../utils/hierarchy'
 import { isBlank, isNumericLiteral } from '../utils/variables'
 import { analyzeMathXml } from './math/analyzeMath'
@@ -364,11 +364,18 @@ function convertStore(oldStore, globalConstantNames, newAvailableModules) {
  *   A nested node's id is `<smId>~<localId>`; no id holds `/` or `::`, nor `~` at the root, and an
  *   older file's ids that do are rewritten, with the edges and saved selections that name them.
  *   A super-module is its interface node, type 'subsystemInterface' (deletable: false), whose
- *   data.supermodule is `{name, ca, submoduleOrder, exposedPorts, localConstants, naming, source}`
- *   (see buildSupermoduleInterface). A subsystem, type 'subsystemNode', is one instance of it, with
- *   data `{smId, overrides, ports, handles, broken?}` (see buildSubsystem): overrides are
- *   `{<localId path>: {<variable>: {value}}}`, and local constant values (H13) sit under '@'. An
- *   edge of type 'exposure', data.exposedPortId, draws an exposed port and is never in the model.
+ *   data.supermodule is `{name, ca, submoduleOrder, localConstants, naming, source}` and data.handles
+ *   its handles (see buildSupermoduleInterface). What it exposes lives on exposure edges, type
+ *   'exposure', each joining one child and the interface node, either way round: data.exposed is
+ *   `[{id, alias, label?, order}]`, each a whole port of the child, alias `{portType, label, slot}`
+ *   on a module or `{via}` (an exposed port id) on a subsystem; `order` orders the super-module's
+ *   exposed ports, which are derived from these edges and never stored on their own (see
+ *   services/hierarchy/exposure.js). Exposure edges are never in the model. A subsystem, type
+ *   'subsystemNode', is one instance of a super-module, with data `{smId, overrides, ports, handles,
+ *   broken?}` (see buildSubsystem): ports are materialised from the exposed ports, each with its
+ *   exposedPortId, as are the couplings to them; broken lists the exposed port ids couplings still
+ *   name that are gone. Overrides are `{<localId path>: {<variable>: {value}}}`, and local constant
+ *   values (H13) sit under '@'.
  *   A selection's nodeId and key may name a module inside a subsystem by its expanded id, the
  *   local ids down to it joined with '/' (`dndnode_3/dndnode_1::V`). store.availableSupermodules
  *   is reserved for circulatory_autogen super-module templates (H9), and empty until then. No node
@@ -527,13 +534,28 @@ function normaliseEnvelope(doc, version) {
 export function migrateWorkspace(doc, { notes = [] } = {}) {
   const version = detectVersion(doc)
   const current = version === LEGACY_VERSION ? doc : normaliseEnvelope(doc, version)
-  if (version === PHLYNX_PROJECT_VERSION) return current
+  if (version === PHLYNX_PROJECT_VERSION) return withLoadedHandles(current)
 
   const start = MIGRATIONS.findIndex((step) => step.from === version)
   if (start === -1) {
     throw new Error(`Unsupported workspace version '${version}'. It may have been saved by a newer version of PhLynx.`)
   }
-  return MIGRATIONS.slice(start).reduce((migrated, step) => ({ ...step.migrate(migrated, notes), version: step.to }), current)
+  return withLoadedHandles(
+    MIGRATIONS.slice(start).reduce((migrated, step) => ({ ...step.migrate(migrated, notes), version: step.to }), current)
+  )
+}
+
+/**
+ * Gives subsystem and interface nodes saved without handles their ghosts (see withHierarchyHandles).
+ *
+ * @param {Object} doc - A workspace at the current version.
+ * @returns {Object} The workspace, copied when any node changed.
+ */
+function withLoadedHandles(doc) {
+  const nodes = doc.flow?.nodes
+  if (!Array.isArray(nodes)) return doc
+  const repaired = nodes.map(withHierarchyHandles)
+  return repaired.some((node, index) => node !== nodes[index]) ? { ...doc, flow: { ...doc.flow, nodes: repaired } } : doc
 }
 
 /**

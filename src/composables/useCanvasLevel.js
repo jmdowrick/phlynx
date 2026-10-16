@@ -10,7 +10,7 @@ import { useModelGraph } from './useModelGraph'
 import { useSupermodules } from './useSupermodules'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { FLOW_IDS } from '../utils/constants'
-import { isModelEdge, isSubsystem, isSupermoduleInterface, scopeOf } from '../utils/hierarchy'
+import { isSubsystem, isSupermoduleInterface, scopeOf } from '../utils/hierarchy'
 
 // A flow without nodes or edges, such as a stub of one, reads as empty.
 const NONE = Object.freeze({ value: Object.freeze([]) })
@@ -34,9 +34,9 @@ export function useCanvasLevel(flowId = FLOW_IDS.MAIN) {
 }
 
 /**
- * Sets each node's and edge's `hidden` for a scope shown: hidden unless in it. An exposure edge is always hidden, as
- * nothing draws one yet (H7). Only what changes is written, so a workspace without super-modules is left as it is. An
- * interface node, the super-module's only record, is also made undeletable, whatever a file said.
+ * Sets each node's and edge's `hidden` for a scope shown: hidden unless in it, an exposure edge in its super-module's.
+ * Only what changes is written, so a workspace without super-modules is left as it is. An interface node, the
+ * super-module's only record, is also made undeletable, whatever a file said.
  *
  * @param {Array} nodes
  * @param {Array} edges
@@ -53,7 +53,7 @@ function applyVisibility(nodes, edges, scope, { deselect = false } = {}) {
   }
   for (const edge of edges) {
     const edgeScope = scopeById.get(edge.source) ?? scopeById.get(edge.target) ?? null
-    setHidden(edge, !isModelEdge(edge) || edgeScope !== scope, deselect)
+    setHidden(edge, edgeScope !== scope, deselect)
   }
 }
 

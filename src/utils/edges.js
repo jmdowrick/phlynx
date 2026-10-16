@@ -286,7 +286,9 @@ export function buildUsedPortKeys(edges, portsOf = () => []) {
 function findSlot(ports, port, slot) {
   const group = (ports ?? []).filter((p) => p.portType === port?.portType && p.label === port?.label)
   const variables = JSON.stringify(port?.variables ?? [])
-  const matches = (p) => !!p && (p === port || JSON.stringify(p.variables ?? []) === variables)
+  // A subsystem's port is the exposed port it names, whatever its variables.
+  const matches = (p) =>
+    !!p && (p === port || (port?.exposedPortId != null ? p.exposedPortId === port.exposedPortId : JSON.stringify(p.variables ?? []) === variables))
   const isRecorded = Number.isInteger(slot) && slot >= 0
   if (isRecorded && matches(group[slot])) return { slot, found: true }
   const index = group.indexOf(port) !== -1 ? group.indexOf(port) : group.findIndex(matches)
@@ -392,6 +394,6 @@ function takenEnds(sourceNodeId, targetNodeId, coupling, usedPortKeys, nameOf) {
  * Format: "{nodeId}:{role}:{portType}:{label}:{slot}", where slot is the index of the
  * port within its (portType, label) group.
  */
-function portKey(nodeId, role, port, slot) {
+export function portKey(nodeId, role, port, slot) {
   return `${nodeId}:${role}:${port.portType}:${port.label}:${slot}`
 }

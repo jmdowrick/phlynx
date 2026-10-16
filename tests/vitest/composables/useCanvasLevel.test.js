@@ -10,7 +10,7 @@ import { useFlowHistory } from '../../../src/composables/useFlowHistory.js'
 import { useSupermodules } from '../../../src/composables/useSupermodules.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { FLOW_IDS } from '../../../src/utils/constants.js'
-import { connect, exposed, module, port, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
+import { connect, exposed, exposures, module, port, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
 
 const IN = port('entrance_ports', 'vessel', ['v_in', 'u'])
 const OUT = port('exit_ports', 'vessel', ['v', 'u_out'])
@@ -20,16 +20,14 @@ const vessel = (localId, name, options = {}) => module(localId, name, { ports: [
 function heartGraph() {
   const ra = vessel('dndnode_7', 'ra', { scope: 'sm_1' })
   const lv = vessel('dndnode_8', 'lv', { scope: 'sm_1' })
-  const sm = supermodule('sm_1', 'heart', {
-    submoduleOrder: ['dndnode_7', 'dndnode_8'],
-    exposedPorts: [exposed('xp_in', 'dndnode_7', 'entrance_ports', 'vessel'), exposed('xp_out', 'dndnode_8', 'exit_ports', 'vessel')],
-  })
+  const sm = supermodule('sm_1', 'heart', { submoduleOrder: ['dndnode_7', 'dndnode_8'] })
+  const exposure = exposures('sm_1', [exposed('xp_in', 'dndnode_7', 'entrance_ports', 'vessel'), exposed('xp_out', 'dndnode_8', 'exit_ports', 'vessel')])
   const inner = [sm, ra, lv]
-  const heart = subsystem(inner, 'dndnode_1', 'heart', 'sm_1')
+  const heart = subsystem({ nodes: inner, edges: exposure }, 'dndnode_1', 'heart', 'sm_1')
   const a = vessel('dndnode_0', 'a')
   const b = vessel('dndnode_2', 'b')
   const used = new Set()
-  const edges = [connect(a, heart, { used, id: 'e_in' }), connect(heart, b, { used, id: 'e_out' }), connect(ra, lv, { id: 'e_int' })]
+  const edges = [connect(a, heart, { used, id: 'e_in' }), connect(heart, b, { used, id: 'e_out' }), connect(ra, lv, { id: 'e_int' }), ...exposure]
   return { nodes: [a, heart, b, ...inner], edges }
 }
 

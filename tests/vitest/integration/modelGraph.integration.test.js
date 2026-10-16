@@ -205,8 +205,8 @@ describe('model consumers read the expanded workspace', () => {
 
   it('stops a run of a model whose subsystems don’t expand, saying why', async () => {
     const { nested } = threeInstances(make)
-    const sm = nested.nodes.find((node) => node.id === 'sm_1')
-    sm.data.supermodule.exposedPorts = sm.data.supermodule.exposedPorts.filter((port) => port.id !== 'xp_out')
+    const exposure = nested.edges.find((edge) => edge.id === 'sm_1~a--sm_1')
+    exposure.data = { exposed: exposure.data.exposed.filter((entry) => entry.id !== 'xp_out') }
     show(nested)
     const results = useSimulationResultsStore()
     await useSimulation().run(null)

@@ -559,3 +559,33 @@ describe('migrateWorkspace node colour categories', () => {
     expect(migrated.flow.nodes.slice(1).every((node) => !('domainType' in node.data))).toBe(true)
   })
 })
+
+describe('migrateWorkspace handle repair', () => {
+  const at130 = (nodes) => ({
+    id: 'phlynx-project',
+    version: PHLYNX_PROJECT_VERSION,
+    flow: { viewport: { x: 0, y: 0, zoom: 1 }, nodes, edges: [] },
+    store: { availableMath: [] },
+    simulation: { simulationSettings: {}, plotConfig: {}, parameterScanConfig: {} },
+    inspectionModules: [],
+  })
+
+  it('gives a subsystem or interface node saved without handles ghost handles, and leaves instances alone', () => {
+    const instance = { id: 'dndnode_0', type: 'instanceNode', data: { name: 'lv', scope: null, localId: 'dndnode_0', handles: [] } }
+    const kept = [{ uid: 'h1', side: 'left', name: '', variant: 'default' }]
+    const doc = at130([
+      { id: 'dndnode_1', type: 'subsystemNode', data: { name: 'left', smId: 'sm_1', scope: null, localId: 'dndnode_1' } },
+      { id: 'sm_1', type: 'subsystemInterface', data: { scope: 'sm_1', localId: 'sm_1', supermodule: { name: 'heart' }, handles: [] } },
+      { id: 'dndnode_2', type: 'subsystemNode', data: { name: 'right', smId: 'sm_1', scope: null, localId: 'dndnode_2', handles: kept } },
+      instance,
+    ])
+    const [sub, face, withHandles, inst] = migrateWorkspace(doc).flow.nodes
+
+    for (const node of [sub, face]) {
+      expect(node.data.handles.length).toBeGreaterThan(0)
+      expect(node.data.handles.every((handle) => handle.variant === 'ghost')).toBe(true)
+    }
+    expect(withHandles.data.handles).toBe(kept)
+    expect(inst).toBe(instance)
+  })
+})

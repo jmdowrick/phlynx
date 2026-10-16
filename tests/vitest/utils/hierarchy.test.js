@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import { buildSubsystem, buildSupermoduleInterface } from '../../../src/services/import/buildWorkflow.js'
-import { EXPOSURE_EDGE_TYPE, SUBSYSTEM_NODE_TYPE, SUPERMODULE_INTERFACE_NODE_TYPE } from '../../../src/utils/constants.js'
+import {
+  EXPOSURE_EDGE_TYPE,
+  HANDLE_VARIANT,
+  SUBSYSTEM_NODE_TYPE,
+  SUPERMODULE_INTERFACE_NODE_TYPE,
+} from '../../../src/utils/constants.js'
+import { buildGhostHandles } from '../../../src/utils/handles.js'
 import {
   assertNodeId,
   canPlaceSubsystem,
@@ -82,9 +88,23 @@ describe('builders', () => {
       id: 'sm_1~dndnode_3',
       type: SUBSYSTEM_NODE_TYPE,
       position: { x: 100, y: 100 },
-      data: { scope: 'sm_1', localId: 'dndnode_3', name: 'heart', smId: 'sm_2', overrides: { lv: { E: { value: '2' } } }, ports: [], handles: [] },
+      data: { scope: 'sm_1', localId: 'dndnode_3', name: 'heart', smId: 'sm_2', overrides: { lv: { E: { value: '2' } } }, ports: [], handles: expect.any(Array) },
     })
     expect(buildSubsystem('dndnode_3', 'heart', 'sm_2').data).toMatchObject({ scope: null, localId: 'dndnode_3', overrides: {} })
+  })
+
+  it('gives a subsystem and an interface node a fresh set of ghost handles by default, as an instance gets', () => {
+    const ghosts = buildGhostHandles()
+    const sub = buildSubsystem('dndnode_3', 'heart', 'sm_2').data.handles
+    const face = buildSupermoduleInterface('sm_2', { name: 'heart' }).data.handles
+    for (const handles of [sub, face]) {
+      expect(handles).toHaveLength(ghosts.length)
+      expect(handles.every((handle) => handle.variant === HANDLE_VARIANT.GHOST)).toBe(true)
+    }
+    expect(buildSubsystem('dndnode_4', 'heart', 'sm_2').data.handles[0].uid).not.toBe(sub[0].uid)
+    const own = [{ uid: 'h1', side: 'left', name: '', variant: HANDLE_VARIANT.DEFAULT }]
+    expect(buildSubsystem('dndnode_3', 'heart', 'sm_2', { handles: own }).data.handles).toBe(own)
+    expect(buildSupermoduleInterface('sm_2', { name: 'heart' }, null, { handles: own }).data.handles).toBe(own)
   })
 
   it('refuses an id that is not in the scope given', () => {
@@ -104,7 +124,8 @@ describe('builders', () => {
       data: {
         scope: 'sm_1',
         localId: 'sm_1',
-        supermodule: { name: 'heart', ca: null, submoduleOrder: ['ra'], exposedPorts: [], localConstants: [], naming: 'prefixed', source: null },
+        supermodule: { name: 'heart', ca: null, submoduleOrder: ['ra'], localConstants: [], naming: 'prefixed', source: null },
+        handles: expect.any(Array),
       },
     })
   })
