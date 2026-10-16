@@ -24,6 +24,7 @@ import { useProtocolStore } from '../stores/protocolStore'
 
 import { createCellMLDataFragment, generateOmexArchive, createOmexDataFragment } from '../services/compress'
 import { CA_ARRAY_FORMATS, generateExportZip } from '../services/export/ca'
+import { caIdentityProblem, caIdentityRequests, takenIdentities } from '../services/export/caNative'
 import { summariseExpansionErrors } from '../services/hierarchy/errors'
 import { isNestedModelId } from '../services/hierarchy/expand'
 import { resolvePlotConfig } from '../services/simulation/plotSelections'
@@ -45,6 +46,11 @@ import { getImportConfig } from '../utils/import'
  * @param {import('vue').Ref<Array>} [options.modelErrors] - The problems expanding super instances found (useModelGraph's
  *   `errors`): errors stop an export, warnings are shown with it.
  * @param {import('vue').Ref<boolean>} [options.isHierarchical] - Whether the workspace has super instances (useModelGraph's).
+ * @param {() => {nodes: Array, edges: Array}} [options.storeGraph] - The store's nodes and edges, super-modules
+ *   unexpanded, which the native circulatory_autogen export writes from.
+ * @param {Object} [options.caIdentities] - How super-modules get circulatory_autogen identities before a native
+ *   export: `ask(request, problemOf)` resolves with one or null (useCaIdentityPrompt), `save(identities)` stores them
+ *   as one undo step (useSupermodules setCaIdentities). Without it, none is asked for.
  * @returns {Object} The menus, the current modes and their triggers.
  */
 export function useImportExportSend({
@@ -60,6 +66,8 @@ export function useImportExportSend({
   selectedNodeIds,
   modelErrors = { value: [] },
   isHierarchical = { value: false },
+  storeGraph = () => ({ nodes: modelNodes.value, edges: modelEdges.value }),
+  caIdentities = null,
 }) {
   const simulationSettingsStore = useSimulationSettingsStore()
   const libraryStore = useLibraryStore()
@@ -220,14 +228,38 @@ export function useImportExportSend({
   })
 
   /**
-   * The Circulatory Autogen export, its module array written in a format of CA_ARRAY_FORMATS.
+   * Asks once for the circulatory_autogen identity of each super-module the native export needs one for, and stores
+   * those given; one cancelled is written flat.
+   *
+   * @returns {Promise<boolean>} Always true: the export goes on.
+   */
+  const nameSupermodulesForCa = async () => {
+    if (!caIdentities) return true
+    const { nodes, edges } = storeGraph()
+    const taken = takenIdentities(nodes, edges, libraryStore)
+    const named = new Map()
+    for (const request of caIdentityRequests(nodes, edges, libraryStore)) {
+      const identity = await caIdentities.ask(request, (candidate) => caIdentityProblem(candidate, { smId: request.smId, library: libraryStore, taken, from: request.from }))
+      if (!identity) continue
+      named.set(request.smId, identity)
+      taken.set(`${identity.module_type}:${identity.module_subtype}`, request.smId)
+    }
+    if (named.size) await caIdentities.save(named)
+    return true
+  }
+
+  /**
+   * The Circulatory Autogen export, its module array written in a format of CA_ARRAY_FORMATS; native, it writes the
+   * super-modules CA can read as super-modules, else every super instance as its modules.
    *
    * @param {string} key
    * @param {string} label
    * @param {string} arrayFormat
+   * @param {Object} [options]
+   * @param {boolean} [options.native=false]
    * @returns {Object}
    */
-  const caExportOption = (key, label, arrayFormat) => ({
+  const caExportOption = (key, label, arrayFormat, { native = false } = {}) => ({
     key,
     label,
     icon: 'pi pi-box',
@@ -235,10 +267,12 @@ export function useImportExportSend({
     suffix: '.zip',
     fileTypes: ZIP_FILE_TYPES,
     message: 'Generating and zipping CA files.',
+    ...(native && { preflight: nameSupermodulesForCa }),
     // CA's own checks, such as its one heart, run on the model's rows.
     action: (finalName) => {
       const model = buildWholeModel()
-      return generateExportZip(finalName, model.nodes, model.edges, libraryStore, protocolStore.source?.entry.payload ?? null, { arrayFormat })
+      const hierarchy = native && isHierarchical.value ? storeGraph() : null
+      return generateExportZip(finalName, model.nodes, model.edges, libraryStore, protocolStore.source?.entry.payload ?? null, { arrayFormat, hierarchy })
     },
     successMessage: () => 'Circulatory Autogen export zip generated.',
   })
@@ -273,7 +307,8 @@ export function useImportExportSend({
         ])
       },
     },
-    caExportOption(EXPORT_KEYS.CA, 'Circulatory Autogen', CA_ARRAY_FORMATS.JSON),
+    caExportOption(EXPORT_KEYS.CA, 'Circulatory Autogen', CA_ARRAY_FORMATS.JSON, { native: true }),
+    caExportOption(EXPORT_KEYS.CA_FLAT, 'Circulatory Autogen (flat)', CA_ARRAY_FORMATS.JSON),
     caExportOption(EXPORT_KEYS.CA_CSV, 'Circulatory Autogen (legacy CSV)', CA_ARRAY_FORMATS.CSV),
     {
       key: EXPORT_KEYS.OMEX,

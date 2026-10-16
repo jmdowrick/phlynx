@@ -263,6 +263,31 @@ function createCatalogue(flow, flowId) {
     return true
   }
 
+  /**
+   * Gives super-modules their circulatory_autogen identities, as one undo step.
+   *
+   * @param {Map<string, {module_type: string, module_subtype: string}>} identities - By super-module id; checked by
+   *   caIdentityProblem.
+   * @param {Object} [options]
+   * @param {Object} [options.history] - The undo stack to record into; the workspace's by default.
+   * @returns {Promise<boolean>} Whether any changed.
+   */
+  async function setCaIdentities(identities, { history = useFlowHistoryFor() } = {}) {
+    const changes = [...identities]
+      .map(([smId, identity]) => [smId, flow.findNode(smId), identity])
+      .filter(([, node, identity]) => isSupermoduleInterface(node) && JSON.stringify(node.data.supermodule?.ca ?? null) !== JSON.stringify(identity))
+      .map(([smId, node, identity]) => ({ smId, before: node.data.supermodule?.ca ?? null, after: { module_type: identity.module_type, module_subtype: identity.module_subtype } }))
+    if (!changes.length) return false
+    const write = (side) => {
+      for (const change of changes) {
+        const target = flow.findNode(change.smId)
+        if (target) target.data = { ...target.data, supermodule: { ...target.data.supermodule, ca: change[side] } }
+      }
+    }
+    await history.executeAndAddCommand({ type: 'name-supermodules-for-ca', redo: () => write('after'), undo: () => write('before') })
+    return true
+  }
+
   /** @returns {string} A name a new super-module and its super instance can both have: `base`, else `base_2`, `base_3`, … */
   const freeSupermoduleName = (base = 'supermodule') => {
     let name = base
@@ -369,7 +394,7 @@ function createCatalogue(flow, flowId) {
     )
     const instance = built.nodes.find((node) => !node.hidden)
     const nodes = built.nodes.filter((node) => node.hidden)
-    await layoutSupermoduleScopes(nodes, built.edges)
+    await layoutSupermoduleScopes(nodes, built.edges, { keep: built.positioned })
     for (const { name, value, units, data_reference } of built.globals) {
       if (!library.getGlobalConstant(name)) library.assignGlobalConstant(name, value, units, data_reference)
     }
@@ -398,6 +423,7 @@ function createCatalogue(flow, flowId) {
     exposedBy,
     deleteSupermodule,
     renameSupermodule,
+    setCaIdentities,
     superInstanceNameProblem,
     supermoduleNameProblem,
     createEmptySuperModule,

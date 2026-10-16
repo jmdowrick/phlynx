@@ -6,12 +6,14 @@ import { runFcoseLayout } from './cytoscape'
  *
  * @param {Array} nodes - Changed in place: positions and opacity.
  * @param {Array} edges
+ * @param {Object} [options]
+ * @param {Set<string>} [options.keep] - The super-modules already placed, left as they are.
  */
-export async function layoutSupermoduleScopes(nodes, edges) {
+export async function layoutSupermoduleScopes(nodes, edges, { keep = new Set() } = {}) {
   const scopes = new Map()
   for (const node of nodes) {
     const scope = node.data?.scope ?? null
-    if (scope === null) continue
+    if (scope === null || keep.has(scope)) continue
     if (!scopes.has(scope)) scopes.set(scope, [])
     scopes.get(scope).push(node)
   }

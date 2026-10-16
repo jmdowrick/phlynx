@@ -11,6 +11,9 @@
  *   from the child inside to the interface, exposing the ports it uses, and an edge outside whose couplings name those
  *   exposed ports in the same slots. Exposed ports are ordered as CA splices hosts: inputs before outputs, each in the
  *   instance's per_submodule_* key order.
+ * - A super-module PhLynx wrote (see export/caNative.js) keeps its passthrough keys' layout (`phlynx_layout`: its
+ *   children's and interface's positions) and exposed ports (`phlynx_interface`: their order and labels, and any no
+ *   edge here uses).
  * - Values, lowest precedence first: a super-module's children take its default parameterisation (CA's `lv/E` rows,
  *   over the parameterisations its component submodules name); an outer super-module's rows naming a nested one's
  *   modules are overrides on that super instance inside it; whatever else an occurrence's modules have (its own
@@ -31,7 +34,7 @@ import {
 } from './caSupermodules'
 import { applyRowsByName, componentEntries, globalRows, rowIndex } from './caParameters'
 import { expandHierarchy, EXPANDED_ID_SEPARATOR } from '../hierarchy/expand'
-import { EXPOSED_PORT_ID_PREFIX, superInstancePorts } from '../hierarchy/exposure'
+import { aliasKey, EXPOSED_PORT_ID_PREFIX, superInstancePorts } from '../hierarchy/exposure'
 import { supermoduleContentHash } from '../hierarchy/operations'
 import { slotOf } from '../../utils/edges'
 import { EXPOSURE_EDGE_TYPE, HANDLE_VARIANT } from '../../utils/constants'
@@ -44,6 +47,11 @@ const PER_KEY = { in: 'per_submodule_inputs', out: 'per_submodule_outputs' }
 const SIDE = { source: 'bottom', target: 'top' }
 const INTERFACE_SIDE = { in: 'left', out: 'right' }
 const LAST = Number.MAX_SAFE_INTEGER
+/** The passthrough keys of a super-module config entry PhLynx wrote: its layout and its exposed ports. */
+export const PHLYNX_LAYOUT_KEY = 'phlynx_layout'
+export const PHLYNX_INTERFACE_KEY = 'phlynx_interface'
+// Which way an exposed port of each port type faces, where no edge says.
+const DIRECTION_OF = { entrance_ports: 'in', exit_ports: 'out', general_ports: 'in' }
 
 /**
  * @typedef {Object} CaLibrary
@@ -196,7 +204,8 @@ function sideHandles(node) {
  * @param {Array} [options.currentNodes=[]] - Nodes already in the store, whose ids and super-module names are taken.
  * @param {string} [options.nextExposedPortId] - The first exposed port id free, `xp_0` by default.
  * @returns {{nodes: Array, edges: Array, warnings: string[], supermodules: Array<{smId: string, moduleRef: string,
- *   fork: boolean}>}} Root nodes first, in module array order; every node and edge with its scope's `hidden`.
+ *   fork: boolean}>, positioned: Set<string>}} Root nodes first, in module array order; every node and edge with its
+ *   scope's `hidden`; `positioned` the super-modules whose layout their config gave, which need none.
  */
 export function foldCaModel(model, library, { source = 'module array', load, currentNodes = [], nextExposedPortId } = {}) {
   const { topRecords, records, paths, base, nodes: valued, edges } = model
@@ -344,6 +353,7 @@ export function foldCaModel(model, library, { source = 'module array', load, cur
     const sourceInfo = { format: 'circulatory_autogen', moduleRef: def.moduleRef, configFile: configFile ?? null, hash: templateHash(def.moduleRef, supermodules), ...(def.fork && { fork: true }) }
     add(defNodes, buildSupermoduleInterface(def.smId, { name: def.name, ca: { module_type, module_subtype }, submoduleOrder, source: sourceInfo }))
   }
+  const positioned = new Set(defs.filter((def) => placeAsDeclared(def, nodeById)).map((def) => def.smId))
   const rootNodes = []
   const rootIds = new Map()
   const flatIds = new Set([...taken, ...base.map((node) => node.id)])
@@ -381,13 +391,13 @@ export function foldCaModel(model, library, { source = 'module array', load, cur
       const index = Object.keys(def.rep.record[PER_KEY[entry.dir]] ?? {}).indexOf(entry.child)
       return index < 0 ? LAST : index
     }
-    const ordered = [...def.exposed.values()].sort(
-      (a, b) => (a.dir === b.dir ? 0 : a.dir === 'in' ? -1 : 1) || rank(a) - rank(b) || a.use - b.use
-    )
+    const declared = declaredInterface(def, () => `${EXPOSED_PORT_ID_PREFIX}${xp++}`)
+    const ordered =
+      declared ?? [...def.exposed.values()].sort((a, b) => (a.dir === b.dir ? 0 : a.dir === 'in' ? -1 : 1) || rank(a) - rank(b) || a.use - b.use)
     const byChild = new Map()
     ordered.forEach((entry, order) => {
       if (!byChild.has(entry.child)) byChild.set(entry.child, [])
-      byChild.get(entry.child).push({ id: entry.id, alias: entry.alias, order, dir: entry.dir })
+      byChild.get(entry.child).push({ id: entry.id, alias: entry.alias, ...(entry.label && { label: entry.label }), order, dir: entry.dir })
     })
     for (const [child, entries] of byChild) {
       const childId = def.childIds.get(child)
@@ -497,7 +507,10 @@ export function foldCaModel(model, library, { source = 'module array', load, cur
   // What each super-module holds as made from its template, so an edit that changes it shows (see useSupermodules).
   for (const node of allNodes) {
     const source = isSupermoduleInterface(node) ? node.data.supermodule?.source : null
-    if (source) source.contentHash = supermoduleContentHash(node.id, allNodes, outEdges)
+    if (!source) continue
+    source.contentHash = supermoduleContentHash(node.id, allNodes, outEdges)
+    // What its circulatory_autogen identity stands for, which what it exposes isn't part of.
+    source.caHash = supermoduleContentHash(node.id, allNodes, outEdges, { exposure: false })
   }
 
   const scopeOfId = new Map(allNodes.map((node) => [node.id, node.data?.scope ?? null]))
@@ -506,7 +519,52 @@ export function foldCaModel(model, library, { source = 'module array', load, cur
     edges: outEdges.map((edge) => ({ ...edge, hidden: (scopeOfId.get(edge.source) ?? null) !== null })),
     warnings,
     supermodules: defs.map((def) => ({ smId: def.smId, moduleRef: def.moduleRef, fork: def.fork })),
+    positioned,
   }
+}
+
+/**
+ * The exposed ports a super-module's config declares (`phlynx_interface`), in its order, each with the id an edge
+ * here gave it, else a new one; then those edges use that it doesn't list. Null when it declares none.
+ *
+ * @param {Object} def - A super-module being folded: its template, children and the ports its edges expose.
+ * @param {() => string} nextId
+ * @returns {Array<{id: string, alias: Object, child: string, dir: string, label?: string}>|null}
+ */
+function declaredInterface(def, nextId) {
+  const declared = def.template[PHLYNX_INTERFACE_KEY]
+  if (!Array.isArray(declared)) return null
+  const used = new Map([...def.exposed.values()].map((entry) => [`${entry.child}\0${aliasKey(entry.alias)}`, entry]))
+  const leaves = new Set(def.rep.children.filter((child) => !child.occurrence).map((child) => child.name))
+  const listed = declared
+    .filter((port) => leaves.has(port?.submodule) && typeof port.port_type === 'string' && DIRECTION_OF[port.ports])
+    .map((port) => {
+      const alias = { portType: port.ports, label: port.port_type, slot: Number.isInteger(port.slot) ? port.slot : 0 }
+      const key = `${port.submodule}\0${aliasKey(alias)}`
+      const edge = used.get(key)
+      used.delete(key)
+      const label = typeof port.name === 'string' && port.name !== alias.label ? port.name : undefined
+      return { id: edge?.id ?? nextId(), alias, child: port.submodule, dir: edge?.dir ?? DIRECTION_OF[alias.portType], ...(label && { label }) }
+    })
+  return [...listed, ...used.values()]
+}
+
+/**
+ * Places a super-module's children and interface where its config's `phlynx_layout` has them.
+ *
+ * @param {Object} def
+ * @param {Map<string, Object>} nodeById - Changed in place.
+ * @returns {boolean} Whether it placed every one of them.
+ */
+function placeAsDeclared(def, nodeById) {
+  const layout = def.template[PHLYNX_LAYOUT_KEY]
+  const isPoint = (point) => Number.isFinite(point?.x) && Number.isFinite(point?.y)
+  if (!layout || !isPoint(layout.interface)) return false
+  const children = [...def.childIds]
+  if (!children.every(([name]) => isPoint(layout.submodules?.[name]))) return false
+  nodeById.get(def.smId).position = { x: layout.interface.x, y: layout.interface.y }
+  for (const [name, id] of children) nodeById.get(id).position = { x: layout.submodules[name].x, y: layout.submodules[name].y }
+  return true
 }
 
 /**

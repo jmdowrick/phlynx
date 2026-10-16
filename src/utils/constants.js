@@ -203,6 +203,7 @@ export const IMPORT_LABELS = {
 
 export const EXPORT_KEYS = {
   CA: 'circulatoryAutogen',
+  CA_FLAT: 'circulatoryAutogenFlat',
   CA_CSV: 'circulatoryAutogenCsv',
   CELLML: 'cellml',
   OMEX: 'omex',
