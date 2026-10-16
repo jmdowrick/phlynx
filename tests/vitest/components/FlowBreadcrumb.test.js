@@ -130,18 +130,20 @@ describe('FlowBreadcrumb', () => {
     node.remove()
   })
 
-  it('warns that an edit changes every copy of a shared super-module', async () => {
+  it('warns that an edit changes every copy of a shared super-module in the library', async () => {
     mountCrumbs()
     level.enter('dndnode_1')
     await wrapper.vm.$nextTick()
     expect(wrapper.find('.supermodule-banner span').text()).toBe(
-      "Editing super-module 'heart' — changes apply to 3 subsystems"
+      "Editing super-module 'heart' in the library — changes apply to 3 super instances"
     )
+    expect(wrapper.find('.supermodule-banner').classes()).toContain('supermodule-banner--shared')
+    expect(wrapper.findAll('.crumb')[1].attributes('title')).toBe("Super-module 'heart' in the library")
 
     // chamber has one subsystem, but it is in heart, so the model has three copies of it.
     level.enter('sm_1~dndnode_0')
     await wrapper.vm.$nextTick()
-    expect(wrapper.find('.supermodule-banner').text()).toContain("'chamber' — changes apply to 3 subsystems")
+    expect(wrapper.find('.supermodule-banner').text()).toContain("'chamber' in the library — changes apply to 3 super instances")
   })
 
   it('makes the subsystem entered unique from the banner, the canvas following it to the copy and back on undo', async () => {
@@ -155,7 +157,10 @@ describe('FlowBreadcrumb', () => {
     expect(flow.findNode('dndnode_1').data.smId).toBe('sm_3')
     expect(level.scope.value).toBe('sm_3')
     expect(crumbTexts()).toEqual(['Model', 'heart (heart_2)'])
-    expect(wrapper.find('.supermodule-banner').exists()).toBe(false)
+    expect(wrapper.find('.supermodule-banner span').text()).toBe(
+      "Editing super-module 'heart_2' in the library — changes apply to its one super instance"
+    )
+    expect(wrapper.find('.supermodule-banner button').exists()).toBe(false)
     expect(flow.findNode('sm_3~dndnode_0').hidden).toBeFalsy()
     expect(flow.findNode('sm_1~dndnode_0').hidden).toBe(true)
 
@@ -165,7 +170,7 @@ describe('FlowBreadcrumb', () => {
     // integration test's.
     expect(flow.findNode('dndnode_1').data.smId).toBe('sm_1')
     expect(level.scope.value).toBe('sm_1')
-    expect(wrapper.find('.supermodule-banner').exists()).toBe(true)
+    expect(wrapper.find('.supermodule-banner button').exists()).toBe(true)
   })
 
   it('offers no Make unique for a super-module edited on its own', async () => {
@@ -176,12 +181,28 @@ describe('FlowBreadcrumb', () => {
     expect(wrapper.find('.supermodule-banner button').exists()).toBe(false)
   })
 
-  it('has no banner for a super-module with one copy, and marks one edited on its own', async () => {
+  it('still names the library entry for a super-module with one copy, or none, and marks one edited on its own', async () => {
     flow.removeNodes(['dndnode_2', 'dndnode_3'])
     mountCrumbs()
     level.editSupermodule('sm_1')
     await wrapper.vm.$nextTick()
-    expect(wrapper.find('.supermodule-banner').exists()).toBe(false)
+    const banner = wrapper.find('.supermodule-banner')
+    expect(banner.text()).toBe("Editing super-module 'heart' in the library — changes apply to its one super instance")
+    expect(banner.classes()).not.toContain('supermodule-banner--shared')
     expect(crumbTexts()).toEqual(['Model', 'heart (super-module)'])
+
+    level.enter('sm_1~dndnode_0')
+    await wrapper.vm.$nextTick()
+    // A crumb's title names its super-module even when the names are the same.
+    flow.updateNodeData('sm_1~dndnode_0', { name: 'chamber' })
+    await wrapper.vm.$nextTick()
+    expect(crumbTexts()).toEqual(['Model', 'heart (super-module)', 'chamber'])
+    expect(wrapper.findAll('.crumb').at(-1).attributes('title')).toBe("Super-module 'chamber' in the library")
+
+    flow.removeNodes(['dndnode_1'])
+    level.exitTo(0)
+    level.editSupermodule('sm_1')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.supermodule-banner').text()).toBe("Editing super-module 'heart' in the library — no super instance uses it yet")
   })
 })

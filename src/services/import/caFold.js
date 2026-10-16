@@ -32,6 +32,7 @@ import {
 import { applyRowsByName, componentEntries, globalRows, rowIndex } from './caParameters'
 import { expandHierarchy, EXPANDED_ID_SEPARATOR } from '../hierarchy/expand'
 import { EXPOSED_PORT_ID_PREFIX, subsystemPorts } from '../hierarchy/exposure'
+import { supermoduleContentHash } from '../hierarchy/operations'
 import { slotOf } from '../../utils/edges'
 import { EXPOSURE_EDGE_TYPE, HANDLE_VARIANT } from '../../utils/constants'
 import { findMostCentralGhostHandle, getHandleId } from '../../utils/handles'
@@ -491,6 +492,12 @@ export function foldCaModel(model, library, { source = 'module array', load, cur
     for (const handle of node.data.handles ?? []) {
       if (handle.variant !== HANDLE_VARIANT.GHOST && !used.has(`${node.id}\0${getHandleId(handle)}`)) handle.variant = HANDLE_VARIANT.GHOST
     }
+  }
+
+  // What each super-module holds as made from its template, so an edit that changes it shows (see useSupermodules).
+  for (const node of allNodes) {
+    const source = isSupermoduleInterface(node) ? node.data.supermodule?.source : null
+    if (source) source.contentHash = supermoduleContentHash(node.id, allNodes, outEdges)
   }
 
   const scopeOfId = new Map(allNodes.map((node) => [node.id, node.data?.scope ?? null]))

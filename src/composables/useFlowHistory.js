@@ -3,9 +3,10 @@ import { useActiveCanvas } from './useActiveCanvas'
 import { useCanvasLevel } from './useCanvasLevel'
 import { useFlowHistoryFor } from './useFlowHistoryFor'
 import { useSubsystemSync } from './useSubsystemSync'
+import { useSupermoduleEditGuard } from './useSupermoduleEditGuard'
 import { useLibraryStore } from '../stores/libraryStore'
 import { FLOW_IDS } from '../utils/constants'
-import { assertNodeId, edgeScopeProblem, isSupermoduleInterface, withScopeFields } from '../utils/hierarchy'
+import { assertNodeId, edgeScopeProblem, isSupermoduleInterface, scopeOf, splitNodeId, withScopeFields } from '../utils/hierarchy'
 import { detachReactivity } from '../utils/reactivity'
 
 /**
@@ -29,7 +30,9 @@ export function getUndoRedoAction(event) {
 /**
  * Turns Vue Flow node and edge changes into undo/redo commands on the history store, which go back to the canvas level
  * they were made at (see useCanvasLevel). Added nodes are stamped with the scope shown, their ids checked against it.
- * Subsystems are kept in step with their super-modules (see useSubsystemSync).
+ * Subsystems are kept in step with their super-modules (see useSubsystemSync). Each add or remove names the scopes
+ * whose structure it changes, as `scopes`, and an add the super-modules it creates, as `created` (see
+ * useSupermoduleEditGuard).
  *
  * @param {Object} options
  * @param {Set<string>} options.suppressedEdgeIds - Edge ids whose add/remove changes are not recorded.
@@ -57,6 +60,8 @@ export function useFlowHistory({
   const { nodes: canvasNodes } = useActiveCanvas(flowId)
   const canvasLevel = useCanvasLevel(flowId)
   canvasLevel.bindHistory(historyStore)
+  // Structural edits inside a shared super-module ask first.
+  if (flowId === FLOW_IDS.MAIN) useSupermoduleEditGuard(flowId).install(historyStore)
   // Subsystems follow their super-modules after every change, undo and redo included.
   useSubsystemSync(flowId)
 
@@ -124,6 +129,22 @@ export function useFlowHistory({
       })
     )
   }
+
+  /** @returns {string[]} The scopes nodes added or removed are in; an interface node is its super-module, not in one. */
+  const scopesOfNodes = (snapshots) => [...new Set(snapshots.filter((node) => !isSupermoduleInterface(node)).map(scopeOf))]
+
+  /** @returns {string|null} The scope an edge is drawn in, from its ends, read from their ids when a node has gone. */
+  const edgeScopeOf = (edge) => {
+    for (const id of [edge.source, edge.target]) {
+      const node = findNode(id)
+      const scope = node ? scopeOf(node) : splitNodeId(id).scope
+      if (scope !== null) return scope
+    }
+    return null
+  }
+
+  /** @returns {string[]} The scopes edges are drawn in. */
+  const scopesOfEdges = (edges) => [...new Set(edges.map(edgeScopeOf))]
 
   const snapshotNode = (change) => {
     if (change.type === 'add') {
@@ -279,6 +300,8 @@ export function useFlowHistory({
       const idsToRemove = addChanges.map((c) => c.node.id)
       const command = {
         type: 'add',
+        scopes: scopesOfNodes(nodesToAdd),
+        created: nodesToAdd.filter(isSupermoduleInterface).map((node) => node.id),
         offset: 'not-applied',
         undo: () => removeNodesById(idsToRemove),
         redo: () => addNodes(nodesToAdd),
@@ -301,6 +324,7 @@ export function useFlowHistory({
       const removedConstants = libraryStore.cleanupUnusedGlobalConstants(remainingNodes)
       historyStore.addCommand({
         type: 'remove',
+        scopes: scopesOfNodes(nodesToRestore),
         undo: () => {
           addNodes(nodesToRestore)
           removedConstants.forEach((c) => {
@@ -366,6 +390,8 @@ export function useFlowHistory({
       const edgesToRestore = addChanges.map((change) => change.edge)
       const idsToRemove = addChanges.map((change) => change.edge.id)
       historyStore.addCommand({
+        type: 'add-edge',
+        scopes: scopesOfEdges(edgesToRestore),
         undo: () => {
           removeEdges(idsToRemove)
           edgesToRestore.forEach((edge) => revertHandlesForEdge(edge, idsToRemove, { trackHistory: false }))
@@ -387,6 +413,8 @@ export function useFlowHistory({
       edgesToRestore.forEach((edge) => revertHandlesForEdge(edge, idsToRemove))
 
       historyStore.addCommand({
+        type: 'remove-edge',
+        scopes: scopesOfEdges(edgesToRestore),
         undo: () => {
           addEdges(edgesToRestore)
           edgesToRestore.forEach((edge) => reactivateEdgeHandles(edge, { trackHistory: false }))

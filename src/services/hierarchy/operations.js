@@ -2,6 +2,7 @@
  * Structural edits of the hierarchy. Pure: each takes the store's nodes and edges and gives them as they are after it,
  * or the problems that stop it.
  *   - makeUnique: a subsystem gets its own copy of its super-module, the copy's exposed ports keeping their ids.
+ *   - keepForOne: a subsystem keeps its super-module to itself, every other subsystem of it moving to a copy.
  *   - nestSelection: nodes of one scope go into a new super-module, one subsystem of it standing in their place.
  *   - unnest: a subsystem's children take its place.
  * Each leaves the model as it was: the expansion after it is the one before, but for model ids and flat names (see
@@ -378,6 +379,46 @@ export function makeUnique(nodes, edges, subsystemId, { name } = {}) {
     return [...chain.slice(0, at + 1), childIds.get(chain[at + 1]) ?? chain[at + 1], ...chain.slice(at + 2)]
   }
   return { ...after, problems: [], rewrite, smId: copyId }
+}
+
+/**
+ * Gives one subsystem its super-module to itself, in place: every other subsystem of it moves to a copy (see
+ * makeUnique), which takes the super-module's name, circulatory_autogen identity and library source; the one keeps
+ * the super-module, renamed and no longer the library's, so every id inside stays. With no other subsystem, it is only
+ * renamed. Super-modules nested inside are shared still.
+ *
+ * @param {Array} nodes
+ * @param {Array} edges
+ * @param {string} subsystemId
+ * @returns {{nodes: Array, edges: Array, problems: string[], rewrite: Function, smId?: string}} `smId` the copy's, or
+ *   undefined when there was no other subsystem.
+ */
+export function keepForOne(nodes, edges, subsystemId) {
+  const subsystem = nodes.find((node) => node.id === subsystemId)
+  if (!isSubsystem(subsystem)) return refused(nodes, edges, 'That is not a subsystem.')
+  const smId = subsystem.data.smId
+  const definition = supermodulesById(nodes).get(smId)?.data?.supermodule
+  if (!definition) return refused(nodes, edges, `Subsystem "${subsystem.data.name}" has no super-module.`)
+
+  const names = new Set([...supermodulesById(nodes).values()].map((node) => node.data?.supermodule?.name))
+  const own = { ...definition, name: claimName(definition.name, names, { scope: smId }), ca: null, source: null }
+  const others = nodes.filter((node) => isSubsystem(node) && node.data.smId === smId && node.id !== subsystemId)
+  if (!others.length) return { nodes: withData(nodes, new Map([[smId, { supermodule: own }]])), edges, problems: [], rewrite: (chain) => chain }
+
+  const copy = makeUnique(nodes, edges, others[0].id, { name: definition.name })
+  const copied = copy.nodes.find((node) => node.id === copy.smId).data.supermodule
+  const changes = new Map([
+    [smId, { supermodule: own }],
+    [copy.smId, { supermodule: { ...copied, ca: definition.ca ?? null, source: definition.source ?? null } }],
+    ...others.slice(1).map((node) => [node.id, { smId: copy.smId }]),
+  ])
+  // Inside each subsystem moved, a module is the copy's.
+  const moved = new Set(others.map((node) => node.id))
+  const copyIdOf = new Map(
+    nodes.filter((node) => scopeOf(node) === smId && !isSupermoduleInterface(node)).map((node) => [node.id, nodeIdOf(copy.smId, localIdOf(node))])
+  )
+  const rewrite = (chain) => chain.map((id, i) => (i > 0 && moved.has(chain[i - 1]) ? (copyIdOf.get(id) ?? id) : id))
+  return { nodes: withData(copy.nodes, changes), edges: copy.edges, problems: [], rewrite, smId: copy.smId }
 }
 
 /**
@@ -880,6 +921,31 @@ function supermoduleSignature(smId, nodes, edges) {
       .map((edge) => [localOf.get(edge.source), localOf.get(edge.target), edge.type ?? null, edge.data ?? null])
       .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
   })
+}
+
+/**
+ * Hashes what a super-module holds, as supermoduleSignature describes it, leaving out what isn't its structure: its
+ * name, identity and source, the ports of the subsystems inside, which follow what their super-modules expose, and
+ * how a model edge is drawn. Equal hashes, the same super-module.
+ *
+ * @param {string} smId
+ * @param {Array} nodes
+ * @param {Array} edges
+ * @returns {string} Eight hex digits.
+ */
+export function supermoduleContentHash(smId, nodes, edges) {
+  const structureOf = (node) => {
+    if (node.id === smId) {
+      const { name: _name, ca: _ca, source: _source, ...definition } = node.data?.supermodule ?? {}
+      return { ...node, data: { ...node.data, supermodule: definition } }
+    }
+    return isSubsystem(node) && scopeOf(node) === smId ? { ...node, data: { ...node.data, ports: undefined } } : node
+  }
+  const drawn = edges.map((edge) => (edge.type === EXPOSURE_EDGE_TYPE ? edge : { ...edge, type: null }))
+  const text = supermoduleSignature(smId, nodes.map(structureOf), drawn)
+  let hash = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0
+  return hash.toString(16).padStart(8, '0')
 }
 
 /**

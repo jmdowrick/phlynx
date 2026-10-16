@@ -1,6 +1,6 @@
 /**
  * Structural edits of the hierarchy on the workspace (see services/hierarchy/operations.js): Make unique, Nest
- * selection and Un-nest. Each is one undo step: the new nodes and edges are added before the old ones are removed, so
+ * selection and Un-nest; and keeping a super-module for one subsystem, as a command for the edit guard. Each is one undo step: the new nodes and edges are added before the old ones are removed, so
  * no global constant a moved node uses is cleaned up, and the sliders, plots, sweeps and inspection variables of the
  * modules moved follow them to their new model ids.
  */
@@ -8,7 +8,7 @@ import { useVueFlow } from '@vue-flow/core'
 
 import { useFlowHistoryFor } from './useFlowHistoryFor'
 import { useSupermodules } from './useSupermodules'
-import { makeUnique, modelIdMap, nestProblem, nestSelection, unnest, unnestProblem } from '../services/hierarchy/operations'
+import { keepForOne, makeUnique, modelIdMap, nestProblem, nestSelection, unnest, unnestProblem } from '../services/hierarchy/operations'
 import { remapNodeKeys } from '../services/hierarchy/remapKeys'
 import { FLOW_IDS } from '../utils/constants'
 import { isSubsystem } from '../utils/hierarchy'
@@ -33,7 +33,7 @@ const EDGE_FIELDS = ['data', 'sourceHandle', 'targetHandle']
  * @param {string} [options.flowId=FLOW_IDS.MAIN]
  * @param {Object} [options.history] - The undo stack; the nearest provided one by default.
  * @returns {{canMakeUnique: Function, makeUniqueSubsystem: Function, nestProblemOf: Function, nest: Function,
- *   unnestProblemOf: Function, unnestSubsystem: Function}}
+ *   unnestProblemOf: Function, unnestSubsystem: Function, keepForOneCommand: Function}}
  */
 export function useHierarchyOperations({ flowId = FLOW_IDS.MAIN, history = useFlowHistoryFor() } = {}) {
   const flow = useVueFlow(flowId)
@@ -43,16 +43,13 @@ export function useHierarchyOperations({ flowId = FLOW_IDS.MAIN, history = useFl
   const store = () => ({ nodes: detachReactivity(allNodes()), edges: detachReactivity(allEdges()) })
 
   /**
-   * Makes an edit's result the store's, as one undo step: the data of nodes and edges it keeps written, its new nodes
-   * and edges added, then the old ones removed, and the keyed stores following the modules moved.
+   * Compares an edit's result with the store it was planned on: the data of nodes and edges it keeps that changes,
+   * what it adds and removes, the model ids that change, and how to write the kept ones' data either side.
    *
-   * @param {string} type - The undo step's.
-   * @param {{nodes: Array, edges: Array}} before - The store the edit was planned on.
+   * @param {{nodes: Array, edges: Array}} before
    * @param {Object} result - From an operation.
-   * @returns {Promise<{done: boolean, problems: string[]}>}
    */
-  async function apply(type, before, result) {
-    if (result.problems.length) return { done: false, problems: result.problems }
+  function diff(before, result) {
     const { idMap, nameOf } = modelIdMap(before, result, result.rewrite)
     const nodeBefore = new Map(before.nodes.map((node) => [node.id, node]))
     const edgeBefore = new Map(before.edges.map((edge) => [edge.id, edge]))
@@ -66,10 +63,6 @@ export function useHierarchyOperations({ flowId = FLOW_IDS.MAIN, history = useFl
     const edgeFields = result.edges
       .filter((edge) => edgeBefore.has(edge.id) && !same(pick(edge), pick(edgeBefore.get(edge.id))))
       .map((edge) => ({ id: edge.id, before: pick(edgeBefore.get(edge.id)), after: pick(edge) }))
-    const addedNodes = result.nodes.filter((node) => !nodeBefore.has(node.id))
-    const addedEdges = result.edges.filter((edge) => !edgeBefore.has(edge.id))
-    const removedNodeIds = before.nodes.filter((node) => !nodeIds.has(node.id)).map((node) => node.id)
-    const removedEdgeIds = before.edges.filter((edge) => !edgeIds.has(edge.id)).map((edge) => edge.id)
 
     const write = (side) => {
       for (const change of nodeData) {
@@ -85,6 +78,38 @@ export function useHierarchyOperations({ flowId = FLOW_IDS.MAIN, history = useFl
         }
       }
     }
+    return {
+      idMap,
+      nameOf,
+      write,
+      addedNodes: result.nodes.filter((node) => !nodeBefore.has(node.id)),
+      addedEdges: result.edges.filter((edge) => !edgeBefore.has(edge.id)),
+      removedNodes: before.nodes.filter((node) => !nodeIds.has(node.id)),
+      removedEdges: before.edges.filter((edge) => !edgeIds.has(edge.id)),
+    }
+  }
+
+  /** Removes nodes, a super-module's interface node (which can't be deleted from the canvas) too. */
+  const removeNodes = (ids) =>
+    flow.removeNodes(
+      ids.map((id) => {
+        const node = flow.findNode(id)
+        return node?.deletable === false ? { ...node, deletable: true } : id
+      })
+    )
+
+  /**
+   * Makes an edit's result the store's, as one undo step: the data of nodes and edges it keeps written, its new nodes
+   * and edges added, then the old ones removed, and the keyed stores following the modules moved.
+   *
+   * @param {string} type - The undo step's.
+   * @param {{nodes: Array, edges: Array}} before - The store the edit was planned on.
+   * @param {Object} result - From an operation.
+   * @returns {Promise<{done: boolean, problems: string[]}>}
+   */
+  async function apply(type, before, result) {
+    if (result.problems.length) return { done: false, problems: result.problems }
+    const { idMap, nameOf, write, addedNodes, addedEdges, removedNodes, removedEdges } = diff(before, result)
     let keys = null
     history.startBatch()
     try {
@@ -102,16 +127,8 @@ export function useHierarchyOperations({ flowId = FLOW_IDS.MAIN, history = useFl
       })
       if (addedNodes.length) flow.addNodes(detachReactivity(addedNodes))
       if (addedEdges.length) flow.addEdges(detachReactivity(addedEdges))
-      if (removedNodeIds.length) {
-        // A super-module's interface node can't be deleted from the canvas, so it is removed here as one that can.
-        flow.removeNodes(
-          removedNodeIds.map((id) => {
-            const node = flow.findNode(id)
-            return node?.deletable === false ? { ...node, deletable: true } : id
-          })
-        )
-      }
-      const edgesLeft = removedEdgeIds.filter((id) => flow.findEdge(id))
+      if (removedNodes.length) removeNodes(removedNodes.map((node) => node.id))
+      const edgesLeft = removedEdges.map((edge) => edge.id).filter((id) => flow.findEdge(id))
       if (edgesLeft.length) flow.removeEdges(edgesLeft)
       // An edge removed ghosts its handles a tick later; those changes are part of this step too.
       await settle()
@@ -119,6 +136,49 @@ export function useHierarchyOperations({ flowId = FLOW_IDS.MAIN, history = useFl
       history.endBatch()
     }
     return { done: true, problems: [], result }
+  }
+
+  /**
+   * Gives an edit as one command that records nothing itself, for a caller that runs it unrecorded (see historyStore
+   * setGate): planned on the store as it is when first run, then applied whole either way.
+   *
+   * @param {string} type
+   * @param {(before: {nodes: Array, edges: Array}) => Object} plan - Gives an operation's result for the store.
+   * @returns {{type: string, redo: Function, undo: Function}}
+   * @throws {Error} When first run, if the edit can't be made.
+   */
+  function commandOf(type, plan) {
+    let change = null
+    let keys = null
+    return {
+      type,
+      redo: () => {
+        if (!change) {
+          const before = store()
+          const result = plan(before)
+          if (result.problems.length) throw new Error(result.problems.join(' '))
+          change = diff(before, result)
+        }
+        const { idMap, nameOf, write, addedNodes, addedEdges, removedNodes, removedEdges } = change
+        write('after')
+        if (addedNodes.length) flow.addNodes(detachReactivity(addedNodes))
+        if (addedEdges.length) flow.addEdges(detachReactivity(addedEdges))
+        if (removedEdges.length) flow.removeEdges(removedEdges.map((edge) => edge.id))
+        if (removedNodes.length) removeNodes(removedNodes.map((node) => node.id))
+        if (keys) keys.restore('after')
+        else keys = remapNodeKeys(idMap, nameOf)
+      },
+      undo: () => {
+        if (!change) return
+        const { write, addedNodes, addedEdges, removedNodes, removedEdges } = change
+        if (addedEdges.length) flow.removeEdges(addedEdges.map((edge) => edge.id))
+        if (addedNodes.length) removeNodes(addedNodes.map((node) => node.id))
+        if (removedNodes.length) flow.addNodes(detachReactivity(removedNodes))
+        if (removedEdges.length) flow.addEdges(detachReactivity(removedEdges))
+        write('before')
+        keys?.restore('before')
+      },
+    }
   }
 
   /**
@@ -172,5 +232,15 @@ export function useHierarchyOperations({ flowId = FLOW_IDS.MAIN, history = useFl
     return apply('unnest', before, unnest(before.nodes, before.edges, subsystemId))
   }
 
-  return { canMakeUnique, makeUniqueSubsystem, nestProblemOf, nest, unnestProblemOf, unnestSubsystem }
+  /**
+   * Gives a subsystem its super-module to itself, the others moving to a copy (see operations.js keepForOne), as a
+   * command that records nothing itself (see commandOf).
+   *
+   * @param {string} subsystemId
+   * @returns {{type: string, redo: Function, undo: Function}}
+   */
+  const keepForOneCommand = (subsystemId) =>
+    commandOf('keep-for-one', (before) => keepForOne(before.nodes, before.edges, subsystemId))
+
+  return { canMakeUnique, makeUniqueSubsystem, nestProblemOf, nest, unnestProblemOf, unnestSubsystem, keepForOneCommand }
 }

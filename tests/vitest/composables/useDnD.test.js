@@ -276,6 +276,21 @@ describe('useDragAndDrop', () => {
       })
     })
 
+    it('makes a new, empty super-module and one super instance of it, named free, for the Empty super-module entry', () => {
+      flow.nodes.value = [buildSupermoduleInterface('sm_1', { name: 'supermodule' })]
+      dnd.onDragStart({}, { emptySupermodule: true })
+      dnd.onDrop(dropEvent)
+
+      expect(flow.addNodes).toHaveBeenCalledTimes(1)
+      const [definition, instance] = flow.addNodes.mock.calls[0][0]
+      expect(definition).toMatchObject({ id: 'sm_2', data: { supermodule: { name: 'supermodule_2' } } })
+      expect(instance).toMatchObject({
+        type: SUBSYSTEM_NODE_TYPE,
+        position: { x: 1005, y: 1006 },
+        data: { name: 'supermodule_2', smId: 'sm_2', scope: null },
+      })
+    })
+
     it('places nothing for a super-module that is gone', () => {
       dnd.onDragStart({}, { smId: 'sm_1' })
       dnd.onDrop(dropEvent)

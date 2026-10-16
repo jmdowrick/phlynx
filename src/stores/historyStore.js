@@ -28,6 +28,11 @@ export function createHistory() {
   const contexts = new WeakMap()
   let contextHandlers = null
 
+  // The gate changes pass on their way onto the stack (see setGate), and the change it holds while it decides:
+  // `{commands, timer, deciding}`.
+  let gate = null
+  let held = null
+
   const canUndo = computed(() => pointer.value >= 0)
   const canRedo = computed(() => pointer.value < stack.value.length - 1)
   const isUndoRedoing = computed(() => working.value || suppressedDepth.value > 0)
@@ -43,13 +48,17 @@ export function createHistory() {
 
   /**
    * Internal helper to handle stack slicing and pointer.
+   *
+   * @param {Object} command
+   * @param {Object[]} [parts] - The commands it is made of, which the gate hears of.
    */
-  function _pushToStack(command) {
+  function _pushToStack(command, parts = [command]) {
     if (pointer.value < stack.value.length - 1) {
       stack.value = stack.value.slice(0, pointer.value + 1)
     }
     stack.value.push(command)
     pointer.value++
+    gate?.recorded?.(parts)
   }
 
   function lastChangeWasAddSetter(value) {
@@ -63,7 +72,7 @@ export function createHistory() {
    * @returns {boolean}
    */
   function isPending(command) {
-    return pendingCommands.value.includes(command)
+    return pendingCommands.value.includes(command) || !!held?.commands.includes(command)
   }
 
   function replaceLastCommand(command) {
@@ -85,6 +94,94 @@ export function createHistory() {
     contextHandlers = handlers
   }
 
+  /**
+   * Has a gate decide on a change before it becomes an undo step. From a command the gate holds, every command
+   * recorded, and those not yet committed, join one held change, already made, until it is complete: its manual batch
+   * has ended and no command has come for a moment. `decide()` then resolves to 'keep', one undo step; 'discard',
+   * undone, leaving no step; or a command to run first, made one step with the change (the change is undone, the
+   * command run, and the change redone). `recorded(commands)` hears of every step made, and `cleared()` of a clear.
+   *
+   * @param {{holds: (command: Object) => boolean, decide: () => Promise<'keep'|'discard'|Object>,
+   *   recorded?: (commands: Object[]) => void, cleared?: () => void}|null} next - Null removes it.
+   */
+  function setGate(next) {
+    gate = next
+  }
+
+  /**
+   * Adds a command to the held change, starting one when the gate holds the command.
+   *
+   * @param {Object} command
+   * @returns {boolean} Whether it is held.
+   */
+  function hold(command) {
+    if (!held && gate?.holds(command)) {
+      held = { commands: [...pendingCommands.value], timer: null, deciding: false }
+      pendingCommands.value = []
+      if (batchTimer) {
+        clearTimeout(batchTimer)
+        batchTimer = null
+      }
+    }
+    if (!held) return false
+    held.commands.push(command)
+    scheduleDecision()
+    return true
+  }
+
+  /** Has the gate decide once the held change is complete: after its manual batch, and a moment with no command. */
+  function scheduleDecision() {
+    if (!held || held.deciding) return
+    if (held.timer) clearTimeout(held.timer)
+    held.timer = isManualBatching.value ? null : setTimeout(decideHeld, eventWaitTime)
+  }
+
+  /** Runs `fn` as undo and redo do, recording nothing. */
+  async function unrecorded(fn) {
+    working.value = true
+    try {
+      await fn()
+    } finally {
+      working.value = false
+    }
+  }
+
+  /** Asks the gate about the held change, then keeps it, discards it, or puts its command first. */
+  async function decideHeld() {
+    const current = held
+    current.timer = null
+    current.deciding = true
+    let decision = 'keep'
+    try {
+      decision = await gate.decide()
+    } catch (error) {
+      console.error('The history gate failed to decide; the change is kept.', error)
+    }
+    // A clear while the gate decided dropped the change.
+    if (held !== current) return
+    held = null
+    const { commands } = current
+    if (decision === 'discard') {
+      lastChangeWasAdd.value = false
+      await unrecorded(async () => {
+        for (const command of [...commands].reverse()) await command.undo()
+      })
+      return
+    }
+    if (decision && typeof decision === 'object') {
+      await unrecorded(async () => {
+        for (const command of [...commands].reverse()) await command.undo()
+        await decision.redo()
+        for (const command of commands) await command.redo()
+      })
+      if (commands.length) contexts.set(toRaw(decision), contexts.get(toRaw(commands[0])))
+      else stamp(decision)
+      commands.unshift(decision)
+    }
+    pendingCommands.value = [...commands, ...pendingCommands.value]
+    commitBatch()
+  }
+
   /** Remembers where a command was recorded. The stack holds commands reactive, so they are keyed raw. */
   function stamp(command) {
     const key = toRaw(command)
@@ -102,6 +199,9 @@ export function createHistory() {
       clearTimeout(batchTimer)
       batchTimer = null
     }
+    if (held?.timer) clearTimeout(held.timer)
+    held = null
+    gate?.cleared?.()
     stack.value = []
     pointer.value = -1
     working.value = false
@@ -116,6 +216,7 @@ export function createHistory() {
     }
 
     stamp(command)
+    if (hold(command)) return
     pendingCommands.value.push(command)
 
     if (isManualBatching.value) {
@@ -146,7 +247,8 @@ export function createHistory() {
    */
   function endBatch() {
     isManualBatching.value = false
-    commitBatch()
+    if (held) scheduleDecision()
+    else commitBatch()
   }
 
   function commitBatch() {
@@ -176,7 +278,7 @@ export function createHistory() {
       // A batch is one change, made in one place.
       const first = toRaw(batch[0])
       if (contexts.has(first)) contexts.set(superCommand, contexts.get(first))
-      _pushToStack(superCommand)
+      _pushToStack(superCommand, batch)
     }
   }
 
@@ -191,7 +293,8 @@ export function createHistory() {
 
     try {
       await command.redo()
-      // If manual batching is active, capture this explicit execution too
+      // Held, it becomes a step once the gate decides; in a manual batch, it joins the batch.
+      if (hold(command)) return
       if (isManualBatching.value) {
         pendingCommands.value.push(command)
       } else {
@@ -234,7 +337,8 @@ export function createHistory() {
   }
 
   async function undo() {
-    if (!canUndo.value) {
+    // A held change, already made, is undone only by the gate's decision.
+    if (!canUndo.value || held) {
       return
     }
     working.value = true
@@ -249,7 +353,7 @@ export function createHistory() {
   }
 
   async function redo() {
-    if (!canRedo.value) {
+    if (!canRedo.value || held) {
       return
     }
 
@@ -280,6 +384,7 @@ export function createHistory() {
     redo,
     replaceLastCommand,
     setContextHandlers,
+    setGate,
     startBatch,
     undo,
     withoutHistory,

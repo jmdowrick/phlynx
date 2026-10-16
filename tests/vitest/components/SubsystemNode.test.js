@@ -71,9 +71,23 @@ describe('SubsystemNode', () => {
     expect(wrapper.find('.name-text').text()).toBe('left')
     expect(wrapper.find('.subsystem-supermodule').text()).toBe('heart:Argus2026_v01')
     expect(wrapper.find('.subsystem-count').text()).toBe('×2')
-    expect(wrapper.find('.subsystem-count').attributes('aria-label')).toBe('2 subsystems of heart')
+    expect(wrapper.find('.subsystem-count').attributes('aria-label')).toBe('2 super instances of heart')
     expect(wrapper.find('.subsystem-count').attributes('role')).toBe('img')
     expect(wrapper.text()).toContain('1 port')
+  })
+
+  it('is an instance card, with the same header, name and button, and a second card stacked behind it', () => {
+    mountNode()
+    const card = wrapper.find('.instance-card')
+    expect(card.classes()).toEqual(expect.arrayContaining(['instance-card', 'subsystem-card']))
+    // The front card is the node's only card box: no inline border or offset of its own.
+    expect(card.attributes('style') ?? '').not.toMatch(/border|shadow|transform/)
+    expect(card.findAll(':scope > *').map((child) => child.classes()[0])).toEqual(['card-header-actions', 'instance-name'])
+    expect(card.findAll('.instance-details .detail-item')).toHaveLength(2)
+    expect(card.find('.subsystem-open').classes()).toContain('instance-button')
+
+    // Nested by a second edge inside the card, so nothing is drawn outside it.
+    expect(wrapper.find('.subsystem-stack').exists()).toBe(false)
   })
 
   it('opens from its Open button', async () => {
