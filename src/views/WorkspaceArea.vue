@@ -588,6 +588,7 @@ import { useOmexStore } from '../stores/omexStore'
 import { importOmexFile, extractOmexArchive } from '../services/import/omex'
 import { findParamsForIdExtra, parseParamsForId, resolveParamsForIdRows } from '../services/simulation/paramsForId'
 import { putSlider } from '../services/simulation/parameterSliders'
+import { newConfigEntries, warnLegacyConfigs, withoutZeroedIvcRows } from '../services/caRules'
 
 import useDragAndDrop from '../composables/useDnD'
 import { useHandleManagement } from '../composables/useHandleManagement'
@@ -1494,7 +1495,7 @@ async function onImportConfirm(importPayload, updateProgress) {
     }
 
     try {
-      await loadFromInstanceArray({ instances }, (current, total, statusMessage) => {
+      const { ivcZeroedHearts } = await loadFromInstanceArray({ instances }, (current, total, statusMessage) => {
         if (updateProgress) {
           updateProgress(`${statusMessage || 'Loading instance array...'} (${current}/${total})`)
         }
@@ -1502,7 +1503,8 @@ async function onImportConfirm(importPayload, updateProgress) {
 
       if (parametersFiles) {
         for (const [filename, data] of parametersFiles) {
-          loadParametersData(data.payload, filename, { notify: false })
+          // CA ignores the ivc flow of a heart it feeds from zero_flow.
+          loadParametersData(withoutZeroedIvcRows(data.payload, ivcZeroedHearts), filename, { notify: false })
         }
       }
       rebuildNodeEdgeIndex()
@@ -1524,6 +1526,9 @@ async function onImportConfirm(importPayload, updateProgress) {
     }))
     await loadCellMLFiles(entries)
   } else if (currentImportMode.value.key === IMPORT_KEYS.MODULE_CONFIG) {
+    // Read before loading, to warn only about the entries the library takes.
+    const configFiles = importPayload.get(IMPORT_KEYS.MODULE_CONFIG).values()
+    const addedConfigs = newConfigEntries(configFiles, (ref) => libraryStore.availableModules.has(ref))
     const multiFile = importPayload.size > 1
     const results = await Promise.all(
       [...importPayload.get(IMPORT_KEYS.MODULE_CONFIG)].map(([filename, data]) =>
@@ -1533,6 +1538,7 @@ async function onImportConfirm(importPayload, updateProgress) {
     if (multiFile) {
       notifyMultiFileResults(results, { successTitle: 'Configurations Loaded' })
     }
+    warnLegacyConfigs(addedConfigs)
   } else if (currentImportMode.value.key === IMPORT_KEYS.PARAMETER) {
     const multiFile = importPayload.get(IMPORT_KEYS.PARAMETER).size > 1
     const results = await Promise.all(

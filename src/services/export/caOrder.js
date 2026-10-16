@@ -6,27 +6,28 @@
  */
 import { parseModuleRef } from '../../utils/config'
 import { checkAndClaimCouplings, resolvePortCouplings, slotOf } from '../../utils/edges'
-import { isHeart } from './caCellml'
-
-// CA gives a heart's entrance vessel_ports by place in its inp_vessels, not by first free slot.
-const HEART_PORT = 'vessel_port'
+import { caHeartInputs, HEART_PORT, heartSlotPin, isHeart } from '../caRules'
 
 /**
  * Orders the rows, and each row's out_instances and inp_instances, so CA reproduces the slots the edges' couplings
  * hold. A row comes before another whose connection holds a later slot of a port they both connect to, and an
- * out_instance before one holding a later slot of the row's own port; inp_instances follow their slots too, which is
- * the order CA reads a heart's. Otherwise the workspace order is kept.
+ * out_instance before one holding a later slot of the row's own port; inp_instances follow their slots too. A heart's
+ * vessel_port inputs come first, in slot order, as CA gives its ivc, svc and pulmonary slots by place in its
+ * inp_vessels (two inputs being svc and pulmonary). Otherwise the workspace order is kept.
  *
  * @param {Array} nodes - Workspace nodes.
  * @param {Array} edges - Workspace edges.
- * @returns {{ rows: Array, outEdges: Map<string, Array>, inpEdges: Map<string, Array>, unmatched: Array }} rows: the
- *   nodes in order; outEdges and inpEdges: each node's edges in list order; unmatched: the edges CA still couples
- *   differently, such as a pairing made by hand that no order gives.
+ * @returns {{ rows: Array, outEdges: Map<string, Array>, inpEdges: Map<string, Array>, unmatched: Array,
+ *   hearts: Set<string> }} rows: the nodes in order; outEdges and inpEdges: each node's edges in list order; unmatched:
+ *   the edges CA still couples differently, such as a pairing made by hand that no order gives; hearts: the heart
+ *   nodes' ids.
  */
 export function orderForCa(nodes, edges) {
   const nodeById = new Map(nodes.map((node) => [node.id, node]))
   const portsOf = (id) => nodeById.get(id).data.ports ?? []
-  const isHeartNode = (id) => isHeart(parseModuleRef(nodeById.get(id).data.moduleRef ?? '').moduleType)
+  const heartNodes = nodes.filter((node) => isHeart(parseModuleRef(node.data.moduleRef ?? '').moduleType))
+  const hearts = new Set(heartNodes.map((node) => node.id))
+  const isHeartNode = (id) => hearts.has(id)
   const conduits = edges.filter((edge) => nodeById.has(edge.source) && nodeById.has(edge.target))
 
   // Each edge's slot in each group it couples, on each side, as `portType\x00label` to index.
@@ -36,7 +37,7 @@ export function orderForCa(nodes, edges) {
       const target = new Map()
       for (const { sourcePort, targetPort, sourceSlot, targetSlot } of edge.data?.couplings ?? []) {
         source.set(groupKey(sourcePort), slotOf(portsOf(edge.source), sourcePort, sourceSlot))
-        if (isHeartNode(edge.target) && targetPort.label === HEART_PORT) continue
+        if (isHeartNode(edge.target) && isHeartPort(targetPort)) continue
         target.set(groupKey(targetPort), slotOf(portsOf(edge.target), targetPort, targetSlot))
       }
       return [edge, { source, target }]
@@ -60,41 +61,51 @@ export function orderForCa(nodes, edges) {
   const inpEdges = new Map(
     rows.map((node) => {
       const inp = edgesAt('target', node.id).sort((a, b) => rowIndex.get(a.source) - rowIndex.get(b.source))
-      const slotsOf = (edge) => (isHeartNode(node.id) ? slotsWithHeartPort(edge, portsOf) : slots.get(edge).target)
-      return [node.id, orderAfter(inp, slotPairs(inp, slotsOf))]
+      if (!isHeartNode(node.id)) return [node.id, orderAfter(inp, slotPairs(inp, (edge) => slots.get(edge).target))]
+      const venous = inp.filter((edge) => edge.data?.couplings?.some(({ targetPort }) => isHeartPort(targetPort)))
+      const others = inp.filter((edge) => !venous.includes(edge))
+      const slotsOf = (edge) => slotsWithHeartPort(edge, portsOf)
+      const venousOrder = orderAfter(venous, slotPairs(venous, slotsOf))
+      return [node.id, [...venousOrder, ...orderAfter(others, slotPairs(others, slotsOf))]]
     })
   )
 
-  return { rows, outEdges, inpEdges, unmatched: unmatchedEdges(rows, outEdges, portsOf, isHeartNode) }
+  const unmatched = unmatchedEdges(rows, outEdges, inpEdges, portsOf, isHeartNode)
+  return { rows, outEdges, inpEdges, unmatched, hearts }
 }
 
 /**
- * Connects the edges as CA does, in row and out_instances order, and lists the edges whose couplings come out
- * differently from their own.
+ * Connects the edges as CA does, in row and out_instances order, a heart's inputs taking the slots of their place in
+ * its inp_instances, and lists the edges whose couplings come out differently from their own.
  *
  * @param {Array} rows
  * @param {Map<string, Array>} outEdges
+ * @param {Map<string, Array>} inpEdges
  * @param {Function} portsOf
  * @param {Function} isHeartNode
  * @returns {Array}
  */
-function unmatchedEdges(rows, outEdges, portsOf, isHeartNode) {
+function unmatchedEdges(rows, outEdges, inpEdges, portsOf, isHeartNode) {
   const usedPortKeys = new Set()
   const unmatched = []
   const describe = (edge, couplings) =>
     couplings
       .map(({ sourcePort, targetPort, sourceSlot, targetSlot }) => {
-        const anySlot = isHeartNode(edge.target) && targetPort.label === HEART_PORT
         const source = slotOf(portsOf(edge.source), sourcePort, sourceSlot)
-        const target = anySlot ? '*' : slotOf(portsOf(edge.target), targetPort, targetSlot)
+        const target = slotOf(portsOf(edge.target), targetPort, targetSlot)
         return `${groupKey(sourcePort)}:${source}>${groupKey(targetPort)}:${target}`
       })
       .sort()
       .join('\n')
+  const heartPin = (edge) => {
+    if (!isHeartNode(edge.target)) return []
+    const inputs = caHeartInputs(inpEdges.get(edge.target).map((inp) => inp.source), outEdges.get(edge.target).length)
+    return heartSlotPin(portsOf(edge.target), inputs, edge.source)
+  }
 
   for (const node of rows) {
     for (const edge of outEdges.get(node.id)) {
-      const options = { sourceId: edge.source, targetId: edge.target, usedPortKeys }
+      const options = { sourceId: edge.source, targetId: edge.target, usedPortKeys, stored: heartPin(edge) }
       const couplings = resolvePortCouplings(portsOf(edge.source), portsOf(edge.target), options)
       const { valid } = checkAndClaimCouplings(edge.source, edge.target, couplings, usedPortKeys)
       if (!valid || describe(edge, couplings) !== describe(edge, edge.data?.couplings ?? [])) unmatched.push(edge)
@@ -155,6 +166,16 @@ function orderAfter(items, pairs) {
     remaining.delete(next)
   }
   return ordered
+}
+
+/**
+ * Whether a port is a heart's entrance vessel_port, whose slots CA gives by place in the heart's inp_vessels.
+ *
+ * @param {Object} port
+ * @returns {boolean}
+ */
+function isHeartPort(port) {
+  return port?.portType === 'entrance_ports' && port.label === HEART_PORT
 }
 
 /**

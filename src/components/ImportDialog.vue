@@ -238,6 +238,7 @@ import { useGtm } from '../composables/useGtm'
 import { useFolderImport } from '../composables/useFolderImport'
 import { useFileDrop } from '../composables/useFileDrop'
 import { notify } from '../utils/notify'
+import { newConfigEntries, warnLegacyConfigs } from '../services/caRules'
 import { IMPORT_KEYS, MAX_VISIBLE_TAGS } from '../utils/constants'
 import { createDynamicFields, checkResourcesAreLoaded, getImportConfig } from '../utils/import'
 import {
@@ -1029,9 +1030,13 @@ const commitStagedFiles = () => {
   for (const { filename, payload } of stagedFiles.value.mathFiles) {
     libraryStore.addMathFile(filename, payload)
   }
+  // Read before adding, to warn only about the entries the library takes.
+  const added = newConfigEntries(stagedFiles.value.configFiles, (ref) => libraryStore.availableModules.has(ref))
   for (const { filename, payload } of stagedFiles.value.configFiles) {
     libraryStore.addConfigFile(filename, payload)
   }
+  // The module array imported next warns about the junction types it uses.
+  warnLegacyConfigs(added, { junctions: false })
 }
 
 const handleConfirm = async () => {

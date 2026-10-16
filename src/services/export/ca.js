@@ -7,6 +7,7 @@ import { PORT_TYPE_OPTIONS } from '../../utils/constants'
 import { normaliseMultiport, VOLUME_PORT } from '../../utils/multiport'
 import { isBlank } from '../../utils/variables'
 import { resolveBoundaryValues } from './boundaryValues'
+import { checkHearts, warnDeprecatedJunctions } from '../caRules'
 import { buildCaCellmlFiles, isHeart, listNamed } from './caCellml'
 import { orderForCa } from './caOrder'
 
@@ -42,8 +43,8 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
     const allParameters = new Set()
 
     // Rows and their out/inp lists in the order that has CA give each connection the port slots it holds here.
-    const { rows, outEdges, inpEdges, unmatched } = orderForCa(nodes, edges)
-    warnUnmatchedSlots(unmatched, nodeNameMap)
+    const { rows, outEdges, inpEdges, unmatched, hearts } = orderForCa(nodes, edges)
+    warnUnmatchedSlots(unmatched, nodeNameMap, hearts)
 
     // --- 1. PROCESS NODES FOR CONFIG AND TOPOLOGY ---
     for (const node of rows) {
@@ -90,6 +91,8 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
       }
     }
 
+    checkHearts(instance_array)
+    warnDeprecatedJunctions(instance_array.map((row) => row.module_type))
     warnMissingBoundaryValues(nodes, edges)
     addPulmonaryModule(instance_array, uniqueModuleConfigs, libraryStore)
 
@@ -143,18 +146,23 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
 
 /**
  * Warns about connections CA couples to other port slots than they hold here, as no module order reproduces them: a
- * pairing made by hand, or a connection left on a later slot when the one on an earlier slot was deleted.
+ * pairing made by hand, a connection left on a later slot when the one on an earlier slot was deleted, or heart
+ * inputs on slots CA doesn't give them.
  *
  * @param {Array} unmatched - The edges, from orderForCa.
  * @param {Map<string, string>} nodeNames - Each node id to its name.
+ * @param {Set<string>} hearts - The heart nodes' ids, from orderForCa.
  */
-function warnUnmatchedSlots(unmatched, nodeNames) {
+function warnUnmatchedSlots(unmatched, nodeNames, hearts) {
   if (!unmatched.length) return
   const names = unmatched.map((edge) => `${nodeNames.get(edge.source)} → ${nodeNames.get(edge.target)}`)
   const isOne = unmatched.length === 1
+  const heartNote = unmatched.some((edge) => hearts.has(edge.target))
+    ? ' CA gives a heart\'s inputs its ivc, svc and pulmonary slots in order, two inputs being svc and pulmonary.'
+    : ''
   notify.warning({
     title: 'Connections Paired Differently',
-    message: `CA gives each connection the first free slot of a repeated port, and no module order gives ${listNamed(names)} the port slots ${isOne ? 'it holds' : 'they hold'} here, so CA will couple ${isOne ? 'it' : 'them'} differently. This follows a pairing made by hand, or deleting a connection on an earlier slot; redrawing ${isOne ? 'it' : 'them'} takes the first free slot.`,
+    message: `CA gives each connection the first free slot of a repeated port, and no module order gives ${listNamed(names)} the port slots ${isOne ? 'it holds' : 'they hold'} here, so CA will couple ${isOne ? 'it' : 'them'} differently. This follows a pairing made by hand, or deleting a connection on an earlier slot; redrawing ${isOne ? 'it' : 'them'} takes the first free slot.${heartNote}`,
   })
 }
 

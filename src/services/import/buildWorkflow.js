@@ -4,6 +4,7 @@ import { resolvePortCouplings, checkAndClaimCouplings } from '../../utils/edges'
 import { getId as getNextNodeId } from '../../utils/nodes'
 import { getPortVariables, reconcileRows } from '../math/reconcileRows'
 import { isBlank } from '../../utils/variables'
+import { caHeartInputs, HEART_IVC_FLOW, heartSlotPin, instanceNames, isHeart } from '../caRules'
 
 /**
  * Builds an instance's variables from its math analysis, keeping the module's configured values
@@ -104,19 +105,23 @@ function buildInstances(instanceRefs, availableModules, getMathAnalysis, current
 
 /**
  * Builds the conduit edges of the instances' out_instances, in module-array order as circulatory_autogen connects
- * them, so each takes the first slot no earlier edge holds.
+ * them, so each takes the first slot no earlier edge holds. With CA's rules, an edge into a heart takes the entrance
+ * vessel_port slot CA gives it by its place in the heart's inp_instances (see heartEntranceSlot), kept on the coupling
+ * as its targetSlot.
  *
  * @param {Array} instanceRefs - The module array rows.
  * @param {Array} pendingInstances - The nodes built from them.
+ * @param {boolean} [caRules=false] - Whether the rows are a CA module array.
  * @returns {{ edges: Array, conflicts: Array<string> }} The edges, and a message for each conduit rejected as a port
  *   it needs has no free slot.
  */
-function buildEdges(instanceRefs, pendingInstances) {
+function buildEdges(instanceRefs, pendingInstances, caRules = false) {
 
   const pendingEdges = []
   const conflicts = []
 
   const nodeMap = new Map(pendingInstances.map((n) => [n.data.name, n]))
+  const refMap = new Map(instanceRefs.map((ref) => [ref.name, ref]))
 
   // Tracks consumed single-connection port slots across all edges built so far.
   // Populated via checkAndClaimCouplings; see edges.js for key format.
@@ -150,11 +155,12 @@ function buildEdges(instanceRefs, pendingInstances) {
         return
       }
 
-      // Each repeated label takes its first slot that no earlier edge holds.
+      // Each repeated label takes its first slot that no earlier edge holds, but a heart's input the slot CA gives it.
       const couplings = resolvePortCouplings(sourceNode.data.ports ?? [], targetNode.data.ports ?? [], {
         sourceId: instanceRef.name,
         targetId: targetName,
         usedPortKeys,
+        stored: caRules ? heartPin(refMap.get(targetName), targetNode, instanceRef.name) : [],
       })
 
       if (couplings.length === 0) {
@@ -195,6 +201,51 @@ function buildEdges(instanceRefs, pendingInstances) {
 }
 
 /**
+ * Lists a heart row's inputs as CA wires them (see caHeartInputs).
+ *
+ * @param {Object} ref - A module array row.
+ * @returns {string[]|null} Null when the row is no heart.
+ */
+function heartInputsOf(ref) {
+  if (!ref || !isHeart(ref.module_type ?? '')) return null
+  return caHeartInputs(instanceNames(ref.inp_instances), instanceNames(ref.out_instances).length)
+}
+
+/**
+ * Gets the coupling that pins an input to the heart entrance slot CA gives it (see heartSlotPin).
+ *
+ * @param {Object|undefined} targetRef - The target's module array row.
+ * @param {Object} targetNode
+ * @param {string} sourceName
+ * @returns {Array} The pinning coupling, or none when the target is no heart or the source not among its inputs.
+ */
+function heartPin(targetRef, targetNode, sourceName) {
+  const inputs = heartInputsOf(targetRef)
+  return inputs ? heartSlotPin(targetNode.data.ports, inputs, sourceName) : []
+}
+
+/**
+ * Sets the ivc flow of each heart with two inputs to 0, as CA feeds it from zero_flow; an unconnected boundary
+ * condition takes its own value.
+ *
+ * @param {Array} instanceRefs - The module array rows.
+ * @param {Array} pendingInstances - The nodes built from them, in the same order.
+ * @returns {string[]} The names of the hearts zeroed.
+ */
+function zeroHeartIvcFlow(instanceRefs, pendingInstances) {
+  const hearts = []
+  instanceRefs.forEach((ref, index) => {
+    if (heartInputsOf(ref)?.length !== 2) return
+    const node = pendingInstances[index]
+    node.data.variables = (node.data.variables ?? []).map((variable) =>
+      variable.name === HEART_IVC_FLOW ? { ...variable, value: '0' } : variable
+    )
+    hearts.push(ref.name)
+  })
+  return hearts
+}
+
+/**
  * Builds the nodes and conduit edges of a module array.
  *
  * @param {Array} instanceRefs - The module array rows.
@@ -203,8 +254,12 @@ function buildEdges(instanceRefs, pendingInstances) {
  * @param {Array} currentNodes - The nodes already on the canvas, for fresh ids.
  * @param {Function|null} [progressCallback]
  * @param {Function|null} [getMathDefaults] - From libraryStore.
- * @returns {{ pendingInstances: Array, pendingEdges: Array, conflicts: Array<string> }} conflicts: a message for each
- *   conduit left out as a port it needs has no free slot.
+ * @param {Object} [options]
+ * @param {boolean} [options.caRules=false] - Applies circulatory_autogen's heart rule, for a CA module array: each
+ *   input takes the heart slot of its place in inp_instances, and a heart with two inputs has no ivc flow.
+ * @returns {{ pendingInstances: Array, pendingEdges: Array, conflicts: Array<string>, ivcZeroedHearts: string[] }}
+ *   conflicts: a message for each conduit left out as a port it needs has no free slot; ivcZeroedHearts: the hearts
+ *   whose ivc flow CA's rule set to 0, which a parameters file must not set (see withoutZeroedIvcRows).
  */
 export function buildWorkflowGraph(
   instanceRefs,
@@ -212,7 +267,8 @@ export function buildWorkflowGraph(
   getMathAnalysis,
   currentNodes,
   progressCallback = null,
-  getMathDefaults = null
+  getMathDefaults = null,
+  { caRules = false } = {}
 ) {
   const pendingInstances = buildInstances(
     instanceRefs,
@@ -222,6 +278,7 @@ export function buildWorkflowGraph(
     progressCallback,
     getMathDefaults
   )
-  const { edges: pendingEdges, conflicts } = buildEdges(instanceRefs, pendingInstances)
-  return { pendingInstances, pendingEdges, conflicts }
+  const ivcZeroedHearts = caRules ? zeroHeartIvcFlow(instanceRefs, pendingInstances) : []
+  const { edges: pendingEdges, conflicts } = buildEdges(instanceRefs, pendingInstances, caRules)
+  return { pendingInstances, pendingEdges, conflicts, ivcZeroedHearts }
 }

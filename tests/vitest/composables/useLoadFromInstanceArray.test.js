@@ -46,6 +46,40 @@ describe('useLoadFromInstanceArray', () => {
     expect(mocks.addNodes).toHaveBeenCalledWith(pendingInstances)
   })
 
+  it("builds the graph with circulatory_autogen's rules", async () => {
+    mocks.buildWorkflowGraph.mockReturnValue({ pendingInstances: [], pendingEdges: [], conflicts: [] })
+
+    await useLoadFromInstanceArray().loadFromInstanceArray({ instances: [] })
+
+    expect(mocks.buildWorkflowGraph).toHaveBeenCalledWith([], ['available'], 'analysis', [], null, 'defaults', { caRules: true })
+  })
+
+  it("returns the hearts whose ivc flow CA's rule zeroed, for the parameters load to keep", async () => {
+    mocks.buildWorkflowGraph.mockReturnValue({ pendingInstances: [], pendingEdges: [], conflicts: [], ivcZeroedHearts: ['heart'] })
+
+    await expect(useLoadFromInstanceArray().loadFromInstanceArray({ instances: [] })).resolves.toEqual({ ivcZeroedHearts: ['heart'] })
+  })
+
+  it('warns once about the deprecated junction types the module array uses', async () => {
+    mocks.buildWorkflowGraph.mockReturnValue({ pendingInstances: [], pendingEdges: [], conflicts: [] })
+    const instances = [
+      { name: 'j1', module_type: 'Min_junction' },
+      { name: 'j2', module_type: 'Min_junction' },
+      { name: 'j3', module_type: 'MinNout_junction' },
+      { name: 'v', module_type: 'venous' },
+    ]
+
+    await useLoadFromInstanceArray().loadFromInstanceArray({ instances })
+
+    expect(mocks.notify.warning).toHaveBeenCalledTimes(1)
+    expect(mocks.notify.warning).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Deprecated Junction Types',
+        message: expect.stringMatching(/^Min_junction, MinNout_junction are circulatory_autogen/),
+      })
+    )
+  })
+
   it('warns about nothing when every connection is made', async () => {
     mocks.buildWorkflowGraph.mockReturnValue({ pendingInstances: [], pendingEdges: [], conflicts: [] })
 

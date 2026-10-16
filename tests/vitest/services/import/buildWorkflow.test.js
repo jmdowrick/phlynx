@@ -20,6 +20,19 @@ const MODULES = new Map([
   ['sensor:c', module('sensor:c', [port('entrance_ports', 'ctrl', ['c'])])],
   ['general:one', module('general:one', [port('general_ports', 'p', ['g'])])],
   ['general:two', module('general:two', [port('general_ports', 'p', ['g0']), port('general_ports', 'p', ['g1'])])],
+  [
+    'heart:vp',
+    {
+      ...module('heart:vp', [
+        port('entrance_ports', 'vessel_port', ['v_ivc', 'u_ra']),
+        port('entrance_ports', 'vessel_port', ['v_svc', 'u_ra']),
+        port('entrance_ports', 'vessel_port', ['v_pvn', 'u_la']),
+        port('exit_ports', 'vessel_port', ['v_aov', 'u_root']),
+        port('exit_ports', 'vessel_port', ['v_puv', 'u_par']),
+      ]),
+      variables: [{ name: 'v_ivc', type: 'boundary_condition', value: null }],
+    },
+  ],
 ])
 
 /**
@@ -40,10 +53,13 @@ function row(name, type, out = '', inp = '') {
  * Builds a module array and lists each edge's couplings by `source>target`, as `label:sourceSlot>targetSlot`.
  *
  * @param {Array} rows
- * @returns {{ slots: Object, conflicts: Array<string> }}
+ * @param {Object} [options] - buildWorkflowGraph's options.
+ * @returns {{ slots: Object, conflicts: Array<string>, unmatched: Array<string>, nodes: Array,
+ *   ivcZeroedHearts: string[] }}
  */
-function build(rows) {
-  const { pendingInstances, pendingEdges, conflicts } = buildWorkflowGraph(rows, MODULES, null, [])
+function build(rows, options) {
+  const graph = buildWorkflowGraph(rows, MODULES, null, [], null, null, options)
+  const { pendingInstances, pendingEdges, conflicts, ivcZeroedHearts } = graph
   const nameOf = (id) => pendingInstances.find((node) => node.id === id).data.name
   const slots = Object.fromEntries(
     pendingEdges.map((edge) => [
@@ -52,7 +68,7 @@ function build(rows) {
     ])
   )
   const { unmatched } = orderForCa(pendingInstances, pendingEdges)
-  return { slots, conflicts, unmatched: unmatched.map((edge) => edge.id) }
+  return { slots, conflicts, unmatched: unmatched.map((edge) => edge.id), nodes: pendingInstances, ivcZeroedHearts }
 }
 
 describe('buildWorkflowGraph port slots', () => {
@@ -112,5 +128,63 @@ describe('buildWorkflowGraph port slots', () => {
 
     expect(Object.keys(slots)).toEqual(['S>A'])
     expect(conflicts).toEqual([expect.stringMatching(/^S → B: "S" has no free "vessel_port" slot/)])
+  })
+})
+
+describe("buildWorkflowGraph with circulatory_autogen's heart rule", () => {
+  /**
+   * Builds a heart fed by the given vessels, listed in inp_instances in that order but connected in the reverse order,
+   * with two outputs unless told otherwise.
+   *
+   * @param {string[]} inputs
+   * @param {Object} [options]
+   * @param {string} [options.outputs] - The heart's out_instances.
+   * @param {boolean} [options.caRules=true]
+   * @returns {{ slots: Object, ivcFlow: *, unmatched: Array<string>, ivcZeroedHearts: string[] }}
+   */
+  function buildHeart(inputs, { outputs = 'aorta par', caRules = true } = {}) {
+    const rows = [
+      row('heart', 'heart:vp', outputs, inputs.join(' ')),
+      ...[...inputs].reverse().map((name) => row(name, 'single:s', 'heart')),
+      ...outputs.split(' ').filter(Boolean).map((name) => row(name, 'vessel:v', '', 'heart')),
+    ]
+    const { slots, unmatched, nodes, ivcZeroedHearts } = build(rows, { caRules })
+    const heart = nodes.find((node) => node.data.name === 'heart')
+    const toHeart = Object.fromEntries(Object.entries(slots).filter(([key]) => key.endsWith('>heart')))
+    const ivcFlow = heart.data.variables.find((v) => v.name === 'v_ivc').value
+    return { slots: toHeart, ivcFlow, unmatched, ivcZeroedHearts }
+  }
+
+  it('gives three inputs the ivc, svc and pulmonary slots of their place in inp_instances', () => {
+    const { slots, ivcFlow, unmatched, ivcZeroedHearts } = buildHeart(['venous_ivc', 'venous_svc', 'pvn'])
+    expect(slots).toEqual({
+      'pvn>heart': ['vessel_port:0>2'],
+      'venous_svc>heart': ['vessel_port:0>1'],
+      'venous_ivc>heart': ['vessel_port:0>0'],
+    })
+    expect(ivcFlow).toBeNull()
+    expect(ivcZeroedHearts).toEqual([])
+    expect(unmatched).toEqual([])
+  })
+
+  it('gives two inputs the svc and pulmonary slots, and the heart no ivc flow, as CA feeds it zero_flow', () => {
+    const { slots, ivcFlow, unmatched, ivcZeroedHearts } = buildHeart(['venous_svc', 'pvn'])
+    expect(slots).toEqual({ 'pvn>heart': ['vessel_port:0>2'], 'venous_svc>heart': ['vessel_port:0>1'] })
+    expect(ivcFlow).toBe('0')
+    expect(ivcZeroedHearts).toEqual(['heart'])
+    expect(unmatched).toEqual([])
+  })
+
+  it('counts the pulmonary vein CA adds to a heart with one output', () => {
+    const { slots, ivcFlow } = buildHeart(['venous_svc'], { outputs: 'aorta' })
+    expect(slots).toEqual({ 'venous_svc>heart': ['vessel_port:0>1'] })
+    expect(ivcFlow).toBe('0')
+  })
+
+  it("takes the first free slots without CA's rules, as for a CellML import", () => {
+    const { slots, ivcFlow, ivcZeroedHearts } = buildHeart(['venous_svc', 'pvn'], { caRules: false })
+    expect(slots).toEqual({ 'pvn>heart': ['vessel_port:0>0'], 'venous_svc>heart': ['vessel_port:0>1'] })
+    expect(ivcFlow).toBeNull()
+    expect(ivcZeroedHearts).toEqual([])
   })
 })
