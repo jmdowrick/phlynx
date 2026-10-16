@@ -72,6 +72,13 @@ describe('variant port metadata', () => {
     expect(normaliseConfig(entry())).not.toHaveProperty('baseModuleRef')
   })
 
+  it("keeps the keys of an entry PhLynx doesn't read, default_instance as default_parameterisation", () => {
+    const extras = { description: 'd', licence: 'CC0-1.0', creator: 'c', required_citations: ['x'], phlynx_note: 1 }
+    expect(normaliseConfig(entry({ ...extras, default_instance: 'lv' })).configExtras).toEqual({ ...extras, default_parameterisation: 'lv' })
+    expect(normaliseConfig(entry({ default_parameterisation: 'a', default_instance: 'b' })).configExtras).toEqual({ default_parameterisation: 'a' })
+    expect(normaliseConfig(entry({ phlynx_base_subtype: 'vp' }))).not.toHaveProperty('configExtras')
+  })
+
   it("writes a whole-port Multiply's factor as CA's multiply_factor, and reads it back", () => {
     const config = restorePorts([{ ...port('exit_ports', 'flow_port', ['v'], 'Multiply'), multiplyFactor: 2 }])
     expect(config.exit_ports).toEqual([{ port_type: 'flow_port', variables: ['v'], multi_port: 'Multiply', multiply_factor: 2 }])

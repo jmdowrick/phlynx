@@ -130,10 +130,42 @@ describe('model consumers read the expanded workspace', () => {
     show(nested)
     const files = await readZip(await exportAs('Circulatory Autogen'))
     const handFlat = await readZip(await generateExportZip('model', flat.nodes, flat.edges, store))
-    expect(files['model_module_array.csv']).toBe(handFlat['model_module_array.csv'])
-    expect(files['model_module_array.csv']).toMatch(/seg2__a,vp,arterial_simple,seg1__a,seg3__a/)
+    expect(files['model_module_array.json']).toBe(handFlat['model_module_array.json'])
+    expect(files['model_module_array.json']).toContain(
+      ' {"name": "seg2__a", "module_type": "arterial_simple", "module_subtype": "vp", "inp_instances": ["seg1__a"], "out_instances": ["seg3__a"]},'
+    )
     expect(files['model_parameters.csv']).toBe(handFlat['model_parameters.csv'])
     expect(files['modules/model_module_config.json']).toBe(handFlat['modules/model_module_config.json'])
+  })
+
+  it('writes the legacy CSV module array of a nested workspace as of the flat one it stands for', async () => {
+    const { nested, flat } = threeInstances(make)
+    show(nested)
+    const files = await readZip(await exportAs('Circulatory Autogen (legacy CSV)'))
+    const handFlat = await readZip(await generateExportZip('model', flat.nodes, flat.edges, store, null, { arrayFormat: 'csv' }))
+    expect(files['model_module_array.json']).toBeUndefined()
+    expect(files['model_module_array.csv']).toBe(handFlat['model_module_array.csv'])
+    expect(files['model_module_array.csv']).toMatch(/seg2__a,vp,arterial_simple,seg1__a,seg3__a/)
+  })
+
+  it('exports a module inside super instances that differs from its library module as a variant, as when flat', async () => {
+    const { nested, flat } = threeInstances(make)
+    // C read as a boundary condition is a config of its own (#689).
+    const asBoundary = (node) => {
+      node.data.variables = node.data.variables.map((row) => (row.name === 'C' ? { ...row, type: 'boundary_condition' } : row))
+    }
+    asBoundary(nested.nodes.find((node) => node.id === 'sm_1~a'))
+    flat.nodes.forEach(asBoundary)
+    show(nested)
+    const files = await readZip(await exportAs('Circulatory Autogen'))
+    const handFlat = await readZip(await generateExportZip('model', flat.nodes, flat.edges, store))
+    expect(files['model_module_array.json']).toBe(handFlat['model_module_array.json'])
+    expect(files['modules/model_module_config.json']).toBe(handFlat['modules/model_module_config.json'])
+    expect(JSON.parse(files['model_module_array.json']).map((record) => record.module_subtype)).toEqual([
+      expect.stringMatching(/^vp__\w{8}$/),
+      expect.stringMatching(/^vp__\w{8}$/),
+      expect.stringMatching(/^vp__\w{8}$/),
+    ])
   })
 
   it('checks circulatory_autogen’s heart rules on the modules inside super instances', async () => {

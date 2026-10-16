@@ -46,9 +46,24 @@ export function uniqueModuleRef(moduleRef, mathRef, getModule) {
   return ref
 }
 
+// The config keys a module is built from; the export writes every other key back as it was (see configExtras).
+const MODULE_CONFIG_KEYS = new Set([
+  'module_type',
+  'module_subtype',
+  'module_format',
+  'component_file',
+  'component_type',
+  'entrance_ports',
+  'exit_ports',
+  'general_ports',
+  'variables_and_units',
+  BASE_SUBTYPE_KEY,
+])
+
 /**
  * A module config entry as a module. A per-instance variant the CA export wrote also gets `baseModuleRef`, the module
- * it stands in for.
+ * it stands in for; keys PhLynx doesn't read (description, licence, creator, required_citations, phlynx_*...) are kept
+ * as `configExtras`, the older default_instance as default_parameterisation.
  *
  * @param {Object} config
  * @returns {Object}
@@ -62,7 +77,23 @@ export function normaliseConfig(config) {
   }
   const base = config[BASE_SUBTYPE_KEY]
   if (typeof base === 'string' && base) module.baseModuleRef = `${config.module_type}:${base}`
+  const extras = configExtras(config)
+  if (extras) module.configExtras = extras
   return module
+}
+
+/**
+ * A config entry's keys that PhLynx doesn't read, in their order, or null for none.
+ *
+ * @param {Object} config
+ * @returns {Object|null}
+ */
+function configExtras(config) {
+  const entries = Object.entries(config ?? {})
+    .filter(([key]) => !MODULE_CONFIG_KEYS.has(key))
+    .map(([key, value]) => [key === 'default_instance' && !('default_parameterisation' in config) ? 'default_parameterisation' : key, value])
+    .filter(([key]) => key !== 'default_instance')
+  return entries.length ? JSON.parse(JSON.stringify(Object.fromEntries(entries))) : null
 }
 
 export function buildModule(moduleRef, mathRef, math) {

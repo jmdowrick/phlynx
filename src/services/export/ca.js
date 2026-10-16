@@ -5,20 +5,22 @@ import { notify } from '../../utils/notify'
 import { BASE_SUBTYPE_KEY, parseMathRef, parseModuleRef, restorePorts, restoreVariables } from '../../utils/config'
 import { PORT_TYPE_OPTIONS } from '../../utils/constants'
 import { normaliseMultiport, VOLUME_PORT } from '../../utils/multiport'
+import { CA_EMPTY_VALUE } from '../../utils/parameters'
 import { isBlank } from '../../utils/variables'
 import { resolveBoundaryValues } from './boundaryValues'
-import { checkHearts, warnDeprecatedJunctions } from '../caRules'
+import { checkHearts, instanceNames, warnDeprecatedJunctions } from '../caRules'
 import { configSignature, variantSubtype } from '../caVariants'
 import { resolveInstanceVariables } from '../import/buildWorkflow'
 import { buildCaCellmlFiles, isHeart, listNamed } from './caCellml'
 import { planCaPairing, RESIDUAL_REASONS } from './caPairing'
 
-// CA's placeholder for a value still to be given; it reads an empty cell as NaN.
-const EMPTY_VALUE = 'EMPTY_MUST_BE_FILLED'
 // The folder for CA's external_modules_dir, which reads every JSON file in it as a module config, so obs_data stays out.
 const MODULES_DIR = 'modules'
 // The module CA adds as a pulmonary artery and vein ('par', 'pvn') when the heart has one output.
 const PULMONARY_MODULE_REF = 'arterial_simple:vp'
+
+/** The module array's file formats: CA's `<prefix>_module_array.json`, and the legacy CSV. */
+export const CA_ARRAY_FORMATS = { JSON: 'json', CSV: 'csv' }
 
 /**
  * Generates a zip blob for the Circulatory Autogen export.
@@ -28,9 +30,11 @@ const PULMONARY_MODULE_REF = 'arterial_simple:vp'
  * @param {Object} libraryStore - The Pinia builder store.
  * @param {ArrayBuffer|string|null} [obsData] - The workspace's obs_data.json, with its protocol, written as
  *   `<fileName>_obs_data.json` beside the config, as CA names it.
+ * @param {Object} [options]
+ * @param {string} [options.arrayFormat='json'] - The module array's format (see CA_ARRAY_FORMATS).
  * @returns {Promise<Blob>} A promise that resolves with the zip file blob.
  */
-export async function generateExportZip(fileName, nodes, edges, libraryStore, obsData = null) {
+export async function generateExportZip(fileName, nodes, edges, libraryStore, obsData = null, { arrayFormat = CA_ARRAY_FORMATS.JSON } = {}) {
   try {
     const zip = new JSZip()
 
@@ -74,7 +78,7 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
       }
       const ref = `${moduleType}:${subtype}`
       if (!uniqueModuleConfigs.has(ref)) {
-        uniqueModuleConfigs.set(ref, subtype === moduleSubtype ? entry : asVariant(entry, subtype))
+        uniqueModuleConfigs.set(ref, withExtras(subtype === moduleSubtype ? entry : asVariant(entry, subtype), moduleData))
       }
       const written = uniqueModuleConfigs.get(ref)
       usersOf.set(written, [...(usersOf.get(written) ?? []), node.data.name])
@@ -101,7 +105,7 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
           allParameters.add(JSON.stringify({
             variable_name: `${variable.name}_${node.data.name}`,
             units: variable.units || '',
-            value: isBlank(variable.value) ? EMPTY_VALUE : variable.value,
+            value: isBlank(variable.value) ? CA_EMPTY_VALUE : variable.value,
             data_reference: variable.data_reference || 'phlynx',
           }))
         }
@@ -147,7 +151,8 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
 
     // --- 3. FINALIZING AND COMPRESSING ZIP ---
     zip.file(`${MODULES_DIR}/${fileName}_module_config.json`, JSON.stringify(module_config, null, 2))
-    zip.file(`${fileName}_module_array.csv`, Papa.unparse(instance_array))
+    if (arrayFormat === CA_ARRAY_FORMATS.CSV) zip.file(`${fileName}_module_array.csv`, Papa.unparse(instance_array))
+    else zip.file(`${fileName}_module_array.json`, dumpModuleRecords(instance_array.map(moduleRecord)))
     zip.file(`${fileName}_parameters.csv`, Papa.unparse(consolidatedParameters))
     if (obsData != null) zip.file(`${fileName}_obs_data.json`, obsData)
     for (const [name, text] of cellmlFiles) zip.file(`${MODULES_DIR}/${name}`, text)
@@ -320,7 +325,7 @@ function librarySignatures(module, libraryStore) {
 function addVariantBases(bases, moduleConfigs, libraryStore) {
   for (const [moduleRef, module] of bases) {
     if (moduleConfigs.has(moduleRef) || !libraryStore.availableMath?.has(module.mathRef)) continue
-    const entry = moduleConfigEntry(module)
+    const entry = withExtras(moduleConfigEntry(module), module)
     const clashes = [...moduleConfigs.values()].some(
       (other) => other.component_type === entry.component_type && other.component_file !== entry.component_file
     )
@@ -400,6 +405,58 @@ function checkMultiports(moduleConfig) {
 }
 
 /**
+ * A config entry with the keys its library module kept from its own config (see normaliseConfig), as they were.
+ *
+ * @param {Object} entry
+ * @param {Object} module - The library module.
+ * @returns {Object}
+ */
+function withExtras(entry, module) {
+  return module?.configExtras ? { ...entry, ...module.configExtras } : entry
+}
+
+/**
+ * A module array row as CA's JSON record, in PhLynx keys.
+ *
+ * @param {{name: string, module_type: string, module_subtype: string, inp_instances: string, out_instances: string}} row
+ * @returns {Object}
+ */
+function moduleRecord(row) {
+  return {
+    name: row.name,
+    module_type: row.module_type,
+    module_subtype: row.module_subtype,
+    inp_instances: instanceNames(row.inp_instances),
+    out_instances: instanceNames(row.out_instances),
+  }
+}
+
+/**
+ * A module array's JSON text as CA's dump_vessel_records writes it: one record per line, as Python's json.dumps.
+ *
+ * @param {Object[]} records
+ * @returns {string}
+ */
+export function dumpModuleRecords(records) {
+  return records.length ? `[\n${records.map((record) => ` ${pyJson(record)}`).join(',\n')}\n]\n` : '[]\n'
+}
+
+/**
+ * A value as Python's json.dumps writes it: ', ' and ': ' separators, and non-ASCII escaped.
+ *
+ * @param {*} value
+ * @returns {string}
+ */
+function pyJson(value) {
+  if (Array.isArray(value)) return `[${value.map(pyJson).join(', ')}]`
+  if (value !== null && typeof value === 'object') {
+    return `{${Object.entries(value).map(([key, item]) => `${pyJson(key)}: ${pyJson(item)}`).join(', ')}}`
+  }
+  const text = JSON.stringify(value) ?? 'null'
+  return text.replace(/[\u007f-\uffff]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)
+}
+
+/**
  * Makes a module's CA config entry.
  *
  * @param {{moduleRef: string, mathRef: string, ports: Array, variables: Array}} module - A node's data or a library module.
@@ -435,7 +492,7 @@ function addPulmonaryModule(instanceArray, moduleConfigs, libraryStore) {
   if (hearts.length !== 1 || hearts[0].out_instances.split(' ').filter(Boolean).length >= 2) return
 
   const module = libraryStore.availableModules.get(PULMONARY_MODULE_REF)
-  if (module && !moduleConfigs.has(PULMONARY_MODULE_REF)) moduleConfigs.set(PULMONARY_MODULE_REF, moduleConfigEntry(module))
+  if (module && !moduleConfigs.has(PULMONARY_MODULE_REF)) moduleConfigs.set(PULMONARY_MODULE_REF, withExtras(moduleConfigEntry(module), module))
   notify.warning({
     title: 'Pulmonary Circuit Added',
     message: `"${hearts[0].name}" has one output, so CA adds a pulmonary artery and vein (par, pvn) and will ask for their values.`,

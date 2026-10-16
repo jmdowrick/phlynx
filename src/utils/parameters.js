@@ -4,11 +4,17 @@
  * circulatory_autogen), and a computed row's value is not applied.
  */
 
+/**
+ * CA's placeholder for a value still to be given, which the CA export writes for an empty boundary condition, as CA
+ * reads an empty cell as NaN.
+ */
+export const CA_EMPTY_VALUE = 'EMPTY_MUST_BE_FILLED'
+
 /** Most skipped rows a message names. */
 const MAX_NAMED_SKIPPED = 3
 
 /**
- * Applies values to a node's rows, keeping each row's type.
+ * Applies values to a node's rows, keeping each row's type. CA's placeholder (CA_EMPTY_VALUE) is read as no value.
  *
  * @param {Array} variables - The node's rows.
  * @param {(name: string) => ({value?: string, data_reference?: string}|undefined)} valueFor - The value for a row name.
@@ -26,7 +32,8 @@ export function applyParameterValues(variables, valueFor) {
       return variable
     }
     updated++
-    return { ...variable, value: match.value?.trim() ?? '', data_reference: match.data_reference?.trim() ?? '' }
+    const value = match.value?.trim() ?? ''
+    return { ...variable, value: value === CA_EMPTY_VALUE ? '' : value, data_reference: match.data_reference?.trim() ?? '' }
   })
   return { variables: rows, updated, skipped }
 }

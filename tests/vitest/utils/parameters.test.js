@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { applyParameterValues, applyParametersToNodes, skippedParametersMessage } from '../../../src/utils/parameters.js'
+import { applyParameterValues, applyParametersToNodes, CA_EMPTY_VALUE, skippedParametersMessage } from '../../../src/utils/parameters.js'
 
 const row = (name, type, value = '', units = 'mM') => ({ name, type, value, units, data_reference: '' })
 const node = (id, variables) => ({ id, data: { name: id, variables } })
@@ -61,6 +61,11 @@ describe('applyParameterValues', () => {
     ])
     expect(updated).toBe(1)
     expect(skipped).toEqual(['x'])
+  })
+
+  it("reads CA's EMPTY_MUST_BE_FILLED, which the CA export writes for an empty boundary condition, as no value", () => {
+    const { variables } = applyParameterValues([row('BC', 'boundary_condition', '2')], () => ({ value: CA_EMPTY_VALUE, data_reference: 'phlynx' }))
+    expect(variables).toEqual([{ ...row('BC', 'boundary_condition'), data_reference: 'phlynx' }])
   })
 })
 

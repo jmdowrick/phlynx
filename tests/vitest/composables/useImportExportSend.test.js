@@ -120,6 +120,8 @@ describe('useImportExportSend selection exports', () => {
   it('offers the Circulatory Autogen export once libCellML is ready, as it writes CellML', () => {
     expect(menuItem(setup('loading').exportMenuItems, 'Circulatory Autogen').disabled).toBe(true)
     expect(menuItem(setup().exportMenuItems, 'Circulatory Autogen').disabled).toBe(false)
+    expect(menuItem(setup('loading').exportMenuItems, 'Circulatory Autogen (legacy CSV)').disabled).toBe(true)
+    expect(menuItem(setup().exportMenuItems, 'Circulatory Autogen (legacy CSV)').disabled).toBe(false)
   })
 
   it('exports a selection that builds cleanly without asking', async () => {

@@ -19,7 +19,7 @@ vi.mock('../../../../src/services/caVariants', async (importOriginal) => {
   }
 })
 
-const { generateExportZip } = await import('../../../../src/services/export/ca.js')
+const { CA_ARRAY_FORMATS, dumpModuleRecords, generateExportZip } = await import('../../../../src/services/export/ca.js')
 const { caModuleFileName } = await import('../../../../src/services/export/caCellml.js')
 const { useLibraryStore } = await import('../../../../src/stores/libraryStore.js')
 
@@ -158,13 +158,17 @@ function parametersOf(files) {
 }
 
 /**
- * Reads the exported module array's rows.
+ * Reads the exported module array's records, their inp/out lists joined by spaces as in the legacy CSV.
  *
  * @param {Object} files - Each file's text, by name (see readZip).
  * @returns {Array<Object>}
  */
 function moduleArrayOf(files) {
-  return Papa.parse(files['heart_module_array.csv'], { header: true, skipEmptyLines: true }).data
+  return JSON.parse(files['heart_module_array.json']).map((record) => ({
+    ...record,
+    inp_instances: record.inp_instances.join(' '),
+    out_instances: record.out_instances.join(' '),
+  }))
 }
 
 describe('caModuleFileName', () => {
@@ -173,6 +177,22 @@ describe('caModuleFileName', () => {
     expect(caModuleFileName('User_Modules.cellml')).toBe('User_modules.cellml')
     expect(caModuleFileName('my_math.cellml')).toBe('my_math_modules.cellml')
     expect(caModuleFileName('template_modules.CellML')).toBe('template_modules.cellml')
+  })
+})
+
+describe('dumpModuleRecords', () => {
+  it("writes a record per line as CA's dump_vessel_records, with Python's separators and escapes", () => {
+    const records = [
+      { name: 'a', module_type: 'vessel', module_subtype: 'vp', inp_instances: [], out_instances: ['b', 'c'] },
+      { name: 'b', module_type: 'vessel', module_subtype: 'vp', inp_instances: ['a'], out_instances: [], note: 'µ "q"' },
+    ]
+    expect(dumpModuleRecords(records)).toBe(
+      '[\n' +
+        ' {"name": "a", "module_type": "vessel", "module_subtype": "vp", "inp_instances": [], "out_instances": ["b", "c"]},\n' +
+        ' {"name": "b", "module_type": "vessel", "module_subtype": "vp", "inp_instances": ["a"], "out_instances": [], "note": "\\u00b5 \\"q\\""}\n' +
+        ']\n'
+    )
+    expect(dumpModuleRecords([])).toBe('[]\n')
   })
 })
 
@@ -189,6 +209,34 @@ describe('generateExportZip', () => {
     collide.on = false
     setActivePinia(createPinia())
     library = makeLibrary()
+  })
+
+  it('writes <prefix>_module_array.json by default, and only the legacy CSV when asked', async () => {
+    const nodes = [nodeWith('a', []), nodeWith('b', [])]
+    const edges = [{ id: 'e', source: 'a', target: 'b', data: {} }]
+    const json = await readZip(await generateExportZip('heart', nodes, edges, library))
+    const csv = await readZip(await generateExportZip('heart', nodes, edges, library, null, { arrayFormat: CA_ARRAY_FORMATS.CSV }))
+    expect(json['heart_module_array.csv']).toBeUndefined()
+    expect(csv['heart_module_array.json']).toBeUndefined()
+    expect(JSON.parse(json['heart_module_array.json']).map((record) => Object.keys(record))).toEqual([
+      ['name', 'module_type', 'module_subtype', 'inp_instances', 'out_instances'],
+      ['name', 'module_type', 'module_subtype', 'inp_instances', 'out_instances'],
+    ])
+    expect(moduleArrayOf(json)).toEqual(Papa.parse(csv['heart_module_array.csv'], { header: true, skipEmptyLines: true }).data)
+  })
+
+  it("writes back the keys a library module's config had that PhLynx doesn't read, as they were", async () => {
+    const extras = { description: 'A vessel', licence: 'CC0-1.0', creator: ['F. Argus'], required_citations: [{ doi: '10/x' }], phlynx_note: { a: 1 }, default_parameterisation: 'default' }
+    library.availableModules.get(BG_MODULE_REF).configExtras = extras
+    const [entry] = JSON.parse((await readZip(await generateExportZip('heart', [nodeWith('vp', [])], [], library)))['modules/heart_module_config.json'])
+    expect(entry).toMatchObject({ module_type: 'arterial_simple', module_subtype: 'vp', ...extras })
+  })
+
+  it('makes public a constant its component sets inside, as CA sets it from the parameters file', async () => {
+    library.addMath(BG_MATH_REF, VP_MATH.replace('<variable name="C" units="m3_per_J" interface="public"/>', '<variable name="C" units="m3_per_J"/>'))
+    const node = nodeWith('vp', [{ name: 'C', units: 'm3_per_J', access: 'no_access', type: 'constant', value: '2' }])
+    const files = await readZip(await generateExportZip('heart', [node], [], library))
+    expect(files['modules/BG_modules.cellml']).toMatch(/<variable name="C" units="m3_per_J" interface="public"\/>/)
   })
 
   it("writes the workspace's obs_data beside the module array, as CA names it", async () => {
@@ -322,7 +370,7 @@ describe('generateExportZip', () => {
     expect(Object.keys(files).filter((name) => name.startsWith('modules/') && name.endsWith('.json'))).toEqual([
       'modules/heart_module_config.json',
     ])
-    expect(Object.keys(files)).toEqual(expect.arrayContaining(['heart_module_array.csv', 'heart_parameters.csv', 'heart_obs_data.json']))
+    expect(Object.keys(files)).toEqual(expect.arrayContaining(['heart_module_array.json', 'heart_parameters.csv', 'heart_obs_data.json']))
   })
 
   it('writes units that only other units are made of', async () => {
