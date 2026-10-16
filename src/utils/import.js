@@ -2,24 +2,30 @@ import Papa from 'papaparse'
 
 import { IMPORT_KEYS, IMPORT_LABELS, RELEVANT_EXTENSIONS } from './constants'
 import { isCellML, doesComponentExistInModel } from './cellml'
-import { normalisePorts } from './config'
-
-/** Columns an instance array CSV must have. */
-const INSTANCE_ARRAY_COLUMNS = ['name', 'module_type', 'module_subtype', 'inp_instances', 'out_instances']
+import {
+  looksLikeSupermoduleInstance,
+  MODULE_ARRAY_COLUMNS,
+  moduleArrayCsvToRecords,
+  moduleArrayLayout,
+  normaliseModuleRecords,
+  toInstanceRows,
+} from '../services/import/caModuleArray'
+import { moduleRefOf, normaliseModuleConfig, resolveModuleRefs } from '../services/import/caModuleConfig'
 
 /** Columns a parameters CSV must have. */
 const PARAMETER_COLUMNS = ['variable_name', 'units', 'value', 'data_reference']
 
-/** Keys each module configuration object must have. */
-const MODULE_CONFIG_KEYS = [
+/** Keys only a module config entry has, in either key style; a module-array record has none. */
+const MODULE_CONFIG_ONLY_KEYS = [
+  'component_file',
+  'component_type',
+  'module_file',
+  'module_format',
+  'submodules',
   'entrance_ports',
   'exit_ports',
   'general_ports',
-  'module_subtype',
-  'module_type',
-  'module_format',
-  'component_file',
-  'component_type',
+  'variables_and_units',
 ]
 
 /**
@@ -89,8 +95,21 @@ export async function collectEntry(entry, path, depth, maxDepth, results) {
   }
 }
 
+/**
+ * Checks that the library holds what a module array's rows use: each component module and its math, through every
+ * super-module they instantiate, whose submodules are what is asked for.
+ *
+ * @param {Object[]} requestedModules - The rows.
+ * @param {Object} store - availableModules, availableMath, and optionally caVariants, availableSupermodules and
+ *   supermoduleErrors (problems found while staging super-modules).
+ * @returns {{warnings: string[], errors: string[], resourcesAreLoaded: boolean,
+ *   missingResources: {modules: Set<string>, math: Set<string>}, supermoduleInstances: string[]}}
+ *   `supermoduleInstances` lists the rows that are super-module instances, as `name (type:subtype)`; such an array
+ *   is not imported yet, so they are errors.
+ */
 export const checkResourcesAreLoaded = (requestedModules, store) => {
   const warnings = []
+  const errors = [...(store.supermoduleErrors ?? [])]
   const missingResources = {
     modules: new Set(),
     math: new Set(),
@@ -100,8 +119,10 @@ export const checkResourcesAreLoaded = (requestedModules, store) => {
     warnings.push('No modules specified in the instance array file.')
   }
 
-  for (const module of requestedModules) {
-    const moduleRef = `${module.module_type}:${module.module_subtype}`
+  const rows = requestedModules ?? []
+  const supermodules = store.availableSupermodules ?? new Map()
+  const resolved = resolveModuleRefs(rows, supermodules)
+  for (const moduleRef of resolved.components) {
     // A per-instance variant from a CA export is kept aside from the library (see libraryStore.caVariants).
     const found = store.availableModules.get(moduleRef) ?? store.caVariants?.get(moduleRef)
     if (!found) {
@@ -112,6 +133,17 @@ export const checkResourcesAreLoaded = (requestedModules, store) => {
         missingResources.math.add(mathRef)
       }
     }
+  }
+  resolved.cycles.forEach((cycle) => errors.push(`Supermodules nest in a cycle (${cycle}).`))
+
+  const supermoduleInstances = rows
+    .filter((row) => supermodules.has(moduleRefOf(row.module_type, row.module_subtype)) || looksLikeSupermoduleInstance(row))
+    .map((row) => `${row.name} (${moduleRefOf(row.module_type, row.module_subtype)})`)
+  if (supermoduleInstances.length) {
+    errors.push(
+      `This module array instantiates super-modules: ${supermoduleInstances.join(', ')}. Importing super-module ` +
+        `instances as subsystems is supported in the next step; for now, import a flattened module array.`
+    )
   }
 
   // Generate warnings
@@ -125,8 +157,10 @@ export const checkResourcesAreLoaded = (requestedModules, store) => {
 
   return {
     warnings,
-    resourcesAreLoaded: warnings.length === 0,
+    errors,
+    resourcesAreLoaded: warnings.length === 0 && errors.length === 0,
     missingResources,
+    supermoduleInstances,
   }
 }
 
@@ -267,7 +301,26 @@ export function groupCollectionFileIssues(componentFileIssues) {
   })
 }
 
-const parseInstanceArray = (file, libraryStore = null) => {
+/**
+ * Reads a file's text.
+ * @param {File} file
+ * @returns {Promise<string>}
+ */
+function readText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (e) => resolve(e.target.result)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsText(file)
+  })
+}
+
+/**
+ * Reads a CSV module array (the legacy format), in either column layout, as raw records.
+ * @param {File} file
+ * @returns {Promise<Object[]>}
+ */
+function readModuleArrayCsv(file) {
   return new Promise((resolve, reject) => {
     Papa.parse(file, {
       header: true,
@@ -275,29 +328,14 @@ const parseInstanceArray = (file, libraryStore = null) => {
       transformHeader: (header) => header.trim(),
       transform: (v) => v.trim(),
       complete: (results) => {
-        const schemaError = missingFieldsError('instance array file', INSTANCE_ARRAY_COLUMNS, results.meta.fields, 'columns')
-        if (schemaError) {
-          reject(schemaError)
-          return
-        }
-        if (!results.data?.length) {
-          reject(new Error('Instance array file has no rows.'))
-          return
-        }
-        if (libraryStore) {
-          const requiredModules = results.data
-          const completionStatus = checkResourcesAreLoaded(requiredModules, libraryStore)
-          resolve({
-            data: results.data,
-            // warnings: completionStatus.warnings,
-            completionStatus: completionStatus,
-          })
-        } else {
-          resolve({
-            data: results.data,
-            // warnings: [],
-            completionStatus: null,
-          })
+        try {
+          const columns = results.meta.fields ?? []
+          const layout = moduleArrayLayout(columns, file.name) ?? 'phlynx'
+          const schemaError = missingFieldsError('instance array file', MODULE_ARRAY_COLUMNS[layout], columns, 'columns')
+          if (schemaError) throw schemaError
+          resolve(moduleArrayCsvToRecords(results.data, columns))
+        } catch (err) {
+          reject(err)
         }
       },
       error: (err) => reject(err),
@@ -305,29 +343,55 @@ const parseInstanceArray = (file, libraryStore = null) => {
   })
 }
 
-const parseConfigJson = (file) => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      try {
-        const parsed = JSON.parse(e.target.result)
-        if (!Array.isArray(parsed)) {
-          throw Object.assign(new Error('Config file must be an array of configuration objects.'), { unrelated: true })
-        }
-        if (parsed.length === 0) {
-          throw new Error('Config file must be a non-empty array of configuration objects.')
-        }
-        const schemaError = missingFieldsError('module configuration file', MODULE_CONFIG_KEYS, Object.keys(parsed[0] ?? {}), 'keys')
-        if (schemaError) throw schemaError
-        // Rejects a multi_port circulatory_autogen would, so it isn't read as something else.
-        parsed.forEach((config) => normalisePorts(config, { strict: true }))
-        resolve(parsed)
-      } catch (err) {
-        reject(err)
-      }
-    }
-    reader.readAsText(file)
-  })
+/**
+ * Reads a JSON module array, a list of records.
+ * @param {File} file
+ * @returns {Promise<Object[]>}
+ */
+async function readModuleArrayJson(file) {
+  const parsed = JSON.parse(await readText(file))
+  const records = Array.isArray(parsed) ? parsed : null
+  // Module configs are JSON lists too: theirs are entries, with no name.
+  const isConfig = records?.some((r) => r && typeof r === 'object' && MODULE_CONFIG_ONLY_KEYS.some((key) => key in r))
+  if (!records || (isConfig && !records.some((r) => r && typeof r === 'object' && 'name' in r))) {
+    throw Object.assign(new Error('A module array must be a JSON list of records.'), { unrelated: true })
+  }
+  return records
+}
+
+/**
+ * Parses a module array: `<prefix>_module_array.json`, or a legacy CSV. Rows come back as buildWorkflowGraph reads
+ * them (inp/out names space-separated), with every other key, per_submodule_* included, kept.
+ * @param {File} file
+ * @param {Object} [libraryStore] - When given, readiness is checked against it.
+ * @returns {Promise<{data: Object[], completionStatus: Object|null}>}
+ */
+const parseInstanceArray = async (file, libraryStore = null) => {
+  const raw = extensionOf(file.name) === '.json' ? await readModuleArrayJson(file) : await readModuleArrayCsv(file)
+  if (!raw.length) throw new Error('Instance array file has no rows.')
+  const data = toInstanceRows(normaliseModuleRecords(raw, file.name))
+  return { data, completionStatus: libraryStore ? checkResourcesAreLoaded(data, libraryStore) : null }
+}
+
+/**
+ * Parses a module configuration file, checking every entry as circulatory_autogen does. Entries come back in PhLynx
+ * keys; a JSON module array is reported as unrelated.
+ * @param {File} file
+ * @returns {Promise<Object[]>}
+ */
+const parseConfigJson = async (file) => {
+  const parsed = JSON.parse(await readText(file))
+  if (!Array.isArray(parsed)) {
+    throw Object.assign(new Error('Config file must be an array of configuration objects.'), { unrelated: true })
+  }
+  if (parsed.length === 0) {
+    throw new Error('Config file must be a non-empty array of configuration objects.')
+  }
+  const isObject = (entry) => entry && typeof entry === 'object' && !Array.isArray(entry)
+  if (parsed.every((entry) => isObject(entry) && 'name' in entry && !MODULE_CONFIG_ONLY_KEYS.some((key) => key in entry))) {
+    throw Object.assign(new Error('This is a module array, not a module configuration file.'), { unrelated: true })
+  }
+  return normaliseModuleConfig(parsed, file.name)
 }
 
 export const parseParametersFile = (file) => {
@@ -437,7 +501,7 @@ const configs = {
       {
         key: IMPORT_KEYS.INSTANCE_ARRAY,
         label: IMPORT_LABELS.INSTANCE_ARRAY,
-        accept: '.csv',
+        accept: '.json, .csv',
         limit: 1,
         required: true,
         parser: parseInstanceArray,

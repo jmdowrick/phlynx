@@ -695,6 +695,7 @@ import { extractSimData as extractSimDataFromSimulationJson } from '../services/
 import { buildFlowSnapshot, hashFlowSnapshot, restoreFlowSnapshot } from '../services/flowSnapshot'
 
 import { notify } from '../utils/notify'
+import { escapeHtml } from '../utils/importBatch'
 import { getHelperLines } from '../utils/helperLines'
 import { getPurgedUrlForResource, getUrlForResource, loadManifest } from '../utils/resources'
 import { useClearWorkspace } from '../composables/useClearWorkspace'
@@ -1309,7 +1310,7 @@ const loadConfigData = async (content, filename, { notify: shouldNotify = true }
     if (shouldNotify) {
       notify.error({
         title: 'Loading Configuration Error',
-        message: `Failed to load configurations from ${filename}.`,
+        message: `Failed to load configurations from ${filename}: ${escapeHtml(err.message)}`,
       })
     }
     return { ok: false, count: 0 }

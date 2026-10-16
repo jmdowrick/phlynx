@@ -166,12 +166,18 @@
         </TransitionGroup>
 
         <div v-if="importReadiness && formState[IMPORT_KEYS.INSTANCE_ARRAY]?.readiness" class="validation-status">
+          <Message v-if="importReadiness.errors?.length" severity="error" :closable="false">
+            <div class="message-title">Cannot Import This Module Array</div>
+            <div class="message-content">
+              <div v-for="error in importReadiness.errors" :key="error">{{ error }}</div>
+            </div>
+          </Message>
           <Message v-if="importReadiness.resourcesAreLoaded" severity="success" :closable="false">
             <div class="message-title">All Required Resources Available</div>
             <div class="message-content">All necessary components and configurations are available.</div>
           </Message>
 
-          <Message v-else severity="warn" :closable="false">
+          <Message v-else-if="importReadiness.warnings?.length" severity="warn" :closable="false">
             <div class="message-title">Additional Files Required</div>
             <div class="message-content">
               <div>Please provide the following files to complete the import:</div>
@@ -250,6 +256,12 @@ import {
   requiredCellMLFilenames,
 } from '../utils/importBatch'
 import { normaliseConfig, parseMathRef } from '../utils/config'
+import {
+  isSupermoduleEntry,
+  registerSupermodule,
+  resolveModuleRefs,
+  supermoduleTemplate,
+} from '../services/import/caModuleConfig'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -579,8 +591,18 @@ const createTemporaryStore = () => {
   const availableMath = detachReactivity(libraryStore.availableMath)
   const availableCollections = detachReactivity(libraryStore.availableCollections)
 
-  for (const { payload: configs } of stagedFiles.value.configFiles) {
+  const availableSupermodules = detachReactivity(libraryStore.availableSupermodules ?? new Map())
+  const supermoduleErrors = []
+  for (const { filename, payload: configs } of stagedFiles.value.configFiles) {
     configs.forEach((config) => {
+      if (isSupermoduleEntry(config)) {
+        try {
+          registerSupermodule(availableSupermodules, supermoduleTemplate(config, filename), availableModules)
+        } catch (error) {
+          supermoduleErrors.push(error.message)
+        }
+        return
+      }
       const module = normaliseConfig(config)
       if (!availableMath.has(module.mathRef)) {
         module.isStub = true
@@ -614,6 +636,8 @@ const createTemporaryStore = () => {
     availableModules,
     availableMath,
     availableCollections,
+    availableSupermodules,
+    supermoduleErrors,
   }
 }
 
@@ -739,10 +763,10 @@ function setFieldFile(field, filename, payload) {
  * @returns {Set<string>}
  */
 function getReferencedCellMLFilenames(instanceArrayPayload) {
-  const { availableModules } = createTemporaryStore()
+  const { availableModules, availableSupermodules } = createTemporaryStore()
   const filenames = new Set()
-  for (const row of instanceArrayPayload) {
-    const mathRef = availableModules.get(`${row.module_type}:${row.module_subtype}`)?.mathRef
+  for (const moduleRef of resolveModuleRefs(instanceArrayPayload, availableSupermodules).components) {
+    const mathRef = availableModules.get(moduleRef)?.mathRef
     if (mathRef) filenames.add(parseMathRef(mathRef).componentFile)
   }
   return filenames
@@ -1037,7 +1061,12 @@ const commitStagedFiles = () => {
   // Read before adding, to warn only about the entries the library takes.
   const added = newConfigEntries(stagedFiles.value.configFiles, (ref) => libraryStore.availableModules.has(ref))
   for (const { filename, payload } of stagedFiles.value.configFiles) {
-    libraryStore.addConfigFile(filename, payload)
+    // The rest of the file is added; a super-module clash is reported, not left to stop the import.
+    try {
+      libraryStore.addConfigFile(filename, payload)
+    } catch (error) {
+      notify.error({ title: 'Loading Configuration Error', message: `${filename}: ${escapeHtml(error.message)}` })
+    }
   }
   // The module array imported next warns about the junction types it uses.
   warnLegacyConfigs(added, { junctions: false })

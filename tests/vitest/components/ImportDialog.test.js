@@ -359,3 +359,34 @@ describe('ImportDialog single-type dialogs', () => {
     expect(toasts()).toEqual([])
   })
 })
+
+describe('ImportDialog JSON module arrays and super-modules', () => {
+  const MODULES_JSON = JSON.stringify([
+    { name: 'svc', module_type: 'heart', module_subtype: 'simple', out_instances: ['pump'] },
+    { name: 'pump', module_type: 'pump', module_subtype: 'v1', per_submodule_inputs: { inlet: ['svc'] } },
+  ])
+  const SUPERMODULE_JSON = JSON.stringify([
+    {
+      module_type: 'pump',
+      module_subtype: 'v1',
+      module_format: 'supermodule',
+      submodules: [{ name: 'inlet', module_type: 'valve', module_subtype: 'pp' }],
+    },
+  ])
+
+  it("asks for a super-module's leaf configs, and explains that its instances are not imported yet", async () => {
+    mountDialog()
+    const { 'modules.csv': _csv, ...rest } = FOLDER_FILES
+    const files = { ...rest, 'model_module_array.json': MODULES_JSON, 'pump_modules_config.json': SUPERMODULE_JSON }
+    await drop(dropEvent(folderEntry('model', files)))
+
+    expect(fileNames(IMPORT_KEYS.INSTANCE_ARRAY)).toEqual(['model_module_array.json'])
+    expect(fileNames(IMPORT_KEYS.MODULE_CONFIG)).toEqual(['config.json', 'pump_modules_config.json'])
+    const readiness = wrapper.vm.importReadiness
+    expect([...readiness.missingResources.modules]).toEqual(['valve:pp'])
+    expect(readiness.supermoduleInstances).toEqual(['pump (pump:v1)'])
+    expect(wrapper.text()).toContain('Cannot Import This Module Array')
+    expect(wrapper.text()).toContain('supported in the next step')
+    expect(importButton().attributes('disabled')).toBeDefined()
+  })
+})

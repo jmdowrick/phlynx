@@ -4,6 +4,12 @@ import { ref, computed, markRaw } from 'vue'
 import { normaliseConfig, buildModule, parseMathRef, uniqueModuleRef } from '../utils/config'
 import { foldVariantModule } from '../services/caVariants'
 import {
+  isSupermoduleEntry,
+  normaliseConfigEntry,
+  registerSupermodule,
+  supermoduleTemplate,
+} from '../services/import/caModuleConfig'
+import {
   AFFINE_UNIT_CONVERSIONS,
   GENERATED_UNITS_FILE,
   PROTECTED_MATH_REFS,
@@ -53,6 +59,8 @@ export const useLibraryStore = defineStore('library', () => {
   // Per-instance variants a CA export wrote, by ref: kept out of the library, which gets the module each stands in
   // for, and read only while a module array is imported (see buildWorkflowGraph). Never saved.
   const caVariants = ref(new Map())
+  // moduleRef -> circulatory_autogen super-module template (see caModuleConfig.supermoduleTemplate). Saved.
+  const availableSupermodules = ref(new Map())
 
   // mathRef -> Map of the values that came with that math when it was added. They only seed new
   // instances: an existing instance's rows never read them, so math and parameters stay separate.
@@ -116,6 +124,7 @@ export const useLibraryStore = defineStore('library', () => {
     mathDefaults.value.clear()
     mathLayouts.value.clear()
     caVariants.value.clear()
+    availableSupermodules.value.clear()
     availableMathAnalysis.clear()
     pendingAnalysis.clear()
   }
@@ -171,13 +180,17 @@ export const useLibraryStore = defineStore('library', () => {
   // --- SETTERS ---
 
   /**
-   * Adds a config file's modules. A per-instance variant the CA export wrote (see services/caVariants.js) is kept
-   * aside for a module array to build its instances from, and the library gets the module it stands in for, from
-   * the file's own entry for it when there is one, else folded back from the variant.
+   * Adds a config file's modules and super-modules. A per-instance variant the CA export wrote (see
+   * services/caVariants.js) is kept aside for a module array to build its instances from, and the library gets the
+   * module it stands in for, from the file's own entry for it when there is one, else folded back from the variant.
+   * A libcuflynx-keyed component entry is read in PhLynx keys; an entry with neither a component_file nor submodules
+   * is skipped.
    *
    * @param {string} filename
    * @param {Array} configs - The file's entries.
-   * @returns {number} How many modules the library took.
+   * @returns {number} How many modules and super-modules the library took.
+   * @throws {Error} after adding the rest, for super-modules that clash (see addSupermodule) and components whose type
+   *   is a super-module's.
    */
   function addConfigFile(filename, configs) {
     let totalAdded = 0
@@ -186,9 +199,15 @@ export const useLibraryStore = defineStore('library', () => {
       return totalAdded
     }
 
-    const modules = configs
-      .filter((config) => config.component_file && typeof config.component_file === 'string')
-      .map(normaliseConfig)
+    const errors = []
+    const components = configs.filter((config) => !isSupermoduleEntry(config)).map(componentEntry).filter(Boolean)
+    const modules = components.filter((config) => {
+      const ref = `${config.module_type}:${config.module_subtype}`
+      if (!availableSupermodules.value.has(ref)) return true
+      errors.push(`${filename}: (${config.module_type}, ${config.module_subtype}) is already a supermodule; a ` +
+        `(vessel_type, BC_type) can be only one of them.`)
+      return false
+    }).map(normaliseConfig)
     for (const module of modules.filter((module) => !module.baseModuleRef)) {
       if (addModule(module)) totalAdded++
     }
@@ -196,7 +215,43 @@ export const useLibraryStore = defineStore('library', () => {
       caVariants.value.set(module.moduleRef, module)
       if (addModule(foldVariantModule(module))) totalAdded++
     }
+    for (const entry of configs.filter(isSupermoduleEntry)) {
+      try {
+        if (addSupermodule(supermoduleTemplate(entry, filename))) totalAdded++
+      } catch (error) {
+        errors.push(error.message)
+      }
+    }
+    if (errors.length) throw new Error(errors.join('\n'))
     return totalAdded
+  }
+
+  /**
+   * A component config entry in PhLynx keys, or null for one without a component file.
+   *
+   * @param {Object} config
+   * @returns {Object|null}
+   */
+  function componentEntry(config) {
+    if (config?.component_file && typeof config.component_file === 'string') return config
+    if (typeof config?.module_file !== 'string') return null
+    try {
+      return normaliseConfigEntry(config)
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Adds a circulatory_autogen super-module template; the same definition again is kept once.
+   *
+   * @param {Object} template - From caModuleConfig.supermoduleTemplate.
+   * @returns {boolean} Whether it was added.
+   * @throws {Error} for a super-module another file defines differently, a type that is also a component module, or
+   *   nesting in a cycle.
+   */
+  function addSupermodule(template) {
+    return registerSupermodule(availableSupermodules.value, template, availableModules.value)
   }
 
   /**
@@ -547,6 +602,10 @@ export const useLibraryStore = defineStore('library', () => {
       mergeIn(new Map(state.availableModules), availableModules.value)
     }
 
+    if (state.availableSupermodules) {
+      mergeIn(new Map(state.availableSupermodules), availableSupermodules.value)
+    }
+
     if (state.availableUnits) {
       mergeIntoStore(state.availableUnits, availableUnits.value)
     }
@@ -599,8 +658,7 @@ export const useLibraryStore = defineStore('library', () => {
       globalConstants: Array.from(globalConstants.value.entries()),
       mathDefaults: Array.from(mathDefaults.value.entries(), ([mathRef, values]) => [mathRef, Array.from(values)]),
       mathLayouts: Array.from(mathLayouts.value.entries()),
-      // Reserved in format 1.3.0 for circulatory_autogen super-module templates (H9); none are kept yet.
-      availableSupermodules: [],
+      availableSupermodules: Array.from(availableSupermodules.value.entries()),
     }
   }
 
@@ -644,6 +702,7 @@ export const useLibraryStore = defineStore('library', () => {
     availableModules,
     availableUnits,
     caVariants,
+    availableSupermodules,
 
     // Derived State 
     globalVariables,
@@ -656,6 +715,7 @@ export const useLibraryStore = defineStore('library', () => {
     // Actions
     addConfigFile,
     addModule,
+    addSupermodule,
     addMathFile,
     createModuleForMath,
     addMath,
