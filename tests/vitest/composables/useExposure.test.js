@@ -96,7 +96,8 @@ describe('exposing ports through exposure edges', () => {
   })
 
   describe('connecting a child to the interface', () => {
-    beforeEach(() => level.enter('dndnode_1'))
+    // Edited from the library, so no edit asks first (see useSupermoduleEditGuard).
+    beforeEach(() => level.editSupermodule('sm_1'))
 
     it('draws an exposure edge exposing nothing, to have its ports picked, as one undo step', async () => {
       await connectOnCanvas({ source: 'sm_1~c', target: 'sm_1' })
@@ -248,7 +249,8 @@ describe('exposing ports through exposure edges', () => {
     const settings = () => useSimulationSettingsStore()
 
     beforeEach(() => {
-      level.enter('dndnode_1')
+      // Edited from the library, so no edit asks first (see useSupermoduleEditGuard).
+      level.editSupermodule('sm_1')
       canvasDelete = useCanvasDelete({ confirm, history })
       flow.updateNodeData('dndnode_1', { overrides: { b: { k: { value: '2' } }, a: { k: { value: '3' } } } })
       const sel = (nodeId) => ({ key: `${nodeId}::v`, nodeId, nodeName: nodeId, variableName: 'v', units: '', type: 'variable', plot: true, groupId: 'plot-1' })

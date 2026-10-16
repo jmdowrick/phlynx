@@ -288,7 +288,7 @@ describe('useCanvasLevel', () => {
     const supermodules = useSupermodules()
 
     it('lists each with its subsystems and its copies in the model', () => {
-      expect(supermodules.supermodules.value).toEqual([{ id: 'sm_1', name: 'heart', label: 'heart', count: 1, occurrences: 1 }])
+      expect(supermodules.supermodules.value).toEqual([{ id: 'sm_1', name: 'heart', label: 'heart', source: null, count: 1, occurrences: 1 }])
     })
 
     it('makes an empty super-module and a subsystem of it as one undo step', async () => {

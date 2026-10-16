@@ -2,6 +2,7 @@ import { useVueFlow } from '@vue-flow/core'
 import { useFlowHistoryFor } from './useFlowHistoryFor'
 import { useLibraryStore } from '../stores/libraryStore'
 import { FLOW_IDS } from '../utils/constants'
+import { scopeOf } from '../utils/hierarchy'
 import { detachReactivity } from '../utils/reactivity'
 
 const isSame = (value, otherValue) => JSON.stringify(value) === JSON.stringify(otherValue)
@@ -148,9 +149,11 @@ export function useNodeDataHistory(flowId = FLOW_IDS.MAIN) {
    * @param {Function} options.apply - Makes the edit.
    * @param {Object} [options.library] - Other library state the edit changes: `isAt(side)` checks
    *   it is as it was 'before' or 'after' the edit, and `restore(side)` puts it back, after the nodes.
+   * @param {boolean} [options.structural=false] - Whether the edit changes the structure of the nodes' scopes, as
+   *   replacing a module does (see useSupermoduleEditGuard).
    * @returns {Promise<boolean>} Whether a step was recorded, once it is on the stack.
    */
-  async function recordEdit({ type, nodeIds, keys, edgeIds = [], apply, library }) {
+  async function recordEdit({ type, nodeIds, keys, edgeIds = [], apply, library, structural = false }) {
     if (flowId !== FLOW_IDS.MAIN || history.isUndoRedoing) {
       apply()
       return false
@@ -210,9 +213,19 @@ export function useNodeDataHistory(flowId = FLOW_IDS.MAIN) {
       applyConstants(constants, side)
     }
 
+    // Couplings changed change the structure of the scopes their edges are in (see useSupermoduleEditGuard).
+    const coupled = edgesAfter.filter(({ id, couplings }) => !isSame(couplings, edgesBefore.find((edge) => edge.id === id)?.couplings))
+    const scopes = [
+      ...new Set([
+        ...coupled.map(({ id }) => scopeOf(findNode(findEdge(id)?.source))),
+        ...(structural ? nodeIds.map((id) => scopeOf(findNode(id))) : []),
+      ]),
+    ]
+
     let isApplied = true
     await history.executeAndAddCommand({
       type,
+      scopes,
       undo: () => {
         if (isAt('after')) restore('before')
       },

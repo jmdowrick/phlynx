@@ -14,6 +14,7 @@
             :type="index < path.length - 1 ? 'button' : undefined"
             :class="['crumb', index < path.length - 1 ? 'crumb--link' : 'crumb--current']"
             :aria-current="index === path.length - 1 ? 'location' : undefined"
+            :title="`Super-module '${entry.supermoduleName}' in the library`"
             @click="index < path.length - 1 && exitTo(index + 1)"
           >
             <i v-if="entry.instanceId === null" class="pi pi-pencil crumb-icon" aria-hidden="true" />
@@ -23,13 +24,15 @@
         </li>
       </ol>
     </nav>
-    <div v-if="sharedCount > 1" class="supermodule-banner" role="status">
-      <i class="pi pi-clone" aria-hidden="true" />
-      <span>
-        Editing super-module '{{ current.supermoduleName }}' — changes apply to {{ sharedCount }} subsystems
-      </span>
+    <div
+      v-if="current"
+      :class="['supermodule-banner', { 'supermodule-banner--shared': sharedCount > 1 }]"
+      role="status"
+    >
+      <i :class="['pi', sharedCount > 1 ? 'pi-clone' : 'pi-book']" aria-hidden="true" />
+      <span>Editing super-module '{{ current.supermoduleName }}' in the library — {{ impact }}</span>
       <Button
-        v-if="current.instanceId !== null"
+        v-if="sharedCount > 1 && current.instanceId !== null"
         label="Make unique"
         size="small"
         text
@@ -44,9 +47,9 @@
 <script setup>
 /**
  * Where the canvas is: Model, then each subsystem entered (or the super-module edited on its own), the last the one
- * shown. Earlier entries go back there, and Escape goes up one level. While the super-module shown has more than one
- * copy in the model, a banner says an edit changes them all, and, reached through a subsystem, offers to give that
- * subsystem its own copy.
+ * shown, each titled with its super-module. Earlier entries go back there, and Escape goes up one level. A banner names the
+ * library super-module being edited and how many super instances an edit changes; while that is more than one, and
+ * the canvas came through a super instance, it offers to give that one its own copy.
  */
 import { computed } from 'vue'
 import Button from 'primevue/button'
@@ -70,6 +73,11 @@ const { isAtRoot, path, exitTo, exitOne } = useCanvasLevel()
 
 const current = computed(() => path.value.at(-1))
 const sharedCount = computed(() => current.value?.occurrences ?? 0)
+// What an edit to the super-module shown changes.
+const impact = computed(() => {
+  if (sharedCount.value > 1) return `changes apply to ${sharedCount.value} super instances`
+  return sharedCount.value === 1 ? 'changes apply to its one super instance' : 'no super instance uses it yet'
+})
 const { makeUniqueSubsystem } = useHierarchyOperations()
 
 /** Gives the subsystem shown its own copy of its super-module; the canvas then shows the copy. */
@@ -80,7 +88,8 @@ async function makeUnique() {
 
 /**
  * Says what a crumb is a copy of: a subsystem's super-module, where its name differs, and how many subsystems that
- * has, when more than one; for the super-module edited on its own, that it is one.
+ * has, when more than one; for the super-module edited on its own, that it is one. Its title always names the
+ * super-module, as the banner does.
  *
  * @param {Object} entry - A path entry of useCanvasLevel.
  * @returns {string} Empty when there is nothing to add.
@@ -204,11 +213,17 @@ useActiveDocumentListeners({ keydown: onKeydown })
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
-  border: 1px solid color-mix(in srgb, var(--p-orange-500) 45%, transparent);
+  border: 1px solid var(--p-content-border-color);
   border-radius: 6px;
-  background: color-mix(in srgb, var(--p-orange-500) 12%, var(--p-content-background));
+  background: var(--p-content-background);
   color: var(--p-text-color);
   font-size: 12px;
+}
+
+/* An edit changes more than this super instance. */
+.supermodule-banner--shared {
+  border-color: color-mix(in srgb, var(--p-orange-500) 45%, transparent);
+  background: color-mix(in srgb, var(--p-orange-500) 12%, var(--p-content-background));
 }
 
 .banner-action {

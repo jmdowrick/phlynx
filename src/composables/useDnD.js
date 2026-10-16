@@ -37,7 +37,7 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
   const { addNodes, onNodesInitialized, screenToFlowCoordinate, updateNode } = useVueFlow(flowId)
   const { scope, nodes: canvasNodes, nextNodeId } = useActiveCanvas(flowId)
   const store = useLibraryStore()
-  const { addSubsystem, placeLibrarySupermodule } = useSupermodules(flowId)
+  const { addSubsystem, createEmptySubsystem, freeSupermoduleName, placeLibrarySupermodule } = useSupermodules(flowId)
 
   const isGhostSetupOpen = ref(false)
   const pendingGhostNodeId = ref(null)
@@ -47,15 +47,15 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
   })
 
   /**
-   * Starts dragging a module, a super-module (`{smId}`) to place another subsystem of, or a library super-module
-   * (`{caSupermodule: moduleRef}`).
+   * Starts dragging a module, a super-module (`{smId}`) to place another subsystem of, a library super-module
+   * (`{caSupermodule: moduleRef}`), or a new, empty super-module (`{emptySupermodule: true}`).
    *
    * @param {DragEvent} event
-   * @param {Object} module - A library module, `{smId}` or `{caSupermodule}`.
+   * @param {Object} module - A library module, `{smId}`, `{caSupermodule}` or `{emptySupermodule}`.
    */
   function onDragStart(event, module) {
     if (event.dataTransfer) {
-      event.dataTransfer.setData('application/vueflow', module.moduleRef ?? module.smId ?? module.caSupermodule)
+      event.dataTransfer.setData('application/vueflow', module.moduleRef ?? module.smId ?? module.caSupermodule ?? 'empty-supermodule')
       event.dataTransfer.effectAllowed = 'move'
     }
 
@@ -175,6 +175,16 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
       return placeLibrarySupermodule(moduleData.caSupermodule, position).then((id) => {
         if (!id) notify.warning({ title: 'Not Placed', message: 'This super-module would then contain itself, so it can’t go here.' })
       }, (error) => notify.error({ title: 'Not Placed', message: error.message }))
+    }
+
+    if (moduleData.emptySupermodule) {
+      // Named free, as an instance is; renamed on the canvas, or in the library.
+      try {
+        createEmptySubsystem(freeSupermoduleName(), position)
+      } catch (error) {
+        notify.error({ title: 'Not Placed', message: error.message })
+      }
+      return
     }
 
     if (moduleData.smId) {

@@ -7,7 +7,11 @@ import PrimeVue from 'primevue/config'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import LibraryArea from '../../../src/components/LibraryArea.vue'
+import useDragAndDrop from '../../../src/composables/useDnD.js'
 import { useCanvasLevel } from '../../../src/composables/useCanvasLevel.js'
+import { useSupermoduleEditGuard } from '../../../src/composables/useSupermoduleEditGuard.js'
+import { supermoduleContentHash } from '../../../src/services/hierarchy/operations.js'
+import { createHistory } from '../../../src/stores/historyStore.js'
 import { FLOW_IDS } from '../../../src/utils/constants.js'
 import { module, subsystem, supermodule } from '../fixtures/hierarchy/graph.js'
 
@@ -29,7 +33,7 @@ describe('LibraryArea super-modules', () => {
   const mountLibrary = (props = { showSupermodules: true }) => {
     wrapper = mount(LibraryArea, { props, global: { plugins: [PrimeVue] } })
   }
-  const cards = () => wrapper.findAll('.mlc__card--supermodule')
+  const cards = () => wrapper.findAll('.mlc__card--supermodule:not(.mlc__card--empty-supermodule)')
   const card = (smId) => wrapper.find(`[data-supermodule="${smId}"]`)
 
   beforeEach(async () => {
@@ -95,5 +99,72 @@ describe('LibraryArea super-modules', () => {
     mountLibrary()
     await wrapper.find('.mlc__search input').setValue('argus')
     expect(cards().map((entry) => entry.attributes('data-supermodule'))).toEqual(['sm_1'])
+  })
+
+  describe('the Empty super-module entry', () => {
+    const entry = () => wrapper.find('[data-empty-supermodule]')
+
+    it('comes first in the group, and drags a new, empty super-module', async () => {
+      mountLibrary()
+      const group = wrapper.findAll('.mlc__group--supermodules .mlc__card')
+      expect(group[0].element).toBe(entry().element)
+      expect(entry().find('.mlc__card-name').text()).toBe('Empty super-module')
+      expect(entry().attributes('draggable')).toBe('true')
+
+      const data = new Map()
+      await entry().trigger('dragstart', { dataTransfer: { setData: (type, value) => data.set(type, value), effectAllowed: '' } })
+      expect(data.get('application/vueflow')).toBe('empty-supermodule')
+      expect(useDragAndDrop().draggedType.value).toEqual({ emptySupermodule: true })
+      useDragAndDrop().draggedType.value = null
+    })
+
+    it('shows with no super-modules yet, but not outside the workspace’s palette or past the filter', async () => {
+      await flow.fromObject({ nodes: [], edges: [] })
+      mountLibrary()
+      expect(entry().exists()).toBe(true)
+      await wrapper.find('.mlc__search input').setValue('heart')
+      expect(entry().exists()).toBe(false)
+      await wrapper.find('.mlc__search input').setValue('empty')
+      expect(entry().exists()).toBe(true)
+      wrapper.unmount()
+      mountLibrary({ showSupermodules: true, selectable: true })
+      expect(entry().exists()).toBe(false)
+    })
+  })
+
+  describe('what edits did to a library entry', () => {
+    it('marks a super-module modified once a structural edit to it is a step, not one made by it', async () => {
+      const history = createHistory()
+      useSupermoduleEditGuard().install(history)
+      mountLibrary()
+      expect(wrapper.find('.mlc__modified').exists()).toBe(false)
+
+      // A new super-module made with what it holds isn't modified; one an edit changes is.
+      await history.executeAndAddCommand({ type: 'add', scopes: ['sm_3'], created: ['sm_3'], redo: () => {}, undo: () => {} })
+      await history.executeAndAddCommand({ type: 'add', scopes: ['sm_2'], redo: () => {}, undo: () => {} })
+      await nextTick()
+      expect(card('sm_2').find('.mlc__modified').text()).toBe('modified')
+      expect(card('sm_1').find('.mlc__modified').exists()).toBe(false)
+
+      history.clear()
+      await nextTick()
+      expect(wrapper.find('.mlc__modified').exists()).toBe(false)
+    })
+
+    it('says when a super-module made from a template no longer matches it', async () => {
+      const source = { format: 'circulatory_autogen', moduleRef: 'heart:Argus2026_v01', hash: 'feedbeef' }
+      const nodes = flow.nodes.value
+      source.contentHash = supermoduleContentHash('sm_1', nodes, flow.edges.value)
+      flow.updateNodeData('sm_1', { supermodule: { ...flow.findNode('sm_1').data.supermodule, source } })
+      mountLibrary()
+      // A rename doesn't count; what it holds does.
+      flow.updateNodeData('sm_1', { supermodule: { ...flow.findNode('sm_1').data.supermodule, name: 'pump' } })
+      await nextTick()
+      expect(card('sm_1').find('.mlc__template-drift').exists()).toBe(false)
+
+      flow.removeNodes(['sm_1~dndnode_0'])
+      await nextTick()
+      expect(card('sm_1').find('.mlc__template-drift').text()).toBe('no longer matches template heart:Argus2026_v01')
+    })
   })
 })

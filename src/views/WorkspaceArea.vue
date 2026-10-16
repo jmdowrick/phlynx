@@ -571,6 +571,8 @@
     :problems="exposeDialog.problems"
     @save="onExposeSave"
   />
+
+  <SupermoduleEditDialog />
 </template>
 
 <script>
@@ -645,6 +647,7 @@ import Workbench from '../components/WorkbenchArea.vue'
 import CouplingEdge from '../components/CouplingEdge.vue'
 import ExposureEdge from '../components/ExposureEdge.vue'
 import ExposePortsDialog from '../components/ExposePortsDialog.vue'
+import SupermoduleEditDialog from '../components/dialogs/SupermoduleEditDialog.vue'
 import { useExposure } from '../composables/useExposure'
 import { isExposureEdge } from '../services/hierarchy/exposure'
 import InstanceNode from '../components/InstanceNode.vue'
@@ -1111,6 +1114,14 @@ function openExposeDialog(edgeId) {
   const data = exposure.exposureDialogOf(edgeId)
   if (data) exposeDialog.value = { visible: true, edgeId, data, problems: [] }
 }
+
+// An edge cancelled while its dialog is open, as when its super-module's edit is (see useSupermoduleEditGuard), closes it.
+watch(
+  () => exposeDialog.value.visible && !findEdge(exposeDialog.value.edgeId),
+  (gone) => {
+    if (gone) exposeDialog.value.visible = false
+  }
+)
 
 /** Saves what the dialog's edge exposes; it closes once saved, and stays open on a problem or a declined un-expose. */
 async function onExposeSave(rows) {
@@ -1836,6 +1847,7 @@ async function onReplaceConfirm(updatedData) {
     type: 'replace-module',
     nodeIds: [id],
     keys: Object.keys(updatedData),
+    structural: true,
     apply: () => updateNodeData(id, updatedData),
   })
   replacementDialogVisible.value = false

@@ -9,6 +9,7 @@ import { useVueFlow } from '@vue-flow/core'
 import { useActiveCanvas } from './useActiveCanvas'
 import { useFlowHistoryFor } from './useFlowHistoryFor'
 import { indexExposures, nextExposedPortId, portResolver, subsystemPorts } from '../services/hierarchy/exposure'
+import { supermoduleContentHash } from '../services/hierarchy/operations'
 import { buildSubsystem, buildSupermoduleInterface } from '../services/import/buildWorkflow'
 import { importCaModuleArray, templateHash } from '../services/import/caFold'
 import { layoutSupermoduleScopes } from '../services/layouts/scopes'
@@ -36,6 +37,7 @@ const catalogues = new WeakMap()
  * @property {string} id
  * @property {string} name
  * @property {string} label - Its circulatory_autogen `module_type:module_subtype` once it has one, else its name.
+ * @property {Object|null} source - The library definition it was made from, if any.
  * @property {number} count - Its subsystems, as the palette shows.
  * @property {number} occurrences - Its copies in the model, through super-modules holding it: what an edit changes.
  */
@@ -71,11 +73,12 @@ function createCatalogue(flow, flowId) {
     for (const node of nodes) if (isSubsystem(node)) counts.set(node.data?.smId, (counts.get(node.data?.smId) ?? 0) + 1)
     const occurrences = supermoduleOccurrences(nodes)
     return nodes.filter(isSupermoduleInterface).map((node) => {
-      const { name = node.id, ca = null } = node.data?.supermodule ?? {}
+      const { name = node.id, ca = null, source = null } = node.data?.supermodule ?? {}
       return {
         id: node.id,
         name,
         label: ca ? `${ca.module_type}:${ca.module_subtype}` : name,
+        source,
         count: counts.get(node.id) ?? 0,
         occurrences: occurrences.get(node.id) ?? 0,
       }
@@ -88,6 +91,31 @@ function createCatalogue(flow, flowId) {
 
   /** @returns {Object|undefined} A super-module's entry. */
   const find = (smId) => byId.value.get(smId)
+
+  // Each super-module made from a circulatory_autogen library template: the template, and whether it still matches,
+  // by what it holds as it was made, and by the template the library has now, when it has it.
+  const templates = computed(() => {
+    const nodes = allNodes()
+    const edges = allEdges()
+    const library = useLibraryStore().availableSupermodules
+    const result = new Map()
+    for (const node of nodes) {
+      const { source, ca } = (isSupermoduleInterface(node) && node.data?.supermodule) || {}
+      if (source?.format !== 'circulatory_autogen') continue
+      const changed = !!source.contentHash && supermoduleContentHash(node.id, nodes, edges) !== source.contentHash
+      const replaced = library.has(source.moduleRef) && templateHash(source.moduleRef, library) !== source.hash
+      result.set(node.id, { label: ca ? `${ca.module_type}:${ca.module_subtype}` : source.moduleRef, matches: !changed && !replaced })
+    }
+    return result
+  })
+
+  /**
+   * Gets the library template a super-module was made from, and whether it still matches it.
+   *
+   * @param {string} smId
+   * @returns {{label: string, matches: boolean}|undefined} Undefined when it wasn't made from one.
+   */
+  const templateOf = (smId) => templates.value.get(smId)
 
   /** @returns {number} How many subsystems a super-module has, nested ones included. */
   const countOf = (smId) => find(smId)?.count ?? 0
@@ -235,6 +263,13 @@ function createCatalogue(flow, flowId) {
     return true
   }
 
+  /** @returns {string} A name a new super-module and its subsystem can both have: `base`, else `base_2`, `base_3`, … */
+  const freeSupermoduleName = (base = 'supermodule') => {
+    let name = base
+    for (let n = 2; subsystemNameProblem(name) || supermoduleNameProblem(name); n++) name = `${base}_${n}`
+    return name
+  }
+
   /** @returns {string} A name not yet used on the canvas: `base`, else `base_2`, `base_3`, … */
   const freeName = (base) => {
     const taken = new Set(canvas.nodes.value.map((node) => node.data?.name))
@@ -353,6 +388,7 @@ function createCatalogue(flow, flowId) {
     librarySupermodules,
     placeLibrarySupermodule,
     find,
+    templateOf,
     countOf,
     canPlace,
     portsOf,
@@ -365,6 +401,7 @@ function createCatalogue(flow, flowId) {
     subsystemNameProblem,
     supermoduleNameProblem,
     createEmptySubsystem,
+    freeSupermoduleName,
     addSubsystem,
   }
 }

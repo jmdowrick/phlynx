@@ -178,9 +178,12 @@ function createExposure(flow, flowId, history, handles) {
       for (const [id, data] of nodeData) if (flow.findNode(id)) flow.updateNodeData(id, { overrides: detachReactivity(data[side]) })
     }
     const removedIds = removed.map((edge) => edge.id)
+    // The scopes whose structure this changes: the exposure edges' super-module, and where couplings change.
+    const scopes = [...new Set([...edgeData.keys(), ...removedIds].map((id) => scopeOf(flow.findNode(flow.findEdge(id)?.source))))]
 
     await history.executeAndAddCommand({
       type,
+      scopes,
       redo: async () => {
         writeEdges('after')
         writeNodes('after')

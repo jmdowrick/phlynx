@@ -8,6 +8,7 @@
  */
 import { useVueFlow } from '@vue-flow/core'
 import { createPinia, setActivePinia } from 'pinia'
+import { nextTick } from 'vue'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useFlowHistory } from '../../../src/composables/useFlowHistory.js'
@@ -210,5 +211,14 @@ describe('the palette places a library super-module', () => {
     expect(interfaces()).toHaveLength(3)
     expect(flow.findNode(second).data).toMatchObject({ name: 'neuron_2', smId: neuron.id })
     expect(supermodules.find(neuron.id).count).toBe(2)
+
+    // Placed, each matches the template it was made from, until an edit changes what it holds.
+    await nextTick()
+    expect(interfaces().map((node) => supermodules.templateOf(node.id).matches)).toEqual([true, true, true])
+    expect(supermodules.templateOf(neuron.id).label).toBe('neuron:sympathetic')
+    const child = flow.nodes.value.find((node) => node.data?.scope === neuron.id && !isSupermoduleInterface(node))
+    flow.removeNodes([child.id])
+    await nextTick()
+    expect(supermodules.templateOf(neuron.id).matches).toBe(false)
   })
 })

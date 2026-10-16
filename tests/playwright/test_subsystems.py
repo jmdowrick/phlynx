@@ -20,7 +20,10 @@ SUBSYSTEM = ".vue-flow__node:has(.subsystem-node)"
 INTERFACE = ".vue-flow__node:has(.interface-node)"
 BREADCRUMB = ".flow-breadcrumb"
 CRUMB = ".flow-breadcrumb .crumb"
-SUPERMODULE_CARD = ".mlc__card--supermodule"
+# A workspace super-module's library card; the Empty super-module entry and CA templates are listed apart.
+SUPERMODULE_CARD = ".mlc__card--supermodule[data-supermodule]"
+EMPTY_SUPERMODULE = "[data-empty-supermodule]"
+BANNER = ".supermodule-banner"
 EXPOSURE_LABEL = ".exposure-edge-label"
 
 # An edge's couplings, read from the app's store (dev server only): each port's label, and the exposed port the
@@ -107,8 +110,11 @@ class TestSubsystems(unittest.TestCase):
         current = page.locator(CRUMB).last
         expect(current).to_have_attribute("aria-current", "location")
         self.assertEqual(current.evaluate("(crumb) => crumb.tagName"), "SPAN")
-        # One copy only, so no shared super-module banner.
-        expect(page.locator(".supermodule-banner")).to_have_count(0)
+        # One copy only: the banner still names the library entry, with nothing to make unique.
+        expect(page.locator(BANNER)).to_have_text(
+            "Editing super-module 'heart' in the library — changes apply to its one super instance"
+        )
+        expect(page.locator(BANNER).get_by_role("button", name="Make unique")).to_have_count(0)
 
         # Escape goes back to the model.
         page.keyboard.press("Escape")
@@ -279,6 +285,82 @@ class TestSubsystems(unittest.TestCase):
         expect(node_by_name(page, "var_SN")).to_have_count(1)
         expect(page.locator(EDGE)).to_have_count(2)
         expect(page.locator(SUPERMODULE_CARD)).to_have_count(0)
+
+
+    # ---------- dragging from the library -----------
+
+    def test_drag_empty_supermodule_and_ask_on_shared_edit(self):
+        page = self.page
+        self.open_workspace()
+        canvas = page.locator(".vue-flow")
+        library = page.locator(".mlc").bounding_box()
+        x = library["x"] + library["width"]
+
+        # The Empty super-module entry makes a super-module and one super instance of it where it is dropped.
+        empty = page.locator(EMPTY_SUPERMODULE)
+        expect(empty.locator(".mlc__card-name")).to_have_text("Empty super-module")
+        empty.drag_to(canvas, target_position={"x": x + 200, "y": 600})
+        subsystem = page.locator(SUBSYSTEM)
+        expect(subsystem).to_have_count(1)
+        expect(subsystem.locator(".name-text")).to_have_text("supermodule")
+        expect(page.locator(SUPERMODULE_CARD).locator(".mlc__card-name")).to_have_text(["supermodule"])
+        expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT + 1)
+
+        # One undo step takes both away; redo, and a second super instance from its card.
+        undo(page)
+        expect(subsystem).to_have_count(0)
+        expect(page.locator(SUPERMODULE_CARD)).to_have_count(0)
+        empty.drag_to(canvas, target_position={"x": x + 200, "y": 600})
+        expect(subsystem).to_have_count(1)
+        page.locator(SUPERMODULE_CARD).drag_to(canvas, target_position={"x": x + 600, "y": 600})
+        expect(subsystem).to_have_count(2)
+        expect(page.locator(SUPERMODULE_CARD).locator(".mlc__badge")).to_have_text("2 subsystems")
+
+        # Inside one, the banner names the library entry, and the first structural edit asks.
+        wait_for_settled_transform(page)
+        subsystem.first.get_by_role("button", name="Open subsystem").click()
+        expect(page.locator(BANNER)).to_contain_text(
+            "Editing super-module 'supermodule' in the library — changes apply to 2 super instances"
+        )
+        wait_for_settled_transform(page)
+        page.get_by_role("button", name="Cell modules").click()
+        soma = page.locator(".mlc .mlc__card--draggable").filter(has_text="SN_soma").first
+        soma.drag_to(canvas, target_position={"x": x + 300, "y": 300})
+        question = page.get_by_role("dialog", name="Change Super-module?")
+        expect(question).to_contain_text("This changes super-module 'supermodule' in the library, used by 2 super instances.")
+
+        # Escape cancels: the module isn't added, and nothing is left to undo inside.
+        page.keyboard.press("Escape")
+        expect(question).to_be_hidden()
+        expect(page.locator(NODE)).to_have_count(1)
+        expect(page.locator(SUPERMODULE_CARD).locator(".mlc__modified")).to_have_count(0)
+
+        # Change all keeps it, for both super instances, and asks no more here.
+        soma.drag_to(canvas, target_position={"x": x + 300, "y": 300})
+        question.get_by_role("button", name="Change all 2").click()
+        expect(question).to_be_hidden()
+        expect(page.locator(NODE)).to_have_count(2)
+        expect(page.locator(SUPERMODULE_CARD).locator(".mlc__modified")).to_have_text("modified")
+        page.locator(".mlc .mlc__card--draggable").filter(has_text="SN_axon").first.drag_to(
+            canvas, target_position={"x": x + 700, "y": 300}
+        )
+        expect(page.locator(NODE)).to_have_count(3)
+        expect(question).to_be_hidden()
+
+        # Make this one a new super-module, asked again once the canvas has left.
+        page.keyboard.press("Escape")
+        expect(page.locator(BREADCRUMB)).to_have_count(0)
+        wait_for_settled_transform(page)
+        subsystem.first.get_by_role("button", name="Open subsystem").click()
+        expect(page.locator(NODE)).to_have_count(3)
+        wait_for_settled_transform(page)
+        node_by_name(page, "axon_SN").locator(".card-header-actions").click()
+        page.keyboard.press("Delete")
+        question.get_by_role("button", name="Make this one a new super-module").click()
+        expect(question).to_be_hidden()
+        expect(page.locator(NODE)).to_have_count(2)
+        expect(page.locator(BANNER)).to_contain_text("'supermodule_2' in the library — changes apply to its one super instance")
+        expect(page.locator(SUPERMODULE_CARD).locator(".mlc__card-name")).to_have_text(["supermodule_2", "supermodule"])
 
 
 if __name__ == "__main__":

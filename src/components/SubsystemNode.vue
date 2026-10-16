@@ -142,7 +142,7 @@ const supermodule = computed(() => find(props.data.smId))
 const portCount = computed(() => props.data.ports?.length ?? 0)
 const countLabel = computed(() => {
   const count = supermodule.value?.count ?? 0
-  return `${count} subsystem${count === 1 ? '' : 's'} of ${supermodule.value?.name ?? 'this super-module'}`
+  return `${count} super instance${count === 1 ? '' : 's'} of ${supermodule.value?.name ?? 'this super-module'}`
 })
 
 /** Shows the super-module's nodes, as this subsystem's. */
@@ -155,20 +155,23 @@ function open() {
 @use '../assets/nodechrome.scss';
 @import '../assets/vueflowhandle.css';
 
-/* Stacked behind, as one of several copies of its super-module. */
+/* A second edge just inside the instance card's own, so it reads as nested at exactly an instance card's size. */
 .subsystem-card {
-  border-style: double;
-  border-color: color-mix(in srgb, var(--p-text-color) 22%, transparent);
   box-shadow:
-    4px 4px 0 -1px var(--p-content-background),
-    4px 4px 0 0 color-mix(in srgb, var(--p-text-color) 22%, transparent);
+    inset 0 0 0 1px color-mix(in srgb, var(--p-text-color) 22%, transparent),
+    0 1px 2px color-mix(in srgb, var(--p-text-color) 6%, transparent);
 }
 
 .subsystem-card:hover {
   box-shadow:
-    4px 4px 0 -1px var(--p-content-background),
-    4px 4px 0 0 color-mix(in srgb, var(--p-text-color) 22%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--p-text-color) 22%, transparent),
     0 4px 10px color-mix(in srgb, var(--p-text-color) 12%, transparent);
+}
+
+.selected .subsystem-card {
+  box-shadow:
+    inset 0 0 0 1px #409eff, /* the selection border, vueflownode.css */
+    0 1px 2px color-mix(in srgb, var(--p-text-color) 6%, transparent);
 }
 
 .subsystem-supermodule--missing {
@@ -176,13 +179,16 @@ function open() {
 }
 
 .subsystem-count {
+  display: inline-flex;
   flex-shrink: 0;
-  padding: 0 0.4rem;
+  align-items: center;
+  height: 1.6rem;
+  padding: 0 0.45rem;
   border-radius: 999px;
+  box-sizing: border-box;
   background: color-mix(in srgb, var(--p-text-color) 8%, transparent);
   color: color-mix(in srgb, var(--p-text-color) 75%, transparent);
   font-size: 0.75rem;
   font-weight: 600;
-  line-height: 1.4rem;
 }
 </style>

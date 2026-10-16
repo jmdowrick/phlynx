@@ -196,6 +196,7 @@ export function useConnect({
 
       historyStore.addCommand({
         type: 'replace-edge',
+        scopes: [scope],
         async undo() {
           await revertHandlesForEdge(newEdge, [newEdge.id], {
             trackHistory: false,

@@ -18,7 +18,7 @@
     <!-- Collections -->
     <div ref="scrollEl" class="mlc__scroll">
       <!-- The workspace's super-modules: drag one to place another subsystem of it, or edit it on its own. -->
-      <div v-if="filteredSupermodules.length + filteredLibrarySupermodules.length > 0" class="mlc__group mlc__group--supermodules">
+      <div v-if="showsEmptySupermodule || filteredSupermodules.length + filteredLibrarySupermodules.length > 0" class="mlc__group mlc__group--supermodules">
         <button
           class="mlc__group-header"
           :class="{ 'is-open': activeCollapseNames.includes(SUPERMODULE_GROUP) }"
@@ -36,6 +36,25 @@
 
         <transition name="slide">
           <div v-show="activeCollapseNames.includes(SUPERMODULE_GROUP)" class="mlc__group-body">
+            <!-- Dropped, a new, empty super-module and one super instance of it, named free. -->
+            <div
+              v-if="showsEmptySupermodule"
+              class="mlc__card mlc__card--supermodule mlc__card--draggable mlc__card--empty-supermodule"
+              data-empty-supermodule
+              draggable="true"
+              @dragstart="handleEmptySupermoduleDragStart"
+              @dragend="handleDragEnd"
+            >
+              <div class="mlc__card-inner">
+                <div class="mlc__card-body">
+                  <div class="mlc__card-header">
+                    <i class="pi pi-plus mlc__supermodule-icon" aria-hidden="true" />
+                    <span class="mlc__card-name">Empty super-module</span>
+                  </div>
+                  <div class="mlc__supermodule-label">Drag onto the canvas for a new super instance</div>
+                </div>
+              </div>
+            </div>
             <div
               v-for="entry in filteredSupermodules"
               :key="entry.id"
@@ -103,6 +122,13 @@
                     </div>
                   </div>
                   <div v-if="entry.label !== entry.name" class="mlc__supermodule-label">{{ entry.label }}</div>
+                  <!-- What edits this session did to the library entry. -->
+                  <div v-if="isModified(entry.id) || templateOf(entry.id)?.matches === false" class="mlc__supermodule-status">
+                    <Tag v-if="isModified(entry.id)" severity="warn" rounded class="mlc__badge mlc__modified" value="modified" />
+                    <span v-if="templateOf(entry.id)?.matches === false" class="mlc__template-drift">
+                      no longer matches template {{ templateOf(entry.id).label }}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -291,6 +317,7 @@ import useDragAndDrop from '../composables/useDnD'
 import { useActiveCanvas } from '../composables/useActiveCanvas'
 import { useCanvasLevel } from '../composables/useCanvasLevel'
 import { useSupermodules } from '../composables/useSupermodules'
+import { useSupermoduleEditGuard } from '../composables/useSupermoduleEditGuard'
 import ModulePreviewDialog from './ModulePreviewDialog.vue'
 import NewSubsystemDialog from './dialogs/NewSubsystemDialog.vue'
 import { notify } from '../utils/notify'
@@ -358,7 +385,8 @@ function cardMatches(card, q) {
 }
 
 // The super-modules listed, matching the filter, and whether each can be placed on the canvas shown.
-const { supermodules, librarySupermodules, canPlace, deleteSupermodule, renameSupermodule } = useSupermodules()
+const { supermodules, librarySupermodules, canPlace, deleteSupermodule, renameSupermodule, templateOf } = useSupermodules()
+const { isModified } = useSupermoduleEditGuard()
 const { scope: canvasScope } = useActiveCanvas()
 const canvasLevel = useCanvasLevel()
 
@@ -374,6 +402,13 @@ const filteredLibrarySupermodules = computed(() => {
   const q = filterText.value.toLowerCase().trim()
   if (!q) return librarySupermodules.value
   return librarySupermodules.value.filter((entry) => `${entry.name} ${entry.moduleRef}`.toLowerCase().includes(q))
+})
+
+// The Empty super-module entry, listed where super-modules are, when the filter matches it.
+const showsEmptySupermodule = computed(() => {
+  if (!props.showSupermodules || props.selectable) return false
+  const q = filterText.value.toLowerCase().trim()
+  return !q || 'empty super-module'.includes(q)
 })
 
 // The super-module the rename dialog renames.
@@ -469,6 +504,13 @@ function handleLibrarySupermoduleDragStart(event, entry) {
   isDragging.value = true
   event.dataTransfer.effectAllowed = 'copy'
   onDragStart(event, { caSupermodule: entry.moduleRef })
+}
+
+/** Starts dragging a new, empty super-module, made with one super instance where it is dropped. */
+function handleEmptySupermoduleDragStart(event) {
+  isDragging.value = true
+  event.dataTransfer.effectAllowed = 'copy'
+  onDragStart(event, { emptySupermodule: true })
 }
 
 function handleDragEnd() {
@@ -711,6 +753,19 @@ function handleSelect(module) {
 .mlc__supermodule-icon {
   font-size: 12px;
   color: var(--mlc-text-muted);
+}
+
+.mlc__supermodule-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.mlc__template-drift {
+  font-size: 11.5px;
+  color: var(--p-orange-500);
 }
 
 .mlc__supermodule-label {
