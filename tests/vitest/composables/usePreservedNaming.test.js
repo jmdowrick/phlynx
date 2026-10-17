@@ -47,7 +47,7 @@ describe('usePreservedNaming', () => {
 
     expect(guard.asks(after)).toBe(true)
     expect(await guard.allow(after)).toBe(true)
-    expect(confirm.mock.calls[0][0].message).toContain('channel → channel__self\ngate → channel__gate')
+    expect(confirm.mock.calls[0][0].message).toContain(':\ngate → channel__gate')
     expect(naming()).toBe('prefixed')
     const [[command]] = history.executeAndAddCommand.mock.calls
     command.undo()

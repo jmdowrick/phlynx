@@ -40,7 +40,7 @@ import { sanitiseName } from '../../utils/identifiers'
 import { expandHierarchy, EXPANDED_ID_SEPARATOR, LOCAL_CONSTANTS_KEY } from './expand'
 import { EXPOSED_PORT_ID_PREFIX, exposureEnds, exposureEntriesOf, indexExposures, nextExposedPortId, superInstancePorts } from './exposure'
 import { asConstants, isLocalConstantRow, localConstantsOf, localConstantValue } from './localConstants'
-import { LEVEL_SEPARATOR } from './names'
+import { LEVEL_SEPARATOR, SELF_ROLE } from './names'
 
 const NODE_ID_PREFIX = 'dndnode_'
 // What Vue Flow adds to nodes and edges as it draws them, never copied.
@@ -744,7 +744,8 @@ export function unnestProblem(nodes, superInstanceId) {
  *
  * - Each child gets a new id in the super instance's scope, and its name prefixed with the super instance's (`heart__lv` at the
  *   root, so its flat name is kept; `heart_lv` inside a super-module, whose names can't hold `__`), unique there. Under
- *   'preserve' naming it takes its own name, and a self leaf becomes an ordinary module.
+ *   'preserve' naming it takes its own name; a self leaf takes the super instance's name under 'prefixed', so its flat
+ *   name is kept too, and becomes an ordinary module.
  * - The super instance's overrides are baked in: into a module's rows, or a nested super instance's own overrides, which they win
  *   over. Its super-module's local constants are baked into the rows bound to them, as constants with the values they
  *   have for it; an outer super instance's override of them becomes an override of each of those rows.
@@ -789,7 +790,11 @@ export function unnest(nodes, edges, superInstanceId) {
   for (const child of children) {
     const id = nextId()
     const ownName = isPreserved ? (child.data?.originalName ?? child.data?.name) : child.data?.name
-    const joined = isPreserved ? ownName : `${superInstance.data.name}${scope ? '_' : LEVEL_SEPARATOR}${ownName}`
+    const joined = isPreserved
+      ? ownName
+      : child.data?.role === SELF_ROLE
+        ? superInstance.data.name
+        : `${superInstance.data.name}${scope ? '_' : LEVEL_SEPARATOR}${ownName}`
     // Out of its super-module, a self leaf is a module like any other, and its name its own.
     const { role: _role, originalName: _originalName, ...own } = clone(child.data)
     const data = { ...own, scope, localId: splitNodeId(id).localId, name: claimName(joined, names, { scope }) }

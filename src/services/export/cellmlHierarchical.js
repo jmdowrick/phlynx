@@ -36,7 +36,7 @@ import JSZip from 'jszip'
 
 import { expandHierarchy } from '../hierarchy/expand'
 import { indexExposures } from '../hierarchy/exposure'
-import { LEVEL_SEPARATOR } from '../hierarchy/names'
+import { LEVEL_SEPARATOR, SELF_ROLE } from '../hierarchy/names'
 import { analyzeMathXml } from '../math/analyzeMath'
 import {
   connectVariables,
@@ -75,7 +75,7 @@ import { findVoiNames } from '../../utils/variables'
 let libcellml = null
 
 /** The role of a super-module's leaf that holds the super-module's own maths (#364): it is written as the wrapper. */
-export const SELF_ROLE = 'self'
+export { SELF_ROLE }
 
 /** @returns {boolean} Whether a node is its super-module's self leaf. */
 export const isSelfLeaf = (node) => node?.data?.role === SELF_ROLE

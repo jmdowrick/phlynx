@@ -245,7 +245,6 @@ describe('importing CellML encapsulation as super-modules (#364)', () => {
     // Another potassium_current is another n gate too.
     expect(preserveConflicts(another(potassium.id))).toEqual([potassium.id, nGate.id])
     expect(flatNameChanges(nodes, withPrefixedNaming(nodes, [sodium.id]))).toEqual([
-      { from: 'sodium_current', to: 'sodium_current__self' },
       { from: 'sodium_current_m_gate', to: 'sodium_current__sodium_current_m_gate' },
       { from: 'sodium_current_h_gate', to: 'sodium_current__sodium_current_h_gate' },
     ])
@@ -253,5 +252,36 @@ describe('importing CellML encapsulation as super-modules (#364)', () => {
     const instance = nodes.find((node) => node.data.smId === sodium.id)
     const unique = makeUnique([...nodes, { ...instance, id: 'dndnode_99', data: { ...instance.data, name: 'x' } }], [], 'dndnode_99')
     expect(unique.nodes.find((node) => node.id === unique.smId).data.supermodule.naming).toBe('prefixed')
+  })
+
+  it('names a prefixed self leaf after its super instance, the flat and hierarchical exports alike', async () => {
+    const graph = await importModel(wrapped())
+    const sodium = byName(graph.nodes, 'sodium_current')
+    const prefixed = { nodes: withPrefixedNaming(graph.nodes, [sodium.id]), edges: graph.edges }
+
+    const expansion = expandHierarchy(prefixed.nodes, prefixed.edges)
+    const self = expansion.idOf('sodium_current')
+    expect(expansion.pathOf(self)).toBe('sodium_current/self')
+    expect(expansion.idOf('sodium_current/self')).toBe(self)
+    expect(toPath('sodium_current', expansion)).toBe('sodium_current/self')
+    expect(expansion.nameOf(expansion.idOf('sodium_current/sodium_current_m_gate'))).toBe('sodium_current__sodium_current_m_gate')
+
+    const flat = await flatExport(prefixed)
+    const components = Object.keys(canonicalModel(flat).components)
+    expect(components).toContain('sodium_current')
+    expect(components.some((name) => name.endsWith('__self'))).toBe(false)
+    const result = await buildHierarchicalCellML(prefixed.nodes, prefixed.edges, store)
+    const { cellml, wrappers } = await flattenHierarchicalModel(result.files, result.host, result)
+    // Every wrapper is a self leaf, holding its maths and relaying the rest; parameters are named after what they set.
+    const options = { partialRelays: wrappers, nameByConnection: ['instance_parameters', 'global_parameters'], ignore: ['interface', 'encapsulation'] }
+    expect(compareCanonical(cellml, flat, options)).toEqual({ equal: true, differences: [] })
+    const simulated = await compareSimulations(flat, cellml, { endTime: 2 })
+    expect(simulated.details.missing).toEqual([])
+    expect(simulated.equal).toBe(true)
+ 
+    // Un-nested, it keeps its flat name.
+    const after = unnest(prefixed.nodes, prefixed.edges, prefixed.nodes.find((node) => node.data.smId === sodium.id).id)
+    expect(after.problems).toEqual([])
+    expect(compareCanonical(flat, await flatExport(after))).toEqual({ equal: true, differences: [] })
   })
 })

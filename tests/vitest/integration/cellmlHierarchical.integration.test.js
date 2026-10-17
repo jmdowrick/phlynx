@@ -42,9 +42,13 @@ vi.setConfig({ testTimeout: 120000 })
 const GENERATED = /^(?:(.+)__)?(generated_summations|generated_multiplications|affine_unit_conversions)$/
 const BY_CONNECTION = ['generated_summations', 'generated_multiplications', 'affine_unit_conversions', 'instance_parameters', 'global_parameters']
 
-/** Flattens a hierarchical export and compares it with a flat CellML, the wrappers only relaying. */
-async function compareWithFlat({ files, host }, flat) {
-  const { cellml, wrappers } = await flattenHierarchicalModel(files, host)
+/**
+ * Flattens a hierarchical export and compares it with a flat CellML, the wrappers only relaying, but those that are self
+ * leaves (`selves`) holding their maths.
+ */
+async function compareWithFlat({ files, host }, flat, { selves = [] } = {}) {
+  const { cellml, wrappers: all } = await flattenHierarchicalModel(files, host)
+  const wrappers = all.filter((name) => !selves.includes(name))
   const result = compareCanonical(cellml, flat, {
     renameA: (name) => name.match(GENERATED)?.[2] ?? name,
     renameVariableA: (component, variable) => {
@@ -52,6 +56,7 @@ async function compareWithFlat({ files, host }, flat) {
       return prefix ? `${prefix}__${variable}` : variable
     },
     relays: wrappers,
+    partialRelays: selves,
     mergeRenamed: true,
     equivalentUnits: true,
     nameByConnection: BY_CONNECTION,
@@ -498,11 +503,15 @@ describe('the CellML export with imports', () => {
     // Only its other children import a module file.
     expect(moduleFiles(exported.files)).toEqual(['modules/drain.cellml'])
     expect(importsOf(definition)).toEqual(['modules/drain.cellml drain drain'])
-    const { cellml } = await flattenHierarchicalModel(exported.files, exported.host)
     const flat = await flatOf({ nodes, edges })
-    const simulated = await compareSimulations(cellml, flat, { module: libOpenCOR, endTime: 2, renameA: { p1: 'p1__tank', p2: 'p2__tank' } })
+    // The self leaf's flat name is its super instance's, so the two exports name it alike.
+    expect(flat).toMatch(/<component name="p1">/)
+    expect(flat).not.toMatch(/p1__tank/)
+    const { cellml, differences } = await compareWithFlat(exported, flat, { selves: ['p1', 'p2'] })
+    expect(differences).toEqual([])
+    const simulated = await compareSimulations(cellml, flat, { module: libOpenCOR, endTime: 2 })
     expect(simulated.details.missing).toEqual([])
-    expect(simulated.details.variables.map((variable) => variable.name)).toEqual(['p1__tank/q', 'p2__tank/q'])
+    expect(simulated.details.variables.map((variable) => variable.name)).toEqual(['p1/q', 'p2/q'])
     expect(simulated.equal).toBe(true)
   })
 })
