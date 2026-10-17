@@ -27,6 +27,8 @@
  * - A module's file is its math as stored, which keeps no values (separateParameters): a state's initial_value names its
  *   initialiser variable. So every instance, whatever its values, imports the one file, and takes each value from the
  *   level it is in, the host's parameters at the root, its wrapper's variables in a super-module.
+ * - A super-module whose naming is 'preserve' names its children, and its self leaf's wrapper, by their own names (their
+ *   originalName), as the flat export does, so flattening gives the flat export's names and not `<instance>__<child>`.
  *
  * A super-module no super instance uses is not part of the model, so it is not written.
  */
@@ -34,7 +36,7 @@ import JSZip from 'jszip'
 
 import { expandHierarchy } from '../hierarchy/expand'
 import { indexExposures } from '../hierarchy/exposure'
-import { LEVEL_SEPARATOR } from '../hierarchy/names'
+import { LEVEL_SEPARATOR, SELF_ROLE } from '../hierarchy/names'
 import { analyzeMathXml } from '../math/analyzeMath'
 import {
   connectVariables,
@@ -73,7 +75,7 @@ import { findVoiNames } from '../../utils/variables'
 let libcellml = null
 
 /** The role of a super-module's leaf that holds the super-module's own maths (#364): it is written as the wrapper. */
-export const SELF_ROLE = 'self'
+export { SELF_ROLE }
 
 /** @returns {boolean} Whether a node is its super-module's self leaf. */
 export const isSelfLeaf = (node) => node?.data?.role === SELF_ROLE
@@ -118,8 +120,9 @@ const safeFileBase = (name) => (name ?? '').trim().replace(/[^A-Za-z0-9_-]/g, '_
  * @param {boolean} [options.check=true] - Validates every file, and validates and analyses the flattened model,
  *   throwing on errors.
  * @param {boolean} [options.allowBcOnly=false] - As generateFlattenedModel's.
- * @returns {Promise<{host: string, files: Map<string, string>}>} The host's file name, and every file's CellML by
- *   file name, the host's first.
+ * @returns {Promise<{host: string, files: Map<string, string>, preserved: string[], selfNamed: string[]}>} The host's
+ *   file name, every file's CellML by file name, the host's first, the files of super-modules whose naming is
+ *   'preserve', and those of them whose wrapper is a self leaf keeping its own name (see flattenHierarchicalModel).
  * @throws {Error} For what the flat export refuses, or a super-module that can't be expanded.
  */
 export async function buildHierarchicalCellML(nodes, edges, libraryStore, { name = 'model', check = true, allowBcOnly = false } = {}) {
@@ -137,8 +140,10 @@ export async function buildHierarchicalCellML(nodes, edges, libraryStore, { name
     const maths = mathReader(libraryStore, parser, keep)
     const levels = planLevels(graph, expansion, plan, maths)
     const files = writeLevels(levels, graph, maths, plan, libraryStore, { name, parser, keep })
-    if (check) checkFiles(files, levels.host.fileName, { parser, keep })
-    return { host: levels.host.fileName, files }
+    const preserved = levels.order.filter((level) => level.preserve).map((level) => level.fileName)
+    const selfNamed = levels.order.filter((level) => level.selfName).map((level) => level.fileName)
+    if (check) checkFiles(files, levels.host.fileName, { parser, keep, preserved, selfNamed })
+    return { host: levels.host.fileName, files, preserved, selfNamed }
   } finally {
     garbage.reverse().forEach((object) => object.delete())
   }
@@ -163,19 +168,23 @@ export async function generateHierarchicalCellMLZip(fileName, nodes, edges, libr
 /**
  * Flattens a hierarchical model, its units and components imports resolved, and names each child of a super instance `<super instance>__<child>` down the
  * definitions it imports, as the flat export names it (spike A rec 5), rather than libcellml's `_N`. A module's import
- * (from MODULES_FOLDER) is a leaf, not a wrapper.
+ * (from MODULES_FOLDER) is a leaf, not a wrapper; a child of a super-module whose naming is 'preserve' keeps its own
+ * name, as does a super instance whose wrapper is such a super-module's self leaf.
  *
  * @param {Map<string, string>|Object<string, string>} files - Every file's CellML, by file name.
  * @param {string} host - The host's file name.
+ * @param {Object} [options]
+ * @param {string[]} [options.preserved=[]] - The files whose children keep their own names (buildHierarchicalCellML's).
+ * @param {string[]} [options.selfNamed=[]] - The files whose wrappers keep their own names (buildHierarchicalCellML's).
  * @returns {Promise<{cellml: string, wrappers: string[]}>} The flattened CellML, and the names its wrappers now have.
  */
-export async function flattenHierarchicalModel(files, host) {
+export async function flattenHierarchicalModel(files, host, { preserved = [], selfNamed = [] } = {}) {
   libcellml = await whenLibCellMLReady()
-  return flattenFiles(files, host)
+  return flattenFiles(files, host, { preserved, selfNamed })
 }
 
 /** Flattens a hierarchical model, libCellML ready (see flattenHierarchicalModel). */
-function flattenFiles(files, host) {
+function flattenFiles(files, host, { preserved = [], selfNamed = [] } = {}) {
   const texts = files instanceof Map ? files : new Map(Object.entries(files))
   const garbage = []
   const keep = (object) => (object && garbage.push(object), object)
@@ -185,21 +194,25 @@ function flattenFiles(files, host) {
 
     const wrappers = []
     const isModule = (component) => keep(component.importSource()).url().startsWith(MODULES_FOLDER)
+    const keepsNames = new Set(preserved)
+    const keepsOwnName = new Set(selfNamed)
     const definitionOf = (component) => {
       const source = keep(component.importSource())
-      return keep(keep(source.model()).componentByName(component.importReference(), false))
+      const url = source.url()
+      return { definition: keep(keep(source.model()).componentByName(component.importReference(), false)), preserve: keepsNames.has(url), self: keepsOwnName.has(url) }
     }
     // The flattened children are the definition's, in its order.
-    const rename = (flattened, definition, prefix) => {
+    const rename = (flattened, { definition, preserve }, prefix) => {
       for (let i = 0; i < definition.componentCount(); i++) {
         const child = keep(definition.componentByIndex(i))
         const copy = keep(flattened.componentByIndex(i))
-        const name = `${prefix}${LEVEL_SEPARATOR}${child.name()}`
+        const inner = child.isImport() && !isModule(child) ? definitionOf(child) : null
+        const name = preserve || inner?.self ? child.name() : `${prefix}${LEVEL_SEPARATOR}${child.name()}`
         copy.setName(name)
-        if (child.isImport() && !isModule(child)) {
+        if (inner) {
           wrappers.push(name)
-          rename(copy, definitionOf(child), name)
-        } else if (child.componentCount()) rename(copy, child, name)
+          rename(copy, inner, name)
+        } else if (child.componentCount()) rename(copy, { definition: child, preserve }, name)
       }
     }
     for (let i = 0; i < model.componentCount(); i++) {
@@ -481,8 +494,9 @@ function planLevels(graph, expansion, plan, maths) {
     return `${candidate}${CELLML_EXTENSION}`
   }
   for (const level of order) {
-    const { name, ca } = supermodules.get(level.smId).data.supermodule
+    const { name, ca, naming } = supermodules.get(level.smId).data.supermodule
     level.name = name
+    level.preserve = naming === 'preserve'
     level.fileBase = safeFileBase(ca?.module_type && ca?.module_subtype ? `${ca.module_type}_${ca.module_subtype}` : name)
   }
   return { host, definitions, order, voi, hostValues: [...hostValues.values()], routed, fileNameOf, reserve: (base) => taken.add(base.toLowerCase()) }
@@ -604,14 +618,25 @@ function writeLevel(level, levels, graph, maths, plan, libraryStore, { units, sh
     return candidate
   }
   const leafComponent = (child) => keep(keep(parser.parseModel(maths(child.data.mathRef).text)).componentByIndex(0))
+  /**
+   * A child's component name: its local name, its own under 'preserve' naming, and, for a super instance whose
+   * super-module preserves names and has a self leaf, that leaf's, as the flat export names it.
+   */
+  const componentNameOf = (child) => {
+    const inner = isSuperInstance(child) ? definitions.get(child.data.smId) : null
+    if (inner?.selfName) return inner.selfName
+    return level.preserve ? (child.data.originalName ?? child.data.name) : child.data.name
+  }
 
   // The wrapper: the self leaf's own component, or one of its own, named apart from the children.
   let wrapper = null
   if (!isHost) {
-    const reserved = new Set(level.children.filter((child) => child !== self).map((child) => sanitiseCellMLIdentifier(child.data.name)))
+    const reserved = new Set(level.children.filter((child) => child !== self).map((child) => sanitiseCellMLIdentifier(componentNameOf(child))))
     wrapper = self ? leafComponent(self) : keep(new lib.Component())
-    let wrapperName = sanitiseCellMLIdentifier(level.name)
-    for (let i = 1; reserved.has(wrapperName); i++) wrapperName = `${sanitiseCellMLIdentifier(level.name)}_${i}`
+    const base = sanitiseCellMLIdentifier(level.preserve && self ? (self.data.originalName ?? level.name) : level.name)
+    let wrapperName = base
+    for (let i = 1; reserved.has(wrapperName); i++) wrapperName = `${base}_${i}`
+    if (level.preserve && self) level.selfName = wrapperName
     wrapper.setName(wrapperName)
     childNames.add(wrapperName)
     level.wrapperName = wrapperName
@@ -660,7 +685,7 @@ function writeLevel(level, levels, graph, maths, plan, libraryStore, { units, sh
         component.addVariable(placeholder)
       }
     }
-    component.setName(nameChild(child.data.name))
+    component.setName(nameChild(componentNameOf(child)))
     container.addComponent(component)
     componentOf.set(localIdOf(child), component)
   }
@@ -1099,7 +1124,7 @@ function importUnits(model, shared, fileName, keep) {
  *
  * @throws {Error} On the first file or the flattened model with errors.
  */
-function checkFiles(files, host, { parser, keep }) {
+function checkFiles(files, host, { parser, keep, preserved, selfNamed }) {
   const validator = keep(new libcellml.Validator())
   for (const [file, text] of files) {
     const model = keep(parser.parseModel(text))
@@ -1110,7 +1135,7 @@ function checkFiles(files, host, { parser, keep }) {
     validator.validateModel(resolveFile(files, file, { parser, keep }).flat)
     if (validator.errorCount()) handleLoggerErrors(validator, `${file}, imports resolved: validator error count: ${validator.errorCount()}`)
   }
-  const flat = keep(parser.parseModel(flattenFiles(files, host).cellml))
+  const flat = keep(parser.parseModel(flattenFiles(files, host, { preserved, selfNamed }).cellml))
   validator.validateModel(flat)
   if (validator.errorCount()) handleLoggerErrors(validator, `Flattened model: validator error count: ${validator.errorCount()}`)
   const analyser = keep(new libcellml.Analyser())

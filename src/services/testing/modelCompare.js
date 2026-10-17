@@ -221,8 +221,8 @@ function flattenToCellML2(cellmlString, importSources = {}) {
  *
  * @param {Element} root - The model element.
  * @param {Function} keyOf - (componentName, variableName), as the model gives them, to a set member's key.
- * @param {Function} [isRelay] - Whether a component (by its own name) only relays: its variables join sets but are left
- *   out of them.
+ * @param {Function} [isRelay] - (component, variable), by their own names: whether that variable only relays: it joins
+ *   sets but is left out of them.
  * @returns {string[][]} Each set's keys sorted, the sets sorted by their first key.
  */
 function equivalenceSets(root, keyOf, isRelay = () => false) {
@@ -241,8 +241,8 @@ function equivalenceSets(root, keyOf, isRelay = () => false) {
     for (const map of childrenNamed(connection, 'map_variables')) {
       const a = keyOf(c1, map.getAttribute('variable_1'))
       const b = keyOf(c2, map.getAttribute('variable_2'))
-      if (isRelay(c1)) relayed.add(a)
-      if (isRelay(c2)) relayed.add(b)
+      if (isRelay(c1, map.getAttribute('variable_1'))) relayed.add(a)
+      if (isRelay(c2, map.getAttribute('variable_2'))) relayed.add(b)
       for (const key of [a, b]) if (!parent.has(key)) parent.set(key, key)
       const rootA = find(a)
       const rootB = find(b)
@@ -279,6 +279,8 @@ function equivalenceSets(root, keyOf, isRelay = () => false) {
  *   as b + a.
  * @param {string[]|Function} [options.relays=[]] - Components (by either name, or a predicate on the model's own) that
  *   only pass values on, such as a hierarchical model's wrappers: left out, the variables they join joined directly.
+ * @param {string[]} [options.partialRelays=[]] - Components (by either name) whose variables that no maths uses only
+ *   pass values on, as relays do, such as a hierarchical model's wrappers that hold a self leaf's maths.
  * @param {boolean} [options.mergeRenamed=false] - Merges components renamed alike, rather than throwing; their variables
  *   must still compare by distinct names (see renameVariable).
  * @param {Function} [options.renameUnits] - Units name to the name to compare it by, in definitions, variables and maths.
@@ -289,7 +291,7 @@ function equivalenceSets(root, keyOf, isRelay = () => false) {
  */
 export function canonicalModel(
   cellmlString,
-  { rename, renameVariable, nameByConnection = [], importSources, sortCommutative = true, relays = [], mergeRenamed = false, renameUnits = (units) => units } = {}
+  { rename, renameVariable, nameByConnection = [], importSources, sortCommutative = true, relays = [], partialRelays = [], mergeRenamed = false, renameUnits = (units) => units } = {}
 ) {
   const renameComponent = toRenamer(rename)
   const givenName = renameVariable ? (component, variable) => renameVariable(component, variable) ?? variable : (_, variable) => variable
@@ -322,6 +324,20 @@ export function canonicalModel(
 
   const relaySet = new Set(typeof relays === 'function' ? [] : relays)
   const isRelay = typeof relays === 'function' ? relays : (component) => relaySet.has(component) || relaySet.has(nameOf(component))
+  // A partial relay's variables that no maths uses, nor gives an initial value.
+  const partialSet = new Set(partialRelays)
+  const unusedOf = new Map()
+  for (const element of childrenNamed(root, 'component')) {
+    const original = element.getAttribute('name')
+    if (!partialSet.has(original) && !partialSet.has(nameOf(original))) continue
+    const used = new Set(Array.from(element.getElementsByTagNameNS(MATHML_NS, 'ci')).map((ci) => ci.textContent.trim()))
+    for (const variable of childrenNamed(element, 'variable')) {
+      const initial = variable.getAttribute('initial_value')
+      if (initial !== null) used.add(variable.getAttribute('name')).add(initial.trim())
+    }
+    unusedOf.set(original, new Set(childrenNamed(element, 'variable').map((variable) => variable.getAttribute('name')).filter((name) => !used.has(name))))
+  }
+  const isRelayVariable = (component, variable) => isRelay(component) || !!unusedOf.get(component)?.has(variable)
 
   // Variables of the components named by connection take the names of what they connect to.
   const byConnection = new Map()
@@ -334,7 +350,7 @@ export function canonicalModel(
       if (isListed(component)) listedKeys.add(key)
       return key
     }
-    for (const set of equivalenceSets(root, keyOf, isRelay)) {
+    for (const set of equivalenceSets(root, keyOf, isRelayVariable)) {
       const outside = set.filter((key) => !listedKeys.has(key))
       if (!outside.length) continue
       for (const key of set) if (listedKeys.has(key)) byConnection.set(key, `<${outside.join('|')}>`)
@@ -367,6 +383,7 @@ export function canonicalModel(
     const entries = merging ? components[name].entries : []
     for (const variable of childrenNamed(element, 'variable')) {
       const own = variable.getAttribute('name')
+      if (unusedOf.get(original)?.has(own)) continue
       const initial = variable.getAttribute('initial_value')
       const number = initial === null ? null : normaliseNumber(initial)
       entries.push({
@@ -402,7 +419,7 @@ export function canonicalModel(
     delete component.entries
   }
 
-  const equivalences = equivalenceSets(root, (component, variable) => `${nameOf(component)}/${renameVar(component, variable)}`, isRelay)
+  const equivalences = equivalenceSets(root, (component, variable) => `${nameOf(component)}/${renameVar(component, variable)}`, isRelayVariable)
 
   const encapsulation = []
   const walk = (element, parentName) => {
@@ -457,6 +474,7 @@ function unmatched(from, other) {
  * @param {Object<string, string>} [options.importSources] - CellML of imported files, keyed by href, for both.
  * @param {boolean} [options.sortCommutative=true] - As canonicalModel's.
  * @param {string[]|Function} [options.relays] - As canonicalModel's, for both.
+ * @param {string[]} [options.partialRelays] - As canonicalModel's, for both.
  * @param {boolean} [options.mergeRenamed] - As canonicalModel's, for both.
  * @param {boolean} [options.equivalentUnits=false] - Compares units libcellml finds equivalent (milliV_per_V and
  *   millis_per_s) as one, named as the first of them by name: flattening an imported component takes the importing
@@ -467,11 +485,11 @@ function unmatched(from, other) {
  * @returns {{equal: boolean, differences: string[]}} Each difference worded for a test failure.
  */
 export function compareCanonical(a, b, options = {}) {
-  const { renameA, renameB, renameVariableA, renameVariableB, nameByConnection, importSources, sortCommutative = true, relays, mergeRenamed } = options
+  const { renameA, renameB, renameVariableA, renameVariableB, nameByConnection, importSources, sortCommutative = true, relays, partialRelays, mergeRenamed } = options
   const { ignore = [], compareModelName = false, equivalentUnits = false } = options
   const ignored = new Set(ignore)
   const renameUnits = equivalentUnits ? equivalentUnitsNames([a, b], importSources) : undefined
-  const shared = { nameByConnection, importSources, sortCommutative, relays, mergeRenamed, renameUnits }
+  const shared = { nameByConnection, importSources, sortCommutative, relays, partialRelays, mergeRenamed, renameUnits }
   const canonA = typeof a === 'string' ? canonicalModel(a, { rename: renameA, renameVariable: renameVariableA, ...shared }) : a
   const canonB = typeof b === 'string' ? canonicalModel(b, { rename: renameB, renameVariable: renameVariableB, ...shared }) : b
   const differences = []

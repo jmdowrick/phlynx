@@ -189,6 +189,40 @@ export function hoistEncapsulatedComponents(cellmlString) {
   }
 }
 
+/** @returns {boolean} Whether a CellML file encapsulates components (CellML 2.0, or 1.x groups). */
+export const hasEncapsulation = (cellmlString) => !!cellmlString && ENCAPSULATION_PATTERN.test(cellmlString)
+
+/**
+ * Reads a model's encapsulation tree with libCellML: each encapsulating component's children, in document order.
+ *
+ * @param {string} cellmlString - Raw CellML XML string, before hoistEncapsulatedComponents.
+ * @returns {Map<string, string[]>} Each encapsulating component's name to its children's, outermost first; empty
+ *   without encapsulation, or when libCellML can't parse the model.
+ */
+export function readEncapsulation(cellmlString) {
+  const tree = new Map()
+  if (!hasEncapsulation(cellmlString)) return tree
+  const parser = new _libcellml.Parser(false)
+  const garbage = []
+  const keep = (object) => (object && garbage.push(object), object)
+  try {
+    const model = keep(parser.parseModel(cellmlString))
+    if (parser.errorCount() > 0) return tree
+    const visit = (component) => {
+      const children = Array.from({ length: component.componentCount() }, (_, i) => keep(component.componentByIndex(i)))
+      if (children.length) tree.set(component.name(), children.map((child) => child.name()))
+      children.forEach(visit)
+    }
+    for (let i = 0; i < model.componentCount(); i++) visit(keep(model.componentByIndex(i)))
+    return tree
+  } catch {
+    return new Map()
+  } finally {
+    garbage.reverse().forEach((object) => object.delete())
+    parser.delete()
+  }
+}
+
 /**
  * Parses a CellML file once and extracts both component and units data.
  *
