@@ -10,7 +10,7 @@ vi.mock('../../../src/utils/notify', () => ({ notify }))
 const { useCanvasDelete } = await import('../../../src/composables/useCanvasDelete.js')
 const { useCanvasLevel } = await import('../../../src/composables/useCanvasLevel.js')
 const { useConnect } = await import('../../../src/composables/useConnect.js')
-const { exposedPortOwners, ownedLabel, useExposure } = await import('../../../src/composables/useExposure.js')
+const { describeExposedPort, duplicateIndex, exposedPortOwners, ownedLabel, portTypeLetter, portTypeName, useExposure } = await import('../../../src/composables/useExposure.js')
 const { indexExposures } = await import('../../../src/services/hierarchy/exposure.js')
 const { useFlowHistory } = await import('../../../src/composables/useFlowHistory.js')
 const { useFlowHistoryStore } = await import('../../../src/stores/historyStore.js')
@@ -305,6 +305,23 @@ describe('exposing ports through exposure edges', () => {
       await history.undo()
       expect(edgeIds()).toEqual(expect.arrayContaining(['e0', 'sm_1~a--sm_1']))
     })
+  })
+})
+
+describe('exposed port wording', () => {
+  it('badges port types with the port type select’s letters, and names them in a word', () => {
+    expect(['entrance_ports', 'exit_ports', 'general_ports', 'odd'].map(portTypeLetter)).toEqual(['I', 'O', 'G', '?'])
+    expect(portTypeName('entrance_ports')).toBe('entrance')
+  })
+
+  it('numbers only labels that repeat, in order', () => {
+    expect(duplicateIndex([{ label: 'u' }, { label: 'v' }, { label: 'u' }, { label: 'u' }])).toEqual([1, null, 2, 3])
+    expect(duplicateIndex([])).toEqual([])
+  })
+
+  it('words a port as owner, type and variables, leaving out what it lacks', () => {
+    expect(describeExposedPort('lv', { portType: 'exit_ports', variables: ['V', 'I'] })).toBe('lv · exit · V, I')
+    expect(describeExposedPort(null, { portType: 'general_ports', variables: [] })).toBe('general')
   })
 })
 

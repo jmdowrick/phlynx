@@ -1,3 +1,4 @@
+import re
 import unittest
 
 from playwright.sync_api import sync_playwright, expect
@@ -95,7 +96,6 @@ class TestSuperInstances(unittest.TestCase):
         super_instance = page.locator(SUPER_INSTANCE)
         expect(super_instance).to_have_count(1)
         expect(super_instance.locator(".name-text")).to_have_text("heart")
-        expect(super_instance.locator(".super-instance-count")).to_have_text("×1")
         # The palette lists the new super-module.
         card = page.locator(SUPERMODULE_CARD)
         expect(card.locator(".mlc__card-name")).to_have_text("heart")
@@ -208,10 +208,12 @@ class TestSuperInstances(unittest.TestCase):
         dialog.get_by_label("Expose membrane_voltage").check()
         dialog.get_by_role("button", name="Save").click()
         expect(dialog).to_be_hidden()
-        # The edge is unlabelled once it exposes a port; the interface names the child each port is on.
+        # The edge is unlabelled once it exposes a port; the interface lists it, with the child it is on on hover.
         expect(label).to_have_count(0)
-        expect(interface.locator(".interface-port-list li")).to_have_count(1)
-        expect(interface.locator(".interface-port-list li")).to_contain_text("axon_SN · membrane_voltage")
+        row = interface.locator(".interface-port-list li")
+        expect(row).to_have_count(1)
+        expect(row.locator(".interface-port-label")).to_have_text("membrane_voltage")
+        expect(row).to_have_attribute("aria-label", re.compile(r"^membrane_voltage — axon_SN · "))
 
         # Up a level, the super instance has the port, and a new module connected to it couples to the exposed port.
         page.keyboard.press("Escape")

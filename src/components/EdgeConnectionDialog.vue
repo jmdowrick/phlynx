@@ -109,6 +109,7 @@
                     :port="data.port"
                     :variables="sourceNode.data.variables"
                     :owner="sourceOwners.get(data.port.exposedPortId) ?? null"
+                    :index="sourceIndices.get(data.port.exposedPortId) ?? null"
                     :is-connected="data.isConnected"
                     :is-taken-elsewhere="data.isTakenElsewhere"
                     :is-valid-target="validConnectUids.has(data.port._uid)"
@@ -126,6 +127,7 @@
                     :port="data.port"
                     :variables="targetNode.data.variables"
                     :owner="targetOwners.get(data.port.exposedPortId) ?? null"
+                    :index="targetIndices.get(data.port.exposedPortId) ?? null"
                     :is-connected="data.isConnected"
                     :is-taken-elsewhere="data.isTakenElsewhere"
                     :is-valid-target="validConnectUids.has(data.port._uid)"
@@ -232,7 +234,7 @@ import { waitUntilStable } from '../utils/layout'
 import MultiportKey from './MultiportKey.vue'
 import PortRow from './PortRow.vue'
 import { useEdgeCouplings } from '../composables/useEdgeCouplings'
-import { useExposedPortOwners } from '../composables/useExposure'
+import { duplicateIndex, useExposedPortOwners } from '../composables/useExposure'
 import { usePortDrag } from '../composables/usePortDrag'
 import { useConnectionAutoscroll } from '../composables/useConnectionAutoscroll'
 
@@ -270,6 +272,14 @@ const ownersOf = (node) => (isSuperInstance(node) ? portOwnersOf(node.data.smId)
 const canAddPort = (side) => !isSuperInstance(side === 'source' ? props.sourceNode : props.targetNode)
 const sourceOwners = computed(() => ownersOf(props.sourceNode))
 const targetOwners = computed(() => ownersOf(props.targetNode))
+// A super instance's exposed ports' indices among those sharing their label (see duplicateIndex).
+const indicesOf = (node) => {
+  const ports = isSuperInstance(node) ? (node.data.ports ?? []) : []
+  const indices = duplicateIndex(ports)
+  return new Map(ports.map((port, i) => [port.exposedPortId, indices[i]]))
+}
+const sourceIndices = computed(() => indicesOf(props.sourceNode))
+const targetIndices = computed(() => indicesOf(props.targetNode))
 
 const swapDialog = ref({ visible: false, resolve: null })
 

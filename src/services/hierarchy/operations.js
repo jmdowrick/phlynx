@@ -153,14 +153,17 @@ function childrenInOrder(nodes, smId) {
 }
 
 /**
- * Turns a ghost handle of a node's handles on, for an edge to attach to: the most central ghost on a side, else a new
- * one after those on that side.
+ * Turns a handle of a node's handles on, for an edge to attach to: one on a side active but unused, else the most central
+ * ghost there, else a new one after those on that side.
  *
  * @param {Array} handles - The node's handles, changed in place.
  * @param {string} side
+ * @param {Set<string>} [used] - The handle ids its edges use; without it, no active handle is taken.
  * @returns {string} Its handle id.
  */
-function claimHandle(handles, side) {
+function claimHandle(handles, side, used) {
+  const unused = used && handles.find((handle) => handle.side === side && handle.variant !== HANDLE_VARIANT.GHOST && !used.has(getHandleId(handle)))
+  if (unused) return getHandleId(unused)
   const ghost = findMostCentralGhostHandle(side, handles)
   if (ghost) {
     ghost.variant = HANDLE_VARIANT.DEFAULT
@@ -175,24 +178,63 @@ function claimHandle(handles, side) {
 /** @returns {string|undefined} The side a node's handle is on. */
 const sideOf = (node, handleId) => node?.data?.handles?.find((handle) => getHandleId(handle) === handleId)?.side
 
+/** @returns {string[]} The handles some edges use at a node. */
+const handlesUsedAt = (edges, id) =>
+  edges.flatMap((edge) => [edge.source === id && edge.sourceHandle, edge.target === id && edge.targetHandle]).filter(Boolean)
+
 /**
- * Turns back into ghosts the handles of copied nodes that the edges they lost used and the edges they have don't.
+ * Gives every node an edit touches one handle per edge, after it: the nodes at the edges it made or removed, and its
+ * copies.
+ *   - An edge made on a handle another edge at that node uses moves to one of its own on the same side (see claimHandle).
+ *   - A handle the edges before used and those after don't becomes a ghost.
+ *   - Each node's slots are normalised, the active handles centred on each side.
  *
- * @param {Map<string, Object>} copies - Each copied node's old id to its copy, whose handles are changed in place.
- * @param {Array} oldEdges - The edges at the old nodes.
- * @param {Array} newEdges - The edges after, at the copies.
+ * @param {Array} nodes - The store after the edit; each node whose handles change is copied, its handles with it.
+ * @param {Array} edgesBefore
+ * @param {Array} edgesAfter
+ * @param {Array} created - The edges the edit made, among edgesAfter, whose handles are changed in place.
+ * @param {Map<string, string>} [originOf] - Each copy's id to the id of the node it copies.
+ * @returns {Array} The nodes, those whose handles change replaced.
  */
-function ghostUnusedHandles(copies, oldEdges, newEdges) {
-  const used = (edges, id) =>
-    new Set(edges.flatMap((edge) => [edge.source === id && edge.sourceHandle, edge.target === id && edge.targetHandle]).filter(Boolean))
-  for (const [oldId, copy] of copies) {
-    const before = used(oldEdges, oldId)
-    const after = used(newEdges, copy.id)
-    for (const handle of copy.data?.handles ?? []) {
-      const id = getHandleId(handle)
-      if (before.has(id) && !after.has(id)) handle.variant = HANDLE_VARIANT.GHOST
+function spreadHandles(nodes, edgesBefore, edgesAfter, created, originOf = new Map()) {
+  const kept = new Set(edgesAfter.map((edge) => edge.id))
+  const removed = edgesBefore.filter((edge) => !kept.has(edge.id))
+  const touched = new Set([...originOf.keys(), ...[...created, ...removed].flatMap((edge) => [edge.source, edge.target])])
+  const nodeById = new Map()
+  for (const node of nodes) {
+    if (touched.has(node.id) && node.data?.handles) nodeById.set(node.id, { ...node, data: { ...node.data, handles: clone(node.data.handles) } })
+  }
+
+  const uses = new Map([...nodeById.keys()].map((id) => [id, new Map()]))
+  for (const id of nodeById.keys()) for (const handleId of handlesUsedAt(edgesAfter, id)) uses.get(id).set(handleId, (uses.get(id).get(handleId) ?? 0) + 1)
+  for (const edge of created) {
+    for (const end of ['source', 'target']) {
+      const [node, handleId] = [nodeById.get(edge[end]), edge[`${end}Handle`]]
+      const count = node && uses.get(node.id)
+      if (!handleId || !(count?.get(handleId) > 1)) continue
+      const side = sideOf(node, handleId) ?? (end === 'source' ? 'right' : 'left')
+      const used = new Set([...count].filter(([, n]) => n > 0).map(([id]) => id))
+      const own = claimHandle(node.data.handles, side, used)
+      count.set(handleId, count.get(handleId) - 1)
+      count.set(own, (count.get(own) ?? 0) + 1)
+      edge[`${end}Handle`] = own
     }
   }
+
+  for (const node of nodeById.values()) {
+    const before = new Set(handlesUsedAt(edgesBefore, originOf.get(node.id) ?? node.id))
+    const after = uses.get(node.id)
+    for (const handle of node.data.handles) {
+      const id = getHandleId(handle)
+      if (before.has(id) && !(after.get(id) > 0)) handle.variant = HANDLE_VARIANT.GHOST
+    }
+    node.data.handles = normaliseHandleSlots(node.data.handles)
+  }
+  // A node whose handles come out as they went in stays as it was.
+  return nodes.map((node) => {
+    const copy = nodeById.get(node.id)
+    return copy && JSON.stringify(copy.data.handles) !== JSON.stringify(node.data.handles) ? copy : node
+  })
 }
 
 /**
@@ -659,14 +701,12 @@ export function nestSelection(nodes, edges, ids, { name, position } = {}) {
   }
 
   const newEdges = [...inner, ...exposureEdges, ...outerEdges, ...scopeExposureEdges]
-  ghostUnusedHandles(copies, edges, newEdges)
-  // Slots for the handles claimed, the active ones centred on each side.
-  superInstance.data.handles = normaliseHandleSlots(superInstance.data.handles)
-  interfaceNode.data.handles = normaliseHandleSlots(interfaceNode.data.handles)
   const removedEdges = new Set([...boundary, ...scopeExposures].map((edge) => edge.id))
+  const afterEdges = [...edges.filter((edge) => !removedEdges.has(edge.id) && !moved.has(edge.source) && !moved.has(edge.target)), ...newEdges]
+  const originOf = new Map([...copies].map(([oldId, copy]) => [copy.id, oldId]))
   const after = {
-    nodes: [...withData(replaceNodes(nodes, moved, [superInstance]), changes), interfaceNode, ...copies.values()],
-    edges: [...edges.filter((edge) => !removedEdges.has(edge.id) && !moved.has(edge.source) && !moved.has(edge.target)), ...newEdges],
+    nodes: spreadHandles([...withData(replaceNodes(nodes, moved, [superInstance]), changes), interfaceNode, ...copies.values()], edges, afterEdges, newEdges, originOf),
+    edges: afterEdges,
   }
   const structural = structureProblem(after.nodes)
   if (structural) return refused(nodes, edges, structural)
@@ -905,12 +945,10 @@ export function unnest(nodes, edges, superInstanceId) {
     for (const node of nodes) if (scopeOf(node) === smId) removedNodes.add(node.id)
   }
   const newEdges = [...inner, ...outer, ...scopeExposures]
-  ghostUnusedHandles(copies, edges, newEdges)
-  for (const copy of copies.values()) if (copy.data.handles) copy.data.handles = normaliseHandleSlots(copy.data.handles)
-  const after = {
-    nodes: withData(replaceNodes(nodes, new Set([superInstanceId]), [...copies.values()]).filter((node) => !removedNodes.has(node.id)), changes),
-    edges: [...edges.filter((edge) => !replaced.has(edge.id) && !removedNodes.has(edge.source) && !removedNodes.has(edge.target)), ...newEdges],
-  }
+  const afterEdges = [...edges.filter((edge) => !replaced.has(edge.id) && !removedNodes.has(edge.source) && !removedNodes.has(edge.target)), ...newEdges]
+  const originOf = new Map([...copies].map(([oldId, copy]) => [copy.id, oldId]))
+  const kept = replaceNodes(nodes, new Set([superInstanceId]), [...copies.values()]).filter((node) => !removedNodes.has(node.id))
+  const after = { nodes: spreadHandles(withData(kept, changes), edges, afterEdges, newEdges, originOf), edges: afterEdges }
   const rewrite = (chain) => {
     const at = chain.indexOf(superInstanceId)
     if (at < 0 || at + 1 >= chain.length) return chain

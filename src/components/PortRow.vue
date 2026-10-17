@@ -33,8 +33,8 @@
       <span
         v-if="isExposed"
         class="port-label port-label--exposed"
-        :title="ownedLabel(owner, port.label)"
-      ><span v-if="owner" class="port-owner">{{ owner }} · </span>{{ port.label }}</span>
+        v-tooltip.top="{ value: ownedLabel(owner, port.label), showDelay: 300 }"
+      ><span class="port-label-text">{{ port.label }}</span><sup v-if="index" class="port-index">{{ index }}</sup></span>
       <InputText v-else v-model="port.label" size="small" @input="$emit('change')" />
 
       <!-- One connection with every variable None, or several with each True, Sum or Multiply -->
@@ -120,9 +120,14 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
-  // The child a super instance's exposed port is on, shown before its label.
+  // The child a super instance's exposed port is on, shown on hover.
   owner: {
     type: String,
+    default: null,
+  },
+  // Its 1-based index among the super instance's ports of its label, when that repeats.
+  index: {
+    type: Number,
     default: null,
   },
   isConnected: {
@@ -214,14 +219,22 @@ const handleClass = computed(() => {
 }
 
 .port-label {
+  display: flex;
   min-width: 0;
   font-size: 12px;
   white-space: nowrap;
+}
+
+/* Cut off before the index is. */
+.port-label-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.port-owner {
+.port-index {
+  flex-shrink: 0;
+  font-size: 9px;
   color: var(--p-text-muted-color, #71717a);
 }
 

@@ -66,13 +66,11 @@ describe('SuperInstanceNode', () => {
     vi.useRealTimers()
   })
 
-  it('shows its name, its super-module, how many super instances that has, and its ports', () => {
+  it('shows its name, its super-module and its ports, but not how many super instances that has', () => {
     mountNode()
     expect(wrapper.find('.name-text').text()).toBe('left')
     expect(wrapper.find('.super-instance-supermodule').text()).toBe('heart:Argus2026_v01')
-    expect(wrapper.find('.super-instance-count').text()).toBe('×2')
-    expect(wrapper.find('.super-instance-count').attributes('aria-label')).toBe('2 super instances of heart')
-    expect(wrapper.find('.super-instance-count').attributes('role')).toBe('img')
+    expect(wrapper.find('.super-instance-count').exists()).toBe(false)
     expect(wrapper.text()).toContain('1 port')
   })
 
@@ -82,7 +80,7 @@ describe('SuperInstanceNode', () => {
       props: { id: 'dndnode_1', data: flow.findNode('dndnode_1').data },
       global: { plugins: [PrimeVue], directives: { tooltip } },
     })
-    expect(wrapper.find('.super-instance-ports').attributes('data-tooltip')).toBe('lv · vessel')
+    expect(wrapper.find('.super-instance-ports').attributes('data-tooltip')).toBe('vessel — lv')
   })
 
   it('is an instance card, with the same header, name and button, and a second card stacked behind it', () => {
@@ -169,7 +167,10 @@ describe('SuperInstanceNode', () => {
 
 describe('InterfaceNode', () => {
   const flow = useVueFlow(FLOW_IDS.MAIN)
-  const render = (node) => mount(InterfaceNode, { props: { id: node.id, data: node.data } })
+  // The tooltip directive, as a data attribute to read.
+  const tooltip = { mounted: (el, { value }) => (el.dataset.tooltip = value?.value ?? '') }
+  const render = (node, data = node.data) => mount(InterfaceNode, { props: { id: node.id, data }, global: { directives: { tooltip } } })
+  const rows = (wrapper) => wrapper.findAll('.interface-port-list li')
 
   beforeEach(async () => {
     setActivePinia(createPinia())
@@ -178,12 +179,37 @@ describe('InterfaceNode', () => {
 
   it('names its super-module and lists the ports its exposure edges expose, with generic handles', () => {
     const node = flow.findNode('sm_1')
-    const wrapper = mount(InterfaceNode, {
-      props: { id: node.id, data: { ...node.data, handles: [{ uid: 'h1', side: 'left', name: '', variant: 'ghost' }] } },
-    })
+    const wrapper = render(node, { ...node.data, handles: [{ uid: 'h1', side: 'left', name: '', variant: 'ghost' }] })
     expect(wrapper.find('.interface-name').text()).toBe('heart')
-    expect(wrapper.findAll('.interface-port-list li').map((item) => item.text())).toEqual(['lv · vesselentrance_ports'])
+    expect(rows(wrapper).map((row) => row.find('.interface-port-label').text())).toEqual(['vessel'])
     expect(wrapper.findAll('.handle-stub')).toHaveLength(1)
+  })
+
+  it('badges each port with its type', () => {
+    const wrapper = render(flow.findNode('sm_1'))
+    expect(rows(wrapper)[0].find('.interface-port-type').text()).toBe('I')
+    expect(rows(wrapper)[0].find('.interface-port-index').exists()).toBe(false)
+  })
+
+  it('gives the child, type and variables on hover, and with its label as its accessible name', () => {
+    const row = rows(render(flow.findNode('sm_1')))[0]
+    expect(row.attributes('data-tooltip')).toBe('lv · entrance · v_in, u')
+    expect(row.attributes('aria-label')).toBe('vessel — lv · entrance · v_in, u')
+  })
+
+  it('numbers ports of the same label, so they read apart', async () => {
+    const a = module('dndnode_0', 'lv', { scope: 'sm_1', ports: [{ ...IN }] })
+    const b = module('dndnode_3', 'rv', { scope: 'sm_1', ports: [{ ...IN }, port('exit_ports', 'out', ['v'])] })
+    const edges = exposures('sm_1', [
+      exposed('xp_a', 'dndnode_0', 'entrance_ports', 'vessel'),
+      exposed('xp_b', 'dndnode_3', 'entrance_ports', 'vessel'),
+      exposed('xp_c', 'dndnode_3', 'exit_ports', 'out'),
+    ])
+    await flow.fromObject({ nodes: [supermodule('sm_1', 'heart'), a, b], edges })
+    const list = rows(render(flow.findNode('sm_1')))
+    expect(list.map((row) => row.find('.interface-port-index').exists() && row.find('.interface-port-index').text())).toEqual(['1', '2', false])
+    expect(list.map((row) => row.find('.interface-port-type').text())).toEqual(['I', 'I', 'O'])
+    expect(list.map((row) => row.attributes('aria-label'))).toEqual(['vessel1 — lv · entrance · v_in, u', 'vessel2 — rv · entrance · v_in, u', 'out — rv · exit · v'])
   })
 
   it('says when nothing is exposed yet', () => {

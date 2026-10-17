@@ -33,6 +33,35 @@ function fanIn(count = 3) {
 /** @returns {Array} The active handles of a node's on a side. */
 const activeOn = (node, side) => node.data.handles.filter((handle) => handle.side === side && handle.variant !== HANDLE_VARIANT.GHOST)
 
+/** Draws a store's edges on handles, as the canvas does: each end its own handle, model edges right to left. */
+function wire(g) {
+  const nodeById = new Map(g.nodes.map((node) => [node.id, node]))
+  const take = (id, side) => {
+    const node = nodeById.get(id)
+    if (!node.data.handles?.length) node.data.handles = buildGhostHandles()
+    const handle = node.data.handles.find((candidate) => candidate.side === side && candidate.variant === HANDLE_VARIANT.GHOST)
+    handle.variant = HANDLE_VARIANT.DEFAULT
+    return getHandleId(handle)
+  }
+  for (const edge of g.edges) {
+    edge.sourceHandle = take(edge.source, 'right')
+    edge.targetHandle = take(edge.target, isSupermoduleInterface(nodeById.get(edge.target)) ? 'right' : 'left')
+  }
+  return g
+}
+
+/** @returns {string[]} The handles a store's edges use at a node. */
+const handlesAt = (edges, id) => edges.flatMap((edge) => [edge.source === id && edge.sourceHandle, edge.target === id && edge.targetHandle]).filter(Boolean)
+
+/** Expects every edge at a node on a handle of its own, an active one, and every other handle of it a ghost. */
+function expectOwnHandles(store, id) {
+  const node = store.nodes.find((candidate) => candidate.id === id)
+  const used = handlesAt(store.edges, id)
+  expect(new Set(used).size, node.data.name).toBe(used.length)
+  const active = node.data.handles.filter((handle) => handle.variant !== HANDLE_VARIANT.GHOST).map(getHandleId)
+  expect(active.sort(), node.data.name).toEqual([...used].sort())
+}
+
 /** Root a → heart (sm_1: ra → lv) → b, heart overriding lv's R. */
 function heart() {
   const ra = vessel('ra', 'ra', { scope: 'sm_1' })
@@ -332,6 +361,58 @@ describe('unnest', () => {
     expect(reexposure.sourceHandle).not.toBe(fromArt.targetHandle)
     const handle = cap.data.handles.find((candidate) => getHandleId(candidate) === reexposure.sourceHandle)
     expect(handle.variant).not.toBe(HANDLE_VARIANT.GHOST)
+  })
+
+  it('gives a neighbour coupled to two children nested a handle per edge again, and frees the one the nest merged', () => {
+    const g = wire(fanIn(2))
+    const vein = 'dndnode_2'
+    const nested = nestSelection(g.nodes, g.edges, ['dndnode_0', 'dndnode_1'], { name: 'terms' })
+    expect(nested.edges.filter((edge) => edge.target === vein)).toHaveLength(1)
+    for (const node of nested.nodes) expectOwnHandles(nested, node.id)
+    const back = unnest(nested.nodes, nested.edges, nested.superInstanceId)
+    const into = back.edges.filter((edge) => edge.target === vein)
+    expect(into).toHaveLength(2)
+    for (const node of back.nodes) expectOwnHandles(back, node.id)
+    expectSameModel(g, { ...back, rewrite: (chainIds) => back.rewrite(nested.rewrite(chainIds)) })
+  })
+
+  it('gives distinct handles un-nesting a super instance saved with its edges sharing handles', () => {
+    const g = wire(fanIn(2))
+    const nested = nestSelection(g.nodes, g.edges, ['dndnode_0', 'dndnode_1'], { name: 'terms' })
+    // As nested before #840: the handle the merge freed left active at the neighbour.
+    const vein = nested.nodes.find((node) => node.id === 'dndnode_2')
+    expect(activeOn(vein, 'left')).toHaveLength(1)
+    vein.data.handles.find((handle) => handle.side === 'left' && handle.variant === HANDLE_VARIANT.GHOST).variant = HANDLE_VARIANT.DEFAULT
+    const back = unnest(nested.nodes, nested.edges, nested.superInstanceId)
+    for (const node of back.nodes) expectOwnHandles(back, node.id)
+  })
+
+  it('gives distinct handles un-nesting a super instance saved with its outer edges on one handle', () => {
+    const g = wire(chain())
+    const nested = nestSelection(g.nodes, g.edges, ['dndnode_1', 'dndnode_2'], { name: 'mid' })
+    const id = nested.superInstanceId
+    const outer = nested.edges.filter((edge) => edge.source === id || edge.target === id)
+    expect(outer).toHaveLength(2)
+    // As nested before #840: every outer edge on the super instance's first handle, the rest ghosts.
+    const superInstance = nested.nodes.find((node) => node.id === id)
+    const shared = outer[0].source === id ? outer[0].sourceHandle : outer[0].targetHandle
+    for (const edge of outer) edge[edge.source === id ? 'sourceHandle' : 'targetHandle'] = shared
+    for (const handle of superInstance.data.handles) if (getHandleId(handle) !== shared) handle.variant = HANDLE_VARIANT.GHOST
+    const back = unnest(nested.nodes, nested.edges, id)
+    expect(back.problems).toEqual([])
+    for (const node of back.nodes) expectOwnHandles(back, node.id)
+  })
+
+  it('gives each scope re-exposure edge it restores its own interface handle', () => {
+    const g = wire(twoLevel())
+    const nested = nestSelection(g.nodes, g.edges, ['sm_1~art', 'sm_1~bed'], { name: 'inner' })
+    expectOwnHandles(nested, 'sm_1')
+    // Its handles and its new order, both changes to the scope's interface, are kept.
+    expect(nested.nodes.find((node) => node.id === 'sm_1').data.supermodule.submoduleOrder).toEqual([nested.superInstanceId.split('~')[1]])
+    const back = unnest(nested.nodes, nested.edges, nested.superInstanceId)
+    expect(back.edges.filter((edge) => edge.target === 'sm_1')).toHaveLength(2)
+    for (const node of back.nodes) expectOwnHandles(back, node.id)
+    expectSameModel(g, { ...back, rewrite: (chainIds) => back.rewrite(nested.rewrite(chainIds)) })
   })
 
   it('undoes a nest: the model, every row and coupling, as it was, whatever the edge order', () => {

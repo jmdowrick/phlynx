@@ -25,7 +25,7 @@ import {
   planUnexpose,
 } from '../services/hierarchy/exposure'
 import { dropKeys } from '../services/hierarchy/remapKeys'
-import { EXPOSURE_EDGE_TYPE, FLOW_IDS } from '../utils/constants'
+import { EXPOSURE_EDGE_TYPE, FLOW_IDS, PORT_TYPE_OPTIONS } from '../utils/constants'
 import { isSupermoduleInterface, scopeOf } from '../utils/hierarchy'
 import { detachReactivity } from '../utils/reactivity'
 
@@ -75,6 +75,51 @@ export function exposedPortOwners(nodes, exposedPorts) {
  * @returns {string}
  */
 export const ownedLabel = (owner, label) => (owner ? `${owner} · ${label}` : label)
+
+/**
+ * Gives a port type's one-letter badge, as the port type select shows it: I, O or G.
+ *
+ * @param {string} portType - e.g. `entrance_ports`.
+ * @returns {string} `?` for an unknown type.
+ */
+export const portTypeLetter = (portType) => PORT_TYPE_OPTIONS.find((option) => option.value === portType)?.label ?? '?'
+
+/**
+ * Names a port type in a word: `entrance_ports` → `entrance`.
+ *
+ * @param {string} portType
+ * @returns {string}
+ */
+export const portTypeName = (portType) => (portType ?? '').replace(/_ports$/, '')
+
+/**
+ * Numbers ports that share a label, so two of the same name read apart: each one's 1-based index among those with its
+ * label, null for a label used once.
+ *
+ * @param {Array<{label: string}>} ports
+ * @returns {Array<number|null>} Aligned with ports.
+ */
+export function duplicateIndex(ports) {
+  const counts = new Map()
+  for (const port of ports) counts.set(port.label, (counts.get(port.label) ?? 0) + 1)
+  const seen = new Map()
+  return ports.map((port) => {
+    if (counts.get(port.label) < 2) return null
+    const index = (seen.get(port.label) ?? 0) + 1
+    seen.set(port.label, index)
+    return index
+  })
+}
+
+/**
+ * Words an exposed port for its tooltip, as `<owner> · <type> · <variables>`, leaving out what it lacks.
+ *
+ * @param {string|null|undefined} owner
+ * @param {{portType?: string, variables?: string[]}} port
+ * @returns {string}
+ */
+export const describeExposedPort = (owner, port) =>
+  [owner, portTypeName(port.portType), (port.variables ?? []).join(', ')].filter(Boolean).join(' · ')
 
 /**
  * Gives a flow's lookup of the children super-modules' exposed ports are on (see exposedPortOwners), for the canvas and

@@ -56,4 +56,20 @@ describe('EdgeConnectionDialog at a super instance', () => {
     expect(free.findComponent({ name: 'Select' }).props('disabled')).toBe(false)
     expect(free.findAll('button').some((button) => button.attributes('disabled') === undefined)).toBe(true)
   })
+
+  it('gives an exposed port’s owner on hover, and numbers it when its label repeats', () => {
+    const tooltip = { mounted: (el, { value }) => (el.dataset.tooltip = value?.disabled ? '' : value?.value ?? '') }
+    const row = (props) =>
+      mount(PortRow, {
+        props: { side: 'target', port: { ...IN, exposedPortId: 'xp_a' }, ...props },
+        global: { ...global, stubs: { Handle: true }, directives: { tooltip } },
+      }).find('.port-label--exposed')
+    const owned = row({ owner: 'lv', index: 2 })
+    expect(owned.text()).toBe('vessel2')
+    expect(owned.find('.port-index').text()).toBe('2')
+    expect(owned.attributes('data-tooltip')).toBe('lv · vessel')
+    // Without an owner, the full label, for one cut off.
+    expect(row({}).attributes('data-tooltip')).toBe('vessel')
+    expect(row({}).find('.port-index').exists()).toBe(false)
+  })
 })
