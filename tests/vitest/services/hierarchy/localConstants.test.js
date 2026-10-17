@@ -54,6 +54,9 @@ function twoLevel({ outer = {}, inner = {} } = {}) {
 const rowOf = (expansion, id, name) => expansion.nodes.find((node) => node.id === id)?.data.variables.find((row) => row.name === name)
 const valuesOf = ({ nodes }) =>
   Object.fromEntries(nodes.flatMap((node) => node.data.variables.filter((row) => row.type !== 'variable').map((row) => [`${node.data.name}.${row.name}`, row.value])))
+/** @returns {Object} The values, their flat names starting `from` starting `to` instead. */
+const renamedValues = (values, from, to) =>
+  Object.fromEntries(Object.entries(values).map(([key, value]) => [key.startsWith(from) ? `${to}${key.slice(from.length)}` : key, value]))
 const findNodeIn = (nodes) => (id) => nodes.find((node) => node.id === id)
 
 describe('binding local constants', () => {
@@ -204,14 +207,14 @@ describe('un-nesting a super instance with local constants', () => {
     expect(unnestProblem(nodes, 'dndnode_1')).toBeNull()
     const after = unnest(nodes, edges, 'dndnode_1')
     expect(after.problems).toEqual([])
-    const moved = after.nodes.filter((node) => node.data.scope === null && node.data.name.startsWith('seg1__'))
+    const moved = after.nodes.filter((node) => node.data.scope === null && ['p', 'q'].includes(node.data.name))
     expect(moved.map((node) => node.data.variables.find((row) => row.name === 'k'))).toEqual([
       { ...local('k'), type: 'constant', value: '2' },
       { ...local('k'), type: 'constant', value: '2' },
     ])
     const expansion = expandHierarchy(after.nodes, after.edges)
     expect(expansion.errors).toEqual([])
-    expect(valuesOf(expansion)).toEqual(before)
+    expect(valuesOf(expansion)).toEqual(renamedValues(before, 'seg1__', ''))
   })
 
   it('turns an outer override of a nested super instance’s local constants into overrides of the moved rows', () => {
@@ -219,10 +222,10 @@ describe('un-nesting a super instance with local constants', () => {
     expect(valuesOf(expandHierarchy(nodes, edges))['leg__bed__cap.c']).toBe('7')
     const after = unnest(nodes, edges, 'sm_1~bed')
     expect(after.problems).toEqual([])
-    const cap = after.nodes.find((node) => node.data.scope === 'sm_1' && node.data.name === 'bed_cap')
+    const cap = after.nodes.find((node) => node.data.scope === 'sm_1' && node.data.name === 'cap')
     expect(cap.data.variables).toEqual([{ ...local('c'), type: 'constant', value: '5' }])
     expect(after.nodes.find((node) => node.id === 'dndnode_1').data.overrides).toEqual({ [cap.data.localId]: { c: { value: '7' } } })
-    expect(valuesOf(expandHierarchy(after.nodes, after.edges))['leg__bed_cap.c']).toBe('7')
+    expect(valuesOf(expandHierarchy(after.nodes, after.edges))['leg__cap.c']).toBe('7')
   })
 
   it('drops an outer override of a bound row, which the local constant won over, and an outer one of constants none binds', () => {
@@ -231,7 +234,7 @@ describe('un-nesting a super instance with local constants', () => {
     const after = unnest(nodes, edges, 'sm_1~bed')
     expect(after.nodes.find((node) => node.id === 'dndnode_1').data.overrides).toEqual({})
     const values = valuesOf(expandHierarchy(after.nodes, after.edges))
-    expect(values['leg__bed_cap.c']).toBe(before['leg__bed__cap.c'])
+    expect(values['leg__cap.c']).toBe(before['leg__bed__cap.c'])
   })
 })
 
