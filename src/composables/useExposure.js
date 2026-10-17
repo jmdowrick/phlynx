@@ -12,6 +12,7 @@ import { useVueFlow } from '@vue-flow/core'
 import { useFlowHistoryFor } from './useFlowHistoryFor'
 import { useModelGraph } from './useModelGraph'
 import { useSuperInstanceSync } from './useSuperInstanceSync'
+import { useSupermodules } from './useSupermodules'
 import {
   exposablePorts,
   exposureEnds,
@@ -24,7 +25,7 @@ import {
   planUnexpose,
 } from '../services/hierarchy/exposure'
 import { dropKeys } from '../services/hierarchy/remapKeys'
-import { EXPOSURE_EDGE_TYPE, FLOW_IDS } from '../utils/constants'
+import { EXPOSURE_EDGE_TYPE, FLOW_IDS, PORT_TYPE_OPTIONS } from '../utils/constants'
 import { isSupermoduleInterface, scopeOf } from '../utils/hierarchy'
 import { detachReactivity } from '../utils/reactivity'
 
@@ -42,6 +43,95 @@ export function describeUnexposeImpact(plan) {
   const connections = plan.connections === 1 ? '1 connection' : `${plan.connections} connections`
   const superInstances = plan.superInstances.length === 1 ? '1 super instance' : `${plan.superInstances.length} super instances`
   return `This affects ${connections} in ${superInstances}.`
+}
+
+/**
+ * Names the child an exposed port is on: its node's name, else the local id its alias names. For a port exposed `via`
+ * a nested super instance, that super instance; the breadcrumb gives the deeper context.
+ *
+ * @param {Object} exposed - An ExposedPort (see exposure.js indexExposures).
+ * @param {Map<string, Object>} nodeById
+ * @returns {string}
+ */
+const ownerNameOf = (exposed, nodeById) => nodeById.get(exposed.childId)?.data?.name ?? exposed.alias.child
+
+/**
+ * Maps a super-module's exposed ports to the children they are on, so two of the same name read apart.
+ *
+ * @param {Array} nodes
+ * @param {Array<Object>} exposedPorts - The super-module's ExposedPorts (see exposure.js indexExposures).
+ * @returns {Map<string, string>} Exposed port id to its owner's name.
+ */
+export function exposedPortOwners(nodes, exposedPorts) {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  return new Map(exposedPorts.map((exposed) => [exposed.id, ownerNameOf(exposed, nodeById)]))
+}
+
+/**
+ * Words an exposed port with its owner, as `<owner> · <label>`; the label alone without one.
+ *
+ * @param {string|null|undefined} owner
+ * @param {string} label
+ * @returns {string}
+ */
+export const ownedLabel = (owner, label) => (owner ? `${owner} · ${label}` : label)
+
+/**
+ * Gives a port type's one-letter badge, as the port type select shows it: I, O or G.
+ *
+ * @param {string} portType - e.g. `entrance_ports`.
+ * @returns {string} `?` for an unknown type.
+ */
+export const portTypeLetter = (portType) => PORT_TYPE_OPTIONS.find((option) => option.value === portType)?.label ?? '?'
+
+/**
+ * Names a port type in a word: `entrance_ports` → `entrance`.
+ *
+ * @param {string} portType
+ * @returns {string}
+ */
+export const portTypeName = (portType) => (portType ?? '').replace(/_ports$/, '')
+
+/**
+ * Numbers ports that share a label, so two of the same name read apart: each one's 1-based index among those with its
+ * label, null for a label used once.
+ *
+ * @param {Array<{label: string}>} ports
+ * @returns {Array<number|null>} Aligned with ports.
+ */
+export function duplicateIndex(ports) {
+  const counts = new Map()
+  for (const port of ports) counts.set(port.label, (counts.get(port.label) ?? 0) + 1)
+  const seen = new Map()
+  return ports.map((port) => {
+    if (counts.get(port.label) < 2) return null
+    const index = (seen.get(port.label) ?? 0) + 1
+    seen.set(port.label, index)
+    return index
+  })
+}
+
+/**
+ * Words an exposed port for its tooltip, as `<owner> · <type> · <variables>`, leaving out what it lacks.
+ *
+ * @param {string|null|undefined} owner
+ * @param {{portType?: string, variables?: string[]}} port
+ * @returns {string}
+ */
+export const describeExposedPort = (owner, port) =>
+  [owner, portTypeName(port.portType), (port.variables ?? []).join(', ')].filter(Boolean).join(' · ')
+
+/**
+ * Gives a flow's lookup of the children super-modules' exposed ports are on (see exposedPortOwners), for the canvas and
+ * the connection dialog to show beside their labels.
+ *
+ * @param {string} [flowId=FLOW_IDS.MAIN]
+ * @returns {(smId: string) => Map<string, string>} Exposed port id to its owner's name; empty for an unknown smId.
+ */
+export function useExposedPortOwners(flowId = FLOW_IDS.MAIN) {
+  const flow = useVueFlow(flowId)
+  const { exposedPortsOf } = useSupermodules(flowId)
+  return (smId) => exposedPortOwners((flow.nodes ?? NONE).value, exposedPortsOf(smId))
 }
 
 /**
@@ -114,7 +204,7 @@ function createExposure(flow, flowId, history, handles) {
       label: exposed.label ?? null,
       ownLabel: exposed.alias.label ?? null,
       childId: exposed.childId,
-      childName: nodeById.get(exposed.childId)?.data?.name ?? exposed.alias.child,
+      childName: ownerNameOf(exposed, nodeById),
       edgeId: exposed.edgeId,
       via: exposed.alias.via ?? null,
       port: resolve(smId, exposed.id),

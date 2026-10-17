@@ -252,7 +252,7 @@
                           <span
                             :class="[
                               'port-status',
-                              portConnections(slotProps.data).length ? 'port-status--connected' : 'port-status--free',
+                              portStatusClass(slotProps.data),
                             ]"
                             v-tooltip.top="portStatus(slotProps.data)"
                           ></span>
@@ -366,6 +366,9 @@
                 <div v-if="editablePorts.length" class="ports-key">
                   <span class="port-key-item"><span class="port-status port-status--connected"></span>Connected</span>
                   <span class="port-key-item"><span class="port-status port-status--free"></span>Available</span>
+                  <span v-if="hasExposedPort" class="port-key-item"
+                    ><span class="port-status port-status--exposed"></span>Exposed via interface</span
+                  >
                   <MultiportKey />
                 </div>
                 <div v-else class="empty-state">
@@ -535,11 +538,13 @@ import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useMathSession } from '../composables/useMathSession'
 import { useAppSettings } from '../composables/useAppSettings'
 import { useModelGraph } from '../composables/useModelGraph'
+import { useCanvasLevel } from '../composables/useCanvasLevel'
 
 import { isInitialisable } from '../services/math/variableKinds'
 import { resolveBoundaryValues } from '../services/export/boundaryValues'
 import { expandHierarchy } from '../services/hierarchy/expand'
 import { localConstantsOf } from '../services/hierarchy/localConstants'
+import { exposedPortsOf } from '../services/hierarchy/exposure'
 import { scopeOf } from '../utils/hierarchy'
 import {
   createSinglePlotConfig,
@@ -590,7 +595,9 @@ const history = reactive(createHistory())
 const { trackEvent } = useGtm()
 // The canvas, which the edit previews and saves into, and the model, which plots and counts read.
 const { nodes, edges } = useVueFlow()
-const { modelNodes, mainIdOf } = useModelGraph()
+const { graph, modelNodes, modelEdges, mainIdOf, modelIdOf } = useModelGraph()
+// The super instances entered, which pick this module's copy whose connections the ports show.
+const canvasLevel = useCanvasLevel()
 
 // The local constants of the super-module the module is in: a row of one of their names can be bound to them.
 const localConstants = computed(() => {
@@ -1377,38 +1384,81 @@ const isPortFlagged = (port) => flaggedPorts.value.has(port)
 const connectionsByPort = new WeakMap()
 // Each editable port's saved self, which the canvas edges hold.
 const originalByPort = new WeakMap()
+// The ports a super-module edited from the library exposes on its interface, by their saved selves.
+const exposedOriginals = new WeakSet()
 
 const nameOf = (id) => nodes.value.find((node) => node.id === id)?.data.name ?? id
 
-/** Records, for each editable port, its saved self and the names of the modules its couplings reach. */
+/**
+ * Where the ports' connections are read: inside a super instance entered from the root, the model's edges of this
+ * module's copy there, each far end named by its path, so a port exposed and coupled above counts as connected only in
+ * the super instance where it is; elsewhere the canvas edges, as stored.
+ */
+const connectionSource = computed(() => {
+  const instancePath = canvasLevel.instancePath.value
+  const modelId = instancePath.length ? modelIdOf(props.id, instancePath) : undefined
+  if (!modelId) return { nodeId: props.id, edges: edges.value ?? [], nameOf }
+  return { nodeId: modelId, edges: modelEdges.value ?? [], nameOf: (id) => graph.value.pathOf(id) ?? id }
+})
+
+/**
+ * Lists the saved ports of this module a super-module edited on its own exposes, when not inside a super instance.
+ *
+ * @returns {Object[]} Its own ports, as saved.
+ */
+function exposedOwnPorts() {
+  if (canvasLevel.instancePath.value.length) return []
+  const scope = scopeOf(nodes.value.find((node) => node.id === props.id))
+  if (!scope) return []
+  return exposedPortsOf(scope, nodes.value, edges.value ?? []).flatMap(({ childId, alias }) => {
+    if (childId !== props.id || alias.via != null) return []
+    const group = props.initialPorts.filter((port) => port.portType === alias.portType && port.label === alias.label)
+    return group[alias.slot ?? 0] ? [group[alias.slot ?? 0]] : []
+  })
+}
+
+/** Records, for each editable port, its saved self, the names of the modules its couplings reach, and whether it's exposed. */
 function indexPortConnections() {
+  const { nodeId, edges: source, nameOf: farName } = connectionSource.value
+  const exposed = new Set(exposedOwnPorts())
   editablePorts.value.forEach((port, i) => {
     const original = props.initialPorts[i]
     originalByPort.set(toRaw(port), original)
-    const names = edges.value.flatMap((edge) =>
+    if (exposed.has(original)) exposedOriginals.add(toRaw(port))
+    const names = source.flatMap((edge) =>
       (edge.data?.couplings ?? []).flatMap(({ sourcePort, targetPort }) => {
-        const own = edge.source === props.id ? sourcePort : edge.target === props.id ? targetPort : null
-        return own && findPort([original], own) ? [nameOf(edge.source === props.id ? edge.target : edge.source)] : []
+        const own = edge.source === nodeId ? sourcePort : edge.target === nodeId ? targetPort : null
+        return own && findPort([original], own) ? [farName(edge.source === nodeId ? edge.target : edge.source)] : []
       })
     )
-    connectionsByPort.set(toRaw(port), names)
+    connectionsByPort.set(toRaw(port), [...new Set(names)])
   })
 }
 
 /** The math export builds for this instance's Sum and Multiply variables, as the ports are edited. */
-const multiportEntries = computed(() =>
-  multiportSummary(props.id, edges.value ?? [], {
-    nameOf,
+const multiportEntries = computed(() => {
+  const { nodeId, edges: source, nameOf: farName } = connectionSource.value
+  return multiportSummary(nodeId, source, {
+    nameOf: farName,
     ownPorts: editablePorts.value.map((current) => ({ original: originalByPort.get(toRaw(current)), current })),
   })
-)
+})
 
 const portConnections = (port) => connectionsByPort.get(toRaw(port)) ?? []
 
+/** Whether a port with no connection here is exposed on its super-module's interface, edited from the library. */
+const isPortExposed = (port) => !portConnections(port).length && exposedOriginals.has(toRaw(port))
+
+const hasExposedPort = computed(() => editablePorts.value.some(isPortExposed))
+
 const portStatus = (port) => {
   const names = portConnections(port)
-  return names.length ? `Connected to ${names.join(', ')}` : 'Not connected'
+  if (names.length) return `Connected to ${names.join(', ')}`
+  return isPortExposed(port) ? 'Exposed via interface' : 'Not connected'
 }
+
+const portStatusClass = (port) =>
+  portConnections(port).length ? 'port-status--connected' : isPortExposed(port) ? 'port-status--exposed' : 'port-status--free'
 
 const incompletePortCount = computed(
   () => editablePorts.value.filter((port) => isPortFlagged(port) && isIncompletePort(port)).length
@@ -2191,6 +2241,12 @@ async function handleSave(options) {
 
 .port-status--connected {
   background: var(--p-primary-color);
+}
+
+/* Exposed on its super-module's interface, its connections made wherever the super-module is placed */
+.port-status--exposed {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--p-primary-color);
 }
 
 .ports-key {

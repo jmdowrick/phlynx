@@ -14,7 +14,7 @@
       <!-- Left actions for Target Row -->
       <template v-if="side === 'target'">
         <span class="drag-handle" @mousedown.stop="$emit('start-drag', $event)">⠿</span>
-        <Button icon="pi pi-trash" severity="danger" rounded text size="small" @click="$emit('delete')" />
+        <Button icon="pi pi-trash" severity="danger" rounded text size="small" :disabled="isExposed" @click="$emit('delete')" />
       </template>
 
       <!-- Shared Configuration Fields -->
@@ -25,10 +25,17 @@
         optionValue="value"
         overlayClass="compact-dropdown-panel"
         size="small"
+        :disabled="isExposed"
         @change="$emit('change')"
       />
 
-      <InputText v-model="port.label" size="small" @input="$emit('change')" />
+      <!-- An exposed port is its super-module's to set, in the Expose Ports dialog or the interface's sidebar -->
+      <span
+        v-if="isExposed"
+        class="port-label port-label--exposed"
+        v-tooltip.top="{ value: ownedLabel(owner, port.label), showDelay: 300 }"
+      ><span class="port-label-text">{{ port.label }}</span><sup v-if="index" class="port-index">{{ index }}</sup></span>
+      <InputText v-else v-model="port.label" size="small" @input="$emit('change')" />
 
       <!-- One connection with every variable None, or several with each True, Sum or Multiply -->
       <Button
@@ -40,6 +47,7 @@
         :aria-pressed="isMultiport(port)"
         aria-label="Multiport"
         :title="isMultiport(port) ? 'Multiport: takes several connections' : 'Basicport: takes one connection'"
+        :disabled="isExposed"
         @click="setMultiport(port, !isMultiport(port));$emit('change')"
       >
         <template #icon>
@@ -57,10 +65,11 @@
         overlayClass="compact-multiselect-panel"
         placeholder="Select variables"
         size="small"
+        :disabled="isExposed"
         @change="$emit('change')"
       >
         <template #value="{ value, placeholder }">
-          <PortVariableChips v-if="value?.length" :port="port" :limit="2" @change="$emit('change')" />
+          <PortVariableChips v-if="value?.length" :port="port" :limit="2" :readonly="isExposed" @change="$emit('change')" />
           <template v-else>{{ placeholder }}</template>
         </template>
       </MultiSelect>
@@ -68,7 +77,7 @@
       <!-- Right actions for Source Row -->
       <template v-if="side === 'source'">
         <span class="drag-handle" @mousedown.stop="$emit('start-drag', $event)">⠿</span>
-        <Button icon="pi pi-trash" severity="danger" rounded text size="small" @click="$emit('delete')" />
+        <Button icon="pi pi-trash" severity="danger" rounded text size="small" :disabled="isExposed" @click="$emit('delete')" />
       </template>
     </div>
 
@@ -93,6 +102,7 @@ import { Handle, Position } from '@vue-flow/core'
 import PortVariableChips from './PortVariableChips.vue'
 import { PORT_TYPE_OPTIONS } from '../utils/constants'
 import { isMultiport, setMultiport, setPortVariables } from '../utils/multiport'
+import { ownedLabel } from '../composables/useExposure'
 import MultiportIcon from './icons/MultiportIcon.vue'
 import BasicportIcon from './icons/BasicportIcon.vue'
 
@@ -110,6 +120,16 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  // The child a super instance's exposed port is on, shown on hover.
+  owner: {
+    type: String,
+    default: null,
+  },
+  // Its 1-based index among the super instance's ports of its label, when that repeats.
+  index: {
+    type: Number,
+    default: null,
+  },
   isConnected: {
     type: Boolean,
     default: false,
@@ -125,6 +145,9 @@ const props = defineProps({
 })
 
 defineEmits(['change', 'start-drag', 'delete'])
+
+// A super instance's port, which follows what its super-module exposes: shown, not edited here.
+const isExposed = computed(() => props.port.exposedPortId != null)
 
 const rowClass = computed(() => {
   if (props.isConnected) return 'row--connected'
@@ -193,6 +216,26 @@ const handleClass = computed(() => {
 :deep(.p-select-dropdown),
 :deep(.p-multiselect-dropdown) {
   width: 24px !important;
+}
+
+.port-label {
+  display: flex;
+  min-width: 0;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Cut off before the index is. */
+.port-label-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.port-index {
+  flex-shrink: 0;
+  font-size: 9px;
+  color: var(--p-text-muted-color, #71717a);
 }
 
 .multiport-toggle {

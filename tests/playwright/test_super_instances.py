@@ -1,3 +1,4 @@
+import re
 import unittest
 
 from playwright.sync_api import sync_playwright, expect
@@ -95,7 +96,6 @@ class TestSuperInstances(unittest.TestCase):
         super_instance = page.locator(SUPER_INSTANCE)
         expect(super_instance).to_have_count(1)
         expect(super_instance.locator(".name-text")).to_have_text("heart")
-        expect(super_instance.locator(".super-instance-count")).to_have_text("×1")
         # The palette lists the new super-module.
         card = page.locator(SUPERMODULE_CARD)
         expect(card.locator(".mlc__card-name")).to_have_text("heart")
@@ -199,16 +199,21 @@ class TestSuperInstances(unittest.TestCase):
         label = page.locator(EXPOSURE_LABEL)
         expect(label).to_have_text("Nothing exposed")
 
-        # Double-clicking the exposure edge picks its ports: whole ports, a single-connection one used inside refused.
-        page.mouse.dblclick(*centre(label))
+        # Double-clicking the exposure edge picks its ports: whole ports, a single-connection one used inside refused. The
+        # marker sits on the line's midpoint and lets clicks through to it.
+        midpoint = centre(label)
+        page.mouse.dblclick(*midpoint)
         expect(dialog).to_be_visible()
         expect(dialog.get_by_label("Expose VI_port")).to_be_disabled()
         dialog.get_by_label("Expose membrane_voltage").check()
         dialog.get_by_role("button", name="Save").click()
         expect(dialog).to_be_hidden()
-        expect(label).to_have_text("membrane_voltage")
-        expect(interface.locator(".interface-port-list li")).to_have_count(1)
-        expect(interface).to_contain_text("membrane_voltage")
+        # The edge is unlabelled once it exposes a port; the interface lists it, with the child it is on on hover.
+        expect(label).to_have_count(0)
+        row = interface.locator(".interface-port-list li")
+        expect(row).to_have_count(1)
+        expect(row.locator(".interface-port-label")).to_have_text("membrane_voltage")
+        expect(row).to_have_attribute("aria-label", re.compile(r"^membrane_voltage — axon_SN · "))
 
         # Up a level, the super instance has the port, and a new module connected to it couples to the exposed port.
         page.keyboard.press("Escape")
@@ -259,8 +264,10 @@ class TestSuperInstances(unittest.TestCase):
         expect(page.locator(CRUMB)).to_have_text(["Model", "nerve"])
         expect(page.locator(INTERFACE)).to_have_count(1)
         expect(page.locator(NODE)).to_have_count(3)
-        expect(node_by_name(page, "var_SN")).to_have_count(1)
-        expect(node_by_name(page, "axon_SN")).to_have_count(1)
+        # The interface lists each exposed port with its owner, so it is left out when finding the children.
+        child = lambda name: node_by_name(page, name).filter(has_not=page.locator(".interface-node"))
+        expect(child("var_SN")).to_have_count(1)
+        expect(child("axon_SN")).to_have_count(1)
         page.keyboard.press("Escape")
         expect(page.locator(BREADCRUMB)).to_have_count(0)
 

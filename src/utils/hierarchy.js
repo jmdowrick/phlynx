@@ -22,6 +22,15 @@ export const scopeOf = (node) => node?.data?.scope ?? null
 /** @returns {boolean} Whether the node is a super instance (an instance of a super-module). */
 export const isSuperInstance = (node) => node?.type === SUPER_INSTANCE_NODE_TYPE
 
+/**
+ * Gives the ports a confirmed connection dialog writes back to its ends: none to a super instance, whose ports come from
+ * its super-module's exposures.
+ *
+ * @param {Array<[Object, Array]>} ends - Each end node with the ports the dialog left it.
+ * @returns {Array<[string, Array]>} Each node id to write, with its ports.
+ */
+export const connectionPortWrites = (ends) => ends.filter(([node]) => node && !isSuperInstance(node)).map(([node, ports]) => [node.id, ports])
+
 /** @returns {boolean} Whether the node is a super-module's interface node. */
 export const isSupermoduleInterface = (node) => node?.type === SUPERMODULE_INTERFACE_NODE_TYPE
 
