@@ -126,11 +126,11 @@ describe('model consumers read the expanded workspace', () => {
     expect(result.equal).toBe(true)
   })
 
-  it('exports the hierarchical CellML of a nested workspace from the store: a file per super-module and per module', async () => {
+  it('exports the CellML with imports of a nested workspace from the store: a file per super-module and per module, and the units', async () => {
     const { nested } = threeInstances(make)
     show(nested)
-    const files = await readZip(await exportAs('CellML (hierarchical)'))
-    expect(Object.keys(files).filter((name) => !name.startsWith('modules/'))).toEqual(['model.cellml', 'segment.cellml'])
+    const files = await readZip(await exportAs('CellML (with imports)'))
+    expect(Object.keys(files).filter((name) => !name.startsWith('modules/'))).toEqual(['model.cellml', 'segment.cellml', 'units.cellml'])
     expect(files['model.cellml']).toMatch(/xlink:href="segment.cellml"/)
     expect(files['segment.cellml']).toMatch(/xlink:href="modules\/[^"]+\.cellml"/)
   })

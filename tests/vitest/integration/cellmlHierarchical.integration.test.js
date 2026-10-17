@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 /**
- * The hierarchical CellML export (H14): each file validates, a module definition's on its own, and the host, its imports
- * resolved and flattened and its super instances' children renamed `<super instance>__<child>`, is the flat export's
+ * The CellML export with imports (H14): each file validates, a module definition's on its own, every units is defined
+ * once, in units.cellml, which every other file imports its units from, and the host, its imports resolved and flattened and its super instances' children renamed `<super instance>__<child>`, is the flat export's
  * model, canonically and simulated.
  */
 import createLibOpenCOR from '@opencor/libopencor'
@@ -9,13 +9,13 @@ import JSZip from 'jszip'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { buildHierarchicalCellML, flattenHierarchicalModel, generateHierarchicalCellMLZip } from '../../../src/services/export/cellmlHierarchical.js'
+import { buildHierarchicalCellML, flattenHierarchicalModel, generateHierarchicalCellMLZip, normalisePath, UNITS_FILE } from '../../../src/services/export/cellmlHierarchical.js'
 import { expandHierarchy } from '../../../src/services/hierarchy/expand.js'
 import { compareCanonical, compareSimulations } from '../../../src/services/testing/modelCompare.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { analyzeMathXml } from '../../../src/services/math/analyzeMath.js'
 import { reconcileRows } from '../../../src/services/math/reconcileRows.js'
-import { generateFlattenedModel } from '../../../src/utils/cellml.js'
+import { generateFlattenedModel, isStandardUnit } from '../../../src/utils/cellml.js'
 import { MAIN_NODE_TYPE } from '../../../src/utils/constants.js'
 import { nodeIdOf } from '../../../src/utils/hierarchy.js'
 import { connect, exposed, exposures, superInstance, supermodule } from '../fixtures/hierarchy/graph.js'
@@ -169,10 +169,51 @@ const importsOf = (text) =>
       (component) => `${element.getAttribute('xlink:href')} ${component.getAttribute('name')} ${component.getAttribute('component_ref')}`
     )
   ).sort()
+/**
+ * Expects units.cellml to define, once each, every units the files use, standard ones aside, and those they are made of,
+ * and every other file to import those it uses from it, defining none.
+ */
+const expectSharedUnits = (files) => {
+  const parse = (text) => new DOMParser().parseFromString(text, 'application/xml').documentElement
+  const children = (element, tag) => Array.from(element.children).filter((child) => child.localName === tag)
+  expect(files.has(UNITS_FILE)).toBe(true)
+  const shared = parse(files.get(UNITS_FILE))
+  expect(children(shared, 'import')).toEqual([])
+  const defined = children(shared, 'units').map((units) => units.getAttribute('name'))
+  expect(new Set(defined).size, 'no units defined twice').toBe(defined.length)
+  const needed = new Set()
+  const use = (name) => name && !isStandardUnit(name) && needed.add(name)
+  for (const units of children(shared, 'units')) for (const unit of children(units, 'unit')) use(unit.getAttribute('units'))
+  for (const [file, text] of files) {
+    if (file === UNITS_FILE) continue
+    const model = parse(text)
+    expect(children(model, 'units'), `${file} defines no units`).toEqual([])
+    const imported = new Set()
+    for (const element of children(model, 'import')) {
+      for (const units of children(element, 'units')) {
+        expect(normalisePath(`${file.slice(0, file.lastIndexOf('/') + 1)}${element.getAttribute('xlink:href')}`), file).toBe(UNITS_FILE)
+        expect(element.getAttribute('xlink:href')).toBe(file.includes('/') ? `../${UNITS_FILE}` : UNITS_FILE)
+        expect(units.getAttribute('units_ref')).toBe(units.getAttribute('name'))
+        imported.add(units.getAttribute('name'))
+      }
+    }
+    const used = new Set()
+    for (const component of model.getElementsByTagName('component')) {
+      if (component.parentElement.localName === 'import') continue
+      for (const variable of children(component, 'variable')) used.add(variable.getAttribute('units'))
+    }
+    for (const cn of model.getElementsByTagName('cn')) used.add(cn.getAttribute('cellml:units'))
+    const nonStandard = [...used].filter((name) => name && !isStandardUnit(name))
+    expect([...imported].sort(), `${file} imports the units it uses`).toEqual(nonStandard.sort())
+    nonStandard.forEach(use)
+  }
+  expect([...defined].sort(), 'units.cellml holds every units needed, and only those').toEqual([...needed].sort())
+}
+
 /** The module definitions' files. */
 const moduleFiles = (files) => [...files.keys()].filter((name) => name.startsWith('modules/'))
 
-describe('the hierarchical CellML export', () => {
+describe('the CellML export with imports', () => {
   let store
   let make
   let libOpenCOR
@@ -227,8 +268,9 @@ describe('the hierarchical CellML export', () => {
     const exported = await buildHierarchicalCellML(nested.nodes, nested.edges, store)
     for (const [name, text] of exported.files) {
       expect(validationOf(text), name).toEqual([])
-      for (const [, href] of text.matchAll(/xlink:href="([^"]+)"/g)) expect(exported.files.has(href), href).toBe(true)
+      for (const [, href] of text.matchAll(/xlink:href="([^"]+)"/g)) expect(exported.files.has(normalisePath(`${name.slice(0, name.lastIndexOf('/') + 1)}${href}`)), href).toBe(true)
     }
+    expectSharedUnits(exported.files)
     const flat = await flatOf(nested)
     const result = await compareWithFlat(exported, flat)
     expect(result.differences).toEqual([])
@@ -349,8 +391,9 @@ describe('the hierarchical CellML export', () => {
     const names = Object.keys(zip.files).filter((name) => !zip.files[name].dir)
     const files = Object.fromEntries(await Promise.all(names.map(async (name) => [name, await zip.file(name).async('string')])))
     // One file per distinct module, in modules/; the host and the super-modules at the root.
-    expect(names).toEqual(['model.cellml', 'capillary_bed.cellml', 'limb.cellml', MODULES.pv, MODULES.vp, MODULES.pp])
+    expect(names).toEqual(['model.cellml', 'capillary_bed.cellml', 'limb.cellml', MODULES.pv, MODULES.vp, MODULES.pp, UNITS_FILE])
     for (const [name, text] of Object.entries(files)) expect(validationOf(text), name).toEqual([])
+    expectSharedUnits(new Map(Object.entries(files)))
 
     expect(importsOf(files['model.cellml'])).toEqual([`${MODULES.pv} aorta ${PV}`, 'limb.cellml leg limb', `${MODULES.vp} vc ${VP}`].sort())
     expect(importsOf(files['limb.cellml'])).toEqual([`${MODULES.pv} art ${PV}`, 'capillary_bed.cellml bed capillary_bed'].sort())
@@ -368,11 +411,12 @@ describe('the hierarchical CellML export', () => {
     expect(files['model.cellml']).toMatch(/<variable name="R_T_cap_bed_leg" units="[^"]+" initial_value="3"/)
   })
 
-  it('writes a flat workspace as the host and its modules, as the flat export', async () => {
+  it('writes a flat workspace as the host, its modules and the units, as the flat export', async () => {
     const { flat } = threeInstances(make)
     const exported = await buildHierarchicalCellML(flat.nodes, flat.edges, store)
-    expect(exported.files.size).toBeGreaterThan(1)
-    expect(moduleFiles(exported.files)).toEqual([...exported.files.keys()].slice(1))
+    expect(moduleFiles(exported.files).length).toBeGreaterThan(0)
+    expect([...exported.files.keys()]).toEqual(['model.cellml', ...moduleFiles(exported.files), UNITS_FILE])
+    expectSharedUnits(exported.files)
     expect(importsOf(exported.files.get('model.cellml')).every((line) => line.startsWith('modules/'))).toBe(true)
     expect((await compareWithFlat(exported, await flatOf(flat))).differences).toEqual([])
   })
@@ -381,7 +425,11 @@ describe('the hierarchical CellML export', () => {
     const { nested } = threeInstances(make)
     nested.nodes.find((node) => node.id === 'sm_1').data.supermodule.name = 'model'
     const { files } = await buildHierarchicalCellML(nested.nodes, nested.edges, store)
-    expect([...files.keys()].filter((name) => !name.startsWith('modules/'))).toEqual(['model.cellml', 'model_1.cellml'])
+    expect([...files.keys()].filter((name) => !name.startsWith('modules/'))).toEqual(['model.cellml', 'model_1.cellml', UNITS_FILE])
+    // Nor the units file.
+    nested.nodes.find((node) => node.id === 'sm_1').data.supermodule.name = 'units'
+    const renamed = await buildHierarchicalCellML(nested.nodes, nested.edges, store, { name: 'Units' })
+    expect([...renamed.files.keys()].filter((name) => !name.startsWith('modules/'))).toEqual(['Units_1.cellml', 'units_2.cellml', UNITS_FILE])
   })
 
   it('refuses what the flat export refuses', async () => {
@@ -460,7 +508,7 @@ describe('the hierarchical CellML export', () => {
 })
 
 
-describe('the hierarchical CellML export of circulatory_autogen super-modules', () => {
+describe('the CellML export with imports of circulatory_autogen super-modules', () => {
   let store
   let load
   let libOpenCOR
@@ -494,6 +542,7 @@ describe('the hierarchical CellML export of circulatory_autogen super-modules', 
     // Every file validates on its own, each module definition's included.
     expect(moduleFiles(exported.files).length).toBeGreaterThan(1)
     for (const [name, text] of exported.files) expect(validationOf(text), name).toEqual([])
+    expectSharedUnits(exported.files)
     const expansion = expandHierarchy(folded.nodes, folded.edges)
     const flat = await (await generateFlattenedModel(expansion.nodes, expansion.edges, store, [], { allowBcOnly: true })).text()
     const result = await compareWithFlat(exported, flat)

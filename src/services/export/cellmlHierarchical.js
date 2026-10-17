@@ -1,12 +1,12 @@
 /**
- * The hierarchical CellML export: the host model, one CellML 2.0 file per super-module and one per module definition,
- * zipped. A super-module's file holds a wrapper component, named after it, encapsulating its children, each named by
+ * The CellML export with imports: the host model, one CellML 2.0 file per super-module, one per module definition and
+ * one of units, zipped; a workspace without super-modules is the host, its modules' files and the units'. A super-module's file holds a wrapper component, named after it, encapsulating its children, each named by
  * its local name; a nested super instance imports its super-module's wrapper. The host imports a root super instance's
  * wrapper once per super instance, as a component named after it. Every module instance, at the root or in a
  * super-module, imports its definition's component from `modules/<component>.cellml`, which holds that component alone,
  * every variable public and no value of its own: values, a state's initialiser included (the state's initial_value
- * names it), come from outside. Every file embeds the units it uses. The flat CellML export is unchanged, and remains
- * what simulation runs.
+ * names it), come from outside. `units.cellml` defines every units the model uses, standard ones aside, and every other
+ * file imports from it those it uses. The flat CellML export is unchanged, and remains what simulation runs.
  *
  * Built by spike A's rules (libcellml 0.7.1, libOpenCOR), so that flattening the host (flattenHierarchicalModel) gives
  * the flat export's model:
@@ -81,6 +81,8 @@ export const isSelfLeaf = (node) => node?.data?.role === SELF_ROLE
 const CELLML_EXTENSION = '.cellml'
 /** The zip folder module definitions' files are in. */
 export const MODULES_FOLDER = 'modules/'
+/** The file every units is defined in, at the zip's root. */
+export const UNITS_FILE = 'units.cellml'
 const SUM = 'sum'
 const MULTIPLY = 'mul'
 
@@ -106,7 +108,7 @@ const modeOf = (port, i) => {
 const safeFileBase = (name) => (name ?? '').trim().replace(/[^A-Za-z0-9_-]/g, '_') || 'supermodule'
 
 /**
- * Builds the hierarchical CellML of a workspace.
+ * Builds the CellML with imports of a workspace.
  *
  * @param {Array} nodes - The store's nodes, super-modules unexpanded.
  * @param {Array} edges - The store's edges.
@@ -143,7 +145,7 @@ export async function buildHierarchicalCellML(nodes, edges, libraryStore, { name
 }
 
 /**
- * Builds the hierarchical CellML export's zip (see buildHierarchicalCellML).
+ * Builds the CellML with imports export's zip (see buildHierarchicalCellML).
  *
  * @param {string} fileName - The host's name.
  * @param {Array} nodes - The store's nodes.
@@ -159,7 +161,7 @@ export async function generateHierarchicalCellMLZip(fileName, nodes, edges, libr
 }
 
 /**
- * Flattens a hierarchical model, and names each child of a super instance `<super instance>__<child>` down the
+ * Flattens a hierarchical model, its units and components imports resolved, and names each child of a super instance `<super instance>__<child>` down the
  * definitions it imports, as the flat export names it (spike A rec 5), rather than libcellml's `_N`. A module's import
  * (from MODULES_FOLDER) is a leaf, not a wrapper.
  *
@@ -179,13 +181,7 @@ function flattenFiles(files, host) {
   const keep = (object) => (object && garbage.push(object), object)
   try {
     const parser = keep(new libcellml.Parser(false))
-    const importer = keep(new libcellml.Importer(false))
-    for (const [file, text] of texts) if (file !== host) importer.addModel(keep(parser.parseModel(text)), file)
-    const model = keep(parser.parseModel(texts.get(host)))
-    importer.resolveImports(model, '.')
-    if (model.hasUnresolvedImports()) throw new Error('The hierarchical model imports a file it does not include.')
-    const flat = keep(importer.flattenModel(model))
-    if (!flat || importer.errorCount()) handleLoggerErrors(importer, `Importer error count: ${importer.errorCount()}`)
+    const { model, flat } = resolveFile(texts, host, { parser, keep })
 
     const wrappers = []
     const isModule = (component) => keep(component.importSource()).url().startsWith(MODULES_FOLDER)
@@ -216,6 +212,52 @@ function flattenFiles(files, host) {
   } finally {
     garbage.reverse().forEach((object) => object.delete())
   }
+}
+
+/** @returns {string} The folder a file is in, as a prefix: '' at the zip's root. */
+const folderOf = (file) => file.slice(0, file.lastIndexOf('/') + 1)
+
+/**
+ * Resolves a file's imports from the zip's files, and flattens it.
+ *
+ * @returns {{model: Object, flat: Object}} The file's model, imports resolved, and its flattened copy.
+ * @throws {Error} When it imports a file the zip lacks, or libcellml can't flatten it.
+ */
+function resolveFile(texts, file, { parser, keep }) {
+  // libcellml looks an import up by its href joined to the importing file's folder, as it is: under both spellings.
+  const parsed = new Map()
+  const modelOf = (name) => (parsed.has(name) || parsed.set(name, keep(parser.parseModel(texts.get(name)))), parsed.get(name))
+  const importer = keep(new libcellml.Importer(false))
+  const added = new Set()
+  for (const [name, text] of texts) {
+    const folder = folderOf(name)
+    for (const [, href] of text.matchAll(/xlink:href="([^"]+)"/g)) {
+      const target = normalisePath(`${folder}${href}`)
+      if (!texts.has(target)) continue
+      for (const key of [`${folder}${href}`, `./${folder}${href}`]) {
+        if (added.has(key)) continue
+        added.add(key)
+        importer.addModel(modelOf(target), key)
+      }
+    }
+  }
+  const model = keep(parser.parseModel(texts.get(file)))
+  const folder = folderOf(file).slice(0, -1)
+  importer.resolveImports(model, folder ? `./${folder}` : '.')
+  if (model.hasUnresolvedImports()) throw new Error(`${file} imports a file the export does not include.`)
+  const flat = keep(importer.flattenModel(model))
+  if (!flat || importer.errorCount()) handleLoggerErrors(importer, `${file}: importer error count: ${importer.errorCount()}`)
+  return { model, flat }
+}
+
+/** @returns {string} A relative path, its '.' and '..' segments resolved. */
+export function normalisePath(path) {
+  const parts = []
+  for (const part of path.split('/')) {
+    if (part === '..') parts.pop()
+    else if (part && part !== '.') parts.push(part)
+  }
+  return parts.join('/')
 }
 
 /**
@@ -473,15 +515,19 @@ function resolveAlias(level, exposed, graph, definitions, depth = 0) {
 function writeLevels(levels, graph, maths, plan, libraryStore, { name, parser, keep }) {
   const { order, host } = levels
   const hostBase = safeFileBase(name)
-  levels.reserve(hostBase)
-  host.fileName = `${hostBase}${CELLML_EXTENSION}`
+  levels.reserve(UNITS_FILE.slice(0, -CELLML_EXTENSION.length))
+  host.fileName = levels.fileNameOf(hostBase)
   for (const level of order) level.fileName = levels.fileNameOf(level.fileBase)
   const units = unitsLibrary(libraryStore, parser, keep)
+  const shared = sharedUnits(units, keep)
   levels.modules = planModules([host, ...order], maths)
   const written = new Map()
-  for (const level of order) written.set(level.fileName, writeLevel(level, levels, graph, maths, plan, libraryStore, { units, parser, keep }))
-  const modules = new Map([...levels.modules].map(([mathRef, module]) => [module.fileName, writeModule(mathRef, module, maths, { units, parser, keep })]))
-  return new Map([[host.fileName, writeLevel(host, levels, graph, maths, plan, libraryStore, { units, parser, keep, modelName: hostBase })], ...written, ...modules])
+  for (const level of order) written.set(level.fileName, writeLevel(level, levels, graph, maths, plan, libraryStore, { units, shared, parser, keep }))
+  const modules = new Map([...levels.modules].map(([mathRef, module]) => [module.fileName, writeModule(mathRef, module, maths, { units, shared, parser, keep })]))
+  const hostText = writeLevel(host, levels, graph, maths, plan, libraryStore, { units, shared, parser, keep, modelName: hostBase })
+  const files = new Map([[host.fileName, hostText], ...written, ...modules])
+  if (shared.model.unitsCount()) files.set(UNITS_FILE, keep(new libcellml.Printer()).printModel(shared.model, false))
+  return files
 }
 
 /** @returns {Object|undefined} A level's self leaf: a super-module's leaf whose role is 'self'. */
@@ -521,19 +567,18 @@ function planModules(levels, maths) {
 }
 
 /**
- * Writes a module definition's file: its component alone, as stored (without values), every variable public, and the
- * units it uses.
+ * Writes a module definition's file: its component alone, as stored (without values), every variable public, importing
+ * the units it uses.
  *
  * @returns {string} Its CellML.
  */
-function writeModule(mathRef, { componentName }, maths, { units, parser, keep }) {
+function writeModule(mathRef, { componentName, fileName }, maths, { shared, parser, keep }) {
   const model = keep(new libcellml.Model())
   model.setName(sanitiseCellMLIdentifier(componentName))
   const component = keep(keep(parser.parseModel(maths(mathRef).text)).componentByIndex(0))
   for (let i = 0; i < component.variableCount(); i++) keep(component.variableByIndex(i)).setInterfaceTypeByString('public')
   model.addComponent(component)
-  embedUnits(model, units, keep)
-  model.linkUnits()
+  importUnits(model, shared, fileName, keep)
   return keep(new libcellml.Printer()).printModel(model, false)
 }
 
@@ -542,7 +587,7 @@ function writeModule(mathRef, { componentName }, maths, { units, parser, keep })
  *
  * @returns {string} Its CellML.
  */
-function writeLevel(level, levels, graph, maths, plan, libraryStore, { units, parser, keep, modelName }) {
+function writeLevel(level, levels, graph, maths, plan, libraryStore, { units, shared, parser, keep, modelName }) {
   const lib = libcellml
   const isHost = level.smId === null
   const { definitions, voi } = levels
@@ -920,8 +965,7 @@ function writeLevel(level, levels, graph, maths, plan, libraryStore, { units, pa
     if (!globalParameters.variableCount()) model.removeComponentByName(PHLYNX_GLOBAL_PARAMETERS_COMPONENT_NAME, false)
     if (!instanceParameters.variableCount()) model.removeComponentByName(PHLYNX_INSTANCE_PARAMETERS_COMPONENT_NAME, false)
   }
-  embedUnits(model, units, keep)
-  model.linkUnits()
+  importUnits(model, shared, level.fileName, keep)
   return keep(new lib.Printer()).printModel(model, false)
 }
 
@@ -940,7 +984,7 @@ function localConstantUnits(graph, level, name) {
 }
 
 /**
- * Finds units in the library's units files, to copy into each file.
+ * Finds units in the library's units files, to copy into the units file.
  *
  * @returns {(name: string) => Object|null} A library Units.
  */
@@ -956,39 +1000,14 @@ function unitsLibrary(libraryStore, parser, keep) {
   }
 }
 
-/**
- * Embeds in a model every units its components, outside the ones it imports, use, and those they are made of.
- *
- * @param {Object} model
- * @param {Function} findUnits - From unitsLibrary.
- * @param {Function} keep
- */
-function embedUnits(model, findUnits, keep) {
-  const ensure = (name) => {
-    if (!name || model.hasUnitsByName(name) || isStandardUnit(name)) return
-    if (isAffineUnit(name)) {
-      // Masked from the validator by the base unit it is offset from, as the flat export does.
-      const affine = keep(new libcellml.Units())
-      affine.setName(name)
-      affine.addUnitByReference(AFFINE_UNIT_CONVERSIONS[name].baseUnit)
-      model.addUnits(affine)
-      return
-    }
-    const found = findUnits(name)
-    if (!found) {
-      console.warn(`Could not find definition for unit '${name}'`)
-      return
-    }
-    const copy = keep(found.clone())
-    model.addUnits(copy)
-    for (let i = 0; i < copy.unitCount(); i++) ensure(copy.unitAttributeReference(i))
-  }
+/** Calls `add` with the name of every units a model's own components use, its imported ones aside. */
+function walkUnits(model, add, keep) {
   const walk = (parent) => {
     for (let i = 0; i < parent.componentCount(); i++) {
       const component = keep(parent.componentByIndex(i))
       if (component.isImport()) continue
-      for (let j = 0; j < component.variableCount(); j++) ensure(keep(keep(component.variableByIndex(j)).units())?.name())
-      if (component.math()) extractUnitsFromMath(component.math()).forEach(ensure)
+      for (let j = 0; j < component.variableCount(); j++) add(keep(keep(component.variableByIndex(j)).units())?.name())
+      if (component.math()) extractUnitsFromMath(component.math()).forEach(add)
       walk(component)
     }
   }
@@ -996,8 +1015,87 @@ function embedUnits(model, findUnits, keep) {
 }
 
 /**
- * Validates every file, then flattens the host, validating and analysing the flattened model: validating the host misses
- * what is wrong inside the files it imports (spike A).
+ * Embeds a units, and those it is made of, in a model, unless standard or there already.
+ *
+ * @param {Object} model
+ * @param {string} name
+ * @param {Function} findUnits - From unitsLibrary.
+ * @param {Function} keep
+ */
+function embedUnitsByName(model, name, findUnits, keep) {
+  if (!name || model.hasUnitsByName(name) || isStandardUnit(name)) return
+  if (isAffineUnit(name)) {
+    // Masked from the validator by the base unit it is offset from, as the flat export does.
+    const affine = keep(new libcellml.Units())
+    affine.setName(name)
+    affine.addUnitByReference(AFFINE_UNIT_CONVERSIONS[name].baseUnit)
+    model.addUnits(affine)
+    return
+  }
+  const found = findUnits(name)
+  if (!found) {
+    console.warn(`Could not find definition for unit '${name}'`)
+    return
+  }
+  const copy = keep(found.clone())
+  model.addUnits(copy)
+  for (let i = 0; i < copy.unitCount(); i++) embedUnitsByName(model, copy.unitAttributeReference(i), findUnits, keep)
+}
+
+/**
+ * Embeds in a model every units its components, outside the ones it imports, use, and those they are made of: while a
+ * file is built, for libcellml to compare units.
+ */
+function embedUnits(model, findUnits, keep) {
+  walkUnits(model, (name) => embedUnitsByName(model, name, findUnits, keep), keep)
+}
+
+/**
+ * The units file's model, which every file's units are added to.
+ *
+ * @returns {{model: Object, add: (name: string) => boolean}} add: whether the units file defines a units, added if not.
+ */
+function sharedUnits(findUnits, keep) {
+  const model = keep(new libcellml.Model())
+  model.setName('units')
+  return {
+    model,
+    add: (name) => {
+      embedUnitsByName(model, name, findUnits, keep)
+      return model.hasUnitsByName(name)
+    },
+  }
+}
+
+/**
+ * Replaces a file's units by imports from the units file, of those its components use, which the units file gets.
+ *
+ * @param {Object} model
+ * @param {Object} shared - From sharedUnits.
+ * @param {string} fileName - The file's name in the zip, which the units file's href is relative to.
+ * @param {Function} keep
+ */
+function importUnits(model, shared, fileName, keep) {
+  const names = new Set()
+  walkUnits(model, (name) => name && !isStandardUnit(name) && names.add(name), keep)
+  model.removeAllUnits()
+  const source = keep(new libcellml.ImportSource())
+  source.setUrl(`${'../'.repeat(folderOf(fileName).split('/').length - 1)}${UNITS_FILE}`)
+  for (const name of names) {
+    if (!shared.add(name)) continue
+    const units = keep(new libcellml.Units())
+    units.setName(name)
+    units.setImportSource(source)
+    units.setImportReference(name)
+    model.addUnits(units)
+  }
+  model.linkUnits()
+}
+
+/**
+ * Validates every file, as it is and, but for the host, with its imports resolved from the zip and flattened; then
+ * flattens the host, validating and analysing the flattened model: validating the host misses what is wrong inside the
+ * files it imports (spike A).
  *
  * @throws {Error} On the first file or the flattened model with errors.
  */
@@ -1008,6 +1106,9 @@ function checkFiles(files, host, { parser, keep }) {
     if (parser.errorCount()) handleLoggerErrors(parser, `${file}: parser error count: ${parser.errorCount()}`)
     validator.validateModel(model)
     if (validator.errorCount()) handleLoggerErrors(validator, `${file}: validator error count: ${validator.errorCount()}`)
+    if (file === host || file === UNITS_FILE) continue
+    validator.validateModel(resolveFile(files, file, { parser, keep }).flat)
+    if (validator.errorCount()) handleLoggerErrors(validator, `${file}, imports resolved: validator error count: ${validator.errorCount()}`)
   }
   const flat = keep(parser.parseModel(flattenFiles(files, host).cellml))
   validator.validateModel(flat)
