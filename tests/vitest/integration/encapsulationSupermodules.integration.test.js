@@ -177,13 +177,14 @@ describe('importing CellML encapsulation as super-modules (#364)', () => {
     const graph = await importModel(xml)
     const { files, host, preserved } = await buildHierarchicalCellML(graph.nodes, graph.edges, store)
 
-    // The main file and one file per super-module at the root, beside the shared units file; modules under modules/.
-    const atRoot = [...files.keys()].filter((file) => !file.startsWith('modules/') && file !== 'units.cellml')
-    expect(atRoot.sort()).toEqual(['model.cellml', ...SUPERMODULES.map((name) => `${name}.cellml`)].sort())
+    // The main file at the root, beside the shared units file; a folder per super-module, and per module under modules/.
+    const fileOf = (name) => `supermodules/${name}/${name}.cellml`
+    const definitions = [...files.keys()].filter((file) => !file.startsWith('modules/') && !file.includes('/instances/') && file !== 'units.cellml')
+    expect(definitions.sort()).toEqual(['model.cellml', ...SUPERMODULES.map(fileOf)].sort())
     expect([...files.keys()].some((file) => file.startsWith('modules/'))).toBe(true)
-    expect(preserved.sort()).toEqual(SUPERMODULES.map((name) => `${name}.cellml`).sort())
-    expect(files.get('sodium_current.cellml')).toMatch(/<component name="sodium_current">\s*<variable name="time"/)
-    expect(files.get('sodium_current.cellml')).not.toMatch(/name="self"/)
+    expect(preserved.sort()).toEqual(SUPERMODULES.map(fileOf).sort())
+    expect(files.get(fileOf('sodium_current'))).toMatch(/<component name="sodium_current">\s*<variable name="time"/)
+    expect(files.get(fileOf('sodium_current'))).not.toMatch(/name="self"/)
 
     const { cellml } = await flattenHierarchicalModel(files, host, { preserved })
     const [original, exported] = [canonicalModel(xml), canonicalModel(cellml)]
@@ -202,7 +203,7 @@ describe('importing CellML encapsulation as super-modules (#364)', () => {
     expect(nested.problems).toEqual([])
 
     const result = await buildHierarchicalCellML(nested.nodes, nested.edges, store)
-    expect(result.selfNamed).toContain('sodium_current.cellml')
+    expect(result.selfNamed).toContain('supermodules/sodium_current/sodium_current.cellml')
     const { cellml } = await flattenHierarchicalModel(result.files, result.host, result)
     // Only the new super-module's empty wrapper is extra: the self leaf keeps its own name, not wrap__sodium_current.
     const names = (xml) => Object.keys(canonicalModel(xml).components).sort()
