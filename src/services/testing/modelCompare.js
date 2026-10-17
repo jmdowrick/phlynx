@@ -486,6 +486,8 @@ export function compareCanonical(a, b, options = {}) {
     for (const name of Object.keys(canonA.units)) if (!(name in canonB.units)) differences.push(`units ${name}: only in A`)
     for (const name of Object.keys(canonB.units)) if (!(name in canonA.units)) differences.push(`units ${name}: only in B`)
     for (const name of Object.keys(canonA.units)) {
+      // Equivalent units merged under one name may be defined either way.
+      if (renameUnits?.merged.has(name)) continue
       if (name in canonB.units && canonA.units[name].join('; ') !== canonB.units[name].join('; ')) {
         differences.push(`units ${name}: [${canonA.units[name].join('; ')}] in A, [${canonB.units[name].join('; ')}] in B`)
       }
@@ -540,7 +542,7 @@ export function compareCanonical(a, b, options = {}) {
  *
  * @param {string[]} models - CellML.
  * @param {Object<string, string>} [importSources]
- * @returns {Function} Units name to its set's name.
+ * @returns {Function} Units name to its set's name; its `merged` the set names standing for more than one units.
  */
 function equivalentUnitsNames(models, importSources) {
   const lib = requireLibCellML()
@@ -560,8 +562,15 @@ function equivalentUnitsNames(models, importSources) {
     }
     // Each set after the first of its names.
     const first = new Map()
-    for (const [name, set] of names) if (!first.has(set) || name < first.get(set)) first.set(set, name)
-    return (name) => (names.has(name) ? first.get(names.get(name)) : name)
+    const sizes = new Map()
+    for (const [name, set] of names) {
+      if (!first.has(set) || name < first.get(set)) first.set(set, name)
+      sizes.set(set, (sizes.get(set) ?? 0) + 1)
+    }
+    const rename = (name) => (names.has(name) ? first.get(names.get(name)) : name)
+    // The names standing for more than one units.
+    rename.merged = new Set([...sizes].filter(([, size]) => size > 1).map(([set]) => first.get(set)))
+    return rename
   } finally {
     garbage.reverse().forEach((object) => object.delete())
   }

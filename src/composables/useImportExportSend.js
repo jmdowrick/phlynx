@@ -316,13 +316,13 @@ export function useImportExportSend({
       suffix: '.zip',
       fileTypes: ZIP_FILE_TYPES,
       message: 'Generating hierarchical CellML files.',
-      // Written from the store, a file per super-module; the model's checks run first, as for the flat export.
+      // Written from the store, a file per super-module and per module; the model's checks run first, as for the flat export.
       action: (finalName) => {
         buildWholeModel()
         const { nodes, edges } = storeGraph()
         return generateHierarchicalCellMLZip(finalName, nodes, edges, libraryStore)
       },
-      successMessage: () => 'Model exported to hierarchical CellML: the model and a file per super-module.',
+      successMessage: () => 'Model exported to hierarchical CellML: the model, a file per super-module and a file per module.',
     },
     caExportOption(EXPORT_KEYS.CA, 'Circulatory Autogen', CA_ARRAY_FORMATS.JSON, { native: true }),
     caExportOption(EXPORT_KEYS.CA_FLAT, 'Circulatory Autogen (flat)', CA_ARRAY_FORMATS.JSON),

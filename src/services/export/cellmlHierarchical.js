@@ -1,9 +1,12 @@
 /**
- * The hierarchical CellML export: the host model and one CellML 2.0 file per super-module, zipped. A super-module's file
- * holds a wrapper component, named after it, encapsulating its children, each named by its local name; a nested super
- * instance imports its super-module's wrapper. The host imports a root super instance's wrapper once per super instance,
- * as a component named after it. Every file embeds the units it uses. A workspace without super instances is the host
- * alone, importing nothing. The flat CellML export is unchanged, and remains what simulation runs.
+ * The hierarchical CellML export: the host model, one CellML 2.0 file per super-module and one per module definition,
+ * zipped. A super-module's file holds a wrapper component, named after it, encapsulating its children, each named by
+ * its local name; a nested super instance imports its super-module's wrapper. The host imports a root super instance's
+ * wrapper once per super instance, as a component named after it. Every module instance, at the root or in a
+ * super-module, imports its definition's component from `modules/<component>.cellml`, which holds that component alone,
+ * every variable public and no value of its own: values, a state's initialiser included (the state's initial_value
+ * names it), come from outside. Every file embeds the units it uses. The flat CellML export is unchanged, and remains
+ * what simulation runs.
  *
  * Built by spike A's rules (libcellml 0.7.1, libOpenCOR), so that flattening the host (flattenHierarchicalModel) gives
  * the flat export's model:
@@ -21,6 +24,9 @@
  *   is decided on the expanded model as the flat export decides it (planParameterValues). A global or local constant
  *   that a connection overrides in only some super instances is set by the host too, where nothing connects to it.
  * - A super-module's leaf whose role is 'self' (#364 import) is its wrapper: its own variables are the wrapper's.
+ * - A module's file is its math as stored, which keeps no values (separateParameters): a state's initial_value names its
+ *   initialiser variable. So every instance, whatever its values, imports the one file, and takes each value from the
+ *   level it is in, the host's parameters at the root, its wrapper's variables in a super-module.
  *
  * A super-module no super instance uses is not part of the model, so it is not written.
  */
@@ -73,6 +79,8 @@ export const SELF_ROLE = 'self'
 export const isSelfLeaf = (node) => node?.data?.role === SELF_ROLE
 
 const CELLML_EXTENSION = '.cellml'
+/** The zip folder module definitions' files are in. */
+export const MODULES_FOLDER = 'modules/'
 const SUM = 'sum'
 const MULTIPLY = 'mul'
 
@@ -152,7 +160,8 @@ export async function generateHierarchicalCellMLZip(fileName, nodes, edges, libr
 
 /**
  * Flattens a hierarchical model, and names each child of a super instance `<super instance>__<child>` down the
- * definitions it imports, as the flat export names it (spike A rec 5), rather than libcellml's `_N`.
+ * definitions it imports, as the flat export names it (spike A rec 5), rather than libcellml's `_N`. A module's import
+ * (from MODULES_FOLDER) is a leaf, not a wrapper.
  *
  * @param {Map<string, string>|Object<string, string>} files - Every file's CellML, by file name.
  * @param {string} host - The host's file name.
@@ -179,6 +188,7 @@ function flattenFiles(files, host) {
     if (!flat || importer.errorCount()) handleLoggerErrors(importer, `Importer error count: ${importer.errorCount()}`)
 
     const wrappers = []
+    const isModule = (component) => keep(component.importSource()).url().startsWith(MODULES_FOLDER)
     const definitionOf = (component) => {
       const source = keep(component.importSource())
       return keep(keep(source.model()).componentByName(component.importReference(), false))
@@ -190,7 +200,7 @@ function flattenFiles(files, host) {
         const copy = keep(flattened.componentByIndex(i))
         const name = `${prefix}${LEVEL_SEPARATOR}${child.name()}`
         copy.setName(name)
-        if (child.isImport()) {
+        if (child.isImport() && !isModule(child)) {
           wrappers.push(name)
           rename(copy, definitionOf(child), name)
         } else if (child.componentCount()) rename(copy, child, name)
@@ -198,7 +208,7 @@ function flattenFiles(files, host) {
     }
     for (let i = 0; i < model.componentCount(); i++) {
       const component = keep(model.componentByIndex(i))
-      if (!component.isImport()) continue
+      if (!component.isImport() || isModule(component)) continue
       wrappers.push(component.name())
       rename(keep(flat.componentByName(component.name(), false)), definitionOf(component), component.name())
     }
@@ -260,12 +270,13 @@ function mathReader(libraryStore, parser, keep) {
     const text = libraryStore.availableMath.get(mathRef)
     if (!text) throw new Error(`Missing math definition for '${mathRef}'`)
     const component = keep(keep(parser.parseModel(text)).componentByIndex(0))
+    if (!component) throw new Error(`The math definition for '${mathRef}' holds no component`)
     const units = new Map()
     for (let i = 0; i < component.variableCount(); i++) {
       const variable = keep(component.variableByIndex(i))
       units.set(variable.name(), keep(variable.units())?.name() ?? '')
     }
-    const info = { text, units, analysis: libraryStore.getMathAnalysis?.(mathRef) ?? analyzeMathXml(text) }
+    const info = { text, units, componentName: component.name(), analysis: libraryStore.getMathAnalysis?.(mathRef) ?? analyzeMathXml(text) }
     cache.set(mathRef, info)
     return info
   }
@@ -466,9 +477,64 @@ function writeLevels(levels, graph, maths, plan, libraryStore, { name, parser, k
   host.fileName = `${hostBase}${CELLML_EXTENSION}`
   for (const level of order) level.fileName = levels.fileNameOf(level.fileBase)
   const units = unitsLibrary(libraryStore, parser, keep)
+  levels.modules = planModules([host, ...order], maths)
   const written = new Map()
   for (const level of order) written.set(level.fileName, writeLevel(level, levels, graph, maths, plan, libraryStore, { units, parser, keep }))
-  return new Map([[host.fileName, writeLevel(host, levels, graph, maths, plan, libraryStore, { units, parser, keep, modelName: hostBase })], ...written])
+  const modules = new Map([...levels.modules].map(([mathRef, module]) => [module.fileName, writeModule(mathRef, module, maths, { units, parser, keep })]))
+  return new Map([[host.fileName, writeLevel(host, levels, graph, maths, plan, libraryStore, { units, parser, keep, modelName: hostBase })], ...written, ...modules])
+}
+
+/** @returns {Object|undefined} A level's self leaf: a super-module's leaf whose role is 'self'. */
+const selfOf = (level) => (level.smId === null ? undefined : level.children.find(isSelfLeaf))
+
+/**
+ * Names each module definition's file: `modules/<component>.cellml`, after the component its math defines. Components of
+ * one name from different library files are each named after their library file too, in mathRef order.
+ *
+ * @param {Object[]} levels
+ * @param {Function} maths
+ * @returns {Map<string, {fileName: string, componentName: string}>} By mathRef, in order of first use.
+ */
+function planModules(levels, maths) {
+  const mathRefs = []
+  for (const level of levels) {
+    const self = selfOf(level)
+    for (const child of level.children) {
+      if (child === self || isSuperInstance(child) || mathRefs.includes(child.data.mathRef)) continue
+      mathRefs.push(child.data.mathRef)
+    }
+  }
+  const baseOf = (mathRef) => safeFileBase(maths(mathRef).componentName)
+  const counts = new Map()
+  for (const mathRef of mathRefs) counts.set(baseOf(mathRef).toLowerCase(), (counts.get(baseOf(mathRef).toLowerCase()) ?? 0) + 1)
+  const taken = new Set()
+  const bases = new Map()
+  for (const mathRef of [...mathRefs].sort()) {
+    const library = mathRef.includes(':') ? mathRef.slice(0, mathRef.lastIndexOf(':')).replace(/\.cellml$/i, '') : ''
+    const base = counts.get(baseOf(mathRef).toLowerCase()) > 1 && library ? `${baseOf(mathRef)}_${safeFileBase(library)}` : baseOf(mathRef)
+    let candidate = base
+    for (let i = 1; taken.has(candidate.toLowerCase()); i++) candidate = `${base}_${i}`
+    taken.add(candidate.toLowerCase())
+    bases.set(mathRef, candidate)
+  }
+  return new Map(mathRefs.map((mathRef) => [mathRef, { fileName: `${MODULES_FOLDER}${bases.get(mathRef)}${CELLML_EXTENSION}`, componentName: maths(mathRef).componentName }]))
+}
+
+/**
+ * Writes a module definition's file: its component alone, as stored (without values), every variable public, and the
+ * units it uses.
+ *
+ * @returns {string} Its CellML.
+ */
+function writeModule(mathRef, { componentName }, maths, { units, parser, keep }) {
+  const model = keep(new libcellml.Model())
+  model.setName(sanitiseCellMLIdentifier(componentName))
+  const component = keep(keep(parser.parseModel(maths(mathRef).text)).componentByIndex(0))
+  for (let i = 0; i < component.variableCount(); i++) keep(component.variableByIndex(i)).setInterfaceTypeByString('public')
+  model.addComponent(component)
+  embedUnits(model, units, keep)
+  model.linkUnits()
+  return keep(new libcellml.Printer()).printModel(model, false)
 }
 
 /**
@@ -483,7 +549,7 @@ function writeLevel(level, levels, graph, maths, plan, libraryStore, { units, pa
   const model = keep(new lib.Model())
   model.setName(sanitiseCellMLIdentifier(modelName ?? level.fileBase))
 
-  const self = isHost ? null : level.children.find(isSelfLeaf)
+  const self = selfOf(level)
   const componentOf = new Map() // local id to the child's component
   const childNames = new Set()
   const nameChild = (base) => {
@@ -535,7 +601,19 @@ function writeLevel(level, levels, graph, maths, plan, libraryStore, { units, pa
         component.addVariable(placeholder)
       }
     } else {
-      component = leafComponent(child)
+      // A module imports its definition's component; placeholders to connect to: its variables, without values.
+      const { fileName, componentName } = levels.modules.get(child.data.mathRef)
+      component = keep(new lib.Component())
+      component.setImportSource(importSourceOf(fileName))
+      component.setImportReference(componentName)
+      const leaf = leafComponent(child)
+      for (let i = 0; i < leaf.variableCount(); i++) {
+        const variable = keep(leaf.variableByIndex(i))
+        const placeholder = keep(new lib.Variable())
+        placeholder.setName(variable.name())
+        placeholder.setUnitsByName(keep(variable.units())?.name() || 'dimensionless')
+        component.addVariable(placeholder)
+      }
     }
     component.setName(nameChild(child.data.name))
     container.addComponent(component)

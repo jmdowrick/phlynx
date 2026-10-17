@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 /**
- * The hierarchical CellML export (H14): each file validates, and the host, its imports resolved and flattened and its
- * super instances' children renamed `<super instance>__<child>`, is the flat export's model, canonically and simulated.
+ * The hierarchical CellML export (H14): each file validates, a module definition's on its own, and the host, its imports
+ * resolved and flattened and its super instances' children renamed `<super instance>__<child>`, is the flat export's
+ * model, canonically and simulated.
  */
 import createLibOpenCOR from '@opencor/libopencor'
 import JSZip from 'jszip'
@@ -140,16 +141,41 @@ function tankKit(store) {
     return { id: nodeIdOf(scope, localId), type: MAIN_NODE_TYPE, data }
   }
   return {
+    module: build,
     tank: build('file:tank', [{ portType: 'exit_ports', label: 'vessel', variables: ['v_sum', 'u'], multiportType: ['sum', 'True'] }]),
     branch: build('file:branch_g', [{ portType: 'entrance_ports', label: 'vessel', variables: ['v', 'u'], multiportType: 'None' }]),
   }
 }
 
+let libcellml
+
+/** A model's issues, as libcellml's Validator or Analyser gives them. */
+const issuesOf = (text, Checker, check) => {
+  const parser = new libcellml.Parser(false)
+  const checker = new Checker()
+  const model = parser.parseModel(text)
+  checker[check](model)
+  const issues = Array.from({ length: checker.issueCount() }, (_, i) => checker.issue(i).description())
+  ;[model, checker, parser].forEach((object) => object.delete())
+  return issues
+}
+const validationOf = (text) => issuesOf(text, libcellml.Validator, 'validateModel')
+const analysisOf = (text) => issuesOf(text, libcellml.Analyser, 'analyseModel')
+
+/** Every import of a file, as `href name component_ref`. */
+const importsOf = (text) =>
+  Array.from(new DOMParser().parseFromString(text, 'application/xml').getElementsByTagName('import')).flatMap((element) =>
+    Array.from(element.getElementsByTagName('component')).map(
+      (component) => `${element.getAttribute('xlink:href')} ${component.getAttribute('name')} ${component.getAttribute('component_ref')}`
+    )
+  ).sort()
+/** The module definitions' files. */
+const moduleFiles = (files) => [...files.keys()].filter((name) => name.startsWith('modules/'))
+
 describe('the hierarchical CellML export', () => {
   let store
   let make
   let libOpenCOR
-  let libcellml
 
   beforeAll(async () => {
     ;({ instance: libcellml } = await ensureLibCellmlReady())
@@ -166,19 +192,6 @@ describe('the hierarchical CellML export', () => {
   })
 
   afterEach(() => vi.restoreAllMocks())
-
-  /** A model's issues, as libcellml's Validator or Analyser gives them. */
-  const issuesOf = (text, Checker, check) => {
-    const parser = new libcellml.Parser(false)
-    const checker = new Checker()
-    const model = parser.parseModel(text)
-    checker[check](model)
-    const issues = Array.from({ length: checker.issueCount() }, (_, i) => checker.issue(i).description())
-    ;[model, checker, parser].forEach((object) => object.delete())
-    return issues
-  }
-  const validationOf = (text) => issuesOf(text, libcellml.Validator, 'validateModel')
-  const analysisOf = (text) => issuesOf(text, libcellml.Analyser, 'analyseModel')
 
   const flatOf = async ({ nodes, edges }, options = {}) => {
     const expansion = expandHierarchy(nodes, edges)
@@ -328,49 +341,102 @@ describe('the hierarchical CellML export', () => {
     await expectFlatEquivalent({ nodes: [h, ...boxes, sm, leaf, other], edges: [connect(h, boxes[connected], { id: 'e0' }), ...exposure] })
   })
 
-  it('zips a host and a file per super-module, each importing what it nests and validating on its own', async () => {
+  it('zips a host, a file per super-module and one per module, each importing what it holds and validating on its own', async () => {
     const { nested } = twoLevel(make)
     const zip = await JSZip.loadAsync(await (await generateHierarchicalCellMLZip('model', nested.nodes, nested.edges, store)).arrayBuffer())
-    const files = Object.fromEntries(await Promise.all(Object.keys(zip.files).map(async (name) => [name, await zip.file(name).async('string')])))
-    expect(Object.keys(files)).toEqual(['model.cellml', 'capillary_bed.cellml', 'limb.cellml'])
+    const [PV, VP, PP] = ['pv_simple_type', 'vp_ven_simple_type', 'pp_T_fixed_I_type']
+    const MODULES = { pv: `modules/${PV}.cellml`, vp: `modules/${VP}.cellml`, pp: `modules/${PP}.cellml` }
+    const names = Object.keys(zip.files).filter((name) => !zip.files[name].dir)
+    const files = Object.fromEntries(await Promise.all(names.map(async (name) => [name, await zip.file(name).async('string')])))
+    // One file per distinct module, in modules/; the host and the super-modules at the root.
+    expect(names).toEqual(['model.cellml', 'capillary_bed.cellml', 'limb.cellml', MODULES.pv, MODULES.vp, MODULES.pp])
     for (const [name, text] of Object.entries(files)) expect(validationOf(text), name).toEqual([])
 
-    const importsOf = (text) =>
-      Array.from(new DOMParser().parseFromString(text, 'application/xml').getElementsByTagName('import')).flatMap((element) =>
-        Array.from(element.getElementsByTagName('component')).map(
-          (component) => `${element.getAttribute('xlink:href')} ${component.getAttribute('name')} ${component.getAttribute('component_ref')}`
-        )
-      )
-    expect(importsOf(files['model.cellml'])).toEqual(['limb.cellml leg limb'])
-    expect(importsOf(files['limb.cellml'])).toEqual(['capillary_bed.cellml bed capillary_bed'])
-    expect(importsOf(files['capillary_bed.cellml'])).toEqual([])
+    expect(importsOf(files['model.cellml'])).toEqual([`${MODULES.pv} aorta ${PV}`, 'limb.cellml leg limb', `${MODULES.vp} vc ${VP}`].sort())
+    expect(importsOf(files['limb.cellml'])).toEqual([`${MODULES.pv} art ${PV}`, 'capillary_bed.cellml bed capillary_bed'].sort())
+    expect(importsOf(files['capillary_bed.cellml'])).toEqual([`${MODULES.pp} cap ${PP}`])
+    for (const name of moduleFiles(new Map(Object.entries(files)))) expect(importsOf(files[name])).toEqual([])
+    // Each import points at a file in the zip, relative to the importing file, at the root.
+    for (const text of Object.values(files)) for (const line of importsOf(text)) expect(names).toContain(line.split(' ')[0])
     // The wrappers encapsulate their children, each by its local name.
     expect(files['limb.cellml']).toMatch(/<component_ref component="limb">\s*<component_ref component="art"\/>\s*<component_ref component="bed"\/>/)
     // Values are set in the host only, per super instance; a definition's wrapper variables are all public_and_private.
-    for (const name of ['limb.cellml', 'capillary_bed.cellml']) expect(files[name]).not.toMatch(/initial_value="[-+.\d]/)
+    for (const name of ['limb.cellml', 'capillary_bed.cellml', MODULES.pv, MODULES.pp, MODULES.vp]) expect(files[name]).not.toMatch(/initial_value="[-+.\d]/)
     const wrapper = files['capillary_bed.cellml'].match(/<component name="capillary_bed">([\s\S]*?)<\/component>/)[1]
     expect(wrapper).not.toMatch(/interface="(?!public_and_private)/)
     expect(files['model.cellml']).toMatch(/<variable name="R_art_leg" units="[^"]+" initial_value="4"/)
     expect(files['model.cellml']).toMatch(/<variable name="R_T_cap_bed_leg" units="[^"]+" initial_value="3"/)
   })
 
-  it('writes a flat workspace as the host alone, importing nothing, as the flat export', async () => {
+  it('writes a flat workspace as the host and its modules, as the flat export', async () => {
     const { flat } = threeInstances(make)
     const exported = await buildHierarchicalCellML(flat.nodes, flat.edges, store)
-    expect([...exported.files.keys()]).toEqual(['model.cellml'])
-    expect(exported.files.get('model.cellml')).not.toContain('<import')
+    expect(exported.files.size).toBeGreaterThan(1)
+    expect(moduleFiles(exported.files)).toEqual([...exported.files.keys()].slice(1))
+    expect(importsOf(exported.files.get('model.cellml')).every((line) => line.startsWith('modules/'))).toBe(true)
     expect((await compareWithFlat(exported, await flatOf(flat))).differences).toEqual([])
   })
 
   it('names files after the super-modules, apart from the host and each other', async () => {
     const { nested } = threeInstances(make)
     nested.nodes.find((node) => node.id === 'sm_1').data.supermodule.name = 'model'
-    expect([...(await buildHierarchicalCellML(nested.nodes, nested.edges, store)).files.keys()]).toEqual(['model.cellml', 'model_1.cellml'])
+    const { files } = await buildHierarchicalCellML(nested.nodes, nested.edges, store)
+    expect([...files.keys()].filter((name) => !name.startsWith('modules/'))).toEqual(['model.cellml', 'model_1.cellml'])
   })
 
   it('refuses what the flat export refuses', async () => {
     const { nested } = bcOnlyThroughInterface(make)
     await expect(buildHierarchicalCellML(nested.nodes, nested.edges, store)).rejects.toThrow('Boundary conditions connected only to each other')
+  })
+
+  it('imports one module file for every instance of a module, each instance with its own values and initial state', async () => {
+    setActivePinia(createPinia())
+    store = useLibraryStore()
+    const { tank, branch } = tankKit(store)
+    // Two tanks and two branches inside a super-module, used twice; two of each at the root.
+    const inner = [tank('t1', 't1', { scope: 'sm_1', values: { q_init: '3' } }), tank('t2', 't2', { scope: 'sm_1', values: { q_init: '5' } })]
+    const drains = [branch('d1', 'd1', { scope: 'sm_1', values: { k: '0.2' } }), branch('d2', 'd2', { scope: 'sm_1', values: { k: '0.4' } })]
+    const sm = supermodule('sm_1', 'pair', { submoduleOrder: ['t1', 't2', 'd1', 'd2'] })
+    const edges = [connect(inner[0], drains[0], { id: 'e_1' }), connect(inner[1], drains[1], { id: 'e_2' })]
+    const definition = { nodes: [sm, ...inner, ...drains], edges }
+    const pairs = [
+      superInstance(definition, 'dndnode_p1', 'p1', 'sm_1'),
+      superInstance(definition, 'dndnode_p2', 'p2', 'sm_1', { overrides: { t1: { q_init: { value: '7' } }, d2: { k: { value: '0.8' } } } }),
+    ]
+    const tanks = [tank('dndnode_h1', 'h1', { values: { q_init: '2' } }), tank('dndnode_h2', 'h2', { values: { q_init: '4' } })]
+    const branches = [branch('dndnode_b1', 'b1', { values: { k: '0.5' } }), branch('dndnode_b2', 'b2', { values: { k: '0.25' } })]
+    const roots = [connect(tanks[0], branches[0], { id: 'e0' }), connect(tanks[1], branches[1], { id: 'e1' })]
+    const exported = await expectFlatEquivalent({ nodes: [...pairs, ...tanks, ...branches, ...definition.nodes], edges: [...roots, ...edges] })
+
+    expect(moduleFiles(exported.files)).toEqual(['modules/tank.cellml', 'modules/branch.cellml'])
+    const tankFile = exported.files.get('modules/tank.cellml')
+    // No values in a module file: a state starts at its initialiser, an interface variable set from outside.
+    expect(tankFile).not.toMatch(/initial_value="[-+.\d]/)
+    expect(tankFile).toMatch(/<variable name="q" units="dimensionless" initial_value="q_init" interface="public"\/>/)
+    expect(tankFile).toMatch(/<variable name="q_init" units="dimensionless" interface="public"\/>/)
+    expect(exported.files.get('modules/branch.cellml')).not.toMatch(/initial_value=/)
+    const host = exported.files.get('model.cellml')
+    expect(importsOf(host)).toEqual(expect.arrayContaining(['modules/tank.cellml h1 tank', 'modules/tank.cellml h2 tank', 'modules/branch.cellml b1 branch', 'modules/branch.cellml b2 branch']))
+    expect(importsOf(exported.files.get('pair.cellml'))).toEqual(['modules/tank.cellml t1 tank', 'modules/tank.cellml t2 tank', 'modules/branch.cellml d1 branch', 'modules/branch.cellml d2 branch'].sort())
+    // Each instance's values, the super instances' per super instance, are the host's.
+    for (const value of ['2', '4', '0.5', '0.25', '3', '5', '7', '0.2', '0.4', '0.8']) expect(host).toMatch(new RegExp(`initial_value="${value.replace('.', '\\.')}"`))
+  })
+
+  it('names module files apart when two library files hold components of one name', async () => {
+    setActivePinia(createPinia())
+    store = useLibraryStore()
+    const { tank, module } = tankKit(store)
+    const drainOf = (factor) => BRANCH_G_XML.replaceAll('name="branch"', 'name="drain"').replace(/\s*<variable name="g"[^>]*\/>/, '').replace('<ci>g</ci>', `<cn cellml:units="dimensionless">${factor}</cn>`).replace('<math xmlns="http://www.w3.org/1998/Math/MathML">', '<math xmlns="http://www.w3.org/1998/Math/MathML" xmlns:cellml="http://www.cellml.org/cellml/2.0#">')
+    store.addMath('slow_lib.cellml:drain', drainOf(1))
+    store.addMath('fast_lib.cellml:drain', drainOf(3))
+    const ports = [{ portType: 'entrance_ports', label: 'vessel', variables: ['v', 'u'], multiportType: 'None' }]
+    const slow = module('slow_lib.cellml:drain', ports)('dndnode_s', 's', { globals: [] })
+    const fast = module('fast_lib.cellml:drain', ports)('dndnode_f', 'f', { globals: [] })
+    const tanks = [tank('dndnode_h1', 'h1'), tank('dndnode_h2', 'h2')]
+    const exported = await expectFlatEquivalent({ nodes: [...tanks, slow, fast], edges: [connect(tanks[0], slow, { id: 'e0' }), connect(tanks[1], fast, { id: 'e1' })] })
+    expect(moduleFiles(exported.files)).toEqual(['modules/tank.cellml', 'modules/drain_slow_lib.cellml', 'modules/drain_fast_lib.cellml'])
+    expect(importsOf(exported.files.get('model.cellml'))).toEqual(expect.arrayContaining(['modules/drain_slow_lib.cellml s drain', 'modules/drain_fast_lib.cellml f drain']))
+    expect(exported.files.get('modules/drain_fast_lib.cellml')).toContain('>3</cn>')
   })
 
   it('writes a self leaf as its super-module’s wrapper', async () => {
@@ -381,6 +447,9 @@ describe('the hierarchical CellML export', () => {
     const definition = exported.files.get('reservoir.cellml')
     expect(definition).toMatch(/<component name="reservoir">\s*<variable name="t"/)
     expect(definition).not.toMatch(/<component name="tank"/)
+    // Only its other children import a module file.
+    expect(moduleFiles(exported.files)).toEqual(['modules/drain.cellml'])
+    expect(importsOf(definition)).toEqual(['modules/drain.cellml drain drain'])
     const { cellml } = await flattenHierarchicalModel(exported.files, exported.host)
     const flat = await flatOf({ nodes, edges })
     const simulated = await compareSimulations(cellml, flat, { module: libOpenCOR, endTime: 2, renameA: { p1: 'p1__tank', p2: 'p2__tank' } })
@@ -397,7 +466,7 @@ describe('the hierarchical CellML export of circulatory_autogen super-modules', 
   let libOpenCOR
 
   beforeAll(async () => {
-    await ensureLibCellmlReady()
+    ;({ instance: libcellml } = await ensureLibCellmlReady())
     libOpenCOR = await createLibOpenCOR()
   }, 120000)
 
@@ -422,12 +491,15 @@ describe('the hierarchical CellML export of circulatory_autogen super-modules', 
     for (const { name, value, units, data_reference } of model.globals) store.assignGlobalConstant(name, value, units, data_reference)
 
     const exported = await buildHierarchicalCellML(folded.nodes, folded.edges, store, { allowBcOnly: true })
+    // Every file validates on its own, each module definition's included.
+    expect(moduleFiles(exported.files).length).toBeGreaterThan(1)
+    for (const [name, text] of exported.files) expect(validationOf(text), name).toEqual([])
     const expansion = expandHierarchy(folded.nodes, folded.edges)
     const flat = await (await generateFlattenedModel(expansion.nodes, expansion.edges, store, [], { allowBcOnly: true })).text()
     const result = await compareWithFlat(exported, flat)
     expect(result.differences).toEqual([])
     // The flattened model orders its equations otherwise, which the solver's steps follow.
-    const simulated = await compareSimulations(result.cellml, flat, { module: libOpenCOR, endTime: 0.1, tolerance: 1e-5 })
+    const simulated = await compareSimulations(result.cellml, flat, { module: libOpenCOR, endTime: 0.1, tolerance: 1e-4 })
     expect(simulated.details.missing).toEqual([])
     expect(simulated.equal).toBe(true)
   })

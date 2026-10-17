@@ -126,12 +126,13 @@ describe('model consumers read the expanded workspace', () => {
     expect(result.equal).toBe(true)
   })
 
-  it('exports the hierarchical CellML of a nested workspace from the store: a file per super-module', async () => {
+  it('exports the hierarchical CellML of a nested workspace from the store: a file per super-module and per module', async () => {
     const { nested } = threeInstances(make)
     show(nested)
     const files = await readZip(await exportAs('CellML (hierarchical)'))
-    expect(Object.keys(files)).toEqual(['model.cellml', 'segment.cellml'])
+    expect(Object.keys(files).filter((name) => !name.startsWith('modules/'))).toEqual(['model.cellml', 'segment.cellml'])
     expect(files['model.cellml']).toMatch(/xlink:href="segment.cellml"/)
+    expect(files['segment.cellml']).toMatch(/xlink:href="modules\/[^"]+\.cellml"/)
   })
 
   it('exports a nested workspace to circulatory_autogen as the flat one it stands for', async () => {
