@@ -177,7 +177,10 @@ describe('importing CellML encapsulation as super-modules (#364)', () => {
     const graph = await importModel(xml)
     const { files, host, preserved } = await buildHierarchicalCellML(graph.nodes, graph.edges, store)
 
-    expect([...files.keys()].sort()).toEqual(['model.cellml', ...SUPERMODULES.map((name) => `${name}.cellml`)].sort())
+    // The main file and one file per super-module at the root, beside the shared units file; modules under modules/.
+    const atRoot = [...files.keys()].filter((file) => !file.startsWith('modules/') && file !== 'units.cellml')
+    expect(atRoot.sort()).toEqual(['model.cellml', ...SUPERMODULES.map((name) => `${name}.cellml`)].sort())
+    expect([...files.keys()].some((file) => file.startsWith('modules/'))).toBe(true)
     expect(preserved.sort()).toEqual(SUPERMODULES.map((name) => `${name}.cellml`).sort())
     expect(files.get('sodium_current.cellml')).toMatch(/<component name="sodium_current">\s*<variable name="time"/)
     expect(files.get('sodium_current.cellml')).not.toMatch(/name="self"/)
