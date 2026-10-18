@@ -718,6 +718,7 @@ import { extractSimData as extractSimDataFromSimulationJson } from '../services/
 import { buildFlowSnapshot, hashFlowSnapshot, restoreFlowSnapshot } from '../services/flowSnapshot'
 
 import { notify } from '../utils/notify'
+import { warnCouplingProblems } from '../services/coupling/loadWarning'
 import { escapeHtml } from '../utils/importBatch'
 import { getHelperLines } from '../utils/helperLines'
 import { getPurgedUrlForResource, getUrlForResource, loadManifest } from '../utils/resources'
@@ -1560,6 +1561,7 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
   // Rebuild the edge index so the EdgeConnectionDialog subgraph is correct.
   rebuildNodeEdgeIndex()
   recomputeMissingCouplings()
+  warnCouplingProblems(nodes.value, edges.value)
 
   await nextTick(fitView(fitViewParams.value))
 
@@ -1635,6 +1637,7 @@ async function onImportConfirm(importPayload, updateProgress, { flat = false } =
         title: 'Import Complete',
         message: 'Workflow built successfully!',
       })
+      warnCouplingProblems(nodes.value, edges.value)
     } catch (error) {
       notify.error({
         title: 'Import Failed',
