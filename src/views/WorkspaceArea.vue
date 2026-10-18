@@ -1016,6 +1016,7 @@ const {
   modelErrors,
   isHierarchical,
   storeGraph: () => ({ nodes: nodes.value, edges: edges.value }),
+  modelGraph,
   caIdentities: { ask: caIdentityPrompt.ask, save: (identities) => supermoduleCatalogue.setCaIdentities(identities) },
 })
 
@@ -2138,7 +2139,8 @@ async function onExportConfirm(fileName, handle) {
       file_type: exportMode.key,
     })
 
-    notify.error({ title: 'Export failed', items: [error.message] })
+    // An export stopped by several problems lists each.
+    notify.error({ title: 'Export failed', items: error.errors ?? [error.message] })
   }
 }
 

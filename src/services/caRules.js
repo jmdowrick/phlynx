@@ -163,18 +163,29 @@ export function newConfigEntries(files, hasModule) {
 }
 
 /**
+ * The note about the deprecated junction types among some module types, each named once.
+ *
+ * @param {string[]} moduleTypes
+ * @returns {{title: string, items: string[]}|null} Null without any.
+ */
+export function deprecatedJunctionsNote(moduleTypes) {
+  const types = [...new Set(moduleTypes.filter(isDeprecatedJunction))]
+  if (!types.length) return null
+  const isOne = types.length === 1
+  return {
+    title: 'Deprecated Junction Types',
+    items: [`${listNamed(types)} ${isOne ? 'is a' : 'are'} circulatory_autogen Min_/Nout_ junction type${isOne ? '' : 's'}, which ${isOne ? 'is' : 'are'} deprecated: PhLynx doesn't apply CA's junction rules, so it links their flows as one value. Use a multiport Sum (or Multiply) port instead.`],
+  }
+}
+
+/**
  * Warns, once, about the deprecated junction types among some module types.
  *
  * @param {string[]} moduleTypes
  */
 export function warnDeprecatedJunctions(moduleTypes) {
-  const types = [...new Set(moduleTypes.filter(isDeprecatedJunction))]
-  if (!types.length) return
-  const isOne = types.length === 1
-  notify.warning({
-    title: 'Deprecated Junction Types',
-    items: [`${listNamed(types)} ${isOne ? 'is a' : 'are'} circulatory_autogen Min_/Nout_ junction type${isOne ? '' : 's'}, which ${isOne ? 'is' : 'are'} deprecated: PhLynx doesn't apply CA's junction rules, so it links their flows as one value. Use a multiport Sum (or Multiply) port instead.`],
-  })
+  const note = deprecatedJunctionsNote(moduleTypes)
+  if (note) notify.warning(note)
 }
 
 /**

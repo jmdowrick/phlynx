@@ -19,7 +19,8 @@ vi.mock('../../../../src/services/caVariants', async (importOriginal) => {
   }
 })
 
-const { CA_ARRAY_FORMATS, dumpModuleRecords, generateExportZip } = await import('../../../../src/services/export/ca.js')
+const { CA_ARRAY_FORMATS, caExportProblems, dumpModuleRecords, generateExportZip } = await import('../../../../src/services/export/ca.js')
+const { createExportReport, ExportBlockedError } = await import('../../../../src/services/export/diagnostics.js')
 const { caModuleFileName } = await import('../../../../src/services/export/caCellml.js')
 const { useLibraryStore } = await import('../../../../src/stores/libraryStore.js')
 
@@ -657,7 +658,10 @@ describe('generateExportZip', () => {
       await expect(generateExportZip('heart', nodes, [...first.edges, ...second.edges], library)).rejects.toThrow(
         'CA allows one heart module, but heart, heart2 are hearts.'
       )
-      expect(notified.error).toHaveBeenCalled()
+      // The caller shows the failure: the service shows nothing, not even the notes gathered before it stopped.
+      expect(notified.error).not.toHaveBeenCalled()
+      expect(notified.warning).not.toHaveBeenCalled()
+      expect(notified.info).not.toHaveBeenCalled()
     })
 
     it('fails on a heart with no venous_ivc or venous_svc input, as CA does', async () => {
@@ -675,6 +679,46 @@ describe('generateExportZip', () => {
     expect(notified.warning).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Deprecated Junction Types', items: [expect.stringMatching(/^Min_junction is .*multiport Sum/)] })
     )
+  })
+
+  describe('parameter names', () => {
+    const constant = (name, value) => ({ name, units: 'm3_per_J', access: 'no_access', type: 'constant', value })
+
+    it('fails where two modules give one CA name different values, naming both', async () => {
+      const nodes = [nodeWith('lv', [constant('E_a', '1')]), nodeWith('a_lv', [constant('E', '2')])]
+      const error = await generateExportZip('heart', nodes, [], library).catch((thrown) => thrown)
+      expect(error).toBeInstanceOf(ExportBlockedError)
+      expect(error.errors).toEqual([expect.stringContaining('"E_a_lv" ("lv", "a_lv")')])
+      expect(caExportProblems(nodes, [], library)).toEqual(error.errors)
+    })
+
+    it('writes a name two modules give the same value once', async () => {
+      const nodes = [nodeWith('lv', [constant('E_a', '1')]), nodeWith('a_lv', [constant('E', '1')])]
+      const files = await readZip(await generateExportZip('heart', nodes, [], library))
+      expect(Papa.parse(files['heart_parameters.csv'], { header: true, skipEmptyLines: true }).data.filter((row) => row.variable_name === 'E_a_lv')).toHaveLength(1)
+    })
+  })
+
+  describe('diagnostics', () => {
+    it('stops on a problem before gathering any note', async () => {
+      library.addModule({ moduleRef: 'Min_junction:vp', mathRef: BG_MATH_REF, ports: [], variables: [] })
+      const junction = { id: 'j', data: { name: 'j', moduleRef: 'Min_junction:vp', mathRef: BG_MATH_REF, ports: [], variables: [] } }
+      const nodes = [junction, nodeWith('lv', [{ name: 'E_a', units: 'm3_per_J', type: 'constant', value: '1' }]), nodeWith('a_lv', [{ name: 'E', units: 'm3_per_J', type: 'constant', value: '2' }])]
+      const report = createExportReport()
+      await expect(generateExportZip('heart', nodes, [], library, null, { report })).rejects.toBeInstanceOf(ExportBlockedError)
+      expect(report.errors).toHaveLength(1)
+      expect(report.warnings).toEqual([])
+      expect(notified.warning).not.toHaveBeenCalled()
+    })
+
+    it('gathers the notes in the report given rather than showing them', async () => {
+      library.addModule({ moduleRef: 'Min_junction:vp', mathRef: BG_MATH_REF, ports: [], variables: [] })
+      const junction = { id: 'j', data: { name: 'j', moduleRef: 'Min_junction:vp', mathRef: BG_MATH_REF, ports: [], variables: [] } }
+      const report = createExportReport()
+      await generateExportZip('heart', [junction, nodeWith('vp', [])], [], library, null, { report })
+      expect(report.warnings.map((note) => note.title)).toContain('Deprecated Junction Types')
+      expect(notified.warning).not.toHaveBeenCalled()
+    })
   })
 
   it('fails when a component has no math in the library', async () => {
