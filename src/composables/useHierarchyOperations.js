@@ -4,10 +4,11 @@
  * no global constant a moved node uses is cleaned up, and the sliders, plots, sweeps and inspection variables of the
  * modules moved follow them to their new model ids.
  */
+import { nextTick } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
 import { useFlowHistoryFor } from './useFlowHistoryFor'
-import { prefixedNamingMessage } from './usePreservedNaming'
+import { listedNameChanges, prefixedNamingMessage } from './usePreservedNaming'
 import { useSupermodules } from './useSupermodules'
 import { flatNameChanges, keepForOne, makeUnique, modelIdMap, nestProblem, nestSelection, unnest, unnestProblem } from '../services/hierarchy/operations'
 import { remapNodeKeys } from '../services/hierarchy/remapKeys'
@@ -33,7 +34,7 @@ const EDGE_FIELDS = ['data', 'sourceHandle', 'targetHandle']
  * @param {Object} [options]
  * @param {string} [options.flowId=FLOW_IDS.MAIN]
  * @param {Object} [options.history] - The undo stack; the nearest provided one by default.
- * @param {Function} [options.confirm] - The confirm dialog, which asks before Make unique changes preserved flat names.
+ * @param {Function} [options.confirm] - The confirm dialog, which asks before Make unique or Un-nest changes flat names.
  * @returns {{canMakeUnique: Function, makeUniqueSuperInstance: Function, nestProblemOf: Function, nest: Function,
  *   unnestProblemOf: Function, unnestSuperInstance: Function, keepForOneCommand: Function}}
  */
@@ -66,11 +67,14 @@ export function useHierarchyOperations({ flowId = FLOW_IDS.MAIN, history = useFl
       .filter((edge) => edgeBefore.has(edge.id) && !same(pick(edge), pick(edgeBefore.get(edge.id))))
       .map((edge) => ({ id: edge.id, before: pick(edgeBefore.get(edge.id)), after: pick(edge) }))
 
+    // The kept nodes whose handles move, which Vue Flow must measure again for their edges to meet them.
+    const rehandled = nodeData.filter((change) => !same(change.before.handles, change.after.handles)).map((change) => change.id)
     const write = (side) => {
       for (const change of nodeData) {
         const node = flow.findNode(change.id)
         if (node) node.data = detachReactivity(change[side])
       }
+      if (rehandled.length) refreshHandles(rehandled)
       for (const change of edgeFields) {
         const edge = flow.findEdge(change.id)
         if (!edge) continue
@@ -89,6 +93,12 @@ export function useHierarchyOperations({ flowId = FLOW_IDS.MAIN, history = useFl
       removedNodes: before.nodes.filter((node) => !nodeIds.has(node.id)),
       removedEdges: before.edges.filter((edge) => !edgeIds.has(edge.id)),
     }
+  }
+
+  /** Measures some nodes' handles again once they render, so the edges at them meet their new places. */
+  const refreshHandles = async (ids) => {
+    await nextTick()
+    flow.updateNodeInternals?.(ids)
   }
 
   /** Removes nodes, a super-module's interface node (which can't be deleted from the canvas) too. */
@@ -238,14 +248,30 @@ export function useHierarchyOperations({ flowId = FLOW_IDS.MAIN, history = useFl
   const unnestProblemOf = (superInstanceId) => unnestProblem(allNodes(), superInstanceId)
 
   /**
-   * Un-nests a super instance: its super-module's children take its place (see operations.js unnest).
+   * Un-nests a super instance: its super-module's children take its place (see operations.js unnest). As their flat
+   * names change when they keep their own names, it asks first, listing them.
    *
    * @param {string} superInstanceId
    * @returns {Promise<{done: boolean, problems: string[], result?: Object}>}
    */
-  function unnestSuperInstance(superInstanceId) {
+  async function unnestSuperInstance(superInstanceId) {
     const before = store()
-    return apply('unnest', before, unnest(before.nodes, before.edges, superInstanceId))
+    const result = unnest(before.nodes, before.edges, superInstanceId)
+    if (!result.problems.length && confirm) {
+      const { idMap } = modelIdMap(before, result, result.rewrite)
+      const changes = flatNameChanges(before.nodes, result.nodes, idMap)
+      if (changes.length) {
+        const answer = await confirm({
+          header: 'Flat Names Will Change',
+          message: `Un-nested modules keep their own names. These flat names, which SED-ML and PMR references use, will change:\n${listedNameChanges(changes)}`,
+          severity: 'warning',
+          acceptLabel: 'Un-nest',
+          rejectLabel: 'Cancel',
+        })
+        if (answer !== true) return { done: false, problems: [] }
+      }
+    }
+    return apply('unnest', before, result)
   }
 
   /**

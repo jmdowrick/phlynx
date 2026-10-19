@@ -1970,7 +1970,7 @@ function onNodeContextMenu({ clientX, clientY, id }) {
       open: () => canvasLevel.enter(id),
       editSupermodule: () => canvasLevel.editSupermodule(node.data.smId),
       makeUnique: () => reportProblems('Not Made Unique', hierarchy.makeUniqueSuperInstance(id)),
-      unnest: () => reportProblems('Not Un-nested', hierarchy.unnestSuperInstance(id)),
+      unnest: () => reportUnnest(hierarchy.unnestSuperInstance(id)),
       nest: () => openNestDialog(toNest),
       remove: () => deleteNodes([id]),
       replace: () => onOpenReplacementDialog(node),
@@ -2034,6 +2034,22 @@ const hierarchy = useHierarchyOperations({ history: historyStore, confirm })
 async function reportProblems(title, outcome) {
   const { problems } = await outcome
   if (problems.length) notify.warning({ title, message: problems.join(' ') })
+}
+
+/**
+ * Says why an un-nest wasn't made, or what it dropped when it was: couplings to ports no longer exposed, and the
+ * super-module once nothing else used it.
+ *
+ * @param {Promise<{done: boolean, problems: string[], result?: Object}>} outcome
+ */
+async function reportUnnest(outcome) {
+  const { done, problems, result } = await outcome
+  if (problems.length) return notify.warning({ title: 'Not Un-nested', message: problems.join(' ') })
+  if (!done) return
+  const notes = []
+  if (result.droppedCouplings) notes.push(`${result.droppedCouplings} coupling${result.droppedCouplings === 1 ? '' : 's'} to ports no longer exposed ${result.droppedCouplings === 1 ? 'was' : 'were'} removed.`)
+  if (result.removedSupermodule) notes.push('Its super-module had no other super instances, so it was removed.')
+  if (notes.length) notify.info({ title: 'Un-nested', message: notes.join(' ') })
 }
 
 // Deleting asks first when it would break an exposed port or leave a super-module unused.

@@ -283,9 +283,12 @@ describe('importing CellML encapsulation as super-modules (#364)', () => {
     expect(simulated.details.missing).toEqual([])
     expect(simulated.equal).toBe(true)
  
-    // Un-nested, it keeps its flat name.
+    // Un-nested, the self leaf keeps its flat name and its children take their own.
     const after = unnest(prefixed.nodes, prefixed.edges, prefixed.nodes.find((node) => node.data.smId === sodium.id).id)
     expect(after.problems).toEqual([])
-    expect(compareCanonical(flat, await flatExport(after))).toEqual({ equal: true, differences: [] })
+    const names = Object.keys(canonicalModel(await flatExport(after)).components)
+    expect(names).toContain('sodium_current')
+    expect(names).toContain('sodium_current_m_gate')
+    expect(names.some((name) => name.startsWith('sodium_current__'))).toBe(false)
   })
 })

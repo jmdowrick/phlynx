@@ -271,14 +271,20 @@ class TestSuperInstances(unittest.TestCase):
         page.keyboard.press("Escape")
         expect(page.locator(BREADCRUMB)).to_have_count(0)
 
-        # Un-nest puts the modules back, named by their place, and the super-module goes.
+        # Un-nest asks first, as the modules' flat names change, then puts them back under their own names, and the
+        # super-module goes.
         wait_for_settled_transform(page)
         page.locator(SUPER_INSTANCE).click(button="right")
         page.locator(".context-menu__item", has_text="Un-nest").click()
+        confirm = page.get_by_role("alertdialog")
+        expect(confirm).to_contain_text("nerve__var_SN → var_SN")
+        confirm.get_by_role("button", name="Un-nest").click()
+        # Shortcuts wait for the question to close.
+        expect(confirm).to_be_hidden()
         expect(page.locator(SUPER_INSTANCE)).to_have_count(0)
         expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT)
-        expect(node_by_name(page, "nerve__var_SN")).to_have_count(1)
-        expect(node_by_name(page, "nerve__axon_SN")).to_have_count(1)
+        expect(node_by_name(page, "var_SN")).to_have_count(1)
+        expect(node_by_name(page, "axon_SN")).to_have_count(1)
         expect(page.locator(EDGE)).to_have_count(2)
         expect(page.locator(SUPERMODULE_CARD)).to_have_count(0)
 
