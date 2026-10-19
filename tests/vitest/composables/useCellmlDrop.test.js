@@ -65,6 +65,7 @@ describe('useCellmlDrop', () => {
         edges.value = [{ id: 'fresh-edge', source: 'a', target: 'new-only' }]
         addNodes.mockClear()
         addEdges.mockClear()
+        return true
       }),
       rebuildNodeEdgeIndex: vi.fn(),
       confirm: vi.fn(),
@@ -121,6 +122,7 @@ describe('useCellmlDrop', () => {
       deps.loadFromCellML.mockImplementation(async () => {
         await Promise.resolve()
         nodes.value = [createNode('a')]
+        return true
       })
 
       await drop.loadCellMLFiles([{ name: 'm.cellml', content: '<model/>' }])
@@ -153,6 +155,19 @@ describe('useCellmlDrop', () => {
       expect(addEdges).not.toHaveBeenCalled()
       expect(nodes.value.map((n) => n.id)).toEqual(['a', 'new-only'])
       expect(deps.rebuildNodeEdgeIndex).toHaveBeenCalledTimes(1)
+    })
+
+    it('leaves the workspace as it was on Add to Workspace when the file has no modules to place', async () => {
+      nodes.value = [createNode('a', 100)]
+      deps.confirm.mockResolvedValue(false)
+      deps.loadFromCellML.mockResolvedValue(false)
+
+      const results = await drop.loadCellMLFiles([{ name: 'm.cellml', content: '<model/>' }])
+
+      expect(nodes.value.map((n) => n.id)).toEqual(['a'])
+      expect(addNodes).not.toHaveBeenCalled()
+      expect(addEdges).not.toHaveBeenCalled()
+      expect(results).toEqual([{ ok: true, moduleCount: 1, unitsCount: 0 }])
     })
 
     it('combines on Add to Workspace: remaps clashing ids, offsets by 1500 x and restores edges', async () => {
@@ -190,6 +205,7 @@ describe('useCellmlDrop', () => {
       deps.confirm.mockResolvedValue(false)
       deps.loadFromCellML.mockImplementation(async () => {
         nodes.value = [createNode('a'), createNode('a_1')]
+        return true
       })
 
       await drop.loadCellMLFiles([{ name: 'm.cellml', content: '<model/>' }])
@@ -202,6 +218,7 @@ describe('useCellmlDrop', () => {
       deps.confirm.mockResolvedValue(false)
       deps.loadFromCellML.mockImplementation(async () => {
         nodes.value = [createNode('a')]
+        return true
       })
 
       await drop.loadCellMLFiles([{ name: 'm.cellml', content: '<model/>' }])
