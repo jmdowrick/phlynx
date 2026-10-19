@@ -1402,14 +1402,18 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
     const cellmlPayload = parseCellMLConnections(importedCellml, result.files.cellml)
     await loadCellMLData(importedCellml, result.files.cellml, { notify: false })
     const parameters = loadParametersFromCellML(importedCellml)
-    await loadFromCellML(cellmlPayload, result.files.cellml)
+    if (!(await loadFromCellML(cellmlPayload, result.files.cellml))) {
+      throw new Error(`${result.files.cellml} has no modules to place.`)
+    }
   } else {
     // Last, and not great, scenario: if we don't have a flow snapshot or module configuration, we can still load the CellML file to build the workspace.
     const importedCellml = prepareCellmlImport(cellmlContent, result.files.cellml)
     const cellmlPayload = parseCellMLConnections(importedCellml, result.files.cellml)
     await loadCellMLData(importedCellml, result.files.cellml, { notify: false })
     const parameters = loadParametersFromCellML(importedCellml)
-    await loadFromCellML(cellmlPayload, result.files.cellml, parameters)
+    if (!(await loadFromCellML(cellmlPayload, result.files.cellml, parameters))) {
+      throw new Error(`${result.files.cellml} has no modules to place.`)
+    }
   }
 
   if (result.files?.simulationJson) {
