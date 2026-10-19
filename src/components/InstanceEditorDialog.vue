@@ -505,7 +505,6 @@ import { resolveBoundaryValues } from '../services/export/boundaryValues'
 import {
   createSinglePlotConfig,
   getNodePlotEntries,
-  isPlottableRow,
   renamePlotVariables,
   replacePlotSelections,
   resolvePlotConfig,
@@ -1080,10 +1079,6 @@ function plotClickedVariable(name) {
   const row = node?.data?.variables?.find((candidate) => candidate.name === name)
   if (!row) {
     if (parameterRows.value.some((candidate) => candidate.name === name)) showPlotNotice(`Save to plot ${name}`)
-    return
-  }
-  if (!isPlottableRow(row)) {
-    showPlotNotice(`${name} is set, not computed, so it isn’t plotted`)
     return
   }
   plotNotice.value = ''
