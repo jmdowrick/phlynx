@@ -1,9 +1,12 @@
 /**
  * The CellML export with imports: the host model, one CellML 2.0 file per super-module, one per module definition and
- * one of units, zipped; a workspace without super-modules is the host, its modules' files and the units'. A super-module's file holds a wrapper component, named after it, encapsulating its children, each named by
+ * one of units, zipped; a workspace without super-modules is the host, its modules' files and the units'. Each module
+ * definition's file is `modules/<component>/<component>.cellml`, each super-module's `supermodules/<name>/<name>.cellml`,
+ * and beside each, `instances/<flat name>/` holds a model of each of its instances (or super instances) on its own (see
+ * planStandalone). A super-module's file holds a wrapper component, named after it, encapsulating its children, each named by
  * its local name; a nested super instance imports its super-module's wrapper. The host imports a root super instance's
  * wrapper once per super instance, as a component named after it. Every module instance, at the root or in a
- * super-module, imports its definition's component from `modules/<component>.cellml`, which holds that component alone,
+ * super-module, imports its definition's component from its module file, which holds that component alone,
  * every variable public and no value of its own: values, a state's initialiser included (the state's initial_value
  * names it), come from outside. `units.cellml` defines every units the model uses, standard ones aside, and every other
  * file imports from it those it uses. The flat CellML export is unchanged, and remains what simulation runs.
@@ -38,6 +41,7 @@ import { expandHierarchy } from '../hierarchy/expand'
 import { indexExposures } from '../hierarchy/exposure'
 import { LEVEL_SEPARATOR, SELF_ROLE } from '../hierarchy/names'
 import { analyzeMathXml } from '../math/analyzeMath'
+import { mappingKey } from '../simulation/variableMapping'
 import {
   connectVariables,
   createMultiplyComponent,
@@ -69,7 +73,7 @@ import {
   MAX_NESTING_DEPTH,
   supermodulesById,
 } from '../../utils/hierarchy'
-import { findVoiNames } from '../../utils/variables'
+import { findVoiNames, isBlank, isNumericLiteral } from '../../utils/variables'
 
 // Set by the exported builders, once libCellML is ready.
 let libcellml = null
@@ -81,10 +85,22 @@ export { SELF_ROLE }
 export const isSelfLeaf = (node) => node?.data?.role === SELF_ROLE
 
 const CELLML_EXTENSION = '.cellml'
-/** The zip folder module definitions' files are in. */
+/** The zip folder each module definition's folder is in. */
 export const MODULES_FOLDER = 'modules/'
-/** The file every units is defined in, at the zip's root. */
+/** The zip folder each super-module's folder is in. */
+export const SUPERMODULES_FOLDER = 'supermodules/'
+/** The folder, beside a definition's file, of its instances' standalone models. */
+export const INSTANCES_FOLDER = 'instances/'
+/** The file every units is defined in, at the zip's root, and an instance folder's own units. */
 export const UNITS_FILE = 'units.cellml'
+/** An instance folder's model, which runs it on its own. */
+export const STANDALONE_MODEL_FILE = 'model.cellml'
+/** An instance folder's values. */
+export const PARAMETERS_FILE = 'parameters.cellml'
+/** The zip's notes on which instance folders run on their own. */
+export const README_FILE = 'README.txt'
+const PARAMETERS_COMPONENT = 'parameters'
+const ENVIRONMENT_COMPONENT = 'environment'
 const SUM = 'sum'
 const MULTIPLY = 'mul'
 
@@ -109,6 +125,31 @@ const modeOf = (port, i) => {
 /** @returns {string} A name safe as a file name, from a super-module's name or identity. */
 const safeFileBase = (name) => (name ?? '').trim().replace(/[^A-Za-z0-9_-]/g, '_') || 'supermodule'
 
+/** @returns {(base: string) => string} Names each base apart from those named before, whatever their case. */
+function uniqueNamer(taken = new Set()) {
+  return (base) => {
+    let candidate = base
+    for (let i = 1; taken.has(candidate.toLowerCase()); i++) candidate = `${base}_${i}`
+    taken.add(candidate.toLowerCase())
+    return candidate
+  }
+}
+
+/**
+ * Gives a zip file's path as a file elsewhere in the zip imports it.
+ *
+ * @param {string} from - The importing file's path.
+ * @param {string} to - The imported file's path.
+ * @returns {string} E.g. `../../units.cellml`.
+ */
+export function relativePath(from, to) {
+  const fromFolders = folderOf(from).split('/').filter(Boolean)
+  const toParts = to.split('/')
+  let common = 0
+  while (common < fromFolders.length && common < toParts.length - 1 && fromFolders[common] === toParts[common]) common++
+  return `${'../'.repeat(fromFolders.length - common)}${toParts.slice(common).join('/')}`
+}
+
 /**
  * Builds the CellML with imports of a workspace.
  *
@@ -118,14 +159,17 @@ const safeFileBase = (name) => (name ?? '').trim().replace(/[^A-Za-z0-9_-]/g, '_
  * @param {Object} [options]
  * @param {string} [options.name='model'] - The host's name; its file is `<name>.cellml`.
  * @param {boolean} [options.check=true] - Validates every file, and validates and analyses the flattened model,
- *   throwing on errors.
+ *   throwing on errors, and each instance folder's model meant to run.
  * @param {boolean} [options.allowBcOnly=false] - As generateFlattenedModel's.
- * @returns {Promise<{host: string, files: Map<string, string>, preserved: string[], selfNamed: string[]}>} The host's
- *   file name, every file's CellML by file name, the host's first, the files of super-modules whose naming is
- *   'preserve', and those of them whose wrapper is a self leaf keeping its own name (see flattenHierarchicalModel).
+ * @param {Map<string, string|number>} [options.standaloneValues] - The values given the standalone inputs, by input id
+ *   (see planStandalone); a folder with an input given none is written, but doesn't run.
+ * @returns {Promise<{host: string, files: Map<string, string>, preserved: string[], selfNamed: string[],
+ *   standalone: Object[], readme: string}>} The host's file name, every file's CellML by file name, the host's first,
+ *   the files of super-modules whose naming is 'preserve', and those of them whose wrapper is a self leaf keeping its own
+ *   name (see flattenHierarchicalModel); each instance folder, with its inputs and those missing; the zip's README.txt.
  * @throws {Error} For what the flat export refuses, or a super-module that can't be expanded.
  */
-export async function buildHierarchicalCellML(nodes, edges, libraryStore, { name = 'model', check = true, allowBcOnly = false } = {}) {
+export async function buildHierarchicalCellML(nodes, edges, libraryStore, { name = 'model', check = true, allowBcOnly = false, standaloneValues = new Map() } = {}) {
   libcellml = await whenLibCellMLReady()
   const expansion = expandHierarchy(nodes, edges)
   const problems = expansion.errors.filter((error) => error.severity === 'error')
@@ -142,34 +186,62 @@ export async function buildHierarchicalCellML(nodes, edges, libraryStore, { name
     const files = writeLevels(levels, graph, maths, plan, libraryStore, { name, parser, keep })
     const preserved = levels.order.filter((level) => level.preserve).map((level) => level.fileName)
     const selfNamed = levels.order.filter((level) => level.selfName).map((level) => level.fileName)
-    if (check) checkFiles(files, levels.host.fileName, { parser, keep, preserved, selfNamed })
-    return { host: levels.host.fileName, files, preserved, selfNamed }
+    const standalone = planStandalone(levels, graph, expansion, plan, maths, libraryStore)
+    const findUnits = unitsLibrary(libraryStore, parser, keep)
+    for (const unit of standalone) {
+      for (const [file, text] of writeStandalone(unit, standaloneValues, { findUnits, keep })) files.set(file, text)
+    }
+    if (check) {
+      checkFiles(files, levels.host.fileName, { parser, keep, preserved, selfNamed })
+      checkStandalone(files, standalone, { parser, keep })
+    }
+    return { host: levels.host.fileName, files, preserved, selfNamed, standalone, readme: readmeOf(name, standalone) }
   } finally {
     garbage.reverse().forEach((object) => object.delete())
   }
 }
 
 /**
- * Builds the CellML with imports export's zip (see buildHierarchicalCellML).
+ * Lists the inputs each instance folder's model needs a value for to run on its own (see planStandalone), without
+ * checking the files.
+ *
+ * @param {Array} nodes - The store's nodes.
+ * @param {Array} edges - The store's edges.
+ * @param {Object} libraryStore
+ * @param {Object} [options]
+ * @param {boolean} [options.allowBcOnly=false]
+ * @returns {Promise<Array<{folder: string, name: string, kind: string, path: string, inputs: Object[]}>>} The folders
+ *   with inputs, `path` the instance's canvas path.
+ */
+export async function standaloneInputs(nodes, edges, libraryStore, { allowBcOnly = false } = {}) {
+  const { standalone } = await buildHierarchicalCellML(nodes, edges, libraryStore, { check: false, allowBcOnly })
+  return standalone.filter((unit) => unit.inputs.length).map(({ folder, name, kind, path, inputs }) => ({ folder, name, kind, path, inputs }))
+}
+
+/**
+ * Builds the CellML with imports export's zip (see buildHierarchicalCellML), with its README.txt.
  *
  * @param {string} fileName - The host's name.
  * @param {Array} nodes - The store's nodes.
  * @param {Array} edges - The store's edges.
  * @param {Object} libraryStore
+ * @param {Object} [options]
+ * @param {Map<string, string|number>} [options.standaloneValues] - As buildHierarchicalCellML's.
  * @returns {Promise<Blob>}
  */
-export async function generateHierarchicalCellMLZip(fileName, nodes, edges, libraryStore) {
-  const { files } = await buildHierarchicalCellML(nodes, edges, libraryStore, { name: fileName })
+export async function generateHierarchicalCellMLZip(fileName, nodes, edges, libraryStore, { standaloneValues } = {}) {
+  const { files, readme } = await buildHierarchicalCellML(nodes, edges, libraryStore, { name: fileName, standaloneValues })
   const zip = new JSZip()
   for (const [file, text] of files) zip.file(file, text)
+  zip.file(README_FILE, readme)
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 9 } })
 }
 
 /**
  * Flattens a hierarchical model, its units and components imports resolved, and names each child of a super instance `<super instance>__<child>` down the
  * definitions it imports, as the flat export names it (spike A rec 5), rather than libcellml's `_N`. A module's import
- * (from MODULES_FOLDER) is a leaf, not a wrapper; a child of a super-module whose naming is 'preserve' keeps its own
- * name, as does a super instance whose wrapper is such a super-module's self leaf.
+ * (a file under MODULES_FOLDER) is a leaf, not a wrapper; a child of a super-module whose naming is 'preserve' keeps its
+ * own name, as does a super instance whose wrapper is such a super-module's self leaf.
  *
  * @param {Map<string, string>|Object<string, string>} files - Every file's CellML, by file name.
  * @param {string} host - The host's file name.
@@ -183,6 +255,27 @@ export async function flattenHierarchicalModel(files, host, { preserved = [], se
   return flattenFiles(files, host, { preserved, selfNamed })
 }
 
+/**
+ * Flattens one file of a zip, its imports resolved from the zip's files, as libcellml would from the zip unpacked.
+ *
+ * @param {Map<string, string>|Object<string, string>} files
+ * @param {string} file - E.g. an instance folder's model.cellml.
+ * @returns {Promise<string>} The flattened CellML.
+ * @throws {Error} When it imports a file the zip lacks.
+ */
+export async function flattenZipFile(files, file) {
+  libcellml = await whenLibCellMLReady()
+  const texts = files instanceof Map ? files : new Map(Object.entries(files))
+  const garbage = []
+  const keep = (object) => (object && garbage.push(object), object)
+  try {
+    const { flat } = resolveFile(texts, file, { parser: keep(new libcellml.Parser(false)), keep })
+    return keep(new libcellml.Printer()).printModel(flat, false)
+  } finally {
+    garbage.reverse().forEach((object) => object.delete())
+  }
+}
+
 /** Flattens a hierarchical model, libCellML ready (see flattenHierarchicalModel). */
 function flattenFiles(files, host, { preserved = [], selfNamed = [] } = {}) {
   const texts = files instanceof Map ? files : new Map(Object.entries(files))
@@ -193,33 +286,35 @@ function flattenFiles(files, host, { preserved = [], selfNamed = [] } = {}) {
     const { model, flat } = resolveFile(texts, host, { parser, keep })
 
     const wrappers = []
-    const isModule = (component) => keep(component.importSource()).url().startsWith(MODULES_FOLDER)
+    /** The file an imported component's import names, from the file importing it. */
+    const fileOf = (component, from) => normalisePath(`${folderOf(from)}${keep(component.importSource()).url()}`)
+    const isModule = (component, from) => fileOf(component, from).startsWith(MODULES_FOLDER)
     const keepsNames = new Set(preserved)
     const keepsOwnName = new Set(selfNamed)
-    const definitionOf = (component) => {
+    const definitionOf = (component, from) => {
       const source = keep(component.importSource())
-      const url = source.url()
-      return { definition: keep(keep(source.model()).componentByName(component.importReference(), false)), preserve: keepsNames.has(url), self: keepsOwnName.has(url) }
+      const file = fileOf(component, from)
+      return { definition: keep(keep(source.model()).componentByName(component.importReference(), false)), file, preserve: keepsNames.has(file), self: keepsOwnName.has(file) }
     }
     // The flattened children are the definition's, in its order.
-    const rename = (flattened, { definition, preserve }, prefix) => {
+    const rename = (flattened, { definition, file, preserve }, prefix) => {
       for (let i = 0; i < definition.componentCount(); i++) {
         const child = keep(definition.componentByIndex(i))
         const copy = keep(flattened.componentByIndex(i))
-        const inner = child.isImport() && !isModule(child) ? definitionOf(child) : null
+        const inner = child.isImport() && !isModule(child, file) ? definitionOf(child, file) : null
         const name = preserve || inner?.self ? child.name() : `${prefix}${LEVEL_SEPARATOR}${child.name()}`
         copy.setName(name)
         if (inner) {
           wrappers.push(name)
           rename(copy, inner, name)
-        } else if (child.componentCount()) rename(copy, { definition: child, preserve }, name)
+        } else if (child.componentCount()) rename(copy, { definition: child, file, preserve }, name)
       }
     }
     for (let i = 0; i < model.componentCount(); i++) {
       const component = keep(model.componentByIndex(i))
-      if (!component.isImport() || isModule(component)) continue
+      if (!component.isImport() || isModule(component, host)) continue
       wrappers.push(component.name())
-      rename(keep(flat.componentByName(component.name(), false)), definitionOf(component), component.name())
+      rename(keep(flat.componentByName(component.name(), false)), definitionOf(component, host), component.name())
     }
     return { cellml: keep(new libcellml.Printer()).printModel(flat, false), wrappers }
   } finally {
@@ -230,6 +325,9 @@ function flattenFiles(files, host, { preserved = [], selfNamed = [] } = {}) {
 /** @returns {string} The folder a file is in, as a prefix: '' at the zip's root. */
 const folderOf = (file) => file.slice(0, file.lastIndexOf('/') + 1)
 
+// Where resolveFile has libcellml find the zip's files; libcellml reads none from disk once they are given it.
+const ZIP_ROOT = '/zip/'
+
 /**
  * Resolves a file's imports from the zip's files, and flattens it.
  *
@@ -237,26 +335,26 @@ const folderOf = (file) => file.slice(0, file.lastIndexOf('/') + 1)
  * @throws {Error} When it imports a file the zip lacks, or libcellml can't flatten it.
  */
 function resolveFile(texts, file, { parser, keep }) {
-  // libcellml looks an import up by its href joined to the importing file's folder, as it is: under both spellings.
+  // libcellml looks an import up by its href joined to the importing file's path as it reached that file, '..' and
+  // all, so each file is given it under every path the imports reach it by.
   const parsed = new Map()
   const modelOf = (name) => (parsed.has(name) || parsed.set(name, keep(parser.parseModel(texts.get(name)))), parsed.get(name))
   const importer = keep(new libcellml.Importer(false))
   const added = new Set()
-  for (const [name, text] of texts) {
-    const folder = folderOf(name)
-    for (const [, href] of text.matchAll(/xlink:href="([^"]+)"/g)) {
-      const target = normalisePath(`${folder}${href}`)
-      if (!texts.has(target)) continue
-      for (const key of [`${folder}${href}`, `./${folder}${href}`]) {
-        if (added.has(key)) continue
-        added.add(key)
-        importer.addModel(modelOf(target), key)
-      }
+  const visit = (name, seenAs, depth) => {
+    if (depth > 4 * MAX_NESTING_DEPTH) return
+    for (const [, href] of texts.get(name).matchAll(/xlink:href="([^"]+)"/g)) {
+      const key = `${folderOf(seenAs)}${href}`
+      const target = normalisePath(key.slice(ZIP_ROOT.length))
+      if (!texts.has(target) || added.has(key)) continue
+      added.add(key)
+      importer.addModel(modelOf(target), key)
+      visit(target, key, depth + 1)
     }
   }
+  visit(file, `${ZIP_ROOT}${file}`, 0)
   const model = keep(parser.parseModel(texts.get(file)))
-  const folder = folderOf(file).slice(0, -1)
-  importer.resolveImports(model, folder ? `./${folder}` : '.')
+  importer.resolveImports(model, `${ZIP_ROOT}${folderOf(file)}`.slice(0, -1))
   if (model.hasUnresolvedImports()) throw new Error(`${file} imports a file the export does not include.`)
   const flat = keep(importer.flattenModel(model))
   if (!flat || importer.errorCount()) handleLoggerErrors(importer, `${file}: importer error count: ${importer.errorCount()}`)
@@ -343,7 +441,8 @@ function mathReader(libraryStore, parser, keep) {
  * values the host sets and in what the host couples to them.
  *
  * @returns {{host: Object, definitions: Map<string, Object>, order: Object[], voi: {name: string, units: string}|null,
- *   hostValues: Array}} order: the super-modules, each after those it nests.
+ *   voiOf: Function, hostValues: Array}} order: the super-modules, each after those it nests; voiOf: a module's VoI
+ *   names.
  */
 function planLevels(graph, expansion, plan, maths) {
   const { nodeById, supermodules, childrenOf } = graph
@@ -499,7 +598,7 @@ function planLevels(graph, expansion, plan, maths) {
     level.preserve = naming === 'preserve'
     level.fileBase = safeFileBase(ca?.module_type && ca?.module_subtype ? `${ca.module_type}_${ca.module_subtype}` : name)
   }
-  return { host, definitions, order, voi, hostValues: [...hostValues.values()], routed, fileNameOf, reserve: (base) => taken.add(base.toLowerCase()) }
+  return { host, definitions, order, voi, voiOf, hostValues: [...hostValues.values()], routed, fileNameOf, reserve: (base) => taken.add(base.toLowerCase()) }
 }
 
 /**
@@ -531,7 +630,12 @@ function writeLevels(levels, graph, maths, plan, libraryStore, { name, parser, k
   const hostBase = safeFileBase(name)
   levels.reserve(UNITS_FILE.slice(0, -CELLML_EXTENSION.length))
   host.fileName = levels.fileNameOf(hostBase)
-  for (const level of order) level.fileName = levels.fileNameOf(level.fileBase)
+  const stemOf = uniqueNamer()
+  for (const level of order) {
+    const stem = stemOf(level.fileBase)
+    level.folder = `${SUPERMODULES_FOLDER}${stem}/`
+    level.fileName = `${level.folder}${stem}${CELLML_EXTENSION}`
+  }
   const units = unitsLibrary(libraryStore, parser, keep)
   const shared = sharedUnits(units, keep)
   levels.modules = planModules([host, ...order], maths)
@@ -548,12 +652,13 @@ function writeLevels(levels, graph, maths, plan, libraryStore, { name, parser, k
 const selfOf = (level) => (level.smId === null ? undefined : level.children.find(isSelfLeaf))
 
 /**
- * Names each module definition's file: `modules/<component>.cellml`, after the component its math defines. Components of
- * one name from different library files are each named after their library file too, in mathRef order.
+ * Names each module definition's folder and file: `modules/<component>/<component>.cellml`, after the component its math
+ * defines. Components of one name from different library files are each named after their library file too, in mathRef
+ * order.
  *
  * @param {Object[]} levels
  * @param {Function} maths
- * @returns {Map<string, {fileName: string, componentName: string}>} By mathRef, in order of first use.
+ * @returns {Map<string, {folder: string, fileName: string, componentName: string}>} By mathRef, in order of first use.
  */
 function planModules(levels, maths) {
   const mathRefs = []
@@ -567,17 +672,18 @@ function planModules(levels, maths) {
   const baseOf = (mathRef) => safeFileBase(maths(mathRef).componentName)
   const counts = new Map()
   for (const mathRef of mathRefs) counts.set(baseOf(mathRef).toLowerCase(), (counts.get(baseOf(mathRef).toLowerCase()) ?? 0) + 1)
-  const taken = new Set()
+  const nameApart = uniqueNamer()
   const bases = new Map()
   for (const mathRef of [...mathRefs].sort()) {
     const library = mathRef.includes(':') ? mathRef.slice(0, mathRef.lastIndexOf(':')).replace(/\.cellml$/i, '') : ''
-    const base = counts.get(baseOf(mathRef).toLowerCase()) > 1 && library ? `${baseOf(mathRef)}_${safeFileBase(library)}` : baseOf(mathRef)
-    let candidate = base
-    for (let i = 1; taken.has(candidate.toLowerCase()); i++) candidate = `${base}_${i}`
-    taken.add(candidate.toLowerCase())
-    bases.set(mathRef, candidate)
+    bases.set(mathRef, nameApart(counts.get(baseOf(mathRef).toLowerCase()) > 1 && library ? `${baseOf(mathRef)}_${safeFileBase(library)}` : baseOf(mathRef)))
   }
-  return new Map(mathRefs.map((mathRef) => [mathRef, { fileName: `${MODULES_FOLDER}${bases.get(mathRef)}${CELLML_EXTENSION}`, componentName: maths(mathRef).componentName }]))
+  return new Map(
+    mathRefs.map((mathRef) => {
+      const folder = `${MODULES_FOLDER}${bases.get(mathRef)}/`
+      return [mathRef, { folder, fileName: `${folder}${bases.get(mathRef)}${CELLML_EXTENSION}`, componentName: maths(mathRef).componentName }]
+    })
+  )
 }
 
 /**
@@ -661,7 +767,7 @@ function writeLevel(level, levels, graph, maths, plan, libraryStore, { units, sh
     if (isSuperInstance(child)) {
       const inner = definitions.get(child.data.smId)
       component = keep(new lib.Component())
-      component.setImportSource(importSourceOf(inner.fileName))
+      component.setImportSource(importSourceOf(relativePath(level.fileName, inner.fileName)))
       component.setImportReference(inner.wrapperName)
       // Placeholders to connect to: the wrapper's variables.
       for (const { name, units: unitsName } of inner.vars.values()) {
@@ -674,7 +780,7 @@ function writeLevel(level, levels, graph, maths, plan, libraryStore, { units, sh
       // A module imports its definition's component; placeholders to connect to: its variables, without values.
       const { fileName, componentName } = levels.modules.get(child.data.mathRef)
       component = keep(new lib.Component())
-      component.setImportSource(importSourceOf(fileName))
+      component.setImportSource(importSourceOf(relativePath(level.fileName, fileName)))
       component.setImportReference(componentName)
       const leaf = leafComponent(child)
       for (let i = 0; i < leaf.variableCount(); i++) {
@@ -1093,19 +1199,20 @@ function sharedUnits(findUnits, keep) {
 }
 
 /**
- * Replaces a file's units by imports from the units file, of those its components use, which the units file gets.
+ * Replaces a file's units by imports from a units file, of those its components use, which the units file gets.
  *
  * @param {Object} model
  * @param {Object} shared - From sharedUnits.
  * @param {string} fileName - The file's name in the zip, which the units file's href is relative to.
  * @param {Function} keep
+ * @param {string} [unitsFile=UNITS_FILE] - The units file's name in the zip.
  */
-function importUnits(model, shared, fileName, keep) {
+function importUnits(model, shared, fileName, keep, unitsFile = UNITS_FILE) {
   const names = new Set()
   walkUnits(model, (name) => name && !isStandardUnit(name) && names.add(name), keep)
   model.removeAllUnits()
   const source = keep(new libcellml.ImportSource())
-  source.setUrl(`${'../'.repeat(folderOf(fileName).split('/').length - 1)}${UNITS_FILE}`)
+  source.setUrl(relativePath(fileName, unitsFile))
   for (const name of names) {
     if (!shared.add(name)) continue
     const units = keep(new libcellml.Units())
@@ -1116,6 +1223,12 @@ function importUnits(model, shared, fileName, keep) {
   }
   model.linkUnits()
 }
+
+/** @returns {boolean} Whether a zip file is an instance folder's model (see checkStandalone). */
+const isStandaloneModel = (file) => /\/instances\/[^/]+\/model\.cellml$/.test(file)
+
+/** @returns {boolean} Whether a zip file is a units file, the shared one or an instance folder's. */
+const isUnitsFile = (file) => file === UNITS_FILE || file.endsWith(`/${UNITS_FILE}`)
 
 /**
  * Validates every file, as it is and, but for the host, with its imports resolved from the zip and flattened; then
@@ -1131,7 +1244,7 @@ function checkFiles(files, host, { parser, keep, preserved, selfNamed }) {
     if (parser.errorCount()) handleLoggerErrors(parser, `${file}: parser error count: ${parser.errorCount()}`)
     validator.validateModel(model)
     if (validator.errorCount()) handleLoggerErrors(validator, `${file}: validator error count: ${validator.errorCount()}`)
-    if (file === host || file === UNITS_FILE) continue
+    if (file === host || isUnitsFile(file) || isStandaloneModel(file)) continue
     validator.validateModel(resolveFile(files, file, { parser, keep }).flat)
     if (validator.errorCount()) handleLoggerErrors(validator, `${file}, imports resolved: validator error count: ${validator.errorCount()}`)
   }
@@ -1141,4 +1254,349 @@ function checkFiles(files, host, { parser, keep, preserved, selfNamed }) {
   const analyser = keep(new libcellml.Analyser())
   analyser.analyseModel(flat)
   if (analyser.errorCount()) handleLoggerErrors(analyser, `Flattened model: analyser error count: ${analyser.errorCount()}`)
+}
+
+// Instance folders: each instance, or super instance, run on its own.
+
+/** The #686 statuses of a variable a connection gives its value in the workspace. */
+const CONNECTED_STATES = new Set(['connected', 'bcOnly'])
+/** The kinds of planParameterValues' parameters that set a value. */
+const VALUE_KINDS = new Set(['global', 'local', 'instance'])
+
+/** @returns {string|null} A row's own value, or null when blank or not a number (an initialiser's name). */
+const ownValueOf = (row) => (row && !isBlank(row.value) && isNumericLiteral(row.value) ? String(row.value).trim() : null)
+
+/**
+ * Plans each instance folder: a model of one module instance, or of one super instance, on its own, at
+ * `<definition folder>/instances/<flat name>/`. It imports its module's or super-module's file and its own
+ * parameters.cellml, which sets every value the instance takes from outside: those the host sets for it (constants,
+ * initial values, boundary conditions, global and local constants), and 0 for a Sum nothing outside sums into. A value
+ * a connection gives it in the workspace (#686 'connected' or 'bcOnly', a constant the connection overrides, or a sum
+ * made outside a super instance) is an input, which needs a value given (standaloneValues) to run on its own. A self
+ * leaf is its super instance's wrapper, so has no folder of its own.
+ *
+ * @returns {Array<Object>} Each `{folder, name, kind: 'module'|'super', path, file, componentRef, variables, voi, values,
+ *   inputs}`: `file` and `componentRef` what it imports, `variables` the imported component's, `voi` `{name, units,
+ *   links}` or null, `values` `{name, units, value}`; inputs `{id, name, units, label, nodeId, variable, own}`, nodeId
+ *   (an expanded node's) and variable what the last run's start value is read from, nodeId null when none stands for
+ *   it, own the variable's own value or null.
+ */
+function planStandalone(levels, graph, expansion, plan, maths, libraryStore) {
+  const { definitions, modules, voi, voiOf } = levels
+  const { status, emptySums } = plan.boundaryValues
+  const chainOf = (id) => graph.origin(id)?.instanceChain ?? []
+  const isWithin = (chain, id) => {
+    const own = chainOf(id)
+    return own.length >= chain.length && chain.every((link, i) => own[i] === link)
+  }
+  const byFlatName = new Map(expansion.nodes.map((node) => [graph.nameOf(node.id), node]))
+  const nodeOfLabel = (label) => byFlatName.get(label.slice(0, label.lastIndexOf('.')))
+  const byChain = new Map()
+  for (const node of expansion.nodes) {
+    const key = chainOf(node.id).join('\0')
+    if (!byChain.has(key)) byChain.set(key, [])
+    byChain.get(key).push(node)
+  }
+  // Each Sum variable's terms, as the expanded nodes they come from.
+  const sumTerms = new Map()
+  for (const edge of expansion.edges) {
+    if (!isModelEdge(edge)) continue
+    for (const { sourcePort, targetPort } of edge.data?.couplings ?? []) {
+      const ends = [
+        [edge.source, sourcePort, variableTypes(sourcePort), edge.target],
+        [edge.target, targetPort, variableTypes(targetPort), edge.source],
+      ]
+      const count = Math.min(ends[0][2].length, ends[1][2].length)
+      for (let i = 0; i < count; i++) {
+        for (const [end, port, types, other] of ends) {
+          if (types[i] !== 'Sum' || !port.variables[i]) continue
+          const key = `${end}::${port.variables[i]}`
+          if (!sumTerms.has(key)) sumTerms.set(key, [])
+          sumTerms.get(key).push(other)
+        }
+      }
+    }
+  }
+  const rowOf = (node, name) => (node.data.variables ?? []).find((row) => row.name === name)
+  const hasOdeWithin = (chain) => expansion.nodes.some((node) => isWithin(chain, node.id) && voiOf(node).hasOde)
+  /** Whether a connection gives a variable its value in the workspace, but none from inside `chain` (if given). */
+  const isFed = (node, name, chain) => {
+    const entry = status.get(node.id)?.get(name)
+    if (!CONNECTED_STATES.has(entry?.state)) return plan.parameterOf(node, name)?.kind === 'ignored'
+    return !chain || !entry.from.some((label) => {
+      const from = nodeOfLabel(label)
+      return from && isWithin(chain, from.id)
+    })
+  }
+  const namers = new Map()
+  const folderIn = (definitionFolder, flatName) => {
+    if (!namers.has(definitionFolder)) namers.set(definitionFolder, uniqueNamer())
+    return `${definitionFolder}${INSTANCES_FOLDER}${namers.get(definitionFolder)(safeFileBase(flatName))}/`
+  }
+  const inputOf = (folder, entry, node, variable, { label = variable, readsRun = true } = {}) => ({
+    id: `${folder}${entry.name}`,
+    name: entry.name,
+    units: entry.units || 'dimensionless',
+    label,
+    nodeId: readsRun ? node.id : null,
+    variable,
+    own: ownValueOf(rowOf(node, variable)),
+  })
+  const valueOf = (entry, parameter) => ({ ...entry, units: parameter.parameter.units || entry.units, value: parameter.parameter.value })
+
+  const units = []
+  for (const node of expansion.nodes) {
+    if (isSelfLeaf(graph.nodeById.get(graph.origin(node.id).mainId))) continue
+    const module = modules.get(node.data.mathRef)
+    const flatName = graph.nameOf(node.id)
+    const folder = folderIn(module.folder, flatName)
+    const { units: variableUnits } = maths(node.data.mathRef)
+    const voiNames = voi ? voiOf(node).names : []
+    const values = []
+    const inputs = []
+    for (const [name, unitsName] of variableUnits) {
+      if (voiNames.includes(name)) continue
+      const entry = { name, units: unitsName || 'dimensionless' }
+      const parameter = plan.parameterOf(node, name)
+      if (VALUE_KINDS.has(parameter?.kind)) values.push(valueOf(entry, parameter))
+      else if (emptySums.get(node.id)?.has(name)) values.push({ ...entry, value: 0 })
+      else if (isFed(node, name, null)) inputs.push(inputOf(folder, entry, node, name))
+    }
+    units.push({
+      folder,
+      name: flatName,
+      kind: 'module',
+      path: expansion.pathOf(node.id) ?? flatName,
+      file: module.fileName,
+      componentRef: module.componentName,
+      variables: [...variableUnits].map(([name, unitsName]) => ({ name, units: unitsName || 'dimensionless' })),
+      voi: voiNames.length ? { name: voiNames[0], units: variableUnits.get(voiNames[0]), links: voiNames, hasOde: voiOf(node).hasOde } : null,
+      values,
+      inputs,
+    })
+  }
+
+  for (const { instanceChain, smId, flatName, path } of expansion.superInstances ?? []) {
+    const level = definitions.get(smId)
+    if (!level?.fileName) continue
+    const folder = folderIn(level.folder, flatName)
+    /** The chain, and the level, the local ids of super instances lead to from this one. */
+    const descend = (localIds) => {
+      let at = level
+      const chain = [...instanceChain]
+      for (const localId of localIds) {
+        const child = at.byLocalId.get(localId)
+        chain.push(child.id)
+        at = definitions.get(child.data.smId)
+      }
+      return { chain, at }
+    }
+    const labelOf = (node, name) => {
+      const inner = isSelfLeaf(graph.nodeById.get(graph.origin(node.id).mainId)) ? '' : (expansion.pathOf(node.id) ?? '').slice(path.length + 1)
+      return inner ? `${inner}.${name}` : name
+    }
+    const values = []
+    const inputs = []
+    for (const name of level.globals) {
+      const entry = level.vars.get(keyOf({ kind: 'global', name }))
+      const global = libraryStore.getGlobalConstant(name)
+      if (entry) values.push({ ...entry, units: global?.units || entry.units, value: global?.value })
+    }
+    for (const [id, key] of level.keys) {
+      const entry = level.vars.get(id)
+      if (!entry || key.kind === 'voi' || key.kind === 'global') continue
+      if (key.kind === 'local') {
+        const { chain } = descend(key.path)
+        const holder = (byChain.get(chain.join('\0')) ?? []).find((node) => plan.parameterOf(node, key.name)?.kind === 'local')
+        if (holder) values.push(valueOf(entry, plan.parameterOf(holder, key.name)))
+        continue
+      }
+      if (key.kind !== 'var') continue
+      const { chain, at } = descend(key.path.slice(0, -1))
+      const leaf = at.byLocalId.get(key.path.at(-1))
+      const node = leaf && graph.expandedAt(chain, leaf.id)
+      if (!node) continue
+      if (key.mode === SUM) {
+        const terms = sumTerms.get(`${node.id}::${key.name}`) ?? []
+        const outside = terms.filter((term) => !isWithin(instanceChain, term))
+        if (!outside.length) values.push({ ...entry, value: 0 })
+        // Summed inside too, the variable's own values aren't the sum made outside.
+        else inputs.push(inputOf(folder, entry, node, key.name, { label: `${labelOf(node, key.name)} (summed from outside)`, readsRun: outside.length === terms.length }))
+        continue
+      }
+      // A product is passed on.
+      if (key.mode) continue
+      const parameter = plan.parameterOf(node, key.name)
+      // A global or local constant the definition doesn't link is set from outside (routed); an instance's, always.
+      if (parameter?.kind === 'instance' || (VALUE_KINDS.has(parameter?.kind) && levels.routed.has(`${leaf.id}\0${key.name}`))) values.push(valueOf(entry, parameter))
+      else if (isFed(node, key.name, instanceChain)) inputs.push(inputOf(folder, entry, node, key.name, { label: labelOf(node, key.name) }))
+    }
+    const voiEntry = level.needsVoi ? level.vars.get(keyOf({ kind: 'voi' })) : null
+    units.push({
+      folder,
+      name: flatName,
+      kind: 'super',
+      path,
+      file: level.fileName,
+      componentRef: level.wrapperName,
+      variables: [...level.vars.values()].map(({ name, units: unitsName }) => ({ name, units: unitsName || 'dimensionless' })),
+      voi: voiEntry && voi ? { name: voi.name, units: voi.units, links: [voiEntry.name], hasOde: hasOdeWithin(instanceChain) } : null,
+      values,
+      inputs,
+    })
+  }
+  return units
+}
+
+/** @returns {string|null} A given input value, trimmed, or null when blank or not a number CellML reads. */
+const givenValue = (value) => (isBlank(value) || !isNumericLiteral(value) || !Number.isFinite(Number(value)) ? null : String(value).trim())
+
+/**
+ * Writes an instance folder (see planStandalone): model.cellml, parameters.cellml and, when they use units of their
+ * own, units.cellml. Records on the unit the labels of its inputs given no value (`missing`).
+ *
+ * @returns {Array<[string, string]>} Each file's path and CellML.
+ */
+function writeStandalone(unit, given, { findUnits, keep }) {
+  const lib = libcellml
+  const supplied = unit.inputs.filter((input) => givenValue(given?.get(input.id)) !== null)
+  unit.missing = unit.inputs.filter((input) => !supplied.includes(input)).map((input) => input.label)
+  // Without an ODE nothing integrates over the VoI, which then stays at its start.
+  const still = unit.voi && !unit.voi.hasOde ? [{ name: unit.voi.name, units: unit.voi.units, value: 0, links: unit.voi.links }] : []
+  const values = [
+    ...unit.values.filter(({ value }) => !isBlank(value)),
+    ...supplied.map(({ name, units, id }) => ({ name, units, value: givenValue(given.get(id)) })),
+    ...still,
+  ]
+  const local = sharedUnits(findUnits, keep)
+  const unitsFile = `${unit.folder}${UNITS_FILE}`
+  const parametersFile = `${unit.folder}${PARAMETERS_FILE}`
+  const modelFile = `${unit.folder}${STANDALONE_MODEL_FILE}`
+  const print = (model) => keep(new lib.Printer()).printModel(model, false)
+  const variableOf = (name, unitsName, { value, interfaceType = 'public' } = {}) => {
+    const variable = keep(new lib.Variable())
+    variable.setName(name)
+    variable.setUnitsByName(unitsName || 'dimensionless')
+    if (value !== undefined) variable.setInitialValueByString(String(value))
+    if (interfaceType) variable.setInterfaceTypeByString(interfaceType)
+    return variable
+  }
+
+  const parametersModel = keep(new lib.Model())
+  parametersModel.setName(PARAMETERS_COMPONENT)
+  const parameters = keep(new lib.Component())
+  parameters.setName(PARAMETERS_COMPONENT)
+  for (const { name, units, value } of values) parameters.addVariable(variableOf(name, units, { value }))
+  parametersModel.addComponent(parameters)
+  importUnits(parametersModel, local, parametersFile, keep, unitsFile)
+
+  const model = keep(new lib.Model())
+  model.setName(sanitiseCellMLIdentifier(unit.name))
+  const nameApart = uniqueNamer()
+  const importOf = (url, reference, name, variables) => {
+    const source = keep(new lib.ImportSource())
+    source.setUrl(url)
+    const component = keep(new lib.Component())
+    component.setName(nameApart(sanitiseCellMLIdentifier(name)))
+    component.setImportSource(source)
+    component.setImportReference(reference)
+    for (const { name: variableName, units } of variables) component.addVariable(variableOf(variableName, units, { interfaceType: null }))
+    model.addComponent(component)
+    return component
+  }
+  const instance = importOf(relativePath(modelFile, unit.file), unit.componentRef, unit.name, unit.variables)
+  const imported = importOf(PARAMETERS_FILE, PARAMETERS_COMPONENT, PARAMETERS_COMPONENT, values)
+  const link = (from, fromName, to, toName) => {
+    const a = keep(from.variableByName(fromName))
+    const b = keep(to.variableByName(toName))
+    if (a && b) lib.Variable.addEquivalence(a, b)
+  }
+  for (const { name, links = [name] } of values) for (const to of links) link(imported, name, instance, to)
+  if (unit.voi?.hasOde) {
+    const environment = keep(new lib.Component())
+    environment.setName(nameApart(ENVIRONMENT_COMPONENT))
+    environment.addVariable(variableOf(unit.voi.name, unit.voi.units))
+    model.addComponent(environment)
+    for (const name of unit.voi.links) link(environment, unit.voi.name, instance, name)
+  }
+  importUnits(model, local, modelFile, keep, unitsFile)
+
+  const files = [
+    [modelFile, print(model)],
+    [parametersFile, print(parametersModel)],
+  ]
+  if (local.model.unitsCount()) files.push([unitsFile, print(local.model)])
+  return files
+}
+
+/**
+ * Validates each instance folder's model, its imports resolved from the zip and flattened, and analyses it when every
+ * input has a value, recording on the unit why it can't run (`problem`), if it can't.
+ *
+ * @throws {Error} On the first with validation errors.
+ */
+function checkStandalone(files, standalone, { parser, keep }) {
+  const validator = keep(new libcellml.Validator())
+  const analyser = keep(new libcellml.Analyser())
+  for (const unit of standalone) {
+    const file = `${unit.folder}${STANDALONE_MODEL_FILE}`
+    const { flat } = resolveFile(files, file, { parser, keep })
+    validator.validateModel(flat)
+    if (validator.errorCount()) handleLoggerErrors(validator, `${file}, imports resolved: validator error count: ${validator.errorCount()}`)
+    if (unit.missing?.length) continue
+    analyser.analyseModel(flat)
+    const issues = Array.from({ length: analyser.errorCount() }, (_, i) => keep(analyser.error(i)).description())
+    if (issues.length) unit.problem = issues.join(' ')
+  }
+}
+
+/**
+ * Writes the zip's README.txt: what its files are, and which instance folders run on their own, those that don't naming
+ * the inputs they lack.
+ *
+ * @param {string} name - The host's name.
+ * @param {Object[]} standalone - From planStandalone, written.
+ * @returns {string}
+ */
+function readmeOf(name, standalone) {
+  const runnable = standalone.filter((unit) => !unit.missing?.length && !unit.problem)
+  const lacking = standalone.filter((unit) => unit.missing?.length || unit.problem)
+  const modelOf = (unit) => `${unit.folder}${STANDALONE_MODEL_FILE}`
+  const lines = [
+    `${name}: CellML 2.0 with imports, exported by PhLynx.`,
+    '',
+    `model.cellml is the whole model, coupled. It imports each module definition's file, ${MODULES_FOLDER}<module>/<module>.cellml,`,
+    `and each super-module's, ${SUPERMODULES_FOLDER}<super-module>/<super-module>.cellml; ${UNITS_FILE} defines their units.`,
+    '',
+    `Beside each definition's file, ${INSTANCES_FOLDER}<instance>/ holds each of its instances (or super instances) on its own:`,
+    `its ${STANDALONE_MODEL_FILE} imports the definition and ${PARAMETERS_FILE}, which holds that instance's values, and its own`,
+    `${UNITS_FILE}. The values a connection gives an instance in the model, its inputs, are those given at export.`,
+  ]
+  if (runnable.length) lines.push('', `Runnable on their own (${runnable.length}):`, ...runnable.map((unit) => `  ${modelOf(unit)}`))
+  if (lacking.length) {
+    lines.push('', `Not runnable on their own (${lacking.length}):`)
+    for (const unit of lacking) lines.push(`  ${modelOf(unit)}: ${unit.missing?.length ? `no value given for ${unit.missing.join(', ')}` : unit.problem}`)
+  }
+  return `${lines.join('\n')}\n`
+}
+
+/**
+ * Prefills the standalone inputs (see standaloneInputs): each with its variable's value at the start of the last run,
+ * when that run reported it, else its own value (one a connection overrides, #686), else blank.
+ *
+ * @param {Object[]} folders - From standaloneInputs.
+ * @param {{results?: {variables: Map<string, {values: ArrayLike<number>}>}, mapping?: Map<string, string>}} [lastRun] -
+ *   The last run's results and variable mapping (see simulationResultsStore).
+ * @returns {Map<string, string>} By input id.
+ */
+export function prefillStandaloneInputs(folders, { results = null, mapping = null } = {}) {
+  const values = new Map()
+  for (const { inputs } of folders) {
+    for (const input of inputs) {
+      const reported = input.nodeId ? mapping?.get(mappingKey(input.nodeId, input.variable)) : null
+      const start = reported ? results?.variables?.get(reported)?.values?.[0] : undefined
+      values.set(input.id, Number.isFinite(start) ? String(start) : (input.own ?? ''))
+    }
+  }
+  return values
 }

@@ -21,10 +21,11 @@ import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
 import { useOmexStore } from '../stores/omexStore'
 import { useProtocolStore } from '../stores/protocolStore'
+import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 
 import { createCellMLDataFragment, generateOmexArchive, createOmexDataFragment } from '../services/compress'
 import { CA_ARRAY_FORMATS, generateExportZip } from '../services/export/ca'
-import { generateHierarchicalCellMLZip } from '../services/export/cellmlHierarchical'
+import { generateHierarchicalCellMLZip, prefillStandaloneInputs, standaloneInputs } from '../services/export/cellmlHierarchical'
 import { caIdentityProblem, caIdentityRequests, takenIdentities } from '../services/export/caNative'
 import { summariseExpansionErrors } from '../services/hierarchy/errors'
 import { isNestedModelId } from '../services/hierarchy/expand'
@@ -52,6 +53,9 @@ import { getImportConfig } from '../utils/import'
  * @param {Object} [options.caIdentities] - How super-modules get circulatory_autogen identities before a native
  *   export: `ask(request, problemOf)` resolves with one or null (useCaIdentityPrompt), `save(identities)` stores them
  *   as one undo step (useSupermodules setCaIdentities). Without it, none is asked for.
+ * @param {Object} [options.standaloneInputs] - How the CellML export with imports gets the values its instance folders
+ *   need to run on their own: `ask(folders, values)` resolves with them, or null to cancel (useStandaloneInputsPrompt).
+ *   Without it, none is asked for, and those folders don't run.
  * @returns {Object} The menus, the current modes and their triggers.
  */
 export function useImportExportSend({
@@ -69,6 +73,7 @@ export function useImportExportSend({
   isHierarchical = { value: false },
   storeGraph = () => ({ nodes: modelNodes.value, edges: modelEdges.value }),
   caIdentities = null,
+  standaloneInputs: standaloneInputsPrompt = null,
 }) {
   const simulationSettingsStore = useSimulationSettingsStore()
   const libraryStore = useLibraryStore()
@@ -76,6 +81,7 @@ export function useImportExportSend({
   const sessionMetadataStore = useSessionMetadataStore()
   const omexStore = useOmexStore()
   const protocolStore = useProtocolStore()
+  const simulationResultsStore = useSimulationResultsStore()
   const { confirm } = useConfirmDialog()
 
   const currentImportKey = ref(IMPORT_KEYS.INSTANCE_ARRAY)
@@ -249,6 +255,34 @@ export function useImportExportSend({
     return true
   }
 
+  // The values the CellML export with imports' instance folders were last given, by input id; never saved.
+  let standaloneValues = new Map()
+
+  /**
+   * Asks for the values the instance folders need to run on their own, prefilled from the last run, else their own
+   * values. Cancelling cancels the export.
+   *
+   * @returns {Promise<boolean>} Whether the export goes on.
+   */
+  const askStandaloneInputs = async () => {
+    standaloneValues = new Map()
+    if (!standaloneInputsPrompt) return true
+    let folders
+    try {
+      const { nodes, edges } = storeGraph()
+      folders = await standaloneInputs(nodes, edges, libraryStore)
+    } catch (error) {
+      notify.error({ title: 'Export failed', message: error.message })
+      return false
+    }
+    if (!folders.length) return true
+    const lastRun = { results: simulationResultsStore.results, mapping: simulationResultsStore.mapping }
+    const answered = await standaloneInputsPrompt.ask(folders, prefillStandaloneInputs(folders, lastRun))
+    if (!answered) return false
+    standaloneValues = answered
+    return true
+  }
+
   /**
    * The Circulatory Autogen export, its module array written in a format of CA_ARRAY_FORMATS; native, it writes the
    * super-modules CA can read as super-modules, else every super instance as its modules.
@@ -316,14 +350,16 @@ export function useImportExportSend({
       suffix: '.zip',
       fileTypes: ZIP_FILE_TYPES,
       message: 'Generating CellML files with imports.',
-      // Written from the store: the model, a file per super-module and per module, and one of units; the model's checks run
-      // first, as for the flat export.
+      preflight: askStandaloneInputs,
+      // Written from the store: the model, a folder per super-module and per module, each with a folder per instance, and
+      // the units; the model's checks run first, as for the flat export.
       action: (finalName) => {
         buildWholeModel()
         const { nodes, edges } = storeGraph()
-        return generateHierarchicalCellMLZip(finalName, nodes, edges, libraryStore)
+        return generateHierarchicalCellMLZip(finalName, nodes, edges, libraryStore, { standaloneValues })
       },
-      successMessage: () => 'Model exported to CellML with imports: the model, a file per super-module, a file per module and a units file.',
+      successMessage: () =>
+        'Model exported to CellML with imports: the model, a folder per super-module and per module, each with a folder per instance to run on its own, and the units. README.txt lists which run.',
     },
     caExportOption(EXPORT_KEYS.CA, 'Circulatory Autogen', CA_ARRAY_FORMATS.JSON, { native: true }),
     caExportOption(EXPORT_KEYS.CA_FLAT, 'Circulatory Autogen (flat)', CA_ARRAY_FORMATS.JSON),
