@@ -143,7 +143,7 @@ export function useImportExportSend({
   const buildWholeModel = () => {
     const { errors, warnings } = summariseExpansionErrors(modelErrors.value)
     if (errors.length) throw new Error(errors.join('\n'))
-    if (warnings.length) notify.warning({ title: 'Model Warnings', message: warnings.join('\n') })
+    if (warnings.length) notify.warning({ title: 'Model Warnings', items: warnings })
     return { nodes: modelNodes.value, edges: modelEdges.value }
   }
 
@@ -172,7 +172,7 @@ export function useImportExportSend({
   const confirmSelectionExport = async () => {
     const { errors, warnings } = summariseScopeReport(checkScope(resolveSelectionScope(), libraryStore))
     if (errors.length) {
-      notify.error({ title: 'Selection can’t be exported', message: errors.join('\n') })
+      notify.error({ title: 'Selection can’t be exported', items: errors })
       return false
     }
     if (!warnings.length) return true
@@ -558,7 +558,7 @@ export function useImportExportSend({
       const url = `https://opencor.ws/app/?opencor://openFile/#${dataUri}`
       window.open(url, '_blank', 'noreferrer')
     } catch (error) {
-      notify.error({ title: 'Send failed', message: error.message })
+      notify.error({ title: 'Send failed', items: [error.message] })
     } finally {
       notification?.close?.()
     }

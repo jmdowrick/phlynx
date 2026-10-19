@@ -72,7 +72,7 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
     if (missingUnits.length) {
       notify.warning({
         title: 'Missing Units',
-        message: `No library units file defines ${listNamed(missingUnits)}, so the exported units file leaves ${missingUnits.length === 1 ? 'it' : 'them'} out.`,
+        items: [`No library units file defines ${listNamed(missingUnits)}, so the exported units file leaves ${missingUnits.length === 1 ? 'it' : 'them'} out.`],
       })
     }
 
@@ -105,7 +105,7 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
     return zipBlob
   } catch (error) {
     console.error('Export Error:', error)
-    notify.error({ message: `Failed to export config files: ${error.message}` })
+    notify.error({ items: [`Failed to export config files: ${error.message}`] })
     throw error
   }
 }
@@ -228,9 +228,9 @@ function noteFallbacks(fallbacks) {
   const isOne = fallbacks.length === 1
   notify.info({
     title: 'Super-modules Written Flat',
-    message: `CA can't read ${isOne ? 'a super-module' : `${fallbacks.length} super-modules`} as ${isOne ? 'it is' : 'they are'} here, so ${isOne ? 'its' : 'their'} super instances are written as their modules. ${fallbacks
+    items: [`CA can't read ${isOne ? 'a super-module' : `${fallbacks.length} super-modules`} as ${isOne ? 'it is' : 'they are'} here, so ${isOne ? 'its' : 'their'} super instances are written as their modules. ${fallbacks
       .map(({ name, reason }) => `"${name}" ${reason}.`)
-      .join(' ')}`,
+      .join(' ')}`],
   })
 }
 
@@ -263,9 +263,9 @@ function reportPlan({ failures, residuals, stale, dropped, ports }, names) {
     const isOne = residuals.length === 1
     notify.warning({
       title: 'Connections Paired Differently',
-      message: `CA will pair ${isOne ? 'a connection' : `${residuals.length} connections`} differently from here. ${[...byReason]
+      items: [`CA will pair ${isOne ? 'a connection' : `${residuals.length} connections`} differently from here. ${[...byReason]
         .map(([reason, items]) => `${listNamed([...new Set(items)])}: ${RESIDUAL_REASONS[reason]}.`)
-        .join(' ')}`,
+        .join(' ')}`],
     })
   }
 
@@ -278,7 +278,7 @@ function reportPlan({ failures, residuals, stale, dropped, ports }, names) {
     ].filter(Boolean)
     notify.warning({
       title: 'Stale Connections',
-      message: `${parts.join('; ')}. Reopen ${stale.length === 1 ? 'its' : 'their'} connection dialog to bring the couplings up to date.`,
+      items: [`${parts.join('; ')}. Reopen ${stale.length === 1 ? 'its' : 'their'} connection dialog to bring the couplings up to date.`],
     })
   }
 
@@ -286,7 +286,7 @@ function reportPlan({ failures, residuals, stale, dropped, ports }, names) {
     const isOne = dropped.length === 1
     notify.info({
       title: 'Connections Left Out',
-      message: `${listNamed(dropped.map(nameOf))} ${isOne ? 'couples' : 'couple'} no ports, so the module array leaves ${isOne ? 'it' : 'them'} out: CA would couple every port label the modules share.`,
+      items: [`${listNamed(dropped.map(nameOf))} ${isOne ? 'couples' : 'couple'} no ports, so the module array leaves ${isOne ? 'it' : 'them'} out: CA would couple every port label the modules share.`],
     })
   }
 }
@@ -327,7 +327,7 @@ function noteVariants(names) {
   const isOne = names.length === 1
   notify.info({
     title: 'Module Variants',
-    message: `${listNamed(names)} ${isOne ? 'differs' : 'differ'} from ${isOne ? 'its' : 'their'} library module, so ${isOne ? 'it is' : 'each is'} exported with a config of its own, its subtype followed by "__" and a hash of that config.`,
+    items: [`${listNamed(names)} ${isOne ? 'differs' : 'differ'} from ${isOne ? 'its' : 'their'} library module, so ${isOne ? 'it is' : 'each is'} exported with a config of its own, its subtype followed by "__" and a hash of that config.`],
   })
 }
 
@@ -424,7 +424,7 @@ function warnMissingBoundaryValues(nodes, edges) {
   const count = missing.length === 1 ? '1 boundary condition has' : `${missing.length} boundary conditions have`
   notify.warning({
     title: 'Missing Boundary Values',
-    message: `${count} no value and nothing connected, so CA will ask for ${missing.length === 1 ? 'it' : 'them'}: ${listNamed(missing)}.`,
+    items: [`${count} no value and nothing connected, so CA will ask for ${missing.length === 1 ? 'it' : 'them'}: ${listNamed(missing)}.`],
   })
 }
 
@@ -462,7 +462,7 @@ function checkMultiports(moduleConfig) {
   if (volumeSums.size) {
     notify.warning({
       title: 'Volume Port Sum',
-      message: `CA sums a volume_port's whole-port Sum over its inp_vessels only, the legacy blood-volume sum, where PhLynx sums every connection: ${listNamed([...volumeSums])}.`,
+      items: [`CA sums a volume_port's whole-port Sum over its inp_vessels only, the legacy blood-volume sum, where PhLynx sums every connection: ${listNamed([...volumeSums])}.`],
     })
   }
 }
@@ -558,6 +558,6 @@ function addPulmonaryModule(instanceArray, moduleConfigs, libraryStore) {
   if (module && !moduleConfigs.has(PULMONARY_MODULE_REF)) moduleConfigs.set(PULMONARY_MODULE_REF, withExtras(moduleConfigEntry(module), module))
   notify.warning({
     title: 'Pulmonary Circuit Added',
-    message: `"${hearts[0].name}" has one output, so CA adds a pulmonary artery and vein (par, pvn) and will ask for their values.`,
+    items: [`"${hearts[0].name}" has one output, so CA adds a pulmonary artery and vein (par, pvn) and will ask for their values.`],
   })
 }
