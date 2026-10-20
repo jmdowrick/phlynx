@@ -284,6 +284,17 @@ describe('reconcileRows (DAE)', () => {
     expect(byName(reconcileRows(math, previous))).toMatchObject({ x: { type: 'constant' }, y: { type: 'variable' } })
     expect(byName(reconcileRows(math, previous.slice(1)))).toMatchObject({ y: { type: 'variable' } })
   })
+
+  it('keeps what the DAE solves implicitly a variable when a port carries it', () => {
+    const rows = [
+      { name: 's', type: 'variable' },
+      { name: 'x', type: 'variable' },
+      { name: 'y', type: 'constant', value: '1' },
+      { name: 'k', type: 'constant', value: '3' },
+    ]
+    applyPortTypes(rows, math, new Set(['x', 'k']))
+    expect(byName(rows)).toMatchObject({ x: { type: 'variable' }, y: { type: 'constant' }, k: { type: 'constant' } })
+  })
 })
 
 describe('reconcileRows (defaults)', () => {
