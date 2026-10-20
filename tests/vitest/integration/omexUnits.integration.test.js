@@ -70,6 +70,28 @@ describe('OMEX units files round trip', () => {
 
     expect(added).toEqual(['user_units.cellml'])
     expect(store.hasUnits('per_fortnight')).toBe(true)
+    // Named once, not again on each round trip.
+    const registered = store.availableUnits.find((file) => file.componentFile === 'user_units.cellml').model
+    expect(registered).toMatch(/name="OnlyUnitsFrom_user_units"/)
+  })
+
+  it('keeps the units model name across a second round trip', async () => {
+    const { store } = setUpLibrary({ withUnits: false })
+    const first = await importOmexFile(archivePayload)
+    await registerArchiveUnits(await JSZip.loadAsync(archivePayload), first.otherCellmls, store)
+
+    const blob = new Blob(['<model xmlns="http://www.cellml.org/cellml/2.0#" name="m"/>'])
+    const omex = await generateOmexArchive({ blob }, '{}', {}, {
+      cellmlFileName: 'model.cellml',
+      unitsFiles: store.availableUnits,
+      extractedData: { voi: null, mappedParameters: {} },
+    })
+    const payload = await omex.arrayBuffer()
+    const second = await importOmexFile(payload)
+    await registerArchiveUnits(await JSZip.loadAsync(payload), second.otherCellmls, store)
+
+    const registered = store.availableUnits.find((file) => file.componentFile === 'user_units.cellml').model
+    expect(registered).toMatch(/name="OnlyUnitsFrom_user_units"/)
   })
 
   it('flattens after an import whose units are only in the archive', async () => {
