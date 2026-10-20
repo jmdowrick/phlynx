@@ -167,6 +167,53 @@ describe('useInstanceSave', () => {
     expect(library.getMathLayout(DECAY_REF)).toBeNull()
   })
 
+  describe('math generated from a source', () => {
+    const SOURCE = { format: 'celldl', document: '<diagram/>', documentUri: 'local:decay.celldl' }
+    // The decay math as a diagram might regenerate it, with a new parameter and its value.
+    const GENERATED_XML = DECAY_XML.replace(
+      '<variable name="k"',
+      '<variable name="c" units="metre" initial_value="3"/>\n    <variable name="k"'
+    ).replace('<ci>k</ci></apply><ci>x</ci>', '<ci>k</ci></apply><apply><plus/><ci>x</ci><ci>c</ci></apply>')
+
+    it('undoes a source-only save as one step', async () => {
+      const mathBefore = library.getMathEntry(DECAY_REF)
+      await saveInstanceEdit(buildSave({ name: 'a', source: SOURCE, isSourceChanged: true }))
+      expect(library.getMathSource(DECAY_REF)).toEqual(SOURCE)
+
+      await history.undo()
+      expect(library.getMathEntry(DECAY_REF)).toEqual(mathBefore)
+      expect(history.canUndo).toBe(false)
+
+      await history.redo()
+      expect(library.getMathSource(DECAY_REF)).toEqual(SOURCE)
+    })
+
+    it('undoes the source and its generated math together', async () => {
+      const mathBefore = library.getMathEntry(DECAY_REF)
+      await saveInstanceEdit(buildSave({ math: GENERATED_XML, source: SOURCE, isSourceChanged: true }))
+      expect(library.getMathFormat(DECAY_REF)).toBe('celldl')
+
+      await history.undo()
+      expect(library.getMathEntry(DECAY_REF)).toEqual(mathBefore)
+      expect(library.getMathFormat(DECAY_REF)).toBe('cellml')
+    })
+
+    it('fills the other instances\' blank values from the generated math, keeping their own', async () => {
+      await saveInstanceEdit(buildSave({ math: GENERATED_XML, source: SOURCE, isSourceChanged: true }))
+
+      const rows = Object.fromEntries(findNode('b').data.variables.map((row) => [row.name, row]))
+      expect(rows.c.value).toBe('3')
+      expect(rows.k.value).toBe('0.5')
+    })
+
+    it('leaves the other instances\' new rows blank for CellML math', async () => {
+      await saveInstanceEdit(buildSave({ math: GENERATED_XML }))
+
+      const rows = Object.fromEntries(findNode('b').data.variables.map((row) => [row.name, row]))
+      expect(rows.c.value ?? '').toBe('')
+    })
+  })
+
   it('undoes a save after a later rename, one step at a time', async () => {
     await saveInstanceEdit(fork())
     const { recordEdit } = useNodeDataHistory()

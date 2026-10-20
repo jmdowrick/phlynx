@@ -7,7 +7,9 @@
  *   SVG export;
  * - `isMathLocked`: whether the CellML is generated from the source, so must not be edited;
  * - `caModuleFormat`: the CA config's `module_format`;
- * - `isAvailable`: whether this build can open the format.
+ * - `isAvailable`: whether this build can open the format;
+ * - `editorTab` (optional): the instance editor tab that edits the source, `{ value, label, icon, errorHeader }`,
+ *   shown beside the CellML Text and Math Editor tabs.
  */
 
 export const DEFAULT_MODULE_FORMAT = 'cellml'

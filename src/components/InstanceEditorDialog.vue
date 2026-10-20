@@ -30,18 +30,14 @@
         <div class="header-group header-group--secondary">
           <span class="header-label header-label--secondary">Component</span>
           <SanitisedInput
-            v-if="isManaged"
+            v-if="isManaged && !isMathLocked"
             v-model="editableComponentName"
             :sanitise="sanitiseName"
             :fallback="componentNameForEditor"
             placeholder="Component name..."
             width="200px"
           />
-          <span
-            v-else
-            class="header-static"
-            title="While Simple Mode is off, the text sets the component name (def comp ... as)."
-          >
+          <span v-else class="header-static" :title="componentNameTitle">
             {{ componentNameForEditor }}
             <i class="pi pi-code"></i>
           </span>
@@ -69,13 +65,13 @@
       <div class="pane left-pane" :style="leftPaneStyle">
         <Tabs :key="editorTabsKey" :value="editorKind" class="editor-tabs" @update:value="switchEditor">
           <TabList>
-            <Tab v-for="option in EDITOR_OPTIONS" :key="option.value" :value="option.value">
+            <Tab v-for="option in editorOptions" :key="option.value" :value="option.value">
               <i :class="['pi', option.icon, 'tab-icon']"></i>
               {{ option.label }}
             </Tab>
           </TabList>
         </Tabs>
-        <Message v-if="pendingRename" class="rename-notice" severity="info" size="small" :closable="false">
+        <Message v-if="pendingRename && !isMathLocked" class="rename-notice" severity="info" size="small" :closable="false">
           <div class="rename-notice-body">
             <span>
               <strong>{{ pendingRename.from }}</strong> was renamed to <strong>{{ pendingRename.to }}</strong
@@ -103,6 +99,7 @@
             :component-name="componentNameForEditor"
             :variable-definitions="editorDefinitions"
             :keep-variables="keptVariables"
+            :readonly="isMathLocked"
             @update:component-name="onEditorComponentName"
             @change="handleEditorChange"
             @variable-click="plotClickedVariable"
@@ -111,12 +108,13 @@
             @redo="handleEditorRedo"
           />
           <MathWorkbenchEditor
-            v-else
+            v-else-if="editorKind === 'math'"
             ref="mathEditorRef"
             :model-value="currentModel"
             :component-name="componentNameForEditor"
             :variable-definitions="editorDefinitions"
             :keep-variables="keptVariables"
+            :readonly="isMathLocked"
             @change="handleEditorChange"
             @variable-click="plotClickedVariable"
             @save="handleSave"
@@ -209,6 +207,7 @@
                 :connection-status="connectionStatus"
                 :math-references="mathReferences"
                 :suggest-units="suggestUnitsFor"
+                :values-only="isMathLocked"
               />
             </TabPanel>
 
@@ -430,8 +429,12 @@
     <!-- DIALOG FOOTER -->
     <template #footer>
       <div class="dialog-footer" v-if="!loading && !isScreenTooSmall">
+        <div v-if="siblingCount > 0 && isMathLocked" class="apply-all-note">
+          <i class="pi pi-info-circle"></i>
+          Diagram edits apply to every instance of this module
+        </div>
         <div
-          v-if="siblingCount > 0"
+          v-else-if="siblingCount > 0"
           class="apply-all-checkbox"
           :title="`Also switch the ${siblingCount} other instance${
             siblingCount !== 1 ? 's' : ''
@@ -518,6 +521,7 @@ import { detachReactivity } from '../utils/reactivity'
 import { waitUntilStable } from '../utils/layout'
 import { notify } from '../utils/notify'
 import { getModelComponentNames, renameLayoutComponent, renameModelComponent } from '../utils/cellml'
+import { getModuleFormat } from '../services/moduleFormats'
 import { findPort } from '../utils/ports'
 import { previewCouplings } from '../utils/edges'
 import {
@@ -654,17 +658,39 @@ const {
   dismissRename,
 } = session
 
+// ── Module Format ───────────────────────────────────────────────────────────
+/** The format the math is authored in (see services/moduleFormats). */
+const moduleFormat = computed(() => getModuleFormat(store.getMathFormat(props.mathRef)))
+/** Whether the math is generated from a source, so only its values can be edited here. */
+const isMathLocked = computed(() => moduleFormat.value.isMathLocked)
+
+const componentNameTitle = computed(() =>
+  isMathLocked.value
+    ? `The ${moduleFormat.value.label} source sets the component name.`
+    : 'While Simple Mode is off, the text sets the component name (def comp ... as).'
+)
+
 // ── Editor Choice ───────────────────────────────────────────────────────────
 const EDITOR_STORAGE_KEY = 'instanceEditorDialog.editorKind'
-const EDITOR_OPTIONS = [
-  { value: 'text', label: 'CellML Text', icon: 'pi-code' },
-  { value: 'math', label: 'Math Editor', icon: 'pi-calculator' },
+const MATH_EDITOR_OPTIONS = [
+  { value: 'text', label: 'CellML Text', icon: 'pi-code', errorHeader: 'CellML Text Has Errors' },
+  { value: 'math', label: 'Math Editor', icon: 'pi-calculator', errorHeader: 'Math Has Errors' },
 ]
 
+/** The editor tabs: the math editors, after the format's own editor when it has one. */
+const editorOptions = computed(() =>
+  moduleFormat.value.editorTab ? [moduleFormat.value.editorTab, ...MATH_EDITOR_OPTIONS] : MATH_EDITOR_OPTIONS
+)
+
+/**
+ * Gets the editor last chosen, if this math offers it.
+ *
+ * @returns {string}
+ */
 function loadStoredEditorKind() {
   try {
     const stored = window.localStorage.getItem(EDITOR_STORAGE_KEY)
-    if (EDITOR_OPTIONS.some((option) => option.value === stored)) return stored
+    if (editorOptions.value.some((option) => option.value === stored)) return stored
   } catch (e) {
     // localStorage unavailable (e.g. private browsing) - fall back to default
   }
@@ -676,9 +702,10 @@ const editorKind = ref(loadStoredEditorKind())
 const editorTabsKey = ref(0)
 
 /**
- * Swaps the math editor, keeping the session. The Math Editor always works in Simple Mode.
+ * Swaps the math editor, keeping the session. The Math Editor works in Simple Mode, unless the math is
+ * locked, where the table can't rewrite it.
  *
- * @param {'text'|'math'} kind
+ * @param {string} kind - An editor option's value.
  */
 async function switchEditor(kind) {
   if (kind === editorKind.value) return
@@ -698,7 +725,7 @@ async function switchEditor(kind) {
     }
   }
 
-  if (kind === 'math') isManaged.value = true
+  if (kind === 'math' && !isMathLocked.value) isManaged.value = true
   editorKind.value = kind
   try {
     window.localStorage.setItem(EDITOR_STORAGE_KEY, kind)
@@ -725,6 +752,7 @@ function loadStoredManaged() {
  * @param {boolean} simple
  */
 function onSimpleToggle(simple) {
+  if (isMathLocked.value) return
   isManaged.value = simple
   try {
     window.localStorage.setItem(MANAGED_STORAGE_KEY, String(simple))
@@ -1199,6 +1227,12 @@ async function loadEditor({ keepTab = false } = {}) {
   rejectedName = ''
   flaggedPorts.value = new Set()
   if (!keepTab) activeTab.value = props.defaultTab
+  // A format with its own editor opens on it; another math's editor isn't offered here.
+  const formatEditor = moduleFormat.value.editorTab?.value
+  if (formatEditor && !keepTab) editorKind.value = formatEditor
+  else if (!editorOptions.value.some((option) => option.value === editorKind.value)) {
+    editorKind.value = formatEditor ?? loadStoredEditorKind()
+  }
   issueFilter.reset()
 
   editableName.value = props.initialName
@@ -1232,7 +1266,8 @@ async function loadEditor({ keepTab = false } = {}) {
     await session.load({
       mathRef: props.mathRef,
       rows: savedRows,
-      managed: loadStoredManaged() || editorKind.value === 'math',
+      // Locked math is shown as stored, never rebuilt from the table.
+      managed: !isMathLocked.value && (loadStoredManaged() || editorKind.value === 'math'),
     })
   } catch (e) {
     console.error('Failed to load CellML source', e)
@@ -1537,7 +1572,7 @@ async function handleSave(options) {
   const textErrors = mathEditorRef.value?.getErrors?.() ?? []
   if (textErrors.length > 0) {
     const proceed = await confirm({
-      header: editorKind.value === 'math' ? 'Math Has Errors' : 'CellML Text Has Errors',
+      header: editorOptions.value.find((option) => option.value === editorKind.value)?.errorHeader ?? 'Math Has Errors',
       message:
         'If you continue, the last valid version of the model will be saved and any edits since then will be lost.',
       severity: 'warning',
@@ -1582,7 +1617,8 @@ async function handleSave(options) {
     }
   }
 
-  const updateAll = applyToAll.value || siblingCount.value === 0
+  // Locked math changes only with its source, which every instance shares.
+  const updateAll = applyToAll.value || siblingCount.value === 0 || isMathLocked.value
 
   trackEvent('editor_action', {
     category: 'Editor',
@@ -2182,6 +2218,14 @@ async function handleSave(options) {
   align-items: center;
   gap: 8px;
   font-size: 0.85rem;
+}
+
+.apply-all-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--p-text-muted-color);
 }
 
 .footer-buttons {

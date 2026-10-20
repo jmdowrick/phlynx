@@ -734,3 +734,80 @@ describe('InstanceEditorDialog connection status', () => {
     expect(wrapper.vm.ignoredNotices.get('k')).toBe('Set by Src.k_src: this value is ignored on export')
   })
 })
+
+describe('InstanceEditorDialog locked math', () => {
+  const SOURCE = { format: 'celldl', document: '', documentUri: 'local:decay.celldl' }
+  const stubProps = (component) => wrapper.findComponent(component).vm.$attrs
+
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  })
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    useLibraryStore().addMath(MATH_REF, XML)
+    flowNodes.value = [
+      { id: 'a', data: { name: 'a', mathRef: MATH_REF } },
+      { id: 'b', data: { name: 'b', mathRef: MATH_REF } },
+    ]
+  })
+
+  afterEach(() => {
+    flowNodes.value = []
+    window.localStorage.clear()
+  })
+
+  it('shows math generated from a source read-only, with only its values editable', async () => {
+    useLibraryStore().setMathSource(MATH_REF, SOURCE)
+    mountDialog()
+    const editor = await open()
+    await report(editor, 'init', XML)
+
+    expect(stubProps(FakeEditor).readonly).toBe(true)
+    expect(stubProps(ParameterTableStub)['values-only']).toBe(true)
+    expect(wrapper.vm.isManaged).toBe(false)
+    expect(wrapper.find('.header-group--secondary input').exists()).toBe(false)
+    expect(wrapper.find('.apply-all-note').text()).toBe('Diagram edits apply to every instance of this module')
+    expect(wrapper.find('.apply-all-checkbox').exists()).toBe(false)
+  })
+
+  it('keeps Simple Mode off in the Math Editor, and saves to every instance', async () => {
+    useLibraryStore().setMathSource(MATH_REF, SOURCE)
+    mountDialog()
+    const editor = await open()
+    await report(editor, 'init', XML)
+
+    await wrapper.vm.switchEditor('math')
+    wrapper.vm.onSimpleToggle(true)
+    await flushPromises()
+    expect(wrapper.vm.editorKind).toBe('math')
+    expect(wrapper.vm.isManaged).toBe(false)
+    expect(stubProps(FakeEditor).readonly).toBe(true)
+
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await flushPromises()
+    const [save] = wrapper.emitted('confirm')[0]
+    expect(save.updateAll).toBe(true)
+    expect(save.math).toBeNull()
+  })
+
+  it('opens on the CellML Text editor when the editor last chosen isn\'t offered', async () => {
+    window.localStorage.setItem('instanceEditorDialog.editorKind', 'celldl')
+    mountDialog()
+    await open()
+    expect(wrapper.vm.editorKind).toBe('text')
+  })
+
+  it('leaves CellML math editable, with the choice to apply to every instance', async () => {
+    mountDialog()
+    const editor = await open()
+    await report(editor, 'init', XML)
+
+    expect(stubProps(FakeEditor).readonly).toBe(false)
+    expect(stubProps(ParameterTableStub)['values-only']).toBe(false)
+    expect(wrapper.find('.header-group--secondary input').exists()).toBe(true)
+    expect(wrapper.find('.apply-all-note').exists()).toBe(false)
+    expect(wrapper.find('.apply-all-checkbox').exists()).toBe(true)
+  })
+})
