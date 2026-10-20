@@ -146,10 +146,11 @@ describe('generateFlattenedModel with units made from expressions', () => {
     expect(text).not.toMatch(/celsius/)
     expect(text.match(/<cn [^>]*>37<\/cn>/)[0].match(/units="[^"]*"/g)).toEqual(['units="dimensionless"'])
   })
+})
 
-  describe('units only a parameter row uses', () => {
-    // dx/dt = -k * x, with k in per_second; its row gives it in per_minute.
-    const DECAY_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
+describe('generateFlattenedModel imports the units the build adds', () => {
+  // dx/dt = -k * x, with k in per_second; its row, a global constant or an inspection module can use other units.
+  const DECAY_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
   <component name="decay">
     <variable name="t" units="second" interface="public"/>
     <variable name="x" units="dimensionless" initial_value="1" interface="public"/>
@@ -159,40 +160,70 @@ describe('generateFlattenedModel with units made from expressions', () => {
     </math>
   </component>
 </model>`
-    let store
+  let store
 
-    beforeEach(() => {
-      setActivePinia(createPinia())
-      store = useLibraryStore()
-      store.addUnitsFile({
-        componentFile: 'units.cellml',
-        model: `<model xmlns="http://www.cellml.org/cellml/2.0#" name="units">
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  }, 120000)
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    store = useLibraryStore()
+    store.addUnitsFile({
+      componentFile: 'units.cellml',
+      model: `<model xmlns="http://www.cellml.org/cellml/2.0#" name="units">
   <units name="per_second"><unit units="second" exponent="-1"/></units>
   <units name="per_minute"><unit units="minute" exponent="-1"/></units>
   <units name="minute"><unit units="second" multiplier="60"/></units>
 </model>`,
-      })
-      store.addMath('file:decay', DECAY_XML)
     })
+    store.addMath(MATH_REF, DECAY_XML)
+  })
 
-    /** The decay instance, with k's row in the given units. */
-    function buildNode(units) {
-      const rows = reconcileRows(analyzeMathXml(store.availableMath.get('file:decay')), [], { defaults: store.getMathDefaults('file:decay') })
-      const variables = rows.map((row) => (row.name === 'k' ? { ...row, units, value: '6' } : row))
-      return { id: 'n1', type: 'instanceNode', data: { name: 'decay_1', mathRef: 'file:decay', variables, ports: [] } }
-    }
+  /** A decay instance with k's row changed. */
+  function buildNode(kRow, index = 1) {
+    const rows = reconcileRows(analyzeMathXml(store.availableMath.get(MATH_REF)), [], { defaults: store.getMathDefaults(MATH_REF) })
+    const variables = rows.map((row) => (row.name === 'k' ? { ...row, value: '6', ...kRow } : row))
+    return { id: `n${index}`, type: 'instanceNode', data: { name: `decay_${index}`, mathRef: MATH_REF, variables, ports: [] } }
+  }
 
-    it('imports them, and the result analyses cleanly', async () => {
-      const text = await (await generateFlattenedModel([buildNode('per_minute')], [], store)).text()
-      expect(text).toMatch(/<units name="per_minute">/)
-      expect(text).toMatch(/<variable name="k" units="per_minute" initial_value="6"/)
-    })
+  it("imports a parameter row's units, and the result analyses cleanly", async () => {
+    const text = await (await generateFlattenedModel([buildNode({ units: 'per_minute' })], [], store)).text()
+    expect(text).toMatch(/<units name="per_minute">/)
+    expect(text).toMatch(/<variable name="k" units="per_minute" initial_value="6"/)
+  })
 
-    it('names units no units file defines', () => {
-      expect(() => generateFlattenedModel([buildNode('per_fortnight')], [], store)).toThrow(
-        "Units no units file defines: per_fortnight (used by decay_1.k's parameter row)."
-      )
-    })
+  it("imports a global constant's units", async () => {
+    store.assignGlobalConstant('k', '6', 'per_minute')
+    const node = buildNode({ type: 'global_constant', value: '' })
+    const text = await (await generateFlattenedModel([node], [], store)).text()
+    expect(text).toMatch(/<variable name="k" units="per_minute" initial_value="6"/)
+  })
+
+  it("imports an inspection module's units", async () => {
+    const module = { name: 'k_total', units: 'per_minute', variables: [{ nodeId: 'n1', variableName: 'k', units: 'per_second' }] }
+    const text = await (await generateFlattenedModel([buildNode({ units: 'per_second' })], [], store, [module])).text()
+    expect(text).toMatch(/<variable name="k_total" units="per_minute"/)
+  })
+
+  it('names units no units file defines, and what uses them', () => {
+    store.assignGlobalConstant('k', '6', 'per_week')
+    const module = { name: 'k_total', units: 'per_day', variables: [] }
+    const nodes = [buildNode({ units: 'per_fortnight' }), buildNode({ type: 'global_constant', value: '' }, 2)]
+    expect(() => generateFlattenedModel(nodes, [], store, [module])).toThrow(
+      "Units no units file defines: per_fortnight (used by decay_1.k's parameter row); per_week (used by global constant k); " +
+        'per_day (used by inspection module k_total).'
+    )
+  })
+
+  it('shortens a long list of them', () => {
+    const units = ['per_fortnight', 'per_fortnight', 'per_fortnight', 'per_fortnight', 'per_week', 'per_day', 'per_year']
+    const nodes = units.map((u, i) => buildNode({ units: u }, i + 1))
+    expect(() => generateFlattenedModel(nodes, [], store)).toThrow(
+      "Units no units file defines: per_fortnight (used by decay_1.k's parameter row, decay_2.k's parameter row, " +
+        "decay_3.k's parameter row and 1 more); per_week (used by decay_5.k's parameter row); " +
+        "per_day (used by decay_6.k's parameter row) and 1 more."
+    )
   })
 })
 
