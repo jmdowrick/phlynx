@@ -1,4 +1,4 @@
-import { findVoiNames, inferType, isEmpty, isNumericLiteral } from './variables.js'
+import { findImplicitVariables, findVoiNames, inferType, isEmpty, isNumericLiteral } from './variables.js'
 import { analyzeMathXml } from '../services/math/analyzeMath.js'
 import { resolveBoundaryValues } from '../services/export/boundaryValues.js'
 import { couplingConflicts, multiplyFactor, variableTypes } from './multiport.js'
@@ -1463,8 +1463,8 @@ function isPossibleParameter(variable, voiNames, includeInitialised = false) {
 }
 
 /**
- * Extracts unique variable names from a CellML model/component. A variable the math computes is a
- * `variable`; anything else is a `constant` until someone says otherwise.
+ * Extracts unique variable names from a CellML model/component. A variable the math computes, or a
+ * DAE solves implicitly, is a `variable`; anything else is a `constant` until someone says otherwise.
  */
 export function extractVariablesFromMath(math, includeInitialisedVariables = true) {
   const garbageCollector = new Set() // To track created objects for cleanup.
@@ -1477,6 +1477,8 @@ export function extractVariablesFromMath(math, includeInitialisedVariables = tru
         assigned: new Set(analysis?.assigned),
         voi: findVoiNames(analysis),
       }
+      const initialValues = new Map(analysis?.declared.map((variable) => [variable.name, variable.initialValue]))
+      roles.implicit = findImplicitVariables(analysis, roles, (name) => isNumericLiteral(initialValues.get(name)))
       const parser = new _libcellml.Parser(false)
       garbageCollector.add(parser)
       const model = parser.parseModel(math)
