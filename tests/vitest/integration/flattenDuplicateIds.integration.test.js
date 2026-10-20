@@ -50,5 +50,27 @@ describe('generateFlattenedModel with two instances of math that has ids', () =>
     const text = await (await generateFlattenedModel(nodes, [], store)).text()
     const ids = [...text.matchAll(/\bid="([^"]*)"/g)].map((m) => m[1])
     expect(ids.length).toBe(new Set(ids).size)
+    // Each instance keeps its ids, named after it, so annotations can still point at them.
+    for (const name of ['decay_1', 'decay_2']) {
+      expect(ids).toEqual(expect.arrayContaining([name, `${name}-t`, `${name}-x`, `${name}-k`, `${name}-eq`]))
+    }
+  })
+
+  it('prefixes every id when renaming would merge two', async () => {
+    setActivePinia(createPinia())
+    const store = useLibraryStore()
+    store.addUnitsFile({ componentFile: 'units.cellml', model: UNITS })
+    // "x" and "main-x" would both become "decay_1-x" if only the component's name were replaced.
+    store.addMath(MATH_REF, XML.replace('id="main-k"', 'id="x"'))
+
+    const rows = reconcileRows(analyzeMathXml(store.availableMath.get(MATH_REF)), [], {
+      defaults: store.getMathDefaults(MATH_REF),
+    })
+    const nodes = [{ id: 'n1', type: 'instanceNode', data: { name: 'decay_1', mathRef: MATH_REF, variables: rows, ports: [] } }]
+
+    const text = await (await generateFlattenedModel(nodes, [], store)).text()
+    const ids = [...text.matchAll(/\bid="([^"]*)"/g)].map((m) => m[1])
+    expect(ids.length).toBe(new Set(ids).size)
+    expect(ids).toEqual(expect.arrayContaining(['decay_1-main', 'decay_1-main-x', 'decay_1-x']))
   })
 })

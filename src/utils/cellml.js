@@ -926,18 +926,31 @@ function addVariableToParameterComponent(model, variable, parameterComponent, pa
 }
 
 /**
- * Removes every `id` attribute from a CellML string, so two instances of one math don't repeat its ids.
+ * Rewrites a CellML string's `id` attributes for one instance, so two instances of one math don't repeat
+ * them. Ids made from the component's name, as bg2cellml writes them (`main`, `main-x`), take the
+ * instance's name in its place (`decay_1`, `decay_1-x`); any other id is prefixed (`decay_1-<id>`).
  *
  * @param {string} xmlString
- * @returns {string} The string without ids, or unchanged if it has none or doesn't parse.
+ * @param {string} instanceName - A CellML identifier, so it holds no hyphen and no two instances share a prefix.
+ * @returns {string} The rewritten string, or unchanged if it has no ids or doesn't parse.
  */
-function stripIdAttributes(xmlString) {
+function prefixIdAttributes(xmlString, instanceName) {
   if (!/\sid\s*=/.test(xmlString)) return xmlString
 
   const doc = new DOMParser().parseFromString(xmlString, 'application/xml')
   if (doc.querySelector('parsererror')) return xmlString
 
-  for (const el of doc.querySelectorAll('[id]')) el.removeAttribute('id')
+  const elements = [...doc.querySelectorAll('[id]')]
+  const componentName = doc.querySelector('component')?.getAttribute('name')
+  const renamed = (id) => {
+    if (componentName && id === componentName) return instanceName
+    if (componentName && id.startsWith(`${componentName}-`)) return instanceName + id.slice(componentName.length)
+    return `${instanceName}-${id}`
+  }
+  // Renaming could merge two ids, e.g. "main-x" and "x"; prefixing every id keeps them apart.
+  const ids = elements.map((el) => el.getAttribute('id'))
+  const rename = new Set(ids.map(renamed)).size === ids.length ? renamed : (id) => `${instanceName}-${id}`
+  for (const el of elements) el.setAttribute('id', rename(el.getAttribute('id')))
   return new XMLSerializer().serializeToString(doc)
 }
 
@@ -1196,7 +1209,7 @@ export function generateFlattenedModel(
       if (!modelString) throw new Error(`Missing math definition for '${mathRef}'`)
 
       // Ids, such as bg2cellml writes, would repeat in each instance of the same math.
-      const modelFromInstance = parser.parseModel(stripIdAttributes(modelString))
+      const modelFromInstance = parser.parseModel(prefixIdAttributes(modelString, node.data.name))
 
       const originalComponent = modelFromInstance.componentByIndex(0)
       originalComponent.setName(node.data.name)
