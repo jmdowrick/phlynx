@@ -56,12 +56,13 @@ const EDITED_XML = XML.replace('<apply><minus/><ci>k</ci></apply>', '<apply><min
 
 const setText = vi.fn()
 const setModel = vi.fn()
+const getErrors = vi.fn(() => [])
 
 /** Stands in for CellMLTextEditor: the test emits its events and watches what the session asks of it. */
 const FakeEditor = defineComponent({
   emits: ['change', 'undo', 'redo', 'variable-click'],
   setup(_, { expose }) {
-    expose({ format: 'mathml', setText, setModel, flush: () => {}, getErrors: () => [], focus: () => {} })
+    expose({ format: 'mathml', setText, setModel, flush: () => {}, getErrors, focus: () => {} })
     return () => h('div')
   },
 })
@@ -756,6 +757,7 @@ describe('InstanceEditorDialog locked math', () => {
   afterEach(() => {
     flowNodes.value = []
     window.localStorage.clear()
+    getErrors.mockImplementation(() => [])
   })
 
   it('shows math generated from a source read-only, with only its values editable', async () => {
@@ -790,6 +792,20 @@ describe('InstanceEditorDialog locked math', () => {
     const [save] = wrapper.emitted('confirm')[0]
     expect(save.updateAll).toBe(true)
     expect(save.math).toBeNull()
+  })
+
+  it("ignores the editor's errors, since its edits are never saved", async () => {
+    useLibraryStore().setMathSource(MATH_REF, SOURCE)
+    mountDialog()
+    const editor = await open()
+    await report(editor, 'init', XML)
+    getErrors.mockImplementation(() => [{ line: 1, message: 'This equation is incomplete.' }])
+
+    await wrapper.vm.switchEditor('math')
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await flushPromises()
+    expect(confirm).not.toHaveBeenCalled()
+    expect(wrapper.emitted('confirm')).toHaveLength(1)
   })
 
   it('opens on the CellML Text editor when the editor last chosen isn\'t offered', async () => {

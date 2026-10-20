@@ -702,6 +702,16 @@ const editorKind = ref(loadStoredEditorKind())
 const editorTabsKey = ref(0)
 
 /**
+ * Gets the mounted editor's errors. Locked math ignores its editor, so none of them can be saved.
+ *
+ * @returns {Array}
+ */
+function getEditorErrors() {
+  if (isMathLocked.value) return []
+  return mathEditorRef.value?.getErrors?.() ?? []
+}
+
+/**
  * Swaps the math editor, keeping the session. The Math Editor works in Simple Mode, unless the math is
  * locked, where the table can't rewrite it.
  *
@@ -711,7 +721,7 @@ async function switchEditor(kind) {
   if (kind === editorKind.value) return
   await session.flushPendingChanges()
 
-  if ((mathEditorRef.value?.getErrors?.() ?? []).length > 0) {
+  if (getEditorErrors().length > 0) {
     const proceed = await confirm({
       header: 'Discard Invalid Edits?',
       message: 'The math has errors. If you switch editors, edits since the last valid version will be lost.',
@@ -1569,7 +1579,7 @@ async function handleSave(options) {
     return
   }
 
-  const textErrors = mathEditorRef.value?.getErrors?.() ?? []
+  const textErrors = getEditorErrors()
   if (textErrors.length > 0) {
     const proceed = await confirm({
       header: editorOptions.value.find((option) => option.value === editorKind.value)?.errorHeader ?? 'Math Has Errors',

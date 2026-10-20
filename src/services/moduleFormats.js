@@ -53,7 +53,7 @@ export const MODULE_FORMAT_SVG_ICONS = Object.freeze({
  * so its generated CellML stays read-only.
  *
  * @param {string|null|undefined} id
- * @returns {{ id: string, label: string, icon: string, svgPath: string, isMathLocked: boolean, caModuleFormat: string, isAvailable: boolean }}
+ * @returns {{ id: string, label: string, icon: string, svgPath: string, isMathLocked: boolean, caModuleFormat: string, isAvailable: boolean, editorTab?: Object }}
  */
 export function getModuleFormat(id) {
   if (!id) return MODULE_FORMATS[DEFAULT_MODULE_FORMAT]
