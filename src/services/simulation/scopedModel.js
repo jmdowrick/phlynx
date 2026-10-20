@@ -6,6 +6,7 @@ import { resolveBoundaryValues } from '../export/boundaryValues'
 import { generateFlattenedModel } from '../../utils/cellml'
 import { cyrb53 } from '../../utils/misc'
 import { couplingConflicts, variableTypes } from '../../utils/multiport'
+import { couplingUnitConflicts } from '../../utils/couplingUnits'
 import { getHandleId } from '../../utils/handles'
 import { HANDLE_VARIANT } from '../../utils/constants'
 import { isEmpty } from '../../utils/variables'
@@ -114,17 +115,27 @@ function findLostSumTerms(scope) {
 }
 
 /**
- * Lists the coupling problems the build rejects inside a scope: ports whose variables can't pair.
+ * Lists the coupling problems the build rejects inside a scope: ports whose variables can't pair, or pair
+ * variables whose units have different dimensions.
  *
  * @param {ReturnType<typeof resolveScope>} scope
+ * @param {Object} libraryStore - Provides unitDefinitions.
  * @returns {string[]}
  */
-function findCouplingConflicts(scope) {
-  const nameOf = (id) => scope.nodes.find((node) => node.id === id)?.data?.name ?? id
+function findCouplingConflicts(scope, libraryStore) {
+  const nodeOf = (id) => scope.nodes.find((node) => node.id === id)
+  const nameOf = (id) => nodeOf(id)?.data?.name ?? id
+  const cache = new Map()
   const conflicts = []
   for (const edge of scope.internalEdges) {
+    const sourceRows = nodeOf(edge.source)?.data?.variables
+    const targetRows = nodeOf(edge.target)?.data?.variables
     for (const { sourcePort, targetPort } of edge.data?.couplings ?? []) {
-      for (const conflict of couplingConflicts(sourcePort, targetPort)) {
+      const portConflicts = couplingConflicts(sourcePort, targetPort)
+      const pairConflicts = portConflicts.length
+        ? portConflicts
+        : couplingUnitConflicts(sourcePort, targetPort, sourceRows, targetRows, libraryStore?.unitDefinitions, cache)
+      for (const conflict of pairConflicts) {
         conflicts.push(`Cannot connect "${nameOf(edge.source)}" to "${nameOf(edge.target)}": ${conflict}`)
       }
     }
@@ -155,7 +166,7 @@ function resolveWholeBoundaryValues(scope) {
  * for long, so it isn't warned about.
  *
  * @param {ReturnType<typeof resolveScope>} scope
- * @param {Object} libraryStore - Provides availableMath and getGlobalConstant(name).
+ * @param {Object} libraryStore - Provides availableMath, unitDefinitions and getGlobalConstant(name).
  * @param {{suppliedKeys?: Set<string>}} [options] - `suppliedKeys`: the `nodeId::name` of the boundary conditions the
  *   run gives values of its own.
  * @returns {{canBuild: boolean, errors: string[], incompleteNodes: Array, missingValues: Array, conflicts: string[],
@@ -184,7 +195,7 @@ export function checkScope(scope, libraryStore, { suppliedKeys = new Set() } = {
 
   try {
     const scoped = resolveBoundaryValues(scope.nodes, scope.internalEdges)
-    conflicts = [...scoped.conflicts, ...findCouplingConflicts(scope)]
+    conflicts = [...scoped.conflicts, ...findCouplingConflicts(scope, libraryStore)]
     const whole = resolveWholeBoundaryValues(scope)
 
     // Boundary conditions coupled only to each other in the whole model, which export rejects too.

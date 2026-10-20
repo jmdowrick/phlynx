@@ -809,3 +809,58 @@ describe('trying out parameter values', () => {
     expect(applied.libraryStore).toBe(store)
   })
 })
+
+describe('generateFlattenedModel couplings of incompatible units', () => {
+  // a = 1, in units the test sets; c = b, both in metre.
+  const sourceXml = (units) => `<model xmlns="http://www.cellml.org/cellml/2.0#" name="src">
+  <component name="src">
+    <variable name="a" units="${units}" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><ci>a</ci><cn xmlns:cellml="http://www.cellml.org/cellml/2.0#" cellml:units="${units}">1</cn></apply>
+    </math>
+  </component>
+</model>`
+  const TARGET_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="dst">
+  <component name="dst">
+    <variable name="b" units="metre" interface="public"/>
+    <variable name="c" units="metre" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><ci>c</ci><ci>b</ci></apply>
+    </math>
+  </component>
+</model>`
+  const MM_UNITS = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="units">
+  <units name="mm"><unit prefix="milli" units="metre"/></units>
+</model>`
+
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  }, 120000)
+
+  /** Couples a source's a, in `units`, to a target's b, in metre. */
+  function build(units) {
+    setActivePinia(createPinia())
+    const store = useLibraryStore()
+    store.addUnitsFile({ componentFile: 'units.cellml', model: MM_UNITS })
+    store.addMath('file:src', sourceXml(units))
+    store.addMath('file:dst', TARGET_XML)
+    const node = (id, mathRef, port) => {
+      const rows = reconcileRows(analyzeMathXml(store.availableMath.get(mathRef)), [], { defaults: store.getMathDefaults(mathRef) })
+      const typed = rows.map((row) => (row.name === port.variables[0] && row.type === 'constant' ? { ...row, type: 'boundary_condition' } : row))
+      return { id, type: 'instanceNode', data: { name: id, mathRef, variables: typed, ports: [port] } }
+    }
+    const source = node('A', 'file:src', { portType: 'exit_ports', label: 'p', variables: ['a'], multiportType: 'None' })
+    const target = node('B', 'file:dst', { portType: 'entrance_ports', label: 'p', variables: ['b'], multiportType: 'None' })
+    const edge = { id: 'e', source: 'A', target: 'B', data: { couplings: resolvePortCouplings(source.data.ports, target.data.ports) } }
+    return () => generateFlattenedModel([source, target], [edge], store)
+  }
+
+  it('names the instances, variables and units, before libcellml validates', () => {
+    expect(build('second')).toThrow('Cannot connect "A" to "B": "a" (second) and "b" (metre) have incompatible units.')
+  })
+
+  it('exports units that differ only in scale', async () => {
+    const text = await (await build('mm')()).text()
+    expect(text).toMatch(/<variable name="a" units="mm"/)
+  })
+})

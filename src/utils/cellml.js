@@ -2,6 +2,7 @@ import { findVoiNames, inferType, isEmpty, isNumericLiteral } from './variables.
 import { analyzeMathXml } from '../services/math/analyzeMath.js'
 import { resolveBoundaryValues } from '../services/export/boundaryValues.js'
 import { couplingConflicts, multiplyFactor, variableTypes } from './multiport.js'
+import { couplingUnitConflicts } from './couplingUnits.js'
 import {
   STANDARD_UNITS,
   AFFINE_UNIT_CONVERSIONS,
@@ -1282,6 +1283,7 @@ export function generateFlattenedModel(
       if (!multiPortSums.has(key)) multiPortSums.set(key, { component, varName, terms: [] })
       if (term) multiPortSums.get(key).terms.push(term)
     }
+    const unitsCache = new Map() // for resolveUnits, across the edges' couplings
     let mulComp = null // generated_multiplications, kept until Pass 2 sums the outputs it holds
     for (const edge of edges) {
       // Edges only carry source/target node ids plus resolved coupling data
@@ -1297,9 +1299,13 @@ export function generateFlattenedModel(
       // (and recomputed on any edit), so ordinal slot assignment is already
       // correct — no need to re-derive from ports here.
       const couplings = edge.data?.couplings ?? []
+      const sourceRows = nodes.find((node) => node.id === edge.source)?.data.variables
+      const targetRows = nodes.find((node) => node.id === edge.target)?.data.variables
 
       for (const { sourcePort, targetPort } of couplings) {
-        const [conflict] = couplingConflicts(sourcePort, targetPort)
+        const [conflict] = couplingConflicts(sourcePort, targetPort).concat(
+          couplingUnitConflicts(sourcePort, targetPort, sourceRows, targetRows, libraryStore.unitDefinitions, unitsCache)
+        )
         if (conflict) throw new Error(`Cannot connect "${sourceComp.name()}" to "${targetComp.name()}": ${conflict}`)
         const sourceTypes = variableTypes(sourcePort)
         const targetTypes = variableTypes(targetPort)
