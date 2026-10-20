@@ -23,6 +23,27 @@ function isSameMathEntry(entry, otherEntry) {
 }
 
 /**
+ * Gets a module's rows for a node's: their names and kinds, with the module's own values where it has the row.
+ *
+ * @param {Array} rows - The node's rows.
+ * @param {Array} [moduleRows=rows] - The module's current rows, for their values.
+ * @returns {Array}
+ */
+function toModuleRows(rows, moduleRows = rows) {
+  const previous = new Map(moduleRows.map((row) => [row.name, row]))
+  return detachReactivity(
+    rows.map(({ name, units, access, type }) => ({
+      name,
+      value: previous.get(name)?.value ?? null,
+      units,
+      access,
+      type,
+      data_reference: previous.get(name)?.data_reference ?? null,
+    }))
+  )
+}
+
+/**
  * Combines the library states an edit changes into one recordEdit `library` option.
  *
  * @param {Array<Object|null>} libraries - Each `{ isAt(side), restore(side) }`, or null when unchanged.
@@ -100,6 +121,62 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
+   * Gives a node another node's ports and variable kinds, keeping its values. Rows its math or the new ports
+   * need are added blank.
+   *
+   * @param {Object} node
+   * @param {{ports: Array, variables: Array}} config
+   */
+  function applyConfigTo(node, { ports, variables }) {
+    const kinds = new Map(variables.map((row) => [row.name, row]))
+    const rows = node.data.variables.map((row) => {
+      const kind = kinds.get(row.name)
+      return kind ? { ...row, units: kind.units, access: kind.access, type: kind.type } : row
+    })
+    const names = new Set(rows.map((row) => row.name))
+    const added = toModuleRows(variables.filter((row) => !names.has(row.name)), [])
+    updateNodeData(node.id, { ports: detachReactivity(ports), variables: [...rows, ...added] })
+    updateVariablesFromMath(findNode(node.id), node.data.mathRef)
+    cleanPorts(findNode(node.id))
+  }
+
+  /**
+   * Writes the edited node's config to the library. The save's `config.action` says how: 'update' writes it to the
+   * node's module and every other node on it, 'new' adds `config.moduleRef` for this node alone, and 'follow' moves
+   * the module to the node's math.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload.
+   * @returns {string[]} The other nodes whose ports changed.
+   */
+  function applyConfig({ id, config }) {
+    const node = findNode(id)
+    if (!config || !node) return []
+    const { moduleRef, mathRef, ports, variables } = node.data
+    if (config.action === 'new') {
+      const module = { moduleRef: config.moduleRef, mathRef, ports, variables: toModuleRows(variables) }
+      libraryStore.addModule(detachReactivity(module))
+      updateNodeData(id, { moduleRef: config.moduleRef })
+      return []
+    }
+
+    const module = libraryStore.availableModules.get(moduleRef)
+    if (!module) return []
+    if (config.action === 'follow') {
+      libraryStore.replaceModule({ ...detachReactivity(module), mathRef })
+      return []
+    }
+    libraryStore.replaceModule({
+      ...detachReactivity(module),
+      mathRef,
+      ports: detachReactivity(ports),
+      variables: toModuleRows(variables, module.variables ?? []),
+    })
+    const others = nodes.value.filter((other) => other.id !== id && other.data?.moduleRef === moduleRef)
+    others.forEach((other) => applyConfigTo(other, node.data))
+    return others.map((other) => other.id)
+  }
+
+  /**
    * Writes a save to the library and the nodes: the edited node, the siblings it applies to, and
    * every other node whose math it changed. Math no module uses gets one, built from the saved node,
    * so it shows in the library.
@@ -140,8 +217,8 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
       cleanPorts(node)
     })
 
-    recomputeEdgeCouplings(id)
-    otherNodes.forEach((node) => recomputeEdgeCouplings(node.id))
+    const configured = applyConfig(save)
+    new Set([id, ...otherNodes.map((node) => node.id), ...configured]).forEach(recomputeEdgeCouplings)
     return moduleRef
   }
 
@@ -183,6 +260,46 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
+   * Gets the module change a save's `config` makes, as a recordEdit `library` entry. Undo puts an updated module
+   * back, and removes a new one unless a node still uses it.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload.
+   * @returns {{changed: Function, library: Object}|null} Null when the save leaves the modules as they are.
+   *   Call `changed` after applySave.
+   */
+  function prepareConfigChange({ id, config }) {
+    if (!config) return null
+    if (config.action === 'new') {
+      const moduleRef = config.moduleRef
+      let module = null
+      const isUsed = () => nodes.value.some((node) => node.data?.moduleRef === moduleRef)
+      const isStored = () => libraryStore.availableModules.has(moduleRef)
+      return {
+        changed: () => (module = detachReactivity(libraryStore.availableModules.get(moduleRef))),
+        library: {
+          isAt: (side) => (side === 'after' ? isStored() : !isStored() || isUsed()),
+          restore: (side) => {
+            if (side === 'after') libraryStore.addModule(detachReactivity(module))
+            else if (!isUsed()) libraryStore.removeModule(moduleRef)
+          },
+        },
+      }
+    }
+
+    const moduleRef = findNode(id)?.data.moduleRef
+    const current = () => detachReactivity(libraryStore.availableModules.get(moduleRef) ?? null)
+    const states = { before: current(), after: null }
+    if (!states.before) return null
+    return {
+      changed: () => (states.after = current()),
+      library: {
+        isAt: (side) => JSON.stringify(current()) === JSON.stringify(states[side]),
+        restore: (side) => libraryStore.replaceModule(detachReactivity(states[side])),
+      },
+    }
+  }
+
+  /**
    * Gets the plot config change a save makes, as a recordEdit `library` entry. Only the saved node's
    * selections are compared and restored, so changes to other nodes' plots don't block the undo.
    *
@@ -215,12 +332,19 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    * @returns {Promise<number>} How many nodes now use the saved math reference.
    */
   async function saveInstanceEdit(save) {
-    const { id, mathRef, previousMathRef, math, isLayoutChanged, updateAll, siblings } = save
+    const { id, mathRef, previousMathRef, math, isLayoutChanged, updateAll, siblings, config } = save
+    const editedModuleRef = findNode(id)?.data.moduleRef
     const affectedIds = [
       ...new Set([
         id,
         ...(updateAll ? siblings : []),
-        ...nodes.value.filter((node) => [mathRef, previousMathRef].includes(node.data?.mathRef)).map((node) => node.id),
+        ...nodes.value
+          .filter(
+            (node) =>
+              [mathRef, previousMathRef].includes(node.data?.mathRef) ||
+              (config?.action === 'update' && node.data?.moduleRef === editedModuleRef)
+          )
+          .map((node) => node.id),
       ]),
     ]
     const writtenMathRef = math !== null || isLayoutChanged ? mathRef : null
@@ -230,6 +354,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     const isUsed = (ref) => nodes.value.some((node) => node.data?.mathRef === ref)
     const plotChange = preparePlotChange(save)
     const moduleChange = prepareModuleChange(save)
+    const configChange = prepareConfigChange(save)
 
     await recordEdit({
       type: 'edit-instance',
@@ -239,6 +364,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
       apply: () => {
         const moduleRef = applySave(save)
         moduleChange?.created(moduleRef)
+        configChange?.changed()
         mathAfter = writtenMathRef && libraryStore.getMathEntry(writtenMathRef)
         plotChange?.apply()
       },
@@ -257,6 +383,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
           },
         },
         moduleChange?.library,
+        configChange?.library,
         plotChange?.library,
       ]),
     })
