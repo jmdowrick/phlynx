@@ -21,6 +21,15 @@
           <div class="detail-item">
             <i class="pi pi-file detail-icon"></i>
             <span class="detail-value">{{ mathFile }}</span>
+            <!-- A span, not a button or status indicator, so the SVG export draws it. -->
+            <span
+              :class="['module-format-badge', { 'module-format-badge--muted': isDefaultFormat }]"
+              role="img"
+              :aria-label="`Source: ${moduleFormat.label}`"
+              v-tooltip.top="`Source: ${moduleFormat.label}`"
+            >
+              <i :class="['pi', moduleFormat.icon, 'detail-icon']"></i>
+            </span>
           </div>
         </div>
         <div style="flex-grow: 1; min-width: 1.5em;"></div> <!-- Spacer to push buttons to the right -->
@@ -125,6 +134,7 @@ import { detachReactivity } from '../utils/reactivity'
 import { HANDLE_VARIANT } from '../utils/constants'
 import { isUnitKnown } from '../utils/parameterRows'
 import { categoryStyle as themeCategoryStyle } from '../utils/nodeThemes'
+import { DEFAULT_MODULE_FORMAT, getModuleFormat } from '../services/moduleFormats'
 import { useHandleManagement } from '../composables/useHandleManagement'
 import { useNodeDataHistory } from '../composables/useNodeDataHistory'
 
@@ -177,6 +187,10 @@ function openInstanceEditor(defaultTab = 'parameters') {
 const componentName = computed(() => props.data.mathRef.split(':')[1])
 
 const mathFile = computed(() => props.data.mathRef.split(':')[0])
+
+// The format the math is authored in, shown as a badge; CellML, the default, is muted.
+const moduleFormat = computed(() => getModuleFormat(libraryStore.getMathFormat(props.data.mathRef)))
+const isDefaultFormat = computed(() => moduleFormat.value.id === DEFAULT_MODULE_FORMAT)
 
 // The node stores a category key; the active theme decides its colour (none when the theme lacks it).
 const categoryStyle = computed(() => themeCategoryStyle(nodeThemeStore.activeTheme, props.data.domainType))
@@ -578,6 +592,16 @@ function openContextMenu(event) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.module-format-badge {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--p-primary-color);
+}
+
+.module-format-badge--muted {
+  color: inherit;
 }
 
 .instance-button {

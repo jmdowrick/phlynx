@@ -11,14 +11,14 @@ import { useNodeDataHistory } from './useNodeDataHistory'
 const NODE_KEYS = ['name', 'variables', 'ports', 'mathRef', 'moduleRef']
 
 /**
- * Checks whether two math entries (see libraryStore.getMathEntry) hold the same math, defaults and layout.
+ * Checks whether two math entries (see libraryStore.getMathEntry) hold the same math, defaults, layout and source.
  *
  * @param {Object|null} entry
  * @param {Object|null} otherEntry
  * @returns {boolean}
  */
 function isSameMathEntry(entry, otherEntry) {
-  const serialise = (value) => value && JSON.stringify([value.math, [...value.defaults], value.layout])
+  const serialise = (value) => value && JSON.stringify([value.math, [...value.defaults], value.layout, value.source])
   return serialise(entry) === serialise(otherEntry)
 }
 

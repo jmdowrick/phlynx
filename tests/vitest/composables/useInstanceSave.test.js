@@ -241,6 +241,15 @@ describe('useInstanceSave', () => {
     expect(snapshot()).toEqual(loaded)
   })
 
+  it('leaves math in place when the library has changed its source since an overwrite', async () => {
+    await saveInstanceEdit(buildSave({ math: DECAY_WITHOUT_K }))
+    library.setMathSource(DECAY_REF, { format: 'celldl', document: null, documentUri: 'https://example.org/decay.celldl' })
+    const loadedMath = library.getMathEntry(DECAY_REF)
+
+    await history.undo()
+    expect(library.getMathEntry(DECAY_REF)).toEqual(loadedMath)
+  })
+
   it('applies nothing when one rebuilt instance has changed since', async () => {
     await saveInstanceEdit(buildSave({ math: DECAY_WITHOUT_K }))
     findNode('a').data = { ...findNode('a').data, variables: [{ name: 'x', value: 'csv', type: 'variable' }] }
