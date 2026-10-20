@@ -331,6 +331,39 @@ describe('libraryStore unit expansions', () => {
   })
 })
 
+describe('libraryStore units files', () => {
+  const UNITS = (name) => `<model xmlns="http://www.cellml.org/cellml/2.0#" name="u"><units name="${name}"/></model>`
+
+  beforeEach(() => setActivePinia(createPinia()))
+
+  it('replaces a file of the same name by default, as a user drop does', () => {
+    const store = useLibraryStore()
+    store.addUnitsFile({ componentFile: 'units.cellml', model: UNITS('workspace_only') })
+    store.addUnitsFile({ componentFile: 'units.cellml', model: UNITS('built_in') })
+
+    expect(store.availableUnits).toHaveLength(1)
+    expect(store.availableUnits[0].model).toBe(UNITS('built_in'))
+  })
+
+  it('keeps a file already under the name with replace: false, as built-in hydration does', () => {
+    const store = useLibraryStore()
+    store.addUnitsFile({ componentFile: 'units.cellml', model: UNITS('workspace_only') })
+    store.addUnitsFile({ componentFile: 'units.cellml', model: UNITS('built_in') }, { replace: false })
+
+    expect(store.availableUnits).toHaveLength(1)
+    expect(store.availableUnits[0].model).toBe(UNITS('workspace_only'))
+    expect(store.availableUnitNames.has('workspace_only')).toBe(true)
+    expect(store.availableUnitNames.has('built_in')).toBe(false)
+  })
+
+  it('still adds a new file with replace: false', () => {
+    const store = useLibraryStore()
+    store.addUnitsFile({ componentFile: 'units.cellml', model: UNITS('built_in') }, { replace: false })
+
+    expect(store.availableUnits.map((f) => f.componentFile)).toEqual(['units.cellml'])
+  })
+})
+
 describe('libraryStore generated units', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
