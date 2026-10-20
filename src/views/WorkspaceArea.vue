@@ -2235,7 +2235,7 @@ async function fetchAndLoadResource(entry, resourceType) {
 
     // Load the content
     if (resourceType === 'cellml module' || resourceType === 'cellml units') {
-      await loadCellMLData(content, entry.file ?? entry.name, { notify: false })
+      await loadCellMLData(content, entry.file ?? entry.name, { notify: false, replaceUnits: false })
     } else if (resourceType === 'module config') {
       await loadConfigData(content, entry.name, false)
       // const jsonContent = JSON.parse(content)
