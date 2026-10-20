@@ -926,6 +926,22 @@ function addVariableToParameterComponent(model, variable, parameterComponent, pa
 }
 
 /**
+ * Removes every `id` attribute from a CellML string, so two instances of one math don't repeat its ids.
+ *
+ * @param {string} xmlString
+ * @returns {string} The string without ids, or unchanged if it has none or doesn't parse.
+ */
+function stripIdAttributes(xmlString) {
+  if (!/\sid\s*=/.test(xmlString)) return xmlString
+
+  const doc = new DOMParser().parseFromString(xmlString, 'application/xml')
+  if (doc.querySelector('parsererror')) return xmlString
+
+  for (const el of doc.querySelectorAll('[id]')) el.removeAttribute('id')
+  return new XMLSerializer().serializeToString(doc)
+}
+
+/**
  * Post-processes a printed CellML XML string, replacing all celsius unit references
  * with 'dimensionless' and removing the celsius unit definition.
  *
@@ -1179,7 +1195,8 @@ export function generateFlattenedModel(
       const modelString = libraryStore.availableMath.get(mathRef)
       if (!modelString) throw new Error(`Missing math definition for '${mathRef}'`)
 
-      const modelFromInstance = parser.parseModel(modelString)
+      // Ids, such as bg2cellml writes, would repeat in each instance of the same math.
+      const modelFromInstance = parser.parseModel(stripIdAttributes(modelString))
 
       const originalComponent = modelFromInstance.componentByIndex(0)
       originalComponent.setName(node.data.name)
