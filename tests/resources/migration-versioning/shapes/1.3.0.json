@@ -135,7 +135,6 @@
     "store.mathSources[][].documentUri",
     "store.mathSources[][].elements",
     "store.mathSources[][].elements{*}",
-    "store.mathSources[][].elements{*}.elementClass",
     "store.mathSources[][].elements{*}.iri",
     "store.mathSources[][].elements{*}.kind",
     "store.mathSources[][].elements{*}.label",
