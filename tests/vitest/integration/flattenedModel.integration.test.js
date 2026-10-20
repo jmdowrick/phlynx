@@ -1,6 +1,4 @@
 // @vitest-environment happy-dom
-import fs from 'node:fs'
-import path from 'node:path'
 
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -18,6 +16,7 @@ import { applyParameterOverrides, buildScopedModel, checkScope, resolveScope } f
 import { buildVariableMapping, mapInspectionModules, mappingKey, readNodeSeries } from '../../../src/services/simulation/variableMapping.js'
 import { setNodePlotVariables } from '../../../src/services/simulation/plotSelections.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
+import { syntheticCase } from '../helpers/syntheticWorkspaces/index.js'
 
 const MATH_REF = 'file:decay'
 // dx/dt = g - k * x. The initialiser is private, as math saved before variables were always public may have.
@@ -232,12 +231,10 @@ describe('boundary values in a migrated workspace', () => {
     await ensureLibCellmlReady()
   }, 120000)
 
-  // The full export of this workspace also fails on main ("The model is not fully defined"), so this
-  // checks the boundary conditions it hands to generateFlattenedModel instead.
+  // Checks the boundary conditions the workspace hands to generateFlattenedModel.
   it('sets each boundary condition group once, from the module that supplies it', () => {
     setActivePinia(createPinia())
-    const file = path.resolve(process.cwd(), 'tests/resources/migration-versioning/legacy/tran_hund_coupled.json')
-    const migrated = migrateWorkspace(JSON.parse(fs.readFileSync(file, 'utf8')))
+    const migrated = migrateWorkspace(syntheticCase('legacy', 'edgesWithoutCouplings'))
 
     // Legacy edges have no couplings yet; the workspace resolves them on load, in this order.
     const { nodes, edges } = migrated.flow
