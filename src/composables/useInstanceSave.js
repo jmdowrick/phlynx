@@ -195,11 +195,16 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     const isNewModule = isNewModuleSave(save)
     if (math !== null) libraryStore.addMath(mathRef, math, true, layout)
     else if (isLayoutChanged) libraryStore.setMathLayout(mathRef, layout)
-    const moduleRef = isNewModule ? libraryStore.createModuleForMath(mathRef, detachReactivity({ ports, variables })) : null
-
     // Without its own module, a node would keep its old one's ref, which export keys configs by.
-    // Only siblings on the edited node's old module share its ports, so only they move to the new one.
+    // Only siblings on the edited node's old module share its ports, so only they move to the new one. When this
+    // node saves a config of its own, they keep their old module's.
     const previousModuleRef = findNode(id)?.data.moduleRef
+    const previousModule = libraryStore.availableModules.get(previousModuleRef)
+    const source = save.config?.action === 'new' && previousModule ? previousModule : { ports, variables }
+    const moduleRef = isNewModule
+      ? libraryStore.createModuleForMath(mathRef, detachReactivity({ ports: source.ports, variables: source.variables }))
+      : null
+
     const moduleFields = moduleRef ? { moduleRef } : {}
     updateNodeData(id, { name, variables, ports, mathRef, ...moduleFields })
     if (updateAll) {
