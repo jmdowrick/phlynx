@@ -84,9 +84,11 @@ const ROOT_CONTEXT = { chain: [], idPath: [], namePath: [], flatName: null, supe
  * @param {Array} edges - Every edge in the store.
  * @returns {{ nodes: Array, edges: Array, origin: Map<string, {mainId: string, instanceChain: string[], edgeId?: string}>,
  *   nameOf: (id: string) => string|undefined, idOf: (name: string) => string|undefined,
- *   pathOf: (id: string) => string|undefined, errors: Array<Object> }}
+ *   pathOf: (id: string) => string|undefined, superInstances: Array<{instanceChain: string[], smId: string,
+ *   flatName: string, path: string}>, errors: Array<Object> }}
  *   origin: each expanded node's and edge's source in the store, with the super instances it is expanded through; nameOf:
- *   an expanded node's flat name; idOf: the expanded node of a flat name or path; pathOf: an expanded node's path.
+ *   an expanded node's flat name; idOf: the expanded node of a flat name or path; pathOf: an expanded node's path;
+ *   superInstances: each super instance as expanded, once per place, outer first, its chain ending with its own id.
  */
 export function expandHierarchy(nodes, edges) {
   const byScope = indexByScope(nodes)
@@ -409,6 +411,9 @@ export function expandHierarchy(nodes, edges) {
     nameOf,
     idOf,
     pathOf,
+    superInstances: [...contexts.values()]
+      .filter(Boolean)
+      .map((context) => ({ instanceChain: chainIds(context), smId: context.supermodule.id, flatName: context.flatName, path: pathOfNames(context.namePath) })),
     get errors() {
       checked ??= [...errors, ...checkExpansion(outNodes, outEdges, pathOf).map((error) => ({ ...error, ...at(error.ids) }))]
       return checked

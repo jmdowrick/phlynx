@@ -272,7 +272,7 @@ describe('generateExportZip', () => {
     const node = nodeWith('out', [{ name: 'u_out', type: 'boundary_condition', units: 'J_per_m3', value: '' }])
     const parameters = parametersOf(await readZip(await generateExportZip('heart', [node], [], library)))
     expect(parameters.u_out_out.value).toBe('EMPTY_MUST_BE_FILLED')
-    expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('out.u_out') }))
+    expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ items: [expect.stringContaining('out.u_out')] }))
   })
 
   it('writes a constant or global constant of 0, which is not blank', async () => {
@@ -344,7 +344,7 @@ describe('generateExportZip', () => {
     library.addMath(BG_MATH_REF, VP_MATH.replace('units="J_per_m3"', 'units="mystery"'))
     const files = await readZip(await generateExportZip('heart', [nodeWith('vp', [])], [], library))
     expect(files['modules/heart_units.cellml']).not.toContain('mystery')
-    expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('mystery') }))
+    expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ items: [expect.stringContaining('mystery')] }))
   })
 
   /**
@@ -411,7 +411,7 @@ describe('generateExportZip', () => {
     const files = await readZip(await generateExportZip('heart', nodes, edges, library))
     const entries = JSON.parse(files['modules/heart_module_config.json']).map((entry) => `${entry.module_type}:${entry.module_subtype}`)
     expect(entries).toEqual(['heart:simple', 'arterial_simple:vp'])
-    expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('par, pvn') }))
+    expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ items: [expect.stringContaining('par, pvn')] }))
   })
 
   describe('multi_port', () => {
@@ -443,7 +443,7 @@ describe('generateExportZip', () => {
       const port = await exportedPort({ label: 'volume_port', variables: ['q_C'], multiportType: 'Sum' })
       expect(port.multi_port).toBe('Sum')
       expect(notified.warning).toHaveBeenCalledWith(
-        expect.objectContaining({ title: 'Volume Port Sum', message: expect.stringContaining('arterial_simple:vp') })
+        expect.objectContaining({ title: 'Volume Port Sum', items: [expect.stringContaining('arterial_simple:vp')] })
       )
     })
 
@@ -549,8 +549,8 @@ describe('generateExportZip', () => {
       const empty = { id: 's--b', source: 's', target: 'b', data: { couplings: [] } }
       const rows = await rowsOf([split, a, b, c], [stale, empty, conduit(split, c, 1, 0)])
       expect(rows.s).toBe(' | a c')
-      expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ title: 'Stale Connections', message: expect.stringContaining('s → a') }))
-      expect(notified.info).toHaveBeenCalledWith(expect.objectContaining({ title: 'Connections Left Out', message: expect.stringContaining('s → b') }))
+      expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ title: 'Stale Connections', items: [expect.stringContaining('s → a')] }))
+      expect(notified.info).toHaveBeenCalledWith(expect.objectContaining({ title: 'Connections Left Out', items: [expect.stringContaining('s → b')] }))
     })
 
     it("names CA's rule for each connection it pairs differently", async () => {
@@ -566,7 +566,7 @@ describe('generateExportZip', () => {
       await generateExportZip('heart', [x, y, z], [edge(y), edge(z)], library)
       expect(notified.warning).toHaveBeenCalledWith({
         title: 'Connections Paired Differently',
-        message: 'CA will pair a connection differently from here. x → z (link): CA pairs every slot that shares a label across a connection.',
+        items: ['CA will pair a connection differently from here. x → z (link): CA pairs every slot that shares a label across a connection.'],
       })
     })
 
@@ -646,7 +646,7 @@ describe('generateExportZip', () => {
     it('warns about two inputs CA would put on other slots', async () => {
       await heartRow(heartWith({ venous_ivc: 0, pvn: 2 }))
       expect(notified.warning).toHaveBeenCalledWith(
-        expect.objectContaining({ title: 'Connections Paired Differently', message: expect.stringContaining("a heart's inputs") })
+        expect.objectContaining({ title: 'Connections Paired Differently', items: [expect.stringContaining("a heart's inputs")] })
       )
     })
 
@@ -673,7 +673,7 @@ describe('generateExportZip', () => {
     const junction = { id: 'j', data: { name: 'j', moduleRef: 'Min_junction:vp', mathRef: BG_MATH_REF, ports: [], variables: [] } }
     await generateExportZip('heart', [junction, nodeWith('vp', [])], [], library)
     expect(notified.warning).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Deprecated Junction Types', message: expect.stringMatching(/^Min_junction is .*multiport Sum/) })
+      expect.objectContaining({ title: 'Deprecated Junction Types', items: [expect.stringMatching(/^Min_junction is .*multiport Sum/)] })
     )
   })
 

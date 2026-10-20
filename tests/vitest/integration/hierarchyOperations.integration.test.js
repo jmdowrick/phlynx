@@ -257,9 +257,9 @@ describe('nest, un-nest and Make unique on the workspace', () => {
     expect(done).toBe(true)
     await nextTick()
     expect(unnested.removedSupermodule).toBe(true)
-    expect(flow.nodes.value.map((node) => node.data.name)).toEqual(['a', 'tail__b', 'tail__c'])
-    const b = flow.nodes.value.find((node) => node.data.name === 'tail__b')
-    expect(settings.plotConfig.selections[0]).toMatchObject({ key: `${b.id}::R`, nodeId: b.id, nodeName: 'tail__b' })
+    expect(flow.nodes.value.map((node) => node.data.name)).toEqual(['a', 'b', 'c'])
+    const b = flow.nodes.value.find((node) => node.data.name === 'b')
+    expect(settings.plotConfig.selections[0]).toMatchObject({ key: `${b.id}::R`, nodeId: b.id, nodeName: 'b' })
     expect(library.getGlobalConstant('rho_only_b')).toBeTruthy()
 
     await history.undo()
@@ -267,6 +267,37 @@ describe('nest, un-nest and Make unique on the workspace', () => {
     expect(snapshot()).toEqual(nestedStore)
     expect(keys()).toBe(nestedKeys)
     expect(library.getGlobalConstant('rho_only_b')).toBeTruthy()
+  })
+
+  it('has Vue Flow measure again the handles of the nodes it keeps whose handles move, and again on undo', async () => {
+    const graph = chain()
+    const [a] = graph.nodes
+    a.data.handles = [{ uid: 'h_a', side: 'right', name: '', slotIndex: 4, variant: 'default' }]
+    graph.edges[0].sourceHandle = 'h_a'
+    await load(graph)
+    const measured = vi.spyOn(flow, 'updateNodeInternals')
+    await operations.nest(['dndnode_1', 'dndnode_2'], 'tail')
+    await nextTick()
+    expect(flow.findNode('dndnode_0').data.handles).not.toEqual(a.data.handles)
+    expect(measured.mock.calls.flat(2)).toContain('dndnode_0')
+    measured.mockClear()
+    await history.undo()
+    await nextTick()
+    expect(measured.mock.calls.flat(2)).toContain('dndnode_0')
+  })
+
+  it('asks before an un-nest changes flat names, and changes nothing when declined', async () => {
+    await load(chain())
+    const { result } = await operations.nest(['dndnode_1', 'dndnode_2'], 'tail')
+    await nextTick()
+    const nestedStore = snapshot()
+    const confirm = vi.fn().mockResolvedValue(false)
+    const asking = useHierarchyOperations({ history, confirm })
+    const outcome = await asking.unnestSuperInstance(result.superInstanceId)
+    expect(outcome.done).toBe(false)
+    expect(confirm).toHaveBeenCalledOnce()
+    expect(confirm.mock.calls[0][0].message).toContain('tail__b → b')
+    expect(snapshot()).toEqual(nestedStore)
   })
 
   it('makes one super instance unique as one undo step, the others’ model unchanged', async () => {

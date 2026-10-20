@@ -275,15 +275,32 @@ describe('nestSelection', () => {
 })
 
 describe('unnest', () => {
-  it('inlines a super instance, baking its overrides and keeping its children’s flat names', () => {
+  it('inlines a super instance, baking its overrides and keeping its children’s own names', () => {
     const g = heart()
     const after = unnest(g.nodes, g.edges, 'dndnode_1')
     expect(after.problems).toEqual([])
     expect(after.removedSupermodule).toBe(true)
     expect(after.nodes.some((node) => isSuperInstance(node) || isSupermoduleInterface(node))).toBe(false)
-    expect(after.nodes.map((node) => node.data.name)).toEqual(['a', 'heart__ra', 'heart__lv', 'b'])
-    expect(after.nodes.find((node) => node.data.name === 'heart__lv').data.variables.find((row) => row.name === 'R').value).toBe('9')
+    expect(after.nodes.map((node) => node.data.name)).toEqual(['a', 'ra', 'lv', 'b'])
+    expect(after.nodes.find((node) => node.data.name === 'lv').data.variables.find((row) => row.name === 'R').value).toBe('9')
     expectSameModel(g, after)
+  })
+
+  it('prefixes a child’s name with the super instance’s only where its scope has that name already', () => {
+    const g = heart()
+    g.nodes.find((node) => node.id === 'dndnode_2').data.name = 'lv'
+    const after = unnest(g.nodes, g.edges, 'dndnode_1')
+    expect(after.problems).toEqual([])
+    expect(after.nodes.map((node) => node.data.name)).toEqual(['a', 'ra', 'heart__lv', 'lv'])
+    expectSameModel(g, after)
+  })
+
+  it('prefixes a clashing child with `_` inside a super-module, whose names can’t hold `__`', () => {
+    const g = twoLevel()
+    g.nodes.find((node) => node.id === 'sm_1~art').data.name = 'cap'
+    const after = unnest(g.nodes, g.edges, 'sm_1~bed')
+    expect(after.problems).toEqual([])
+    expect(after.nodes.filter((node) => node.data.scope === 'sm_1' && !isSupermoduleInterface(node)).map((node) => node.data.name).sort()).toEqual(['bed_cap', 'cap'])
   })
 
   it('inlines a nested super instance, its outer overrides winning and outer keys following', () => {
@@ -291,7 +308,7 @@ describe('unnest', () => {
     const after = unnest(g.nodes, g.edges, 'sm_1~bed')
     expect(after.problems).toEqual([])
     const leg = after.nodes.find((node) => node.id === 'dndnode_1')
-    const cap = after.nodes.find((node) => node.data.name === 'bed_cap')
+    const cap = after.nodes.find((node) => node.data.name === 'cap')
     expect(cap.data.scope).toBe('sm_1')
     expect(cap.data.variables.find((row) => row.name === 'R').value).toBe('2')
     expect(leg.data.overrides).toEqual({ [cap.data.localId]: { R: { value: '3' } }, art: { k: { value: 'x' } } })
@@ -323,7 +340,7 @@ describe('unnest', () => {
     const nested = nestSelection(g.nodes, g.edges, [vein.id, 'dndnode_4'], { name: 'veins' })
     const back = unnest(nested.nodes, nested.edges, nested.superInstanceId)
     expect(back.problems).toEqual([])
-    const copy = back.nodes.find((node) => node.data.name === 'veins__vein')
+    const copy = back.nodes.find((node) => node.data.name === 'vein')
     const into = back.edges.filter((edge) => edge.target === copy.id).map((edge) => edge.targetHandle)
     expect(into).toHaveLength(3)
     expect(new Set(into).size).toBe(3)
@@ -345,7 +362,7 @@ describe('unnest', () => {
     })
     const nested = nestSelection(g.nodes, g.edges, [vein.id], { name: 'veins' })
     const back = unnest(nested.nodes, nested.edges, nested.superInstanceId)
-    const copy = back.nodes.find((node) => node.data.name === 'veins__vein')
+    const copy = back.nodes.find((node) => node.data.name === 'vein')
     const sideOf = (id) => copy.data.handles.find((handle) => getHandleId(handle) === id)?.side
     expect(back.edges.filter((edge) => edge.target === copy.id).map((edge) => sideOf(edge.targetHandle))).toEqual(['left', 'left'])
     expect(back.edges.filter((edge) => edge.source === copy.id).map((edge) => sideOf(edge.sourceHandle))).toEqual(['right'])
@@ -354,7 +371,7 @@ describe('unnest', () => {
   it('gives a scope re-exposure edge it restores a handle of its own', () => {
     const g = twoLevel()
     const after = unnest(g.nodes, g.edges, 'sm_1~bed')
-    const cap = after.nodes.find((node) => node.data.name === 'bed_cap')
+    const cap = after.nodes.find((node) => node.data.name === 'cap')
     const reexposure = after.edges.find((edge) => edge.source === cap.id && edge.target === 'sm_1')
     const fromArt = after.edges.find((edge) => edge.target === cap.id && edge.source === 'sm_1~art')
     expect(reexposure.sourceHandle).toBeTruthy()

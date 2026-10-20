@@ -17,6 +17,18 @@ const NONE = Object.freeze({ value: Object.freeze([]) })
 const LISTED = 8
 
 /**
+ * Lists flat names that change, one per line, the first few only.
+ *
+ * @param {Array<{from: string, to: string}>} changes
+ * @returns {string}
+ */
+export function listedNameChanges(changes) {
+  const listed = changes.slice(0, LISTED).map(({ from, to }) => `${from} → ${to}`)
+  if (changes.length > LISTED) listed.push(`and ${changes.length - LISTED} more`)
+  return listed.join('\n')
+}
+
+/**
  * Words the question for flat names that change.
  *
  * @param {string[]} names - The super-modules switching.
@@ -24,13 +36,11 @@ const LISTED = 8
  * @returns {string}
  */
 export function prefixedNamingMessage(names, changes) {
-  const listed = changes.slice(0, LISTED).map(({ from, to }) => `${from} → ${to}`)
-  if (changes.length > LISTED) listed.push(`and ${changes.length - LISTED} more`)
   const which = names.map((name) => `"${name}"`).join(', ')
   return (
     `${which} ${names.length === 1 ? 'keeps' : 'keep'} the original CellML component names only while used once, so ` +
     `${names.length === 1 ? 'its' : 'their'} modules will be named after their super instances. These flat names, ` +
-    `which SED-ML and PMR references use, will change:\n${listed.join('\n')}`
+    `which SED-ML and PMR references use, will change:\n${listedNameChanges(changes)}`
   )
 }
 

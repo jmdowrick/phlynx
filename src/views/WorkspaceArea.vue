@@ -583,6 +583,7 @@
 
   <SupermoduleEditDialog />
   <CaIdentityDialog />
+  <StandaloneInputsDialog />
 </template>
 
 <script>
@@ -649,6 +650,7 @@ import { useRevealModelNode } from '../composables/useRevealModelNode'
 import { useModelWriter } from '../composables/useModelWriter'
 import { useSupermodules } from '../composables/useSupermodules'
 import { useCaIdentityPrompt } from '../composables/useCaIdentityPrompt'
+import { useStandaloneInputsPrompt } from '../composables/useStandaloneInputsPrompt'
 import { useCanvasDelete } from '../composables/useCanvasDelete'
 import { useHierarchyOperations } from '../composables/useHierarchyOperations'
 
@@ -660,6 +662,7 @@ import ExposureEdge from '../components/ExposureEdge.vue'
 import ExposePortsDialog from '../components/ExposePortsDialog.vue'
 import SupermoduleEditDialog from '../components/dialogs/SupermoduleEditDialog.vue'
 import CaIdentityDialog from '../components/dialogs/CaIdentityDialog.vue'
+import StandaloneInputsDialog from '../components/dialogs/StandaloneInputsDialog.vue'
 import { useExposure } from '../composables/useExposure'
 import { isExposureEdge } from '../services/hierarchy/exposure'
 import InstanceNode from '../components/InstanceNode.vue'
@@ -710,7 +713,6 @@ import { extractSimData as extractSimDataFromSimulationJson } from '../services/
 import { buildFlowSnapshot, hashFlowSnapshot, restoreFlowSnapshot } from '../services/flowSnapshot'
 
 import { notify } from '../utils/notify'
-import { escapeHtml } from '../utils/importBatch'
 import { getHelperLines } from '../utils/helperLines'
 import { getPurgedUrlForResource, getUrlForResource, loadManifest } from '../utils/resources'
 import { useClearWorkspace } from '../composables/useClearWorkspace'
@@ -796,6 +798,7 @@ const { nodes: canvasNodes, edges: canvasEdges, selectedNodes: canvasSelectedNod
 const canvasLevel = useCanvasLevel()
 const supermoduleCatalogue = useSupermodules()
 const caIdentityPrompt = useCaIdentityPrompt()
+const standaloneInputsPrompt = useStandaloneInputsPrompt()
 const { writeVariables } = useModelWriter()
 const { processMacroGeneration } = useMacroGenerator()
 const { confirm } = useConfirmDialog()
@@ -1018,6 +1021,7 @@ const {
   isHierarchical,
   storeGraph: () => ({ nodes: nodes.value, edges: edges.value }),
   caIdentities: { ask: caIdentityPrompt.ask, save: (identities) => supermoduleCatalogue.setCaIdentities(identities) },
+  standaloneInputs: { ask: standaloneInputsPrompt.ask },
 })
 
 const cellMlExportTooltip = computed(() => {
@@ -1194,24 +1198,24 @@ const loadCellMLData = (content, filename, { notify: shouldNotify = true, trackE
         if (componentCount > 0 && unitsCount > 0) {
           notify.success({
             title: 'CellML File Loaded',
-            message: `Loaded ${componentCount} component${componentCount !== 1 ? 's' : ''} and ${unitsCount} unit${
+            items: [`Loaded ${componentCount} component${componentCount !== 1 ? 's' : ''} and ${unitsCount} unit${
               unitsCount !== 1 ? 's' : ''
-            } from ${filename}.`,
+            } from ${filename}.`],
           })
         } else if (componentCount > 0) {
           notify.success({
             title: 'CellML Components Loaded',
-            message: `Loaded ${componentCount} component${componentCount !== 1 ? 's' : ''} from ${filename}.`,
+            items: [`Loaded ${componentCount} component${componentCount !== 1 ? 's' : ''} from ${filename}.`],
           })
         } else if (unitsCount > 0) {
           notify.success({
             title: 'CellML Units Loaded',
-            message: `Loaded ${unitsCount} unit${unitsCount !== 1 ? 's' : ''} from ${filename}.`,
+            items: [`Loaded ${unitsCount} unit${unitsCount !== 1 ? 's' : ''} from ${filename}.`],
           })
         } else {
           notify.info({
             title: 'CellML File Loaded',
-            message: `${filename} contained no components or unit definitions.`,
+            items: [`${filename} contained no components or unit definitions.`],
           })
         }
       }
@@ -1229,7 +1233,7 @@ const loadCellMLData = (content, filename, { notify: shouldNotify = true, trackE
       if (shouldNotify) {
         notify.error({
           title: 'CellML Load Error',
-          message: `${result.issues.length} issue${result.issues.length !== 1 ? 's' : ''} found in ${filename}.`,
+          items: [`${result.issues.length} issue${result.issues.length !== 1 ? 's' : ''} found in ${filename}.`],
         })
       }
       console.error('CellML import issues:', result.issues)
@@ -1276,7 +1280,7 @@ const loadParametersData = async (content, filename, { notify: shouldNotify = tr
 
     // Told even when a batch load quiets its other messages, as these values are dropped.
     if (skipped.length) {
-      notify.warning({ title: 'Some Parameters Not Applied', message: skippedParametersMessage(skipped) })
+      notify.warning({ title: 'Some Parameters Not Applied', items: [skippedParametersMessage(skipped)] })
     }
 
     if (shouldNotify && totalUpdated > 0) {
@@ -1290,12 +1294,12 @@ const loadParametersData = async (content, filename, { notify: shouldNotify = tr
       }
       notify.success({
         title: 'Parameters Loaded',
-        message: `Loaded ${totalUpdated} parameters from ${filename}.`,
+        items: [`Loaded ${totalUpdated} parameters from ${filename}.`],
       })
     } else if (shouldNotify && totalUpdated === 0) {
       notify.info({
         title: 'Parameters Not Loaded',
-        message: `No new parameters were added from ${filename}.`,
+        items: [`No new parameters were added from ${filename}.`],
       })
     }
     return { ok: totalUpdated > 0, count: totalUpdated }
@@ -1311,7 +1315,7 @@ const loadParametersData = async (content, filename, { notify: shouldNotify = tr
       }
       notify.error({
         title: 'Loading Parameters Error',
-        message: `Failed to load parameters from ${filename}.`,
+        items: [`Failed to load parameters from ${filename}.`],
       })
     }
     return { ok: false, count: 0 }
@@ -1324,12 +1328,12 @@ const loadConfigData = async (content, filename, { notify: shouldNotify = true }
     if (shouldNotify && added > 0) {
       notify.success({
         title: 'Configurations Loaded',
-        message: `Loaded ${added} configurations from ${filename}.`,
+        items: [`Loaded ${added} configurations from ${filename}.`],
       })
     } else if (shouldNotify && added === 0) {
       notify.info({
         title: 'Configurations Not Loaded',
-        message: `No new configurations were added from ${filename}.`,
+        items: [`No new configurations were added from ${filename}.`],
       })
     }
     return { ok: added > 0, count: added }
@@ -1337,7 +1341,7 @@ const loadConfigData = async (content, filename, { notify: shouldNotify = true }
     if (shouldNotify) {
       notify.error({
         title: 'Loading Configuration Error',
-        message: `Failed to load configurations from ${filename}: ${escapeHtml(err.message)}`,
+        items: [`Failed to load configurations from ${filename}: ${err.message}`],
       })
     }
     return { ok: false, count: 0 }
@@ -1375,7 +1379,7 @@ async function loadFlowSnapshot(fileName, flowSnapshot, parameterData = {}, { no
       if (nodeMathFromSnapshot && nodeMath !== nodeMathFromSnapshot) {
         notify.warning({
           title: 'Math Mismatch',
-          message: `The math for node "${node.data.name}" does not match the math in the library store. The library version will be used.`,
+          items: [`The math for node "${node.data.name}" does not match the math in the library store. The library version will be used.`],
         })
       }
     } else if (nodeMathFromSnapshot) {
@@ -1420,7 +1424,7 @@ async function loadFlowSnapshot(fileName, flowSnapshot, parameterData = {}, { no
     message: 'The flow snapshot has been successfully loaded into the workspace.',
   })
   if (skippedParameters.length) {
-    notify.warning({ title: 'Some Parameters Not Applied', message: skippedParametersMessage(skippedParameters) })
+    notify.warning({ title: 'Some Parameters Not Applied', items: [skippedParametersMessage(skippedParameters)] })
   }
 
   // globalValues: global constant values taken out of older math, for the caller to seed.
@@ -1463,7 +1467,7 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
   if (!cellmlFile) {
     notify.error({
       title: 'Missing CellML File',
-      message: `The CellML file ${result.files?.cellml} is missing from the OMEX archive. PhLynx will not be able to load this OMEX archive.`,
+      items: [`The CellML file ${result.files?.cellml} is missing from the OMEX archive. PhLynx will not be able to load this OMEX archive.`],
     })
     return
   }
@@ -1569,11 +1573,11 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
       if (warnings.length) {
         notify.warning({
           title: 'params_for_id.csv',
-          message: `${selections.length} slider(s) imported. ${warnings.join(' ')}`,
+          items: [`${selections.length} slider(s) imported.`, ...warnings],
         })
       }
     } catch (error) {
-      notify.warning({ title: 'params_for_id.csv', message: error.message })
+      notify.warning({ title: 'params_for_id.csv', items: [error.message] })
     }
   }
 
@@ -1629,7 +1633,7 @@ async function onImportConfirm(importPayload, updateProgress, { flat = false } =
     } catch (error) {
       notify.error({
         title: 'Import Failed',
-        message: error.message,
+        items: [error.message],
       })
     }
   } else if (currentImportMode.value.key === IMPORT_KEYS.CELLML_FILE) {
@@ -1676,7 +1680,7 @@ async function onImportConfirm(importPayload, updateProgress, { flat = false } =
     } catch (error) {
       notify.error({
         title: 'OMEX Import Failed',
-        message: error.message,
+        items: [error.message],
       })
     }
   }
@@ -1724,7 +1728,7 @@ async function onInstanceEditConfirm(save) {
   }
   notify.success({
     title: 'CellML Updated',
-    message: `Updated ${updatedCount} node${updatedCount !== 1 ? 's' : ''} to ${save.mathRef.split(':').pop()}.`,
+    items: [`Updated ${updatedCount} node${updatedCount !== 1 ? 's' : ''} to ${save.mathRef.split(':').pop()}.`],
   })
 }
 
@@ -1882,13 +1886,13 @@ function handleCreateInspectionModule(payload) {
     inspectionModuleStore.updateModule(payload.id, payload)
     notify.success({
       title: 'Inspection Module Updated',
-      message: `"${payload.name}" now uses ${variableLabel}.`,
+      items: [`"${payload.name}" now uses ${variableLabel}.`],
     })
   } else {
     inspectionModuleStore.addModule(payload)
     notify.success({
       title: 'Inspection Module Created',
-      message: `"${payload.name}" now sums ${variableLabel}.`,
+      items: [`"${payload.name}" now sums ${variableLabel}.`],
     })
   }
 }
@@ -1965,7 +1969,7 @@ function onNodeContextMenu({ clientX, clientY, id }) {
       open: () => canvasLevel.enter(id),
       editSupermodule: () => canvasLevel.editSupermodule(node.data.smId),
       makeUnique: () => reportProblems('Not Made Unique', hierarchy.makeUniqueSuperInstance(id)),
-      unnest: () => reportProblems('Not Un-nested', hierarchy.unnestSuperInstance(id)),
+      unnest: () => reportUnnest(hierarchy.unnestSuperInstance(id)),
       nest: () => openNestDialog(toNest),
       remove: () => deleteNodes([id]),
       replace: () => onOpenReplacementDialog(node),
@@ -1996,7 +2000,7 @@ function openNewSupermoduleDialog(clientX, clientY) {
 function openNestDialog(ids) {
   const problem = hierarchy.nestProblemOf(ids)
   if (problem) {
-    notify.warning({ title: 'Not Nested', message: problem })
+    notify.warning({ title: 'Not Nested', items: [problem] })
     return
   }
   nestIds.value = ids
@@ -2013,7 +2017,7 @@ function onNewSupermoduleConfirm(name) {
   try {
     supermoduleCatalogue.createEmptySuperModule(name, newSupermodulePosition.value)
   } catch (error) {
-    notify.error({ title: 'Super-module Not Created', message: error.message })
+    notify.error({ title: 'Super-module Not Created', items: [error.message] })
   }
 }
 
@@ -2028,7 +2032,23 @@ const hierarchy = useHierarchyOperations({ history: historyStore, confirm })
  */
 async function reportProblems(title, outcome) {
   const { problems } = await outcome
-  if (problems.length) notify.warning({ title, message: problems.join(' ') })
+  if (problems.length) notify.warning({ title, items: problems })
+}
+
+/**
+ * Says why an un-nest wasn't made, or what it dropped when it was: couplings to ports no longer exposed, and the
+ * super-module once nothing else used it.
+ *
+ * @param {Promise<{done: boolean, problems: string[], result?: Object}>} outcome
+ */
+async function reportUnnest(outcome) {
+  const { done, problems, result } = await outcome
+  if (problems.length) return notify.warning({ title: 'Not Un-nested', message: problems.join(' ') })
+  if (!done) return
+  const notes = []
+  if (result.droppedCouplings) notes.push(`${result.droppedCouplings} coupling${result.droppedCouplings === 1 ? '' : 's'} to ports no longer exposed ${result.droppedCouplings === 1 ? 'was' : 'were'} removed.`)
+  if (result.removedSupermodule) notes.push('Its super-module had no other super instances, so it was removed.')
+  if (notes.length) notify.info({ title: 'Un-nested', message: notes.join(' ') })
 }
 
 // Deleting asks first when it would break an exposed port or leave a super-module unused.
@@ -2139,7 +2159,7 @@ async function onExportConfirm(fileName, handle) {
       file_type: exportMode.key,
     })
 
-    notify.error({ title: 'Export failed', message: `${error.message}` })
+    notify.error({ title: 'Export failed', items: [error.message] })
   }
 }
 
@@ -2165,7 +2185,7 @@ function recomputeMissingCouplings() {
   for (const edge of edges.value) {
     if (couplings.get(edge.id)?.length) edge.data = { ...edge.data, couplings: couplings.get(edge.id) }
   }
-  if (conflicts.length) notify.warning({ title: 'Connections Missing Couplings', message: conflicts.join(' ') })
+  if (conflicts.length) notify.warning({ title: 'Connections Missing Couplings', items: conflicts })
 }
 
 /**
@@ -2256,13 +2276,13 @@ async function doImageExport() {
       if (captureError.value) {
         notify.error({
           title: 'Screenshot error',
-          message: 'Something went wrong while taking the screenshot.\n - ' + captureError.value.message,
+          items: ['Something went wrong while taking the screenshot.', captureError.value.message],
         })
       }
     } finally {
       root.classList.remove('image-export', 'image-export--no-warnings')
     }
-  }).catch((err) => notify.error({ title: 'Image export failed', message: err?.message ?? String(err) }))
+  }).catch((err) => notify.error({ title: 'Image export failed', items: [err?.message ?? String(err)] }))
 }
 
 const handleKeyDown = (event) => {
@@ -2466,7 +2486,7 @@ onMounted(async () => {
   })
 
   await loadFromUrl(urlLoaders, (message) => {
-    notify.error({ title: 'Failed to load from link', message })
+    notify.error({ title: 'Failed to load from link', items: [message] })
   })
 })
 
