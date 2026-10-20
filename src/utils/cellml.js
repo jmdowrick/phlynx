@@ -885,6 +885,19 @@ function ensurePublicInterface(variable) {
   variable.setInterfaceTypeByString('public')
 }
 
+/**
+ * Joins the first items of a list for an error message, saying how many more there are.
+ *
+ * @param {string[]} items
+ * @param {number} max - How many to show.
+ * @param {string} [separator=', ']
+ * @returns {string} e.g. `a, b and 3 more`.
+ */
+function listWithMore(items, max, separator = ', ') {
+  const more = items.length > max ? ` and ${items.length - max} more` : ''
+  return `${items.slice(0, max).join(separator)}${more}`
+}
+
 function addVariableToParameterComponent(model, variable, parameterComponent, parameterData) {
   let sourceVar = parameterComponent.variableByName(parameterData.name)
 
@@ -1037,7 +1050,15 @@ export function generateFlattenedModel(
   const unitsLibraryCache = new Map() // Key: componentFile,  Value: libcellml.Model
   const unitsImportSourceMap = new Map() // Key: componentFile,  Value: libcellml.ImportSource
 
-  const ensureUnitImported = (unitsName) => {
+  const unresolvedUnits = new Map() // Key: unitsName,      Value: Set of what uses them
+
+  /**
+   * Imports a units definition from the library's units files, unless the model has it or it is standard.
+   *
+   * @param {string} unitsName
+   * @param {string} usedBy - What uses them, such as `component.variable`, named if no units file defines them.
+   */
+  const ensureUnitImported = (unitsName, usedBy) => {
     // Safety Checks
     if (!unitsName) return
 
@@ -1102,7 +1123,8 @@ export function generateFlattenedModel(
     }
 
     if (!found) {
-      console.warn(`Could not find definition for unit '${unitsName}'`)
+      if (!unresolvedUnits.has(unitsName)) unresolvedUnits.set(unitsName, new Set())
+      unresolvedUnits.get(unitsName).add(usedBy)
     }
   }
 
@@ -1179,7 +1201,7 @@ export function generateFlattenedModel(
       // Add Units found in MathML.
       const mathUnits = extractUnitsFromMath(originalComponent.math())
       for (const unitsName of mathUnits) {
-        ensureUnitImported(unitsName)
+        ensureUnitImported(unitsName, `${node.data.name}'s math`)
       }
 
       // Add Units found in Variables.
@@ -1202,6 +1224,7 @@ export function generateFlattenedModel(
           if (nodeVariable.type === 'global_constant') {
             const v = libraryStore.getGlobalConstant(variable.name())
             if (!isEmpty(v?.value)) {
+              if (v.units !== unitsName) ensureUnitImported(v.units, `global constant ${variable.name()}`)
               addVariableToParameterComponent(model, variable, globalParameterComponent, {
                 ...v,
                 name: variable.name(),
@@ -1215,6 +1238,7 @@ export function generateFlattenedModel(
             const v = node.data.variables.find((cv) => cv.name === nodeVariable.name)
             if (!isEmpty(v?.value)) {
               const isShared = (constantNameRefCount.get(v.name) ?? 0) > 1
+              if (v.units !== unitsName) ensureUnitImported(v.units, `${node.data.name}.${v.name}'s parameter row`)
               addVariableToParameterComponent(model, variable, parameterComponent, {
                 ...v,
                 name: isShared ? `${node.data.name}_${v.name}` : v.name,
@@ -1225,8 +1249,7 @@ export function generateFlattenedModel(
           }
         }
 
-        // Use our helper
-        ensureUnitImported(unitsName)
+        ensureUnitImported(unitsName, `${node.data.name}.${variable.name()}`)
 
         variable.delete()
         units.delete()
@@ -1234,9 +1257,16 @@ export function generateFlattenedModel(
     }
 
     if (missingValues.length) {
-      const shown = missingValues.slice(0, 10).join(', ')
-      const more = missingValues.length > 10 ? ` and ${missingValues.length - 10} more` : ''
-      throw new Error(`Missing parameter values: ${shown}${more}.`)
+      throw new Error(`Missing parameter values: ${listWithMore(missingValues, 10)}.`)
+    }
+
+    for (const module of inspectionModules) {
+      ensureUnitImported(module.units, `inspection module ${module.name}`)
+    }
+
+    if (unresolvedUnits.size) {
+      const listed = [...unresolvedUnits].map(([name, users]) => `${name} (used by ${listWithMore([...users], 3)})`)
+      throw new Error(`Units no units file defines: ${listWithMore(listed, 3, '; ')}.`)
     }
 
     // ----------------------------------
