@@ -265,7 +265,6 @@ function effectiveValues(doc, mathFallback) {
 
 const globalReferences = (globalConstants = []) => Object.fromEntries(globalConstants.map(([name, entry]) => [name, entry.data_reference]))
 
-
 const nodeNamed = (doc, name) => doc.flow.nodes.find((node) => node.data.name === name)
 const rowsOf = (doc, name) => byName(nodeNamed(doc, name).data.variables)
 
@@ -322,7 +321,7 @@ describe('migrating the synthetic legacy workspace', () => {
     for (const name of ['R', 'T']) expect(rows[name]).toMatchObject({ type: 'global_constant', value: null })
   })
 
-  it("dataReferences: gives each row its value and data reference from availableParameters", () => {
+  it('dataReferences: gives each row its value and data reference from availableParameters', () => {
     const rows = rowsOf(migrateCase('dataReferences'), 'channel')
     expect(rows.g).toMatchObject({ value: '2', data_reference: 'Smith2001' })
     expect(rows.in).toMatchObject({ value: '', data_reference: 'Jones1999' })
@@ -387,7 +386,7 @@ describe('migrating the synthetic 1.0.0 workspace', () => {
     )
   })
 
-  it("replaces the info envelope with the current one", () => {
+  it('replaces the info envelope with the current one', () => {
     const migrated = migrateWorkspace(syntheticWorkspace('1.0.0'))
     expect(migrated.info).toBeUndefined()
     expect(migrated).toMatchObject({ id: 'phlynx-project', version: PHLYNX_PROJECT_VERSION })

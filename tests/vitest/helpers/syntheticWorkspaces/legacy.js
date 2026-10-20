@@ -153,7 +153,12 @@ export const cases = {
       store: {
         availableModules: [
           collection('valve_modules.cellml', [
-            { name: 'valve', xml: decay('valve'), moduleRefs: ['valve:simple'], ports: { general_ports: [{ port_type: 'x_port', variables: ['x'] }] } },
+            {
+              name: 'valve',
+              xml: decay('valve'),
+              moduleRefs: ['valve:simple'],
+              ports: { general_ports: [{ port_type: 'x_port', variables: ['x'] }] },
+            },
           ]),
         ],
       },
@@ -265,7 +270,9 @@ export const cases = {
         edges: [],
       },
       store: {
-        availableModules: [collection('channel_modules.cellml', [{ name: 'channel', xml: gain('channel', 'g'), variables, moduleRefs: ['channel:simple'] }])],
+        availableModules: [
+          collection('channel_modules.cellml', [{ name: 'channel', xml: gain('channel', 'g'), variables, moduleRefs: ['channel:simple'] }]),
+        ],
         availableParameters: [
           parameter('g', { units: 'dimensionless', value: '2', data_reference: 'Smith2001' }),
           parameter('in', { value: '', data_reference: 'Jones1999' }),
@@ -350,7 +357,9 @@ export const cases = {
     node.data.domainType = 'membrane'
     return {
       flow: { nodes: [node], edges: [] },
-      store: { availableModules: [collection('coloured_modules.cellml', [{ name: 'coloured', xml: decay('coloured'), moduleRefs: ['coloured:simple'] }])] },
+      store: {
+        availableModules: [collection('coloured_modules.cellml', [{ name: 'coloured', xml: decay('coloured'), moduleRefs: ['coloured:simple'] }])],
+      },
     }
   },
 }

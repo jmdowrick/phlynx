@@ -34,7 +34,9 @@ export const cases = {
         id: INSPECTION_ID,
         name: 'total',
         units: 'metre',
-        variables: [{ key: 'decay_inspected::x', nodeId: 'decay_inspected', nodeName: 'decay_inspected', variableName: 'x', units: 'metre', sign: 1 }],
+        variables: [
+          { key: 'decay_inspected::x', nodeId: 'decay_inspected', nodeName: 'decay_inspected', variableName: 'x', units: 'metre', sign: 1 },
+        ],
         advanced: false,
         formula: null,
       },
@@ -128,7 +130,11 @@ export const cases = {
         mathRef: mathRef(name),
         moduleRef: `${name}:gain`,
         ports,
-        variables: [row('in', 'mM', name === 'follower' ? 'boundary_condition' : 'constant', '1'), row('out', 'mM', 'variable'), row('a', 'dimensionless', 'constant', gainValue)],
+        variables: [
+          row('in', 'mM', name === 'follower' ? 'boundary_condition' : 'constant', '1'),
+          row('out', 'mM', 'variable'),
+          row('a', 'dimensionless', 'constant', gainValue),
+        ],
       })
     const moduleVariables = [{ name: 'out', value: null, units: 'mM', access: 'access', type: 'variable', data_reference: null }]
     return {
