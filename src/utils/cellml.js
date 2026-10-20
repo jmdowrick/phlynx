@@ -1037,7 +1037,16 @@ export function generateFlattenedModel(
   const unitsLibraryCache = new Map() // Key: componentFile,  Value: libcellml.Model
   const unitsImportSourceMap = new Map() // Key: componentFile,  Value: libcellml.ImportSource
 
-  const ensureUnitImported = (unitsName) => {
+  // Units no units file defines, by name, with what uses each: the build stops naming them.
+  const unresolvedUnits = new Map()
+
+  /**
+   * Imports a units definition from the library's units files, unless the model has it or it is standard.
+   *
+   * @param {string} unitsName
+   * @param {string} [usedBy] - What uses it, such as `component.variable`, for the error when no file defines it.
+   */
+  const ensureUnitImported = (unitsName, usedBy) => {
     // Safety Checks
     if (!unitsName) return
 
@@ -1102,7 +1111,8 @@ export function generateFlattenedModel(
     }
 
     if (!found) {
-      console.warn(`Could not find definition for unit '${unitsName}'`)
+      if (!unresolvedUnits.has(unitsName)) unresolvedUnits.set(unitsName, new Set())
+      if (usedBy) unresolvedUnits.get(unitsName).add(usedBy)
     }
   }
 
@@ -1179,7 +1189,7 @@ export function generateFlattenedModel(
       // Add Units found in MathML.
       const mathUnits = extractUnitsFromMath(originalComponent.math())
       for (const unitsName of mathUnits) {
-        ensureUnitImported(unitsName)
+        ensureUnitImported(unitsName, `${node.data.name}'s math`)
       }
 
       // Add Units found in Variables.
@@ -1202,6 +1212,7 @@ export function generateFlattenedModel(
           if (nodeVariable.type === 'global_constant') {
             const v = libraryStore.getGlobalConstant(variable.name())
             if (!isEmpty(v?.value)) {
+              ensureUnitImported(v.units, `global constant ${variable.name()}`)
               addVariableToParameterComponent(model, variable, globalParameterComponent, {
                 ...v,
                 name: variable.name(),
@@ -1215,6 +1226,8 @@ export function generateFlattenedModel(
             const v = node.data.variables.find((cv) => cv.name === nodeVariable.name)
             if (!isEmpty(v?.value)) {
               const isShared = (constantNameRefCount.get(v.name) ?? 0) > 1
+              // A row's units can differ from the variable's, so they are imported too.
+              ensureUnitImported(v.units, `${node.data.name}.${v.name}'s parameter row`)
               addVariableToParameterComponent(model, variable, parameterComponent, {
                 ...v,
                 name: isShared ? `${node.data.name}_${v.name}` : v.name,
@@ -1225,8 +1238,7 @@ export function generateFlattenedModel(
           }
         }
 
-        // Use our helper
-        ensureUnitImported(unitsName)
+        ensureUnitImported(unitsName, `${node.data.name}.${variable.name()}`)
 
         variable.delete()
         units.delete()
@@ -1237,6 +1249,11 @@ export function generateFlattenedModel(
       const shown = missingValues.slice(0, 10).join(', ')
       const more = missingValues.length > 10 ? ` and ${missingValues.length - 10} more` : ''
       throw new Error(`Missing parameter values: ${shown}${more}.`)
+    }
+
+    if (unresolvedUnits.size) {
+      const listed = [...unresolvedUnits].map(([name, users]) => (users.size ? `${name} (used by ${[...users].join(', ')})` : name))
+      throw new Error(`Units no units file defines: ${listed.join('; ')}.`)
     }
 
     // ----------------------------------

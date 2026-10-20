@@ -146,6 +146,54 @@ describe('generateFlattenedModel with units made from expressions', () => {
     expect(text).not.toMatch(/celsius/)
     expect(text.match(/<cn [^>]*>37<\/cn>/)[0].match(/units="[^"]*"/g)).toEqual(['units="dimensionless"'])
   })
+
+  describe('units only a parameter row uses', () => {
+    // dx/dt = -k * x, with k in per_second; its row gives it in per_minute.
+    const DECAY_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
+  <component name="decay">
+    <variable name="t" units="second" interface="public"/>
+    <variable name="x" units="dimensionless" initial_value="1" interface="public"/>
+    <variable name="k" units="per_second" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>x</ci></apply><apply><minus/><apply><times/><ci>k</ci><ci>x</ci></apply></apply></apply>
+    </math>
+  </component>
+</model>`
+    let store
+
+    beforeEach(() => {
+      setActivePinia(createPinia())
+      store = useLibraryStore()
+      store.addUnitsFile({
+        componentFile: 'units.cellml',
+        model: `<model xmlns="http://www.cellml.org/cellml/2.0#" name="units">
+  <units name="per_second"><unit units="second" exponent="-1"/></units>
+  <units name="per_minute"><unit units="minute" exponent="-1"/></units>
+  <units name="minute"><unit units="second" multiplier="60"/></units>
+</model>`,
+      })
+      store.addMath('file:decay', DECAY_XML)
+    })
+
+    /** The decay instance, with k's row in the given units. */
+    function buildNode(units) {
+      const rows = reconcileRows(analyzeMathXml(store.availableMath.get('file:decay')), [], { defaults: store.getMathDefaults('file:decay') })
+      const variables = rows.map((row) => (row.name === 'k' ? { ...row, units, value: '6' } : row))
+      return { id: 'n1', type: 'instanceNode', data: { name: 'decay_1', mathRef: 'file:decay', variables, ports: [] } }
+    }
+
+    it('imports them, and the result analyses cleanly', async () => {
+      const text = await (await generateFlattenedModel([buildNode('per_minute')], [], store)).text()
+      expect(text).toMatch(/<units name="per_minute">/)
+      expect(text).toMatch(/<variable name="k" units="per_minute" initial_value="6"/)
+    })
+
+    it('names units no units file defines', () => {
+      expect(() => generateFlattenedModel([buildNode('per_fortnight')], [], store)).toThrow(
+        "Units no units file defines: per_fortnight (used by decay_1.k's parameter row)."
+      )
+    })
+  })
 })
 
 describe('boundary values in a migrated workspace', () => {
