@@ -27,7 +27,7 @@ describe('module formats', () => {
     expect(getEditorTabFormats().map((format) => format.id)).toEqual(['celldl'])
     expect(getModuleFormat('celldl').editorTab).toMatchObject({
       value: 'celldl',
-      label: 'CellDL',
+      label: 'CellDL (beta)',
       lockedNotice: 'CellDL diagrams can only start from the template',
     })
     expect(getModuleFormat('cellml').editorTab).toBeUndefined()
