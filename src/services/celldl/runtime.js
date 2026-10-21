@@ -2,8 +2,8 @@
  * The CellDL converter: bg2cellml with PhLynx's libCellML and the CellDL editor's oxigraph and
  * BG-RDF framework, so PhLynx ships one oxigraph. Both packages are imported only dynamically, so
  * they load when a CellDL module first needs converting.
- * bg2cellml's oxigraph peer dependency is left unmet on purpose: it never imports oxigraph, and
- * only uses the module it is given.
+ * bg2cellml never imports oxigraph, and only uses the module it is given; PhLynx's own oxigraph is
+ * for the live conversion's worker alone (useLiveCelldlConvert).
  */
 import { whenLibCellMLReady } from '../../utils/cellml.js'
 

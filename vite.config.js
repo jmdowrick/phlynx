@@ -39,8 +39,8 @@ export default defineConfig({
     format: 'es',
   },
   optimizeDeps: {
-    // Exclude the wasm-based libraries from pre-bundling, which breaks their wasm URLs. oxigraph comes in
-    // with the CellDL editor's dependencies; PhLynx converts with the editor's own bundled copy.
+    // Exclude the wasm-based libraries from pre-bundling, which breaks their wasm URLs. Saving converts
+    // with the CellDL editor's own bundled oxigraph; the live conversion's worker loads oxigraph's.
     exclude: ['vue3-libcellml.js', 'oxigraph'],
     esbuildOptions: {
       target: 'es2020',
