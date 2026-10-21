@@ -40,6 +40,7 @@ const { default: ComponentSaveAsDialog } = await import('../../../src/components
 const { NEW_MODULE_MATH_REF } = await import('../../../src/utils/constants.js')
 const { cycleMultiportType } = await import('../../../src/utils/multiport.js')
 const { useCelldlEditorHost } = await import('../../../src/composables/useCelldlEditorHost.js')
+const { useLiveCelldlConvert } = await import('../../../src/composables/useLiveCelldlConvert.js')
 
 const MATH_REF = 'file:decay'
 const XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
@@ -971,6 +972,7 @@ describe('InstanceEditorDialog locked math', () => {
     window.localStorage.clear()
     getErrors.mockImplementation(() => [])
     useCelldlEditorHost().isDirty.value = false
+    useLiveCelldlConvert().cellml.value = null
   })
 
   /**
@@ -1136,6 +1138,76 @@ describe('InstanceEditorDialog locked math', () => {
     expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
   })
 
+  describe('the live conversion', () => {
+    // The decay model as an edited diagram converts it: k renamed.
+    const LIVE_CELLML = XML.replaceAll('"k"', '"k_live"').replaceAll('<ci>k</ci>', '<ci>k_live</ci>')
+    const shownModel = () => stubProps(FakeEditor)['model-value']
+    // The decay math as stored, without its values.
+    let savedMath
+
+    /** Opens the CellDL module on its diagram and edits it, with the live conversion's CellML. */
+    async function openEdited() {
+      useLibraryStore().setMathSource(MATH_REF, SOURCE)
+      mountDialog()
+      await wrapper.setProps({ modelValue: true })
+      await vi.waitFor(() => expect(wrapper.findComponent(CelldlPaneStub).exists()).toBe(true))
+      savedMath = wrapper.vm.currentModel
+      useCelldlEditorHost().isDirty.value = true
+      useLiveCelldlConvert().cellml.value = { cellml: LIVE_CELLML, componentName: 'decay' }
+      await wrapper.vm.switchEditor('text')
+      await flushPromises()
+      return wrapper.findComponent(FakeEditor)
+    }
+
+    it("shows the edited diagram's math read-only, leaving the session's math as saved", async () => {
+      const editor = await openEdited()
+      expect(shownModel()).toContain('k_live')
+      expect(shownModel()).not.toContain('initial_value="0.5"')
+      expect(stubProps(FakeEditor).readonly).toBe(true)
+
+      // The editor reports the math it shows, as on mounting or a change of definitions.
+      await report(editor, 'init', shownModel())
+      await report(editor, 'external', shownModel())
+      expect(wrapper.vm.currentModel).toBe(savedMath)
+      expect(wrapper.vm.isMathEdited).toBe(false)
+      expect(wrapper.vm.parameterRows.map((row) => row.name)).not.toContain('k_live')
+    })
+
+    it('follows newer conversions, and shows the saved math again once the diagram is saved', async () => {
+      await openEdited()
+      useLiveCelldlConvert().cellml.value = { cellml: LIVE_CELLML.replaceAll('k_live', 'k_newer'), componentName: 'decay' }
+      await flushPromises()
+      expect(setModel).toHaveBeenLastCalledWith(expect.stringContaining('k_newer'))
+
+      useCelldlEditorHost().isDirty.value = false
+      await flushPromises()
+      expect(setModel).toHaveBeenLastCalledWith(savedMath)
+    })
+
+    it('shows the saved math after a cancel, though the last conversion is kept', async () => {
+      await openEdited()
+      await wrapper.findAll('button').find((button) => button.text() === 'Cancel').trigger('click')
+      await flushPromises()
+      expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
+
+      await wrapper.setProps({ modelValue: false })
+      await wrapper.setProps({ modelValue: true })
+      await vi.waitFor(() => expect(wrapper.findComponent(CelldlPaneStub).exists()).toBe(true))
+      await wrapper.vm.switchEditor('text')
+      await flushPromises()
+      expect(useLiveCelldlConvert().cellml.value).not.toBeNull()
+      expect(shownModel()).toBe(savedMath)
+    })
+
+    it('shows the math of the module it was converted as, and nothing for another', async () => {
+      useLiveCelldlConvert().cellml.value = null
+      await openEdited()
+      useLiveCelldlConvert().cellml.value = { cellml: LIVE_CELLML, componentName: 'other' }
+      await flushPromises()
+      expect(setModel).toHaveBeenLastCalledWith(savedMath)
+    })
+  })
+
   describe('saving an edited diagram', () => {
     const EDITED_DOCUMENT = '<svg>rc edited</svg>'
     // The decay math as the edited diagram gives it: a new parameter c, with its value.
@@ -1200,6 +1272,14 @@ describe('InstanceEditorDialog locked math', () => {
       })
       expect(save.variables.find((row) => row.name === 'c').value).toBe('3')
       expect(host.markSaved).toHaveBeenCalledWith(save.source)
+    })
+
+    it('saves its own conversion, not the live one shown', async () => {
+      useLiveCelldlConvert().cellml.value = { cellml: XML.replaceAll('"k"', '"k_live"'), componentName: 'decay' }
+      await saveEdited()
+
+      expect(convertCelldl).toHaveBeenCalledTimes(1)
+      expect(wrapper.emitted('confirm')[0][0].math).toBe(GENERATED_XML)
     })
 
     it("blocks the save on errors, listing them and highlighting their elements, and keeps what's stored", async () => {

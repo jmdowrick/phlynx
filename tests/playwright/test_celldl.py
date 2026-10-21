@@ -116,6 +116,17 @@ def show_diagram(page, dialog):
     wait_for_diagram(page)
 
 
+def relocate_resistor(page, location):
+    """Sets the resistor's location in the editor's properties panel, which renames its variables."""
+    click_element(page, RESISTOR)
+    host = page.locator(".celldl-pane .celldl-host")
+    page.locator("#properties-property-panel").click()
+    field = host.locator("label", has_text="Location").locator("xpath=..").locator("input")
+    field.fill(location)
+    field.press("Tab")
+    page.locator("#properties-property-panel").click()
+
+
 def selected_tabs(dialog):
     return dialog.locator("[role=tab][aria-selected=true]").all_inner_texts()
 
@@ -179,13 +190,7 @@ class TestCelldl(unittest.TestCase):
             show_diagram(page, dialog)
 
             # Moving the resistor to another location renames its variables.
-            click_element(page, RESISTOR)
-            host = page.locator(".celldl-pane .celldl-host")
-            page.locator("#properties-property-panel").click()
-            location = host.locator("label", has_text="Location").locator("xpath=..").locator("input")
-            location.fill("X")
-            location.press("Tab")
-            page.locator("#properties-property-panel").click()
+            relocate_resistor(page, "X")
             dialog.get_by_role("button", name="Apply").click()
             expect(page.get_by_text("CellML Updated")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
             content = cellml_text(dialog)
@@ -201,7 +206,38 @@ class TestCelldl(unittest.TestCase):
             error = page.locator(".confirm-container").filter(has_text="Diagram Has Errors")
             expect(error).to_contain_text("The diagram can't be converted, so nothing was saved:")
             error.get_by_role("button").last.click()
-            expect(cellml_text(dialog)).to_contain_text("R_R_i_X")
+            parameters = dialog.locator(".parameters-table")
+            expect(parameters.locator("tr").filter(has_text="R_R_i_X")).not_to_have_count(0)
+            # ----------- END ------------
+
+            browser.close()
+
+    def test_shows_the_diagram_math_live_until_cancelled(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+
+            # ---------- START -----------
+            dialog = import_and_open(page)
+            expect(page.get_by_text("Live CellML")).to_have_count(0)
+
+            # The CellML Text shows the edited diagram's math before it is saved; the rows stay as saved.
+            relocate_resistor(page, "X")
+            content = cellml_text(dialog)
+            expect(content).to_contain_text("R_R_i_X", timeout=DIAGRAM_TIMEOUT)
+            expect(content).not_to_contain_text("R_R_i_R")
+            expect(content).to_have_attribute("contenteditable", "false")
+            parameters = dialog.locator(".parameters-table")
+            expect(parameters.locator("tr").filter(has_text="R_R_i_R")).not_to_have_count(0)
+
+            # Cancelling discards the edit, so the math shows as saved again.
+            dialog.get_by_role("button", name="Cancel").click()
+            page.locator(".confirm-container").get_by_role("button", name="Discard & Close").click()
+            expect(dialog).to_be_hidden()
+            dialog = open_editor(page, MODULE)
+            wait_for_diagram(page)
+            content = cellml_text(dialog)
+            expect(content).to_contain_text("R_R_i_R")
+            expect(content).not_to_contain_text("R_R_i_X")
             # ----------- END ------------
 
             browser.close()

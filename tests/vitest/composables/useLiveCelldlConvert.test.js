@@ -251,6 +251,22 @@ describe('useLiveCelldlConvert', () => {
     expect(port.converts()[0].options.componentName).toBe('rc')
   })
 
+  it('keeps the newest CellML, with the component it was generated as, until another diagram opens', async () => {
+    live.setComponentName('rc')
+    host.change('rdf 1')
+    await vi.advanceTimersByTimeAsync(150)
+    port.answer(port.converts()[0], { cellml: '<model name="1"/>' })
+    await flush()
+    expect(live.cellml.value).toEqual({ cellml: '<model name="1"/>', componentName: 'rc' })
+    host.change('rdf 2')
+    await vi.advanceTimersByTimeAsync(150)
+    port.answer(port.converts()[1], { cellml: null, errors: [{ message: 'mid-edit' }] })
+    await flush()
+    expect(live.cellml.value.cellml).toBe('<model name="1"/>')
+    host.change('opened', { isOpened: true })
+    expect(live.cellml.value).toBeNull()
+  })
+
   it('stops converting and ends the worker', async () => {
     host.change('rdf')
     live.stop()

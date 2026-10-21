@@ -10,39 +10,16 @@
     <!-- Hidden while opening, or after failing to, as the editor still shows the last module's diagram. -->
     <div ref="slotRef" class="celldl-pane-slot" :class="{ 'is-hidden': isPending || host.error.value }"></div>
     <div v-if="isLiveShown" class="celldl-live" :data-state="liveState">
-      <button
-        type="button"
-        class="celldl-live-toggle"
-        :aria-expanded="isPreviewOpen"
-        aria-controls="celldl-live-preview"
-        @click="isPreviewOpen = !isPreviewOpen"
-      >
-        <i class="pi" :class="isPreviewOpen ? 'pi-chevron-down' : 'pi-chevron-right'" aria-hidden="true"></i>
-        Live CellML
-      </button>
       <span class="celldl-live-status" role="status" :title="liveTitle">{{ liveStatus }}</span>
-    </div>
-    <div v-if="isLiveShown && isPreviewOpen" id="celldl-live-preview" class="celldl-live-preview">
-      <ul v-if="live.issues.value.length" class="celldl-live-issues">
-        <li v-for="(line, index) in issueLines(live.issues.value)" :key="index">{{ line }}</li>
-      </ul>
-      <pre v-if="live.result.value?.cellml" class="celldl-live-cellml">{{ live.result.value.cellml }}</pre>
-      <p v-else class="celldl-live-empty">{{ live.isPending.value ? 'Converting…' : 'No CellML yet.' }}</p>
     </div>
   </div>
 </template>
-
-<script>
-import { ref as moduleRef } from 'vue'
-
-const previewOpen = moduleRef(false)
-</script>
 
 <script setup>
 /**
  * The instance editor's CellDL tab: it shows the app's one CellDL editor (useCelldlEditorHost) while mounted,
  * with the source the dialog prepared. Selecting a diagram element emits the variable it plots. Below the diagram,
- * the live conversion (useLiveCelldlConvert) says whether it converts, and can show its CellML.
+ * the live conversion (useLiveCelldlConvert) says whether it converts; the math editors show its CellML.
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
@@ -71,9 +48,6 @@ const isPending = computed(() => !host.isReady.value || host.isSyncing.value)
 
 // Not for a diagram that failed to open, as the editor still shows the one before.
 const isLiveShown = computed(() => live.isAvailable && !host.error.value)
-
-// Kept across dialogs, as a preference.
-const isPreviewOpen = previewOpen
 
 /** The live conversion's state: off, converting, ok, warnings or errors. */
 const liveState = computed(() => {
@@ -104,6 +78,7 @@ const liveStatus = computed(() => {
 
 const liveTitle = computed(() => {
   if (live.error.value) return live.error.value
+  if (live.issues.value.length) return issueLines(live.issues.value).join('\n')
   if (live.isChecking.value && !live.isPending.value) return 'Checking with libCellML…'
   return live.latest.value?.pass === 'full' ? 'Checked with libCellML' : ''
 })
@@ -179,27 +154,10 @@ onBeforeUnmount(() => host.release(slotRef.value))
   color: var(--p-text-muted-color);
 }
 
-.celldl-live-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
-.celldl-live-toggle .pi {
-  font-size: 0.7rem;
-}
-
 .celldl-live-status {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  text-align: right;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -207,34 +165,6 @@ onBeforeUnmount(() => host.release(slotRef.value))
 .celldl-live[data-state='errors'] .celldl-live-status,
 .celldl-live[data-state='warnings'] .celldl-live-status {
   color: var(--p-orange-500);
-}
-
-.celldl-live-preview {
-  flex: 0 0 auto;
-  max-height: 35%;
-  overflow: auto;
-  border-top: 1px solid var(--p-content-border-color);
-  background: var(--p-content-hover-background);
-  font-size: 0.75rem;
-}
-
-.celldl-live-issues {
-  margin: 0;
-  padding: 0.5rem;
-  list-style: none;
-  color: var(--p-orange-600);
-}
-
-.celldl-live-cellml {
-  margin: 0;
-  padding: 0.5rem;
-  white-space: pre;
-}
-
-.celldl-live-empty {
-  margin: 0;
-  padding: 0.5rem;
-  color: var(--p-text-muted-color);
 }
 
 .celldl-pane-error {

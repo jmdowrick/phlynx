@@ -80,8 +80,13 @@ export function createLiveCelldlConvert({
   const isChecking = ref(false)
   /** The latest diagram's conversion, `{ pass, edit, result }`, or null before its first. */
   const latest = shallowRef(null)
-  /** The component the CellML is generated as, so the preview reads as saving would make it. */
+  /** The component the CellML is generated as, so it reads as saving would make it. */
   const componentName = ref(undefined)
+  /**
+   * The latest diagram's newest CellML, `{ cellml, componentName }`, kept through results that have none, e.g. mid-edit;
+   * null before its first.
+   */
+  const cellml = shallowRef(null)
 
   const result = computed(() => latest.value?.result ?? null)
   const issues = computed(() => (result.value ? [...result.value.errors, ...result.value.warnings] : []))
@@ -143,7 +148,7 @@ export function createLiveCelldlConvert({
     edits += 1
     clearTimeout(cheapTimer)
     clearTimeout(fullTimer)
-    if (change.isOpened || change.rdf === null) latest.value = null
+    if (change.isOpened || change.rdf === null) latest.value = cellml.value = null
     isPending.value = true
     if (change.rdf === null) {
       diagram = null
@@ -173,13 +178,14 @@ export function createLiveCelldlConvert({
     if (!convertLatest || !diagram) return
     const edit = edits
     const { rdf, documentUri } = diagram
+    const name = componentName.value
     let conversion
     try {
       conversion = await convertLatest(rdf, {
         rdfSource: true,
         checks: PASS_CHECKS[pass],
         ...(documentUri ? { sourceUri: documentUri } : {}),
-        ...(componentName.value ? { componentName: componentName.value } : {}),
+        ...(name ? { componentName: name } : {}),
       })
     } catch (e) {
       // The worker has stopped or died: a conversion's own failures come back as issues. The next start tries again.
@@ -191,6 +197,7 @@ export function createLiveCelldlConvert({
     // The full pass may have overtaken a cheap one that waited behind the worker.
     if (pass === 'cheap' && latest.value?.edit === edit && latest.value.pass === 'full') return
     latest.value = { pass, edit, result: conversion.result }
+    if (conversion.result.cellml) cellml.value = { cellml: conversion.result.cellml, componentName: name }
     // A full pass answers for a cheap one it superseded.
     isPending.value = false
     if (pass === 'full') isChecking.value = false
@@ -251,6 +258,7 @@ export function createLiveCelldlConvert({
     latest,
     result,
     issues,
+    cellml,
     start,
     stop,
     setComponentName,
