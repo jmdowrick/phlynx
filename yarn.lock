@@ -105,9 +105,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@celldl/editor@npm:0.20261007.0":
-  version: 0.20261007.0
-  resolution: "@celldl/editor@npm:0.20261007.0"
+"@celldl/editor@https://github.com/physiomelinks/CellDLEditorComponent/releases/download/phlynx-v0.20261007.0-phlynx.1/celldl-editor-0.20261007.0-phlynx.1.tgz":
+  version: 0.20261007.0-phlynx.1
+  resolution: "@celldl/editor@https://github.com/physiomelinks/CellDLEditorComponent/releases/download/phlynx-v0.20261007.0-phlynx.1/celldl-editor-0.20261007.0-phlynx.1.tgz"
   dependencies:
     "@atomic-ehr/ucum": "npm:^0.2.5"
     "@celldl/metadata": "npm:^1.20260822.0"
@@ -115,6 +115,7 @@ __metadata:
     "@ctrl/tinycolor": "npm:^4.2.0"
     "@lucide/vue": "npm:^1.39.0"
     "@mathjax/src": "npm:^4.1.3"
+    "@primeuix/themes": "npm:^2.0.3"
     "@vueuse/core": "npm:14.3.0"
     buffer: "npm:^6.0.3"
     flatbush: "npm:^4.5.0"
@@ -123,7 +124,6 @@ __metadata:
     jsonschema: "npm:^1.5.0"
     mini-svg-data-uri: "npm:^1.4.4"
     primeicons: "npm:^7.0.0"
-    primevue: "npm:4.2.5"
     rbush: "npm:^4.0.1"
     svg-intersections: "github:dbrnz/svg-intersections#fix-numbers"
     svg-path-commander: "npm:^2.1.11"
@@ -132,7 +132,9 @@ __metadata:
     ua-parser-js: "npm:^2.0.8"
     vue: "npm:3.5.40"
     vue-tippy: "npm:^6.7.1"
-  checksum: 10c0/8cdcce23cf9636c8f46750fd85056b2f61a0ff893f69be1ef0920106bb1229fab2f09290a5d6d201d890a44d7667b124d642d399d3b4eb80b4b5d861bbc16563
+  peerDependencies:
+    primevue: ^4.5.5
+  checksum: 10c0/d170f652ca30c7513a90b2302b77d75bb81df96fb382bd4aadf15caf2a8d3ee3a79d29189de6b9ab4b5098479756f4f02755c58f0c722a3d9ac959e0f3176ffd
   languageName: node
   linkType: hard
 
@@ -1340,15 +1342,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@primeuix/styled@npm:^0.3.2":
-  version: 0.3.2
-  resolution: "@primeuix/styled@npm:0.3.2"
-  dependencies:
-    "@primeuix/utils": "npm:^0.3.2"
-  checksum: 10c0/e97b85095847084844e28fbb252cbfb2090be47fed88e36cd86e886cdf9bd88f1dafa60d407123eaa6503702158347e96c8199e1e38bcbf4f5d65eda5767f261
-  languageName: node
-  linkType: hard
-
 "@primeuix/styled@npm:^0.7.4":
   version: 0.7.4
   resolution: "@primeuix/styled@npm:0.7.4"
@@ -1367,7 +1360,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@primeuix/themes@npm:^2.0.2":
+"@primeuix/themes@npm:^2.0.2, @primeuix/themes@npm:^2.0.3":
   version: 2.0.3
   resolution: "@primeuix/themes@npm:2.0.3"
   dependencies:
@@ -1376,29 +1369,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@primeuix/utils@npm:^0.3.2":
-  version: 0.3.2
-  resolution: "@primeuix/utils@npm:0.3.2"
-  checksum: 10c0/3ada284a982519c4e3cae9ed83e17dbae9d6e505a16b699fa37d69ca14e46350076389f70ef3a5b1a359ba6a0891299a20ec4f9a6ed330ab3bbda7d227e9b84f
-  languageName: node
-  linkType: hard
-
 "@primeuix/utils@npm:^0.6.1, @primeuix/utils@npm:^0.6.2":
   version: 0.6.4
   resolution: "@primeuix/utils@npm:0.6.4"
   checksum: 10c0/ee5f284c1cd3a5070c5eed6c45d803313574e0db95c45b6fc822ddb76416bbeb86986105ec4912a9d9964cb9bf7736e4b5f316c5406ec3fc16ba8012ba91a9fe
-  languageName: node
-  linkType: hard
-
-"@primevue/core@npm:4.2.5":
-  version: 4.2.5
-  resolution: "@primevue/core@npm:4.2.5"
-  dependencies:
-    "@primeuix/styled": "npm:^0.3.2"
-    "@primeuix/utils": "npm:^0.3.2"
-  peerDependencies:
-    vue: ^3.3.0
-  checksum: 10c0/36d73f72c83428b49c4cb49fe9af08230267bdf2d29cfc55f50f24d12873ef69f4f72fe8fc4c3df1544f72a0c313a4b855525960c31c87da0dfb71923ddde102
   languageName: node
   linkType: hard
 
@@ -1411,16 +1385,6 @@ __metadata:
   peerDependencies:
     vue: ^3.5.0
   checksum: 10c0/42cf6a05324930f2cf8929cf4198ff30e69394da34d237e3da83f065cefb81d2eea527bc0dacc7debaaa243044a225ac5d9813204542d6abcc2a59e26dc1f626
-  languageName: node
-  linkType: hard
-
-"@primevue/icons@npm:4.2.5":
-  version: 4.2.5
-  resolution: "@primevue/icons@npm:4.2.5"
-  dependencies:
-    "@primeuix/utils": "npm:^0.3.2"
-    "@primevue/core": "npm:4.2.5"
-  checksum: 10c0/1172434df09edbd9f090ab13eb5b4a6dfd7d8f413498a17f603b8e019a99c4ec4427a54620df270233f0648701a2346000102feb9f8c8a7bba83413d595a78d9
   languageName: node
   linkType: hard
 
@@ -6273,7 +6237,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "phlynx@workspace:."
   dependencies:
-    "@celldl/editor": "npm:0.20261007.0"
+    "@celldl/editor": "https://github.com/physiomelinks/CellDLEditorComponent/releases/download/phlynx-v0.20261007.0-phlynx.1/celldl-editor-0.20261007.0-phlynx.1.tgz"
     "@codemirror/language": "npm:^6.12.1"
     "@codemirror/theme-one-dark": "npm:^6.1.3"
     "@dagrejs/dagre": "npm:^1.1.8"
@@ -6284,8 +6248,6 @@ __metadata:
     "@physiomelinks/bg2cellml": "npm:0.2.0"
     "@physiomelinks/protocol-kit": "npm:^0.5.0"
     "@primeuix/utils": "npm:^0.6.2"
-    "@primevue/core": "npm:4.5.5"
-    "@primevue/icons": "npm:4.5.5"
     "@primevue/themes": "npm:4"
     "@tailwindcss/vite": "npm:^4.3.3"
     "@vitejs/plugin-vue": "npm:^6.0.1"
@@ -6432,18 +6394,6 @@ __metadata:
     "@primevue/core": "npm:4.5.5"
     "@primevue/icons": "npm:4.5.5"
   checksum: 10c0/9a12228495314e0fb0069b77e9296e173f5324d11226cba2f0059c4fafc343abb416da966616b1e204dedf65e5c3551ee0433f600b36287e1ddbf98d1857ed78
-  languageName: node
-  linkType: hard
-
-"primevue@npm:4.2.5":
-  version: 4.2.5
-  resolution: "primevue@npm:4.2.5"
-  dependencies:
-    "@primeuix/styled": "npm:^0.3.2"
-    "@primeuix/utils": "npm:^0.3.2"
-    "@primevue/core": "npm:4.2.5"
-    "@primevue/icons": "npm:4.2.5"
-  checksum: 10c0/20de75b6dd4aa73d2fe23bcf52c48760081eafe0fa846fc73bd03235efcd106af816bfa5ba8cec974943070d60f8c38ca212de3433d585b2d565da5efb19d93c
   languageName: node
   linkType: hard
 
