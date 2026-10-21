@@ -11,6 +11,8 @@
  * exported matches what is on screen, including the node colour theme and dark mode.
  */
 
+import { MODULE_FORMAT_SVG_ICONS } from '../moduleFormats'
+
 /** Interactive UI that has no place in a figure. */
 export const SVG_EXCLUDE_SELECTOR = [
   'button',
@@ -27,12 +29,13 @@ export const SVG_WARNING_SELECTOR = '.status-indicator, .coupling-edge-warning'
 
 /**
  * PrimeIcons drawn as simple stroked paths in a 14 x 14 box (icon fonts would not survive the trip
- * to other tools). Icons not listed here are left out.
+ * to other tools), including each module format's badge. Icons not listed here are left out.
  */
 export const SVG_ICONS = {
   'pi-box': 'M7 1.2 12.6 4.1v5.8L7 12.8 1.4 9.9V4.1Z M1.4 4.1 7 7l5.6-2.9 M7 7v5.8',
   'pi-file': 'M3 1.2h5.6L11.4 4v8.8H3Z M8.6 1.2V4h2.8',
   'pi-exclamation-triangle': 'M7 1.6 13 12.2H1Z M7 5.4v3.2 M7 10.3v.1',
+  ...MODULE_FORMAT_SVG_ICONS,
 }
 
 const ELLIPSIS = '…'

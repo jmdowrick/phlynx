@@ -2,6 +2,7 @@ import JSZip from 'jszip'
 import Papa from 'papaparse'
 
 import { notify } from '../../utils/notify'
+import { getModuleFormat } from '../moduleFormats'
 import { parseMathRef, parseModuleRef, restorePorts, restoreVariables } from '../../utils/config'
 import { PORT_TYPE_OPTIONS } from '../../utils/constants'
 import { isBlank } from '../../utils/variables'
@@ -72,7 +73,7 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
       }
 
       if (!uniqueModuleConfigs.has(node.data.moduleRef)) {
-        uniqueModuleConfigs.set(node.data.moduleRef, moduleConfigEntry(node.data))
+        uniqueModuleConfigs.set(node.data.moduleRef, moduleConfigEntry(node.data, libraryStore))
       }
 
       instance_array.push({
@@ -178,16 +179,17 @@ function warnMissingBoundaryValues(nodes, edges) {
  * Makes a module's CA config entry.
  *
  * @param {{moduleRef: string, mathRef: string, ports: Array, variables: Array}} module - A node's data or a library module.
+ * @param {Object} libraryStore - The library, for the math's format.
  * @returns {Object}
  */
-function moduleConfigEntry(module) {
+function moduleConfigEntry(module, libraryStore) {
   const portsByType = restorePorts(module.ports)
   const { componentFile, componentName } = parseMathRef(module.mathRef)
   const { moduleType, moduleSubtype } = parseModuleRef(module.moduleRef)
   return {
     module_type: moduleType,
     module_subtype: moduleSubtype,
-    module_format: 'cellml', // TODO - will need to generalise
+    module_format: getModuleFormat(libraryStore.getMathFormat(module.mathRef)).caModuleFormat,
     component_file: componentFile,
     component_type: componentName,
     entrance_ports: portsByType.entrance_ports || [],
@@ -203,14 +205,14 @@ function moduleConfigEntry(module) {
  *
  * @param {Array} instanceArray - The module array rows.
  * @param {Map<string, Object>} moduleConfigs - The config entries by module ref, added to.
- * @param {Object} libraryStore - The library, for `availableModules`.
+ * @param {Object} libraryStore - The library, for `availableModules` and the math's format.
  */
 function addPulmonaryModule(instanceArray, moduleConfigs, libraryStore) {
   const hearts = instanceArray.filter((row) => isHeart(row.module_type))
   if (hearts.length !== 1 || hearts[0].out_instances.split(' ').filter(Boolean).length >= 2) return
 
   const module = libraryStore.availableModules.get(PULMONARY_MODULE_REF)
-  if (module && !moduleConfigs.has(PULMONARY_MODULE_REF)) moduleConfigs.set(PULMONARY_MODULE_REF, moduleConfigEntry(module))
+  if (module && !moduleConfigs.has(PULMONARY_MODULE_REF)) moduleConfigs.set(PULMONARY_MODULE_REF, moduleConfigEntry(module, libraryStore))
   notify.warning({
     title: 'Pulmonary Circuit Added',
     message: `"${hearts[0].name}" has one output, so CA adds a pulmonary artery and vein (par, pvn) and will ask for their values.`,

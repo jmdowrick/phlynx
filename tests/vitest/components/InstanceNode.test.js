@@ -6,7 +6,9 @@ import PrimeVue from 'primevue/config'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
-import { SVG_EXCLUDE_SELECTOR } from '../../../src/services/export/svg.js'
+import { useLibraryStore } from '../../../src/stores/libraryStore.js'
+import { SVG_EXCLUDE_SELECTOR, SVG_ICONS, SVG_WARNING_SELECTOR } from '../../../src/services/export/svg.js'
+import { MODULE_FORMATS } from '../../../src/services/moduleFormats.js'
 
 const nodes = ref([])
 const notifyError = vi.hoisted(() => vi.fn())
@@ -81,6 +83,28 @@ describe('InstanceNode', () => {
   it('keeps the name in the SVG export', () => {
     mountNode()
     expect(nameButton().element.closest(SVG_EXCLUDE_SELECTOR)).toBeNull()
+  })
+
+  it('shows a muted CellML badge for math without a source, kept in the SVG export', () => {
+    mountNode()
+    const badge = wrapper.find('.module-format-badge')
+    expect(badge.element.tagName).toBe('SPAN')
+    expect(badge.attributes('aria-label')).toBe('Source: CellML')
+    expect(badge.classes()).toContain('module-format-badge--muted')
+    expect(badge.find('i').classes()).toContain(MODULE_FORMATS.cellml.icon)
+    expect(badge.element.closest(`${SVG_EXCLUDE_SELECTOR}, ${SVG_WARNING_SELECTOR}`)).toBeNull()
+    expect(SVG_ICONS[MODULE_FORMATS.cellml.icon]).toBeDefined()
+  })
+
+  it("shows the source's format on the badge", async () => {
+    mountNode()
+    useLibraryStore().setMathSource('cell.cellml:soma', { format: 'celldl', document: null, documentUri: 'https://example.org/soma.celldl' })
+    await flushPromises()
+    const badge = wrapper.find('.module-format-badge')
+    expect(badge.attributes('aria-label')).toBe('Source: CellDL')
+    expect(badge.classes()).not.toContain('module-format-badge--muted')
+    expect(badge.find('i').classes()).toContain(MODULE_FORMATS.celldl.icon)
+    expect(SVG_ICONS[MODULE_FORMATS.celldl.icon]).toBeDefined()
   })
 
   it('starts renaming a moment after a single click', async () => {

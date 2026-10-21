@@ -12,6 +12,7 @@ import {
   parseRgb,
   resolveRadius,
 } from '../../../../src/services/export/svg'
+import { MODULE_FORMATS } from '../../../../src/services/moduleFormats'
 
 // A fixed-pitch font: every character is 10 units wide.
 const measure = (text) => text.length * 10
@@ -58,8 +59,9 @@ describe('SVG export helpers', () => {
     expect(parseRgb('color(srgb 0.2 0.3 0.4)')).toBeUndefined()
   })
 
-  it('has a path for the icons the instance card and warning badges use', () => {
+  it('has a path for the icons the instance card, its format badge and warning badges use', () => {
     for (const name of ['pi-box', 'pi-file', 'pi-exclamation-triangle']) expect(SVG_ICONS[name]).toMatch(/^M/)
+    for (const format of Object.values(MODULE_FORMATS)) expect(SVG_ICONS[format.icon]).toBe(format.svgPath)
   })
 
   it('rewrites path data with plain separators and rounded numbers', () => {

@@ -188,6 +188,14 @@ describe('generateExportZip', () => {
     })
   })
 
+  it('writes a module generated from another format as CellML, the math CA gets', async () => {
+    library.setMathSource(BG_MATH_REF, { format: 'celldl', document: null, documentUri: 'https://example.org/vp.celldl' })
+    const files = await readZip(await generateExportZip('heart', [nodeWith('vp', [])], [], library))
+    const [entry] = JSON.parse(files['modules/heart_module_config.json'])
+    expect(entry.module_format).toBe('cellml')
+    expect(files['modules/BG_modules.cellml']).toContain('<component name="vp_simple_type">')
+  })
+
   it('writes each boundary condition row, as CA needs one for every boundary condition', async () => {
     const node = nodeWith('out', [
       { name: 'u_out', type: 'boundary_condition', units: 'J_per_m3', value: '1000' },
