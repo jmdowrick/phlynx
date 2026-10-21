@@ -631,6 +631,16 @@ describe('InstanceEditorDialog Plot tab', () => {
       expect(ensureResults).not.toHaveBeenCalled()
     })
 
+    it('asks for a save to plot an unsaved diagram element’s variable', async () => {
+      await openPlotTab()
+      await clickVariable('nowhere')
+      expect(wrapper.find('.plot-tab-auto-notice').exists()).toBe(false)
+      wrapper.findComponent(FakeEditor).vm.$emit('variable-click', 'q_X', { isUnsaved: true })
+      await flushPromises()
+      expect(wrapper.find('.plot-tab-auto-notice').text()).toBe('Save to plot q_X')
+      expect(plottedKeys()).toEqual([])
+    })
+
     it('plots a clicked constant or boundary condition as this instance’s own', async () => {
       flowNodes.value = [
         { id: 'a', data: { name: 'a', variables: [...variables, { name: 'p', units: 'metre', type: 'boundary_condition' }] } },
