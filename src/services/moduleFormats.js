@@ -31,7 +31,8 @@ export const MODULE_FORMATS = Object.freeze({
     caModuleFormat: 'cellml',
     editorTab: Object.freeze({
       value: 'celldl',
-      label: 'CellDL',
+      // CellDL is still in development, so the tab says so.
+      label: 'CellDL (beta)',
       icon: 'pi-sitemap',
       errorHeader: 'Diagram Has Errors',
       lockedNotice: 'CellDL diagrams can only start from the template',

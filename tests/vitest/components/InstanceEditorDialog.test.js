@@ -1035,8 +1035,8 @@ describe('InstanceEditorDialog locked math', () => {
 
     expect(wrapper.vm.editorKind).toBe('celldl')
     expect(prepare).toHaveBeenCalledWith(SOURCE)
-    expect(wrapper.findAll('.editor-tabs [role="tab"]').map((tab) => tab.text())).toEqual(['CellML Text', 'Math Editor', 'CellDL'])
-    expect(editorTab('CellDL').attributes('disabled')).toBeUndefined()
+    expect(wrapper.findAll('.editor-tabs [role="tab"]').map((tab) => tab.text())).toEqual(['CellML Text', 'Math Editor', 'CellDL (beta)'])
+    expect(editorTab('CellDL (beta)').attributes('disabled')).toBeUndefined()
     expect(wrapper.find('.editor-tab-locked').exists()).toBe(false)
     prepare.mockRestore()
   })
@@ -1073,7 +1073,7 @@ describe('InstanceEditorDialog locked math', () => {
     mountDialog()
     await open()
 
-    expect(editorTab('CellDL').attributes('disabled')).toBeDefined()
+    expect(editorTab('CellDL (beta)').attributes('disabled')).toBeDefined()
     expect(wrapper.find('.editor-tab-locked').exists()).toBe(true)
     await wrapper.vm.switchEditor('celldl')
     expect(wrapper.vm.editorKind).toBe('text')
