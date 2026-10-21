@@ -32,6 +32,7 @@ import { generateFlattenedModel, extractVoiAndParametersFromModel } from '../uti
 import { readFileAsText } from '../utils/misc'
 import { getFileHandle } from '../utils/save'
 import { getImportConfig } from '../utils/import'
+import { getModuleFormat } from '../services/moduleFormats'
 
 export function useImportExportSend({
   libcellml,
@@ -72,6 +73,17 @@ export function useImportExportSend({
       icon: CellMLIcon,
       disabled: libcellml.status !== 'ready',
     },
+    // Only in builds that can convert CellDL.
+    ...(getModuleFormat('celldl').isAvailable
+      ? [
+          {
+            key: IMPORT_KEYS.CELLDL_FILE,
+            label: 'CellDL Diagram',
+            icon: 'pi pi-sitemap',
+            disabled: libcellml.status !== 'ready',
+          },
+        ]
+      : []),
     {
       key: IMPORT_KEYS.MODULE_CONFIG,
       label: 'Module Config',

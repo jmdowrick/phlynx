@@ -590,6 +590,7 @@ import { useFlowHistoryStore } from '../stores/historyStore'
 import { getUndoRedoAction, useFlowHistory } from '../composables/useFlowHistory'
 import { useConnect } from '../composables/useConnect'
 import { useCellmlDrop } from '../composables/useCellmlDrop'
+import { useCelldlImport } from '../composables/useCelldlImport'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
@@ -1128,6 +1129,8 @@ const loadCellMLData = (
   })
 }
 
+const { loadCelldlFiles } = useCelldlImport({ confirm })
+
 const { loadCellMLFiles, onDragOver, onFileDragLeave, onDrop, isFileDragOver, dropLoadingMessage } = useCellmlDrop({
   loadCellMLData,
   loadFromCellML,
@@ -1549,6 +1552,12 @@ async function onImportConfirm(importPayload, updateProgress) {
       content: data?.payload,
     }))
     await loadCellMLFiles(entries)
+  } else if (currentImportMode.value.key === IMPORT_KEYS.CELLDL_FILE) {
+    const entries = [...importPayload.get(IMPORT_KEYS.CELLDL_FILE)].map(([name, data]) => ({
+      name,
+      content: data?.payload,
+    }))
+    await loadCelldlFiles(entries)
   } else if (currentImportMode.value.key === IMPORT_KEYS.MODULE_CONFIG) {
     const multiFile = importPayload.size > 1
     const results = await Promise.all(
