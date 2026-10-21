@@ -87,6 +87,8 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   // The claiming pane's handler for the editor's viewer events (select, unselect, active, unactive).
   let eventHandler = null
   let annotationCount = 0
+  // Serialisations under way, which live marks must stay out of.
+  let serialising = 0
   // Who hears the diagram as it changes or opens (onChange).
   const changeListeners = new Set()
 
@@ -219,7 +221,12 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   async function serialise() {
     await whenReady()
     clearHighlights()
-    return request('data')
+    serialising += 1
+    try {
+      return await request('data')
+    } finally {
+      serialising -= 1
+    }
   }
 
   /**
@@ -238,18 +245,24 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
    *
    * @param {string[]} ids - Their SVG ids.
    * @param {Object} [options]
-   * @param {boolean} [options.isLive] - The issues are the live conversion's, so are marked more softly.
+   * @param {boolean} [options.isLive] - The issues are the live conversion's: marked more softly, never while the
+   *   diagram is being serialised, and leaving a save's marks alone.
    */
   function highlight(ids, { isLive = false } = {}) {
-    clearHighlights()
+    if (isLive && serialising) return
+    clearHighlights(isLive ? [LIVE_ISSUE_CLASS] : undefined)
     const svg = svgOf()
     const className = isLive ? LIVE_ISSUE_CLASS : ERROR_CLASS
     ids.forEach((id) => svg?.getElementById(id)?.classList.add(className))
   }
 
-  /** Clears highlight's marks, which must never be saved with the diagram. */
-  function clearHighlights() {
-    for (const className of [ERROR_CLASS, LIVE_ISSUE_CLASS]) {
+  /**
+   * Clears highlight's marks, which must never be saved with the diagram.
+   *
+   * @param {string[]} [classNames] - The marks to clear; all by default.
+   */
+  function clearHighlights(classNames = [ERROR_CLASS, LIVE_ISSUE_CLASS]) {
+    for (const className of classNames) {
       root?.querySelectorAll(`.${className}`).forEach((element) => element.classList.remove(className))
     }
   }
@@ -266,9 +279,10 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   }
 
   /**
-   * Hears the diagram as it changes, and once a source has opened.
+   * Hears the diagram as it changes, as a source starts opening (`rdf` null: the diagram heard so far is going), and
+   * once it has opened.
    *
-   * @param {(change: {rdf: string, documentUri: string|null, isOpened: boolean}) => void} listener
+   * @param {(change: {rdf: string|null, documentUri: string|null, isOpened: boolean}) => void} listener
    * @returns {() => void} Stops listening.
    */
   function onChange(listener) {
@@ -379,6 +393,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
       while (wanted && shown !== wanted) {
         const request = wanted
         // A source that failed leaves the editor's diagram unknown, so the next sync opens it again.
+        if (!syncing) notifyChange(null, false)
         syncing ??= open(request.source)
           .then(
             () => {

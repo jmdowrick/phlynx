@@ -189,6 +189,49 @@ describe('useLiveCelldlConvert', () => {
     expect(port.converts().at(-1)).toMatchObject({ source: 'opened', options: { checks: 'none' } })
   })
 
+  it('drops what it was converting once another source starts opening', async () => {
+    host.change('rdf')
+    await vi.advanceTimersByTimeAsync(150)
+    host.change(null)
+    port.answer(port.converts()[0], { errors: [{ message: 'bad', elementId: 'R' }] })
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(live.latest.value).toBeNull()
+    expect(host.highlight).not.toHaveBeenCalled()
+    expect(port.converts()).toHaveLength(1)
+    expect(live.isChecking.value).toBe(false)
+  })
+
+  it('ends a worker that finished starting after it was stopped', async () => {
+    live.stop()
+    let resolveWorker
+    const late = fakePort()
+    live = createLiveCelldlConvert({
+      host,
+      createWorker: (framework) =>
+        new Promise((resolve) => (resolveWorker = () => resolve(createConversionWorker(late, { framework })))),
+      loadFramework: async () => FRAMEWORK,
+      isAvailable: true,
+    })
+    const starting = live.start()
+    await flush()
+    live.stop()
+    resolveWorker()
+    await starting
+    expect(late.terminated).toBe(true)
+    expect(host.isListening()).toBe(false)
+  })
+
+  it('turns off if the worker dies, until started again', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    host.change('rdf')
+    await vi.advanceTimersByTimeAsync(150)
+    port.emit({ type: 'error', seq: port.converts()[0].seq, error: 'out of memory' })
+    await flush()
+    expect(live.error.value).toBe('out of memory')
+    expect(port.terminated).toBe(true)
+    expect(host.isListening()).toBe(false)
+  })
+
   it('sends the known units again only when they change', async () => {
     const defaults = () => port.requests.filter((request) => request.type === 'defaults')
     units.value = ['<model name="lib"/>']

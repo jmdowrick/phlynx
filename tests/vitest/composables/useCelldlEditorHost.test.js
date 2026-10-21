@@ -258,19 +258,29 @@ describe('useCelldlEditorHost', () => {
     expect(svg.querySelector(`.${ERROR_CLASS}`)).toBeNull()
   })
 
-  it("marks the live conversion's issues softly, replacing earlier marks, and never serialises them", async () => {
+  it("marks the live conversion's issues softly, beside a save's, and never serialises them", async () => {
     const editor = mountFakeEditor(host)
     editor.draw()
     const svg = editor.root.querySelector('svg')
     svg.innerHTML = '<g id="R"/><g id="C"/>'
 
     host.highlight(['R'])
+    host.highlight(['R'], { isLive: true })
     host.highlight(['C'], { isLive: true })
-    expect(svg.querySelector('#R').classList.contains(ERROR_CLASS)).toBe(false)
+    expect(svg.querySelector('#R').classList.contains(ERROR_CLASS)).toBe(true)
+    expect(svg.querySelector('#R').classList.contains(LIVE_ISSUE_CLASS)).toBe(false)
     expect(svg.querySelector('#C').classList.contains(LIVE_ISSUE_CLASS)).toBe(true)
 
+    // A live result landing while the editor serialises.
+    const stopWatching = watch(
+      host.command,
+      (command) => command.options.action === 'data' && host.highlight(['C'], { isLive: true }),
+      { flush: 'sync' }
+    )
     await host.serialise()
+    stopWatching()
     expect(svg.querySelector(`.${LIVE_ISSUE_CLASS}`)).toBeNull()
+    expect(svg.querySelector(`.${ERROR_CLASS}`)).toBeNull()
   })
 
   it('passes on diagram changes while a pane holds the editor, and the diagram a source opened as', async () => {
@@ -284,17 +294,19 @@ describe('useCelldlEditorHost', () => {
     host.prepare(SOURCE)
     host.claim(document.createElement('div'))
     await host.sync()
-    await vi.waitFor(() => expect(changes).toHaveLength(1))
-    expect(changes[0]).toEqual({ rdf: `rdf of ${SOURCE.document}`, documentUri: SOURCE.documentUri, isOpened: true })
+    await vi.waitFor(() => expect(changes).toHaveLength(2))
+    // Opening starts by saying the diagram heard so far is going.
+    expect(changes[0]).toMatchObject({ rdf: null, isOpened: false })
+    expect(changes[1]).toEqual({ rdf: `rdf of ${SOURCE.document}`, documentUri: SOURCE.documentUri, isOpened: true })
     // Reading the RDF, unlike serialising, sends only the rdf action.
     expect(editor.commands.at(-1).options.action).toBe('rdf')
 
     host.onDiagramChanged({ revision: 2, rdf: 'edited' })
-    expect(changes[1]).toEqual({ rdf: 'edited', documentUri: SOURCE.documentUri, isOpened: false })
+    expect(changes[2]).toEqual({ rdf: 'edited', documentUri: SOURCE.documentUri, isOpened: false })
 
     stop()
     host.onDiagramChanged({ revision: 3, rdf: 'again' })
-    expect(changes).toHaveLength(2)
+    expect(changes).toHaveLength(3)
   })
 
   it('takes live annotations until a source is next shown', async () => {

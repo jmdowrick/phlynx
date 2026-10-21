@@ -89,6 +89,8 @@ export function createLiveCelldlConvert({
   let worker = null
   let convertLatest = null
   let starting = null
+  // Bumped by stop, so a start it overtook ends the worker it made.
+  let generation = 0
   let stopListening = null
   let stopUnitsWatch = null
   let sentUnits = []
@@ -107,22 +109,25 @@ export function createLiveCelldlConvert({
   function start() {
     if (!isAvailable) return Promise.resolve()
     stopListening ??= host.onChange(onChange)
+    const current = generation
     starting ??= (async () => {
       error.value = ''
       sentUnits = [...knownUnits()]
-      const conversionWorker = await createWorker(await getFramework(), sentUnits)
+      const framework = await getFramework()
+      if (current !== generation) return
+      const conversionWorker = await createWorker(framework, sentUnits)
+      if (current !== generation) return conversionWorker.terminate()
       worker = conversionWorker
       convertLatest = conversionWorker.latest()
       await conversionWorker.ready
+      if (current !== generation) return
       stopUnitsWatch = watch(knownUnits, (units) => {
         if (isSameList(units, sentUnits)) return
         sentUnits = [...units]
         worker?.setDefaults({ knownUnits: sentUnits })
       })
     })().catch((e) => {
-      console.error('Live CellDL conversion is off:', e)
-      error.value = e.message
-      stop()
+      if (current === generation) turnOff(e)
       throw e
     })
     return starting
@@ -130,17 +135,22 @@ export function createLiveCelldlConvert({
 
   /**
    * Hears a diagram: converts it once edits pause, and checks it fully once they stop. A diagram just opened
-   * starts afresh, with its cheap pass at once.
+   * starts afresh, with its cheap pass at once; one starting to open drops what the last one was converting.
    *
-   * @param {{rdf: string, documentUri: string|null, isOpened: boolean}} change
+   * @param {{rdf: string|null, documentUri: string|null, isOpened: boolean}} change
    */
   function onChange(change) {
-    diagram = change
     edits += 1
     clearTimeout(cheapTimer)
     clearTimeout(fullTimer)
-    if (change.isOpened) latest.value = null
+    if (change.isOpened || change.rdf === null) latest.value = null
     isPending.value = true
+    if (change.rdf === null) {
+      diagram = null
+      isChecking.value = false
+      return
+    }
+    diagram = change
     isChecking.value = true
     cheapTimer = setTimeout(() => run('cheap'), change.isOpened ? 0 : cheapDelay)
     fullTimer = setTimeout(() => run('full'), fullDelay)
@@ -160,6 +170,7 @@ export function createLiveCelldlConvert({
         return
       }
     }
+    if (!convertLatest || !diagram) return
     const edit = edits
     const { rdf, documentUri } = diagram
     let conversion
@@ -171,9 +182,9 @@ export function createLiveCelldlConvert({
         ...(componentName.value ? { componentName: componentName.value } : {}),
       })
     } catch (e) {
-      if (!worker) return
-      console.error('Live CellDL conversion failed:', e)
-      conversion = { result: failedResult(e) }
+      // The worker has stopped or died: a conversion's own failures come back as issues. The next start tries again.
+      if (worker) turnOff(e)
+      return
     }
     // Superseded, or the diagram has changed since.
     if (!conversion || edit !== edits) return
@@ -209,8 +220,16 @@ export function createLiveCelldlConvert({
     componentName.value = name || undefined
   }
 
+  /** Turns live conversion off after the worker failed, until it is next started. */
+  function turnOff(e) {
+    console.error('Live CellDL conversion is off:', e)
+    error.value = e.message
+    stop()
+  }
+
   /** Stops converting and ends the worker. */
   function stop() {
+    generation += 1
     clearTimeout(cheapTimer)
     clearTimeout(fullTimer)
     stopListening?.()
@@ -236,12 +255,6 @@ export function createLiveCelldlConvert({
     stop,
     setComponentName,
   }
-}
-
-/** A result for a conversion the worker couldn't run, shaped as bg2cellml's. */
-function failedResult(e) {
-  const issue = { message: `The live conversion failed: ${e.message}`, severity: 'error', stage: 'build' }
-  return { ok: false, elements: {}, issues: [issue], errors: [issue], warnings: [] }
 }
 
 let live = null

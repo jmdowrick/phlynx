@@ -9,7 +9,7 @@
     </Message>
     <!-- Hidden while opening, or after failing to, as the editor still shows the last module's diagram. -->
     <div ref="slotRef" class="celldl-pane-slot" :class="{ 'is-hidden': isPending || host.error.value }"></div>
-    <div v-if="live.isAvailable" class="celldl-live" :data-state="liveState">
+    <div v-if="isLiveShown" class="celldl-live" :data-state="liveState">
       <button
         type="button"
         class="celldl-live-toggle"
@@ -22,7 +22,7 @@
       </button>
       <span class="celldl-live-status" role="status" :title="liveTitle">{{ liveStatus }}</span>
     </div>
-    <div v-if="live.isAvailable && isPreviewOpen" id="celldl-live-preview" class="celldl-live-preview">
+    <div v-if="isLiveShown && isPreviewOpen" id="celldl-live-preview" class="celldl-live-preview">
       <ul v-if="live.issues.value.length" class="celldl-live-issues">
         <li v-for="(line, index) in issueLines(live.issues.value)" :key="index">{{ line }}</li>
       </ul>
@@ -68,6 +68,9 @@ const host = useCelldlEditorHost()
 const live = useLiveCelldlConvert()
 const slotRef = ref(null)
 const isPending = computed(() => !host.isReady.value || host.isSyncing.value)
+
+// Not for a diagram that failed to open, as the editor still shows the one before.
+const isLiveShown = computed(() => live.isAvailable && !host.error.value)
 
 // Kept across dialogs, as a preference.
 const isPreviewOpen = previewOpen

@@ -158,6 +158,15 @@ describe('CelldlPane live conversion', () => {
     expect(wrapper.find('.celldl-live-preview').exists()).toBe(false)
   })
 
+  it('shows nothing of it for a diagram that failed to open', async () => {
+    mountPane()
+    const host = useCelldlEditorHost()
+    host.error.value = 'Cannot open'
+    await nextTick()
+    expect(wrapper.find('.celldl-live').exists()).toBe(false)
+    host.error.value = ''
+  })
+
   it('shows nothing of it where the build has no worker', () => {
     live.isAvailable = false
     mountPane()
