@@ -432,6 +432,22 @@ describe('InstanceEditorDialog new module template (#634)', () => {
         expect(confirm).not.toHaveBeenCalledWith(expect.objectContaining({ header: 'Overwrite Math?' }))
       })
 
+      it('stays on the diagram after an Apply, though the math it generated is not the template', async () => {
+        host.markSaved.mockImplementation(() => (host.isDirty.value = false))
+        await openTemplate()
+        await wrapper.vm.switchEditor('celldl')
+        host.isDirty.value = true
+        await wrapper.findAll('button').find((button) => button.text() === 'Apply').trigger('click')
+        await flushPromises()
+        wrapper.findComponent(ComponentSaveAsDialog).vm.$emit('confirm', 'my_rc')
+        await vi.waitFor(() => expect(wrapper.emitted('confirm')).toHaveLength(1))
+        await flushPromises()
+
+        expect(wrapper.vm.editorKind).toBe('celldl')
+        expect(celldlOption().isLocked).toBe(false)
+        expect(stubProps(ParameterTableStub)['values-only']).toBe(true)
+      })
+
       it('saves nothing when the new name is cancelled', async () => {
         const saveAs = await saveDrawn()
         saveAs.vm.$emit('cancel')

@@ -55,7 +55,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   const isReady = ref(false)
   /**
    * Whether the diagram was edited since it was opened or marked clean. A hint, as the editor reports any change but
-   * not an undo, except for a diagram opened blank: that is edited while it has anything on it.
+   * not an undo or redo, except for a diagram opened blank: that is edited while it has anything on it.
    */
   const isDirty = ref(false)
   /** The editor's last error, e.g. a document it couldn't open. */
@@ -392,11 +392,11 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   const hasObjects = () => !!svgOf()?.querySelector(OBJECT_SELECTOR)
 
   /**
-   * Follows a diagram opened blank back to blank, as by undo, which the editor doesn't report as an edit. Its objects
+   * Follows a diagram opened blank through undo and redo, which the editor doesn't report as edits. Its objects
    * are added and removed as elements, which the host watches for.
    */
   function checkBlankEdits() {
-    if (isOpenedBlank && isDirty.value && isActive.value && !isOpening && !hasObjects()) isDirty.value = false
+    if (isOpenedBlank && isActive.value && !isOpening) isDirty.value = hasObjects()
   }
 
   /**

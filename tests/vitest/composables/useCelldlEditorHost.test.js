@@ -195,9 +195,11 @@ describe('useCelldlEditorHost', () => {
     document.dispatchEvent(new CustomEvent('file-edited'))
     expect(host.isDirty.value).toBe(true)
 
-    // Undo removes it without reporting an edit.
+    // Undo removes it, and redo puts it back, without reporting an edit.
     component.remove()
     await vi.waitFor(() => expect(host.isDirty.value).toBe(false))
+    svg().appendChild(component)
+    await vi.waitFor(() => expect(host.isDirty.value).toBe(true))
   })
 
   it("keeps a stored diagram's edits once it is back to blank, as only a serialisation tells", async () => {

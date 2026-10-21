@@ -687,11 +687,15 @@ const celldlHost = useCelldlEditorHost()
 /** Whether the math differs from what was loaded, valid or not. */
 const isMathEdited = computed(() => session.isDirty() || session.isLayoutDirty() || session.hasUnsavedInvalidEdit())
 
-/** The format the template's edits chose: CellML once its math is edited, CellDL once a diagram is drawn. */
+// A diagram saved from the template stays chosen until the dialog reloads on its new module, though the math it
+// generated now differs from the template's.
+const isDiagramSaved = ref(false)
+
+/** The format the template's edits chose: CellDL once a diagram is drawn, CellML once its math is edited. */
 const chosenFormat = computed(() => {
   if (!isTemplate.value || loading.value) return null
-  if (isMathEdited.value) return storedFormat.value
-  return celldlHost.isDirty.value ? getModuleFormat('celldl') : null
+  if (celldlHost.isDirty.value || isDiagramSaved.value) return getModuleFormat('celldl')
+  return isMathEdited.value ? storedFormat.value : null
 })
 
 /** The format the math is authored in (see services/moduleFormats). */
@@ -1297,6 +1301,7 @@ async function loadEditor({ keepTab = false } = {}) {
   const requestId = ++openRequestId
   history.clear()
   loading.value = true
+  isDiagramSaved.value = false
   isEditorReady.value = false
   applyToAll.value = false
   nameError.value = ''
@@ -1905,7 +1910,10 @@ async function saveInstance(options) {
   )
 
   // The editor keeps the diagram as saved, so the dialog reloading after Apply doesn't open it again.
-  if (staged) celldlHost.markSaved(staged.source)
+  if (staged) {
+    isDiagramSaved.value = true
+    celldlHost.markSaved(staged.source)
+  }
   if (keepOpen) reloadAfterSave = true
   else emit('update:modelValue', false)
 }
