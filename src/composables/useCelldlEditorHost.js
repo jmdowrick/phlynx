@@ -18,6 +18,22 @@ export const EDITOR_OPTIONS = Object.freeze({ tooltip: 'tooltip' })
 /** The class marking a diagram element a conversion failed on. */
 export const ERROR_CLASS = 'phlynx-celldl-error'
 
+/** The editor's message for a document it can't open: its name, which is the module's minted IRI, then why. */
+const OPEN_ERROR = /^Cannot open \S+ -- invalid CellDL file\?\s*([\s\S]*)$/
+
+/**
+ * Says what the editor's error means for the module, without the IRI the module's diagram is read under.
+ *
+ * @param {string} message - e.g. `Cannot open https://…/rc.celldl -- invalid CellDL file?\n\nTypeError: …`.
+ * @returns {string}
+ */
+export function describeEditorError(message) {
+  const match = OPEN_ERROR.exec(message)
+  if (!match) return message
+  const reason = match[1].trim()
+  return `The CellDL editor can't open this module's diagram${reason ? ` (${reason})` : ''}. Its CellML still runs.`
+}
+
 /** The diagram's own objects, which a blank diagram has none of. */
 const OBJECT_SELECTOR = ['Annotation', 'Component', 'Connector', 'Connection', 'Conduit', 'Compartment', 'InterfacePort']
   .map((name) => `.celldl-${name}`)
@@ -242,7 +258,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
    * @param {{error?: string}} state
    */
   function onEditorState(state) {
-    error.value = state?.error ?? ''
+    error.value = describeEditorError(state?.error ?? '')
   }
 
   /**

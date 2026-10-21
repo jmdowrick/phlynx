@@ -32,4 +32,4 @@
 :I_R.V_C a celldl:Connection ; bgf:hasSource :I_R ; bgf:hasTarget :V_C .
 :V_C.q a celldl:Connection ; bgf:hasSource :V_C ; bgf:hasTarget :q_1 .
 :V_C.L a celldl:Connection ; bgf:hasSource :V_C ; bgf:hasTarget :L_2 .
-]]></metadata><g id="V_in"/><g id="I_R"/><g id="R_0"/><g id="V_C"/><g id="q_1"/></svg>
+]]></metadata><g id="V_in"><rect width="20" height="20"/></g><g id="I_R"><rect width="20" height="20"/></g><g id="R_0"><rect width="20" height="20"/></g><g id="V_C"><rect width="20" height="20"/></g><g id="q_1"><rect width="20" height="20"/></g></svg>

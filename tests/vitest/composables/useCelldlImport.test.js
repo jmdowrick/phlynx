@@ -143,6 +143,21 @@ describe('useCelldlImport', () => {
     )
   }, 120000)
 
+  it("adds nothing for a diagram that converts but doesn't draw its elements, which the editor can't open", async () => {
+    const { loadCelldlFiles } = useCelldlImport({ confirm })
+    const before = librarySnapshot(store)
+    const undrawn = fixture('rc.celldl').replace(/<g id="([^"]+)"><rect[^>]*\/><\/g>/g, '<g id="$1"/>').replace('<g id="q_1"/>', '')
+
+    const [result] = await loadCelldlFiles([{ name: 'rc.celldl', content: undrawn }])
+
+    expect(result.ok).toBe(false)
+    expect(librarySnapshot(store)).toEqual(before)
+    expect(notify.error).toHaveBeenCalledWith({
+      title: 'CellDL Import Error',
+      message: "rc.celldl can&#39;t be imported:<br>• The diagram has no drawing of R_0, V_in, q_1, V_C and I_R, so the CellDL editor can&#39;t open it",
+    })
+  }, 120000)
+
   it('asks before adding a diagram with warnings, and adds nothing if declined', async () => {
     confirm.mockResolvedValueOnce(false)
     const { loadCelldlFiles } = useCelldlImport({ confirm })

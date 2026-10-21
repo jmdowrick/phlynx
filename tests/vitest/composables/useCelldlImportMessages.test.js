@@ -28,7 +28,7 @@ describe('useCelldlImport messages', () => {
     expect(result).toEqual({ ok: false, name: '<a>.celldl', mathRef: undefined })
     const { message } = notify.error.mock.calls[0][0]
     expect(message.split('<br>')).toEqual([
-      '&lt;a&gt;.celldl can&#39;t be converted:',
+      '&lt;a&gt;.celldl can&#39;t be imported:',
       ...[1, 2, 3, 4, 5].map((n) => `• e${n}: bad &lt;${n}&gt;`),
       '…and 2 more',
     ])
