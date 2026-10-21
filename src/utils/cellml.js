@@ -1495,8 +1495,12 @@ function isPossibleParameter(variable, voiNames, includeInitialised = false) {
 /**
  * Extracts unique variable names from a CellML model/component. A variable the math computes, or a
  * DAE solves implicitly, is a `variable`; anything else is a `constant` until someone says otherwise.
+ *
+ * @param {string} math
+ * @param {boolean} [includeInitialisedVariables]
+ * @param {Map<string, string>} [defaults] - The math's values, for stored math, which holds none (libraryStore.getMathDefaults).
  */
-export function extractVariablesFromMath(math, includeInitialisedVariables = true) {
+export function extractVariablesFromMath(math, includeInitialisedVariables = true, defaults = new Map()) {
   const garbageCollector = new Set() // To track created objects for cleanup.
   try {
     const variables = []
@@ -1508,7 +1512,8 @@ export function extractVariablesFromMath(math, includeInitialisedVariables = tru
         voi: findVoiNames(analysis),
       }
       const initialValues = new Map(analysis?.declared.map((variable) => [variable.name, variable.initialValue]))
-      roles.implicit = findImplicitVariables(analysis, roles, (name) => isNumericLiteral(initialValues.get(name)))
+      const isSupplied = (name) => isNumericLiteral(initialValues.get(name)) || isNumericLiteral(defaults.get(name))
+      roles.implicit = findImplicitVariables(analysis, roles, isSupplied)
       const parser = new _libcellml.Parser(false)
       garbageCollector.add(parser)
       const model = parser.parseModel(math)
