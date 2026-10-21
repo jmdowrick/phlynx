@@ -98,7 +98,10 @@ def click_element(page, element_id):
 
 
 def editor_tab(dialog, label):
-    return dialog.locator(".editor-tabs [role=tab]").filter(has_text=re.compile(rf"^\s*{label}\s*$"))
+    # A tab may carry a "(beta)" suffix, as the CellDL tab does.
+    return dialog.locator(".editor-tabs [role=tab]").filter(
+        has_text=re.compile(rf"^\s*{re.escape(label)}(\s+\(beta\))?\s*$")
+    )
 
 
 def cellml_text(dialog):
