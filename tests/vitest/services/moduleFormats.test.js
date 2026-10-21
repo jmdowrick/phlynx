@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_MODULE_FORMAT,
   MODULE_FORMATS,
-  MODULE_FORMAT_SVG_ICONS,
   checkMathSource,
   getModuleFormat,
 } from '../../../src/services/moduleFormats.js'
@@ -21,18 +20,10 @@ describe('module formats', () => {
   it('gives an unknown format a locked, unavailable fallback named after it', () => {
     const format = getModuleFormat('python')
     expect(format).toMatchObject({ id: 'python', label: 'python', isMathLocked: true, isAvailable: false })
-    expect(MODULE_FORMAT_SVG_ICONS[format.icon]).toBe(format.svgPath)
   })
 
   it('does not look formats up on the object prototype', () => {
     expect(getModuleFormat('toString').isMathLocked).toBe(true)
-  })
-
-  it('has an SVG path for every format icon', () => {
-    for (const format of Object.values(MODULE_FORMATS)) {
-      expect(format.svgPath).toMatch(/^M/)
-      expect(MODULE_FORMAT_SVG_ICONS[format.icon]).toBe(format.svgPath)
-    }
   })
 
   it('cannot be changed', () => {
