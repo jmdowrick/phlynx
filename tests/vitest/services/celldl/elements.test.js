@@ -15,6 +15,10 @@ describe('variableForElement', () => {
     expect(variableForElement({ variables: [variable('v_1')] }, rows)).toBe('v_1')
   })
 
+  it("reads a viewer annotation's variables by name", () => {
+    expect(variableForElement({ primary: 'C', variables: ['C', 'q_C'] }, rows)).toBe('q_C')
+  })
+
   it('gives null when none of its variables has a row, or there is no entry', () => {
     expect(variableForElement({ primary: 'x', variables: [variable('y')] }, rows)).toBeNull()
     expect(variableForElement({ primary: 'v_1' }, [])).toBeNull()

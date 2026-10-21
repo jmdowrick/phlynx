@@ -12,6 +12,9 @@ import { computed, ref, shallowRef, watch } from 'vue'
 const READY_TIMEOUT_MS = 30000
 const COMMAND_TIMEOUT_MS = 10000
 
+/** The editor's options: hovering an element shows its annotation's tooltip, the variables it has. */
+export const EDITOR_OPTIONS = Object.freeze({ tooltip: 'tooltip' })
+
 /** The class marking a diagram element a conversion failed on. */
 export const ERROR_CLASS = 'phlynx-celldl-error'
 
@@ -56,6 +59,8 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   const isEngaged = ref(false)
   /** Whether the editor is opening a source, so still shows the one before. */
   const isSyncing = ref(false)
+  /** The shown source's elements as the editor's annotations, by SVG id: their variables, primary one and tooltip. */
+  const annotations = shallowRef({})
 
   let root = null
   let readyWaiters = []
@@ -68,8 +73,31 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   const pendingData = new Map()
   // The claiming pane's handler for the editor's viewer events (select, unselect, active, unactive).
   let eventHandler = null
+  let annotationCount = 0
 
   const svgOf = () => root?.querySelector('#svg-container > svg') ?? null
+
+  /**
+   * Records the source the editor shows, and annotates its elements. A source's elements are those it was saved
+   * with, so an element added since has no annotation.
+   *
+   * @param {{source: Object|null}|null} request
+   */
+  function setShown(request) {
+    shown = request
+    const elements = request?.source?.elements
+    const count = ++annotationCount
+    if (!elements || !Object.keys(elements).length) {
+      annotations.value = {}
+      return
+    }
+    import('@physiomelinks/bg2cellml').then(
+      ({ toViewerAnnotations }) => {
+        if (count === annotationCount) annotations.value = toViewerAnnotations(elements)
+      },
+      (e) => console.error('CellDL annotations failed:', e)
+    )
+  }
 
   /**
    * Waits until a test passes, checking it as the editor's root changes or it reports an error.
@@ -243,7 +271,9 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   function prepare(source) {
     // The editor already shows an unedited source, e.g. the one just saved.
     const isShown = !!shown && !isDirty.value && isSameSource(shown.source, source)
-    wanted = isShown ? shown : { source }
+    wanted = { source }
+    // Its elements may be newer, e.g. a stored source saved since.
+    if (isShown) setShown(wanted)
     isDirty.value = false
     if (isActive.value) sync().catch((e) => (error.value = e.message))
   }
@@ -261,9 +291,9 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
         // A source that failed leaves the editor's diagram unknown, so the next sync opens it again.
         syncing ??= open(request.source)
           .then(
-            () => (shown = request),
+            () => setShown(request),
             (e) => {
-              shown = null
+              setShown(null)
               throw e
             }
           )
@@ -289,7 +319,8 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   function markSaved(source) {
     markClean()
     baseline = source.document
-    shown = wanted = { source }
+    wanted = { source }
+    setShown(wanted)
   }
 
   /**
@@ -389,6 +420,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     error,
     isEngaged,
     isSyncing,
+    annotations,
     attach,
     whenReady,
     open,

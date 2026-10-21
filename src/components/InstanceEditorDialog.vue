@@ -131,7 +131,7 @@
             @undo="handleEditorUndo"
             @redo="handleEditorRedo"
           />
-          <CelldlPane v-else-if="editorKind === 'celldl'" @variable-click="plotClickedVariable" />
+          <CelldlPane v-else-if="editorKind === 'celldl'" :rows="parameterRows" @variable-click="plotClickedVariable" />
         </div>
       </div>
 
@@ -1629,9 +1629,11 @@ async function stageDiagram() {
  *
  * @param {string} math - The math to save.
  * @param {Object|null} layout - Its text layout.
+ * @param {{confirmOverwrite?: boolean}} [options] - A diagram save skips the overwrite prompt, since its edits always
+ *   apply to every instance.
  * @returns {Promise<{mathRef: string, math: string, layout: Object|null}|null>} Null when the save stops.
  */
-async function resolveMathTarget(math, layout) {
+async function resolveMathTarget(math, layout, { confirmOverwrite = true } = {}) {
   const componentNames = getModelComponentNames(math)
   if (!componentNames || componentNames.length === 0) {
     notify.error({ message: 'Could not find a valid component name in the model.' })
@@ -1651,7 +1653,7 @@ async function resolveMathTarget(math, layout) {
       layout: renameLayoutComponent(layout, newComponentName, renamed),
     }
   }
-  if (store.availableMath.has(mathRef) && !(await handleMathOverwrite())) return null
+  if (confirmOverwrite && store.availableMath.has(mathRef) && !(await handleMathOverwrite())) return null
   return { mathRef, math, layout }
 }
 
@@ -1759,7 +1761,7 @@ async function saveInstance(options) {
   // Its math replaces the session's only once the save goes ahead, so a cancelled save keeps the stored math.
   let target = null
   if (staged) {
-    target = await resolveMathTarget(staged.math, currentLayout.value)
+    target = await resolveMathTarget(staged.math, currentLayout.value, { confirmOverwrite: false })
     if (!target) return
     session.applyGeneratedModel(staged.math)
   }

@@ -853,6 +853,33 @@ describe('InstanceEditorDialog locked math', () => {
     prepare.mockRestore()
   })
 
+  it("plots a diagram element's variable clicked with the Plot tab shown and auto-updating, and nothing otherwise", async () => {
+    const variables = [
+      { name: 't', units: 'second', type: 'variable' },
+      { name: 'x', units: 'metre', type: 'variable' },
+    ]
+    flowNodes.value = [{ id: 'a', data: { name: 'a', mathRef: MATH_REF, variables } }]
+    useLibraryStore().setMathSource(MATH_REF, SOURCE)
+    mountDialog({ defaultTab: 'plot', variables })
+    await wrapper.setProps({ modelValue: true })
+    await vi.waitFor(() => expect(wrapper.findComponent(CelldlPaneStub).exists()).toBe(true))
+    const pane = wrapper.findComponent(CelldlPaneStub)
+    const plottedKeys = () => wrapper.findComponent({ name: 'SimulationPanel' }).props('plotConfig').selections.map((selection) => selection.key)
+
+    expect(pane.vm.$attrs.rows.map((row) => row.name)).toEqual(expect.arrayContaining(['t', 'x']))
+    pane.vm.$emit('variable-click', 'x')
+    await flushPromises()
+    expect(plottedKeys()).toEqual(['a::x'])
+
+    wrapper.vm.showTab('parameters')
+    pane.vm.$emit('variable-click', 't')
+    await flushPromises()
+    expect(wrapper.vm.activeTab).toBe('parameters')
+    wrapper.vm.showTab('plot')
+    await flushPromises()
+    expect(plottedKeys()).toEqual(['a::x'])
+  })
+
   it('locks the CellDL tab for CellML math, saying where diagrams start', async () => {
     const prepare = vi.spyOn(useCelldlEditorHost(), 'prepare')
     mountDialog()
@@ -1023,18 +1050,24 @@ describe('InstanceEditorDialog locked math', () => {
       expect(wrapper.emitted('confirm')).toBeUndefined()
     })
 
-    it('keeps the stored math in the editor when the overwrite is cancelled', async () => {
-      confirm.mockResolvedValueOnce(false)
+    it('saves without asking to overwrite the math, which a CellML save still asks', async () => {
       await saveEdited()
+
+      expect(confirm).not.toHaveBeenCalledWith(expect.objectContaining({ header: 'Overwrite Math?' }))
+      expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: MATH_REF, isSourceChanged: true })
+
+      wrapper.unmount()
+      setActivePinia(createPinia())
+      useLibraryStore().addMath(MATH_REF, XML)
+      mountDialog()
+      const editor = await open()
+      await report(editor, 'init', XML)
+      await report(editor, 'edit', EDITED_XML)
+      confirm.mockResolvedValueOnce(false)
+      await clickSave()
 
       expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ header: 'Overwrite Math?' }))
       expect(wrapper.emitted('confirm')).toBeUndefined()
-      expect(wrapper.vm.currentModel).not.toContain('name="c"')
-
-      // Undone in the editor, the diagram saves no math.
-      host.compareWithBaseline.mockResolvedValue({ isChanged: false, document: SOURCE.document })
-      await clickSave()
-      expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ math: null, isSourceChanged: false })
     })
 
     it("drops the module's units when the diagram has none", async () => {

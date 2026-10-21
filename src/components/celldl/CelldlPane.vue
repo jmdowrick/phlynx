@@ -15,7 +15,7 @@
 <script setup>
 /**
  * The instance editor's CellDL tab: it shows the app's one CellDL editor (useCelldlEditorHost) while mounted,
- * with the source the dialog prepared.
+ * with the source the dialog prepared. Selecting a diagram element emits the variable it plots.
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
@@ -23,16 +23,33 @@ import Message from 'primevue/message'
 import ProgressSpinner from 'primevue/progressspinner'
 
 import { useCelldlEditorHost } from '../../composables/useCelldlEditorHost'
+import { variableForElement } from '../../services/celldl/elements'
 
-// Clicks on the diagram's elements will plot their variables, from the editor's viewer events (claim's handler).
-defineEmits(['variable-click'])
+const props = defineProps({
+  /** The instance's variable rows, which an element's variable must have to be plotted. */
+  rows: { type: Array, default: () => [] },
+})
+
+const emit = defineEmits(['variable-click'])
 
 const host = useCelldlEditorHost()
 const slotRef = ref(null)
 const isPending = computed(() => !host.isReady.value || host.isSyncing.value)
 
+/**
+ * Emits the variable of a selected element. An element added since the diagram was saved has no annotation, so
+ * nothing to plot.
+ *
+ * @param {{type: string, component?: {id: string, annotation?: Object}}} event - The editor's viewer event.
+ */
+function onViewerEvent(event) {
+  if (event?.type !== 'select') return
+  const name = variableForElement(event.component?.annotation, props.rows)
+  if (name) emit('variable-click', name)
+}
+
 onMounted(() => {
-  host.claim(slotRef.value)
+  host.claim(slotRef.value, onViewerEvent)
   host.sync().catch((error) => {
     host.error.value = error.message
   })
