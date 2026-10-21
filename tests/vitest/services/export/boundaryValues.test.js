@@ -1,5 +1,3 @@
-import fs from 'node:fs'
-import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { resolveBoundaryValues } from '../../../../src/services/export/boundaryValues.js'
@@ -288,10 +286,34 @@ describe('resolveBoundaryValues', () => {
       expect(resolveBoundaryValues(nodes, []).status.size).toBe(0)
     })
 
-    describe('on the SN simple workspace', () => {
-      const file = path.resolve(process.cwd(), 'tests/resources/migration-versioning/v1-2-0/sn_simple.json')
-      const loadFlow = () => JSON.parse(fs.readFileSync(file, 'utf8')).flow
+    // The SN simple chain: soma_SN's voltage feeds axon_SN, whose own voltage feeds var_SN's boundary condition.
+    describe('on a soma, axon and varicosity chain', () => {
       const VARICOSITY = 'dndnode_2'
+      const vi = (portType, variables) => ({ portType, label: 'VI_port', variables, multiportType: 'None' })
+      const voltage = (portType) => ({ portType, label: 'membrane_voltage', variables: ['V'], multiportType: 'None' })
+      const chainNode = (id, name, variables, ports) => ({ id, data: { name, variables, ports } })
+      const chainEdge = (source, target, sourcePort, targetPort) => ({
+        id: `${source}--${target}`,
+        source,
+        target,
+        data: { couplings: [{ sourcePort, targetPort }] },
+      })
+      const loadFlow = () => ({
+        nodes: [
+          chainNode('dndnode_0', 'soma_SN', [row('V', 'variable', '', 'mV'), row('I_out', 'variable', '', 'nA')], [vi('exit_ports', ['V', 'I_out'])]),
+          chainNode(
+            'dndnode_1',
+            'axon_SN',
+            [row('V_in', 'variable', '', 'mV'), row('I', 'variable', '', 'nA'), row('V', 'variable', '', 'mV')],
+            [vi('entrance_ports', ['V_in', 'I']), voltage('exit_ports')]
+          ),
+          chainNode(VARICOSITY, 'var_SN', [row('V', 'boundary_condition', '', 'mV')], [voltage('entrance_ports')]),
+        ],
+        edges: [
+          chainEdge('dndnode_0', 'dndnode_1', vi('exit_ports', ['V', 'I_out']), vi('entrance_ports', ['V_in', 'I'])),
+          chainEdge('dndnode_1', VARICOSITY, voltage('exit_ports'), voltage('entrance_ports')),
+        ],
+      })
 
       /** Drops var_SN's membrane voltage port and recouples its edges, as the instance editor previews it. */
       function withoutVoltagePort({ nodes, edges }) {
