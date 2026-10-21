@@ -123,7 +123,8 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     // The source first, so the math's format is known once the math is added.
     if (isSourceChanged) libraryStore.setMathSource(mathRef, source ?? null)
     // Units generated with the math, kept in the module's own file, are there before the math is analysed.
-    if (units) libraryStore.addUnitsFile(detachReactivity(units))
+    if (units?.model) libraryStore.addUnitsFile(detachReactivity(units))
+    else if (units) libraryStore.removeUnitsFile(units.componentFile)
     if (math !== null) libraryStore.addMath(mathRef, math, true, layout)
     else if (isLayoutChanged) libraryStore.setMathLayout(mathRef, layout)
     const moduleRef = isNewModule ? libraryStore.createModuleForMath(mathRef, detachReactivity({ ports, variables })) : null
@@ -192,7 +193,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
-   * Gets the units file a save replaces, as a recordEdit `library` entry.
+   * Gets the units file a save replaces or removes, as a recordEdit `library` entry.
    *
    * @param {Object} save - The instance editor's `confirm` payload.
    * @returns {{captureAfter: Function, library: Object}|null} Null when the save writes no units. Call

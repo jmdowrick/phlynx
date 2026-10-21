@@ -1023,6 +1023,37 @@ describe('InstanceEditorDialog locked math', () => {
       expect(wrapper.emitted('confirm')).toBeUndefined()
     })
 
+    it('keeps the stored math in the editor when the overwrite is cancelled', async () => {
+      confirm.mockResolvedValueOnce(false)
+      await saveEdited()
+
+      expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ header: 'Overwrite Math?' }))
+      expect(wrapper.emitted('confirm')).toBeUndefined()
+      expect(wrapper.vm.currentModel).not.toContain('name="c"')
+
+      // Undone in the editor, the diagram saves no math.
+      host.compareWithBaseline.mockResolvedValue({ isChanged: false, document: SOURCE.document })
+      await clickSave()
+      expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ math: null, isSourceChanged: false })
+    })
+
+    it("drops the module's units when the diagram has none", async () => {
+      convertCelldl.mockResolvedValue(converted({ unitsModel: null }))
+      await saveEdited()
+
+      expect(wrapper.emitted('confirm')[0][0].units).toEqual({ componentFile: 'file', model: null })
+    })
+
+    it("doesn't save once the dialog closes while the diagram converts", async () => {
+      convertCelldl.mockImplementation(async () => {
+        await wrapper.setProps({ modelValue: false })
+        return converted()
+      })
+      await saveEdited()
+
+      expect(wrapper.emitted('confirm')).toBeUndefined()
+    })
+
     it('keeps the dialog open on Apply', async () => {
       await saveEdited('Apply')
 

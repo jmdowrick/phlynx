@@ -1555,12 +1555,13 @@ const isConverting = ref(false)
  * Converts the diagram, when edited since it was opened or saved, into the math this save writes. Errors stop the
  * save, keeping the stored math and diagram, with the elements they name highlighted; warnings ask first.
  *
- * @returns {Promise<{math: string, source: Object, units: Object|null}|null|false>} The generated math, its source
- *   and units; null when the diagram is unchanged; false when the save stops.
+ * @returns {Promise<{math: string, source: Object, units: Object}|null|false>} The generated math, its source and
+ *   units file (a null model when it has none); null when the diagram is unchanged; false when the save stops.
  */
 async function stageDiagram() {
   if (!isDiagramDirty.value) return null
   const stored = store.getMathSource(props.mathRef)
+  const requestId = openRequestId
   let document, result
   isConverting.value = true
   try {
@@ -1580,6 +1581,8 @@ async function stageDiagram() {
   } finally {
     isConverting.value = false
   }
+  // The dialog closed, or opened another instance, while the diagram converted.
+  if (requestId !== openRequestId || !props.modelValue) return false
   // Only the module's own component becomes its math, as on import.
   const component = result.components?.find((candidate) => candidate.name === componentName.value)
   const errors =
@@ -1615,8 +1618,41 @@ async function stageDiagram() {
       generator: result.generator,
       frameworkVersion: result.frameworkVersion,
     },
-    units: result.unitsModel ? { componentFile: componentFile.value, model: result.unitsModel } : null,
+    // A diagram with no units of its own drops any its module had.
+    units: { componentFile: componentFile.value, model: result.unitsModel },
   }
+}
+
+/**
+ * Works out the math reference a save writes to, asking before overwriting stored math or renaming a save of the
+ * template.
+ *
+ * @param {string} math - The math to save.
+ * @param {Object|null} layout - Its text layout.
+ * @returns {Promise<{mathRef: string, math: string, layout: Object|null}|null>} Null when the save stops.
+ */
+async function resolveMathTarget(math, layout) {
+  const componentNames = getModelComponentNames(math)
+  if (!componentNames || componentNames.length === 0) {
+    notify.error({ message: 'Could not find a valid component name in the model.' })
+    return null
+  }
+  const newComponentName = componentNames[0].trim()
+
+  const mathRef = `${componentFile.value}:${newComponentName}`
+  if (PROTECTED_MATH_REFS.has(mathRef)) {
+    const renamed = await promptComponentSaveAs(
+      `"${newComponentName}" is the template new instances start from. Save your changes as a new component instead.`
+    )
+    if (!renamed) return null
+    return {
+      mathRef: `${componentFile.value}:${renamed}`,
+      math: renameModelComponent(math, newComponentName, renamed),
+      layout: renameLayoutComponent(layout, newComponentName, renamed),
+    }
+  }
+  if (store.availableMath.has(mathRef) && !(await handleMathOverwrite())) return null
+  return { mathRef, math, layout }
 }
 
 /**
@@ -1720,7 +1756,13 @@ async function saveInstance(options) {
   // An edited diagram gives the math, with its values for the rows still blank.
   const staged = await stageDiagram()
   if (staged === false) return
-  if (staged) session.applyGeneratedModel(staged.math)
+  // Its math replaces the session's only once the save goes ahead, so a cancelled save keeps the stored math.
+  let target = null
+  if (staged) {
+    target = await resolveMathTarget(staged.math, currentLayout.value)
+    if (!target) return
+    session.applyGeneratedModel(staged.math)
+  }
 
   // Values typed into the text belong in the rows, so an edit to values alone leaves the math unchanged.
   session.separateTypedValues()
@@ -1729,34 +1771,16 @@ async function saveInstance(options) {
   // blank initialisers are filled (see syncInitialiserUnits).
   syncInitialiserUnits(parameterRows.value, { overwrite: isManaged.value })
 
-  // 3. Check the math's new reference
-  let newMathRef = props.mathRef
-  // A diagram's math is saved with its values, the math's defaults, even when only they changed.
-  const isMathChanged = session.isDirty() || !!staged
-  let mathToSave = staged?.math ?? currentModel.value
-  let layoutToSave = currentLayout.value
-  if (isMathChanged) {
-    const componentNames = getModelComponentNames(currentModel.value)
-    if (!componentNames || componentNames.length === 0) {
-      notify.error({ message: 'Could not find a valid component name in the model.' })
-      return
-    }
-    const newComponentName = componentNames[0].trim()
-
-    newMathRef = `${componentFile.value}:${newComponentName}`
-    if (PROTECTED_MATH_REFS.has(newMathRef)) {
-      const renamed = await promptComponentSaveAs(
-        `"${newComponentName}" is the template new instances start from. Save your changes as a new component instead.`
-      )
-      if (!renamed) return
-      mathToSave = renameModelComponent(mathToSave, newComponentName, renamed)
-      layoutToSave = renameLayoutComponent(layoutToSave, newComponentName, renamed)
-      newMathRef = `${componentFile.value}:${renamed}`
-    } else if (store.availableMath.has(newMathRef)) {
-      const overwrite = await handleMathOverwrite()
-      if (!overwrite) return
-    }
+  // 3. Check the math's new reference. A diagram's math is saved with its values, the math's defaults, even when
+  // only they changed.
+  const isMathChanged = !!staged || session.isDirty()
+  if (isMathChanged && !target) {
+    target = await resolveMathTarget(currentModel.value, currentLayout.value)
+    if (!target) return
   }
+  const newMathRef = target?.mathRef ?? props.mathRef
+  const mathToSave = target?.math
+  const layoutToSave = target?.layout ?? currentLayout.value
 
   // Locked math changes only with its source, which every instance shares.
   const updateAll = applyToAll.value || siblingCount.value === 0 || isMathLocked.value

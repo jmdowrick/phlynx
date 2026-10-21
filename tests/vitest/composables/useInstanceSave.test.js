@@ -228,6 +228,17 @@ describe('useInstanceSave', () => {
       expect(library.availableUnits.find((file) => file.componentFile === 'file').model).toBe('<model name="old"/>')
     })
 
+    it('removes the units file of a diagram that no longer has units, and puts it back on undo', async () => {
+      library.addUnitsFile({ componentFile: 'file', model: '<model name="old"/>' })
+      await saveInstanceEdit(buildSave({ source: SOURCE, isSourceChanged: true, units: { componentFile: 'file', model: null } }))
+      expect(library.availableUnits.some((file) => file.componentFile === 'file')).toBe(false)
+
+      await history.undo()
+      expect(library.availableUnits.find((file) => file.componentFile === 'file').model).toBe('<model name="old"/>')
+      await history.redo()
+      expect(library.availableUnits.some((file) => file.componentFile === 'file')).toBe(false)
+    })
+
     it('fills the other instances\' blank values from the generated math, keeping their own', async () => {
       await saveInstanceEdit(buildSave({ math: GENERATED_XML, source: SOURCE, isSourceChanged: true }))
 
