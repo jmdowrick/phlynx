@@ -148,6 +148,12 @@ export function useSimulationRunner({ instanceId = null, isWholeModelOnly = fals
     run(playScopeNodeIds.value)
   }
 
+  // In the instance editor, a whole-model run that fails may have failed on another module, which running the
+  // instance alone leaves out.
+  const failureHint = computed(() =>
+    getInstanceId() && !store.scopeNodeIds ? 'Turn off Whole model to simulate this instance alone.' : null
+  )
+
   // What the status line says: the most pressing thing first, with the full lists a click away. Notes, such as a
   // boundary condition using its own value, are expected, so they neither warn nor count as warnings.
   const statusLine = computed(() => {
@@ -156,7 +162,7 @@ export function useSimulationRunner({ instanceId = null, isWholeModelOnly = fals
     if (isSimulatorMissing.value) return { severity: 'error', icon: 'pi-exclamation-circle', text: libopencor.reason ?? 'The simulator isn’t available.', details: [] }
     if (store.status === 'blocked') {
       const count = store.report.errors.length
-      return { severity: 'error', icon: 'pi-exclamation-circle', text: `Can’t simulate yet: ${count} ${count === 1 ? 'problem' : 'problems'}`, details: [{ title: 'Problems', lines: store.report.errors }] }
+      return { severity: 'error', icon: 'pi-exclamation-circle', text: `Can’t simulate yet: ${count} ${count === 1 ? 'problem' : 'problems'}`, details: [{ title: 'Problems', lines: store.report.errors }], hint: failureHint.value }
     }
     if (store.status === 'error') {
       const issues = (store.error?.issues ?? []).map((issue) => issue.description)
@@ -166,6 +172,7 @@ export function useSimulationRunner({ instanceId = null, isWholeModelOnly = fals
         text: store.results ? `${store.error?.message} ${resultsSummary.value}` : store.error?.message ?? 'The simulation failed.',
         details: [...(issues.length ? [{ title: 'Solver messages', lines: issues }] : []), ...warnings],
         notes,
+        hint: failureHint.value,
       }
     }
     // The progress bar shows how far; announcing each percent would flood a screen reader.
