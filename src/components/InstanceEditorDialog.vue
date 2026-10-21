@@ -464,9 +464,10 @@
             severity="secondary"
             outlined
             v-tooltip.top="'Save and keep editing'"
+            :loading="isConverting"
             @click="handleSave({ keepOpen: true })"
           />
-          <Button label="Save" severity="primary" @click="handleSave" />
+          <Button label="Save" severity="primary" :loading="isConverting" @click="handleSave" />
         </div>
       </div>
     </template>
@@ -535,6 +536,7 @@ import { waitUntilStable } from '../utils/layout'
 import { notify } from '../utils/notify'
 import { getModelComponentNames, renameLayoutComponent, renameModelComponent } from '../utils/cellml'
 import { getEditorTabFormats, getModuleFormat } from '../services/moduleFormats'
+import { issueLines } from '../services/celldl/issues'
 import { findPort } from '../utils/ports'
 import { previewCouplings } from '../utils/edges'
 import {
@@ -565,7 +567,7 @@ const history = reactive(createHistory())
 
 const { trackEvent } = useGtm()
 const { nodes, edges } = useVueFlow()
-const { confirm } = useConfirmDialog()
+const { confirm, alert } = useConfirmDialog()
 const { settings: appSettings } = useAppSettings()
 
 /** Each units name's expansion beside its suggestion, in the units the user chose in Settings. */
@@ -1544,12 +1546,100 @@ function renamedPlotEntries() {
   return getNodePlotEntries(simulationSettingsStore.plotConfig, props.id).map((entry) => ({ ...entry, name: renamed.get(entry.name) ?? entry.name }))
 }
 
+/** Whether a save is under way, which may wait on a conversion and on the user's answers. */
+const isSaving = ref(false)
+/** Whether a save is converting the diagram, which takes a moment. */
+const isConverting = ref(false)
+
+/**
+ * Converts the diagram, when edited since it was opened or saved, into the math this save writes. Errors stop the
+ * save, keeping the stored math and diagram, with the elements they name highlighted; warnings ask first.
+ *
+ * @returns {Promise<{math: string, source: Object, units: Object|null}|null|false>} The generated math, its source
+ *   and units; null when the diagram is unchanged; false when the save stops.
+ */
+async function stageDiagram() {
+  if (!isDiagramDirty.value) return null
+  const stored = store.getMathSource(props.mathRef)
+  let document, result
+  isConverting.value = true
+  try {
+    const comparison = await celldlHost.compareWithBaseline()
+    if (!comparison.isChanged) return null
+    document = comparison.document
+    const { convertCelldl, knownUnitsFor } = await import('../services/celldl/convert.js')
+    result = await convertCelldl(document, {
+      documentUri: stored.documentUri,
+      componentName: componentName.value,
+      knownUnits: knownUnitsFor(store.availableUnits, componentFile.value),
+    })
+  } catch (error) {
+    console.error('CellDL conversion failed:', error)
+    notify.error({ message: `The diagram can't be converted: ${error.message}` })
+    return false
+  } finally {
+    isConverting.value = false
+  }
+  // Only the module's own component becomes its math, as on import.
+  const component = result.components?.find((candidate) => candidate.name === componentName.value)
+  const errors =
+    result.ok && !component
+      ? [{ message: `The diagram's CellML has no component named ${componentName.value}` }]
+      : result.errors
+  if (errors.length) {
+    celldlHost.highlight(errors.map((issue) => issue.elementId).filter(Boolean))
+    await alert({
+      header: moduleFormat.value.editorTab.errorHeader,
+      message: ["The diagram can't be converted, so nothing was saved:", ...issueLines(errors)].join('\n'),
+      severity: 'error',
+    })
+    return false
+  }
+  if (result.warnings.length) {
+    const proceed = await confirm({
+      header: 'Diagram Warnings',
+      message: ['The diagram converted with warnings:', ...issueLines(result.warnings), '', 'Save it anyway?'].join('\n'),
+      severity: 'warning',
+      acceptLabel: 'Save',
+      rejectLabel: 'Cancel',
+    })
+    if (!proceed) return false
+  }
+  return {
+    math: component.math,
+    source: {
+      ...stored,
+      document,
+      documentUri: result.documentUri,
+      elements: result.elements,
+      generator: result.generator,
+      frameworkVersion: result.frameworkVersion,
+    },
+    units: result.unitsModel ? { componentFile: componentFile.value, model: result.unitsModel } : null,
+  }
+}
+
 /**
  * Validates and saves the instance, then closes the editor, or keeps it open on the saved instance.
  *
  * @param {{keepOpen?: boolean}|Event} [options] - A button's click event passes as no options.
  */
 async function handleSave(options) {
+  if (isSaving.value) return
+  isSaving.value = true
+  try {
+    await saveInstance(options)
+  } finally {
+    isSaving.value = false
+  }
+}
+
+/**
+ * Saves the instance (see handleSave).
+ *
+ * @param {{keepOpen?: boolean}|Event} [options]
+ */
+async function saveInstance(options) {
   const keepOpen = options?.keepOpen === true
   // Commit any rename and editor change still in flight before reading state.
   parameterTableRef.value?.flushPendingRenames()
@@ -1627,6 +1717,11 @@ async function handleSave(options) {
     if (!proceed) return
   }
 
+  // An edited diagram gives the math, with its values for the rows still blank.
+  const staged = await stageDiagram()
+  if (staged === false) return
+  if (staged) session.applyGeneratedModel(staged.math)
+
   // Values typed into the text belong in the rows, so an edit to values alone leaves the math unchanged.
   session.separateTypedValues()
 
@@ -1636,8 +1731,9 @@ async function handleSave(options) {
 
   // 3. Check the math's new reference
   let newMathRef = props.mathRef
-  const isMathChanged = session.isDirty()
-  let mathToSave = currentModel.value
+  // A diagram's math is saved with its values, the math's defaults, even when only they changed.
+  const isMathChanged = session.isDirty() || !!staged
+  let mathToSave = staged?.math ?? currentModel.value
   let layoutToSave = currentLayout.value
   if (isMathChanged) {
     const componentNames = getModelComponentNames(currentModel.value)
@@ -1683,6 +1779,9 @@ async function handleSave(options) {
       math: isMathChanged ? mathToSave : null,
       layout: layoutToSave,
       isLayoutChanged: !isMathChanged && session.isLayoutDirty(),
+      source: staged?.source ?? null,
+      isSourceChanged: !!staged,
+      units: staged?.units ?? null,
       // Only rows that were already global edit the shared value; a row just switched to global joins it as is.
       globalConstants: parameterRows.value
         .filter((row) => row.type === 'global_constant')
@@ -1703,6 +1802,8 @@ async function handleSave(options) {
     })
   )
 
+  // The editor keeps the diagram as saved, so the dialog reloading after Apply doesn't open it again.
+  if (staged) celldlHost.markSaved(staged.source)
   if (keepOpen) reloadAfterSave = true
   else emit('update:modelValue', false)
 }

@@ -112,7 +112,8 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    * @returns {string|null} The ref of the module made for the math, if one was.
    */
   function applySave(save) {
-    const { id, name, variables, ports, mathRef, math, layout, isLayoutChanged, source, isSourceChanged, globalConstants, updateAll, siblings } = save
+    const { id, name, variables, ports, mathRef, math, layout, isLayoutChanged, source, isSourceChanged, units, globalConstants, updateAll, siblings } =
+      save
     // Keep the shared units and reference, so one node's fields don't replace them.
     globalConstants.forEach(({ name, value, units, data_reference, overwrite }) => {
       const shared = libraryStore.getGlobalConstant(name)
@@ -121,6 +122,8 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     const isNewModule = isNewModuleSave(save)
     // The source first, so the math's format is known once the math is added.
     if (isSourceChanged) libraryStore.setMathSource(mathRef, source ?? null)
+    // Units generated with the math, kept in the module's own file, are there before the math is analysed.
+    if (units) libraryStore.addUnitsFile(detachReactivity(units))
     if (math !== null) libraryStore.addMath(mathRef, math, true, layout)
     else if (isLayoutChanged) libraryStore.setMathLayout(mathRef, layout)
     const moduleRef = isNewModule ? libraryStore.createModuleForMath(mathRef, detachReactivity({ ports, variables })) : null
@@ -189,6 +192,30 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
+   * Gets the units file a save replaces, as a recordEdit `library` entry.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload.
+   * @returns {{captureAfter: Function, library: Object}|null} Null when the save writes no units. Call
+   *   `captureAfter` once the save is applied.
+   */
+  function prepareUnitsChange({ units }) {
+    if (!units) return null
+    const { componentFile } = units
+    const current = () => libraryStore.availableUnits.find((file) => file.componentFile === componentFile)?.model ?? null
+    const states = { before: current(), after: null }
+    return {
+      captureAfter: () => (states.after = current()),
+      library: {
+        isAt: (side) => current() === states[side],
+        restore: (side) => {
+          if (states[side] === null) libraryStore.removeUnitsFile(componentFile)
+          else libraryStore.addUnitsFile({ componentFile, model: states[side] })
+        },
+      },
+    }
+  }
+
+  /**
    * Gets the plot config change a save makes, as a recordEdit `library` entry. Only the saved node's
    * selections are compared and restored, so changes to other nodes' plots don't block the undo.
    *
@@ -236,6 +263,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     const isUsed = (ref) => nodes.value.some((node) => node.data?.mathRef === ref)
     const plotChange = preparePlotChange(save)
     const moduleChange = prepareModuleChange(save)
+    const unitsChange = prepareUnitsChange(save)
 
     await recordEdit({
       type: 'edit-instance',
@@ -246,6 +274,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
         const moduleRef = applySave(save)
         moduleChange?.created(moduleRef)
         mathAfter = writtenMathRef && libraryStore.getMathEntry(writtenMathRef)
+        unitsChange?.captureAfter()
         plotChange?.apply()
       },
       library: combineLibraries([
@@ -263,6 +292,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
           },
         },
         moduleChange?.library,
+        unitsChange?.library,
         plotChange?.library,
       ]),
     })

@@ -613,6 +613,15 @@ export const useLibraryStore = defineStore('library', () => {
   }
 
   /**
+   * Removes a units file.
+   *
+   * @param {string} componentFile
+   */
+  function removeUnitsFile(componentFile) {
+    availableUnits.value = availableUnits.value.filter((f) => f.componentFile !== componentFile)
+  }
+
+  /**
    * Adds a units made from a typed expression, or a new base units, to the generated units file, creating the file
    * if needed.
    *
@@ -700,6 +709,7 @@ export const useLibraryStore = defineStore('library', () => {
     createModuleForMath,
     addMath,
     addUnitsFile,
+    removeUnitsFile,
     addGeneratedUnits,
     assignGlobalConstant,
     createMathHash,

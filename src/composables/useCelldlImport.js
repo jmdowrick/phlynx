@@ -1,24 +1,8 @@
+import { issueLines } from '../services/celldl/issues'
 import { useLibraryStore } from '../stores/libraryStore'
 import { escapeHtml } from '../utils/importBatch'
 import { readFileAsText } from '../utils/misc'
 import { notify } from '../utils/notify'
-
-/** Issues listed in a message before the rest are counted. */
-const MAX_LISTED_ISSUES = 5
-
-/**
- * Lists issues one per line, after the element each names.
- *
- * @param {Array<{ message: string, elementId?: string }>} issues - bg2cellml issues.
- * @returns {string[]}
- */
-function issueLines(issues) {
-  const lines = issues
-    .slice(0, MAX_LISTED_ISSUES)
-    .map((issue) => `• ${issue.elementId ? `${issue.elementId}: ` : ''}${issue.message}`)
-  if (issues.length > MAX_LISTED_ISSUES) lines.push(`…and ${issues.length - MAX_LISTED_ISSUES} more`)
-  return lines
-}
 
 /**
  * Imports CellDL diagrams as modules, each converted to CellML that runs like any other.

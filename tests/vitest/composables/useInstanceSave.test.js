@@ -198,6 +198,36 @@ describe('useInstanceSave', () => {
       expect(library.getMathFormat(DECAY_REF)).toBe('cellml')
     })
 
+    it('undoes the source, its math and its units together, and redoes them', async () => {
+      const UNITS = { componentFile: 'file', model: '<model name="file_units"><units name="per_second"/></model>' }
+      library.setMathSource(DECAY_REF, SOURCE)
+      const mathBefore = library.getMathEntry(DECAY_REF)
+      const unitsBefore = detachReactivity(library.availableUnits)
+      const edited = { ...SOURCE, document: '<diagram edited/>' }
+      await saveInstanceEdit(buildSave({ math: GENERATED_XML, source: edited, isSourceChanged: true, units: UNITS }))
+      expect(library.getMathSource(DECAY_REF)).toEqual(edited)
+      expect(library.availableUnits).toContainEqual(UNITS)
+      expect(library.getMathDefaults(DECAY_REF).get('c')).toBe('3')
+
+      await history.undo()
+      expect(library.getMathEntry(DECAY_REF)).toEqual(mathBefore)
+      expect(detachReactivity(library.availableUnits)).toEqual(unitsBefore)
+      expect(history.canUndo).toBe(false)
+
+      await history.redo()
+      expect(library.getMathSource(DECAY_REF)).toEqual(edited)
+      expect(library.availableUnits).toContainEqual(UNITS)
+    })
+
+    it('puts back the units file a save replaced', async () => {
+      library.addUnitsFile({ componentFile: 'file', model: '<model name="old"/>' })
+      await saveInstanceEdit(buildSave({ source: SOURCE, isSourceChanged: true, units: { componentFile: 'file', model: '<model name="new"/>' } }))
+      expect(library.availableUnits.find((file) => file.componentFile === 'file').model).toBe('<model name="new"/>')
+
+      await history.undo()
+      expect(library.availableUnits.find((file) => file.componentFile === 'file').model).toBe('<model name="old"/>')
+    })
+
     it('fills the other instances\' blank values from the generated math, keeping their own', async () => {
       await saveInstanceEdit(buildSave({ math: GENERATED_XML, source: SOURCE, isSourceChanged: true }))
 

@@ -11,9 +11,10 @@ import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
 const confirm = vi.fn(async () => true)
+const alert = vi.fn(async () => true)
 const flowNodes = ref([])
 const flowEdges = ref([])
-vi.mock('../../../src/composables/useConfirmDialog', () => ({ useConfirmDialog: () => ({ confirm }) }))
+vi.mock('../../../src/composables/useConfirmDialog', () => ({ useConfirmDialog: () => ({ confirm, alert }) }))
 vi.mock('@vue-flow/core', async (importOriginal) => {
   const { computed } = await import('vue')
   return {
@@ -30,6 +31,8 @@ vi.mock('../../../src/composables/useSimulation', async () => {
   simulation.isStale = ref(false)
   return { useSimulation: () => ({ run, stop: vi.fn(), keepCurrent: vi.fn(), isStale: simulation.isStale }) }
 })
+const convertCelldl = vi.hoisted(() => vi.fn())
+vi.mock('../../../src/services/celldl/convert.js', () => ({ convertCelldl, knownUnitsFor: () => [] }))
 vi.mock('../../../src/services/simulation/libopencorLoader', () => ({ libopencor: { status: 'ready' } }))
 
 const { default: InstanceEditorDialog } = await import('../../../src/components/InstanceEditorDialog.vue')
@@ -906,6 +909,126 @@ describe('InstanceEditorDialog locked math', () => {
     await flushPromises()
     expect(confirm).not.toHaveBeenCalled()
     expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
+  })
+
+  describe('saving an edited diagram', () => {
+    const EDITED_DOCUMENT = '<svg>rc edited</svg>'
+    // The decay math as the edited diagram gives it: a new parameter c, with its value.
+    const GENERATED_XML = XML.replace(
+      '<variable name="k"',
+      '<variable name="c" units="metre" initial_value="3"/>\n    <variable name="k"'
+    ).replace('<ci>k</ci></apply><ci>x</ci>', '<ci>k</ci></apply><apply><plus/><ci>x</ci><ci>c</ci></apply>')
+    const converted = (overrides = {}) => ({
+      ok: true,
+      components: [{ name: 'decay', math: GENERATED_XML }],
+      unitsModel: '<model name="units"/>',
+      elements: { R: { primary: 'v_R' } },
+      documentUri: SOURCE.documentUri,
+      generator: { name: 'bg2cellml', version: '0.2.0' },
+      frameworkVersion: '1.0',
+      errors: [],
+      warnings: [],
+      ...overrides,
+    })
+    let host
+
+    beforeEach(() => {
+      host = useCelldlEditorHost()
+      vi.spyOn(host, 'compareWithBaseline').mockResolvedValue({ isChanged: true, document: EDITED_DOCUMENT })
+      vi.spyOn(host, 'highlight').mockImplementation(() => {})
+      vi.spyOn(host, 'markSaved').mockImplementation(() => {})
+      convertCelldl.mockResolvedValue(converted())
+      useLibraryStore().setMathSource(MATH_REF, SOURCE)
+    })
+
+    afterEach(() => vi.restoreAllMocks())
+
+    /** Opens the dialog on the diagram, edits it, and saves. */
+    async function saveEdited(button = 'Save') {
+      mountDialog()
+      await wrapper.setProps({ modelValue: true })
+      await vi.waitFor(() => expect(wrapper.findComponent(CelldlPaneStub).exists()).toBe(true))
+      host.isDirty.value = true
+      await clickSave(button)
+    }
+
+    /** Clicks a save button and waits for the save, which loads the converter, to finish. */
+    async function clickSave(button = 'Save') {
+      await wrapper.findAll('button').find((candidate) => candidate.text() === button).trigger('click')
+      await vi.waitFor(() => expect(wrapper.vm.isSaving).toBe(false))
+      await flushPromises()
+    }
+
+    it('converts the diagram under its documentUri and saves the source, math and units for every instance', async () => {
+      await saveEdited()
+
+      expect(convertCelldl).toHaveBeenCalledWith(EDITED_DOCUMENT, expect.objectContaining({ documentUri: SOURCE.documentUri, componentName: 'decay' }))
+      const [save] = wrapper.emitted('confirm')[0]
+      expect(save).toMatchObject({
+        mathRef: MATH_REF,
+        math: GENERATED_XML,
+        isSourceChanged: true,
+        source: { format: 'celldl', document: EDITED_DOCUMENT, elements: { R: { primary: 'v_R' } }, frameworkVersion: '1.0' },
+        units: { componentFile: 'file', model: '<model name="units"/>' },
+        updateAll: true,
+        siblings: ['b'],
+      })
+      expect(save.variables.find((row) => row.name === 'c').value).toBe('3')
+      expect(host.markSaved).toHaveBeenCalledWith(save.source)
+    })
+
+    it("blocks the save on errors, listing them and highlighting their elements, and keeps what's stored", async () => {
+      convertCelldl.mockResolvedValue(
+        converted({ ok: false, components: null, errors: [{ message: 'R has no value', elementId: 'R' }, { message: 'No model' }] })
+      )
+      await saveEdited()
+
+      expect(alert).toHaveBeenCalledWith(expect.objectContaining({ header: 'Diagram Has Errors', severity: 'error' }))
+      expect(alert.mock.calls[0][0].message).toContain('• R: R has no value')
+      expect(host.highlight).toHaveBeenCalledWith(['R'])
+      expect(wrapper.emitted('confirm')).toBeUndefined()
+      expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+      expect(useLibraryStore().getMathSource(MATH_REF)).toEqual(SOURCE)
+      expect(wrapper.vm.hasUnsavedEdits).toBe(true)
+    })
+
+    it('asks before saving a diagram with warnings', async () => {
+      convertCelldl.mockResolvedValue(converted({ warnings: [{ message: 'Unused bond', elementId: 'B' }] }))
+      confirm.mockResolvedValueOnce(false)
+      await saveEdited()
+
+      expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ header: 'Diagram Warnings' }))
+      expect(confirm.mock.calls[0][0].message).toContain('• B: Unused bond')
+      expect(wrapper.emitted('confirm')).toBeUndefined()
+
+      await clickSave()
+      expect(wrapper.emitted('confirm')).toHaveLength(1)
+    })
+
+    it("doesn't convert a diagram that serialises as it was opened", async () => {
+      host.compareWithBaseline.mockResolvedValue({ isChanged: false, document: SOURCE.document })
+      await saveEdited()
+
+      expect(convertCelldl).not.toHaveBeenCalled()
+      const [save] = wrapper.emitted('confirm')[0]
+      expect(save).toMatchObject({ math: null, isSourceChanged: false, source: null, units: null })
+      expect(host.markSaved).not.toHaveBeenCalled()
+    })
+
+    it('stops the save, saying why, when the converter fails to start', async () => {
+      convertCelldl.mockRejectedValue(new Error('no wasm'))
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      await saveEdited()
+
+      expect(wrapper.emitted('confirm')).toBeUndefined()
+    })
+
+    it('keeps the dialog open on Apply', async () => {
+      await saveEdited('Apply')
+
+      expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ keepOpen: true, isSourceChanged: true })
+      expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    })
   })
 
   it('opens on the CellML Text editor when the editor last chosen isn\'t offered', async () => {

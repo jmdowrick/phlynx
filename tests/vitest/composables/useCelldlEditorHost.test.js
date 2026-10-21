@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick, watch } from 'vue'
 
-import { createCelldlEditorHost, isEditorKey } from '../../../src/composables/useCelldlEditorHost.js'
+import { createCelldlEditorHost, ERROR_CLASS, isEditorKey } from '../../../src/composables/useCelldlEditorHost.js'
 
 const SOURCE = { format: 'celldl', document: '<svg>rc</svg>', documentUri: 'https://phlynx.example/rc.celldl' }
 
@@ -176,6 +176,42 @@ describe('useCelldlEditorHost', () => {
     document.dispatchEvent(new CustomEvent('file-edited'))
     host.prepare(SOURCE)
     expect(host.isDirty.value).toBe(false)
+  })
+
+  it('keeps a saved diagram for the dialog reloading after the save, but reopens one edited since', async () => {
+    const editor = mountFakeEditor(host)
+    editor.draw()
+    host.prepare(SOURCE)
+    host.claim(document.createElement('div'))
+    await host.sync()
+
+    editor.edit('<svg>rlc</svg>')
+    const saved = { ...SOURCE, document: '<svg>rlc</svg>' }
+    host.markSaved(saved)
+    host.prepare({ ...saved })
+    await host.sync()
+    expect(host.isSyncing.value).toBe(false)
+    expect((await host.compareWithBaseline()).isChanged).toBe(false)
+    const opens = () => editor.commands.filter(({ options }) => options.action === 'open')
+    expect(opens()).toHaveLength(1)
+
+    document.dispatchEvent(new CustomEvent('file-edited'))
+    host.prepare({ ...saved })
+    await vi.waitFor(() => expect(opens()).toHaveLength(2))
+  })
+
+  it('highlights the elements a conversion failed on until the diagram is serialised', async () => {
+    const editor = mountFakeEditor(host)
+    editor.draw()
+    const svg = editor.root.querySelector('svg')
+    svg.innerHTML = '<g id="R"/><g id="C"/>'
+
+    host.highlight(['R', 'missing'])
+    expect(svg.querySelector('#R').classList.contains(ERROR_CLASS)).toBe(true)
+    expect(svg.querySelector('#C').classList.contains(ERROR_CLASS)).toBe(false)
+
+    await host.serialise()
+    expect(svg.querySelector(`.${ERROR_CLASS}`)).toBeNull()
   })
 
   it("passes the editor's viewer events to the pane holding it", () => {
