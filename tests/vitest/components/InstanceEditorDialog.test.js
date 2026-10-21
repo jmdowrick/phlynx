@@ -1023,18 +1023,24 @@ describe('InstanceEditorDialog locked math', () => {
       expect(wrapper.emitted('confirm')).toBeUndefined()
     })
 
-    it('keeps the stored math in the editor when the overwrite is cancelled', async () => {
-      confirm.mockResolvedValueOnce(false)
+    it('saves without asking to overwrite the math, which a CellML save still asks', async () => {
       await saveEdited()
+
+      expect(confirm).not.toHaveBeenCalledWith(expect.objectContaining({ header: 'Overwrite Math?' }))
+      expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: MATH_REF, isSourceChanged: true })
+
+      wrapper.unmount()
+      setActivePinia(createPinia())
+      useLibraryStore().addMath(MATH_REF, XML)
+      mountDialog()
+      const editor = await open()
+      await report(editor, 'init', XML)
+      await report(editor, 'edit', EDITED_XML)
+      confirm.mockResolvedValueOnce(false)
+      await clickSave()
 
       expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ header: 'Overwrite Math?' }))
       expect(wrapper.emitted('confirm')).toBeUndefined()
-      expect(wrapper.vm.currentModel).not.toContain('name="c"')
-
-      // Undone in the editor, the diagram saves no math.
-      host.compareWithBaseline.mockResolvedValue({ isChanged: false, document: SOURCE.document })
-      await clickSave()
-      expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ math: null, isSourceChanged: false })
     })
 
     it("drops the module's units when the diagram has none", async () => {
