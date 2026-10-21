@@ -127,6 +127,36 @@ def relocate_resistor(page, location):
     page.locator("#properties-property-panel").click()
 
 
+def show_diagram_tab(page, dialog):
+    """Shows the CellDL tab of a module that may have no diagram yet, waiting for the editor."""
+    editor_tab(dialog, "CellDL").click()
+    page.locator(DIAGRAM_SVG).wait_for(state="attached", timeout=DIAGRAM_TIMEOUT)
+    expect(page.locator(".celldl-pane-pending")).to_have_count(0, timeout=DIAGRAM_TIMEOUT)
+
+
+def add_component(page, component):
+    """Drags a component from the bond graph palette onto the diagram, clear of the palette."""
+    page.locator("#editor-bondgraph-tool").click()
+    palette_item = page.locator(f'[id="bondgraph-components/{component}"]')
+    palette_item.wait_for()
+    box = page.locator(DIAGRAM_SVG).bounding_box()
+    palette_item.drag_to(
+        page.locator(DIAGRAM_SVG), target_position={"x": box["width"] * 0.65, "y": box["height"] * 0.5}
+    )
+    page.locator("#editor-select-tool").click()
+
+
+def choose_template(page, template):
+    """Chooses the selected element's template in the CellDL editor's Properties panel."""
+    host = page.locator(".celldl-pane .celldl-host")
+    template_select = host.locator(".p-select").first
+    if not template_select.is_visible():
+        page.locator("#properties-property-panel").click()
+    template_select.click()
+    page.locator(".p-select-option").filter(has_text=re.compile(rf"^\s*{re.escape(template)}\s*$")).click()
+    expect(template_select).to_contain_text(template)
+
+
 def selected_tabs(dialog):
     return dialog.locator("[role=tab][aria-selected=true]").all_inner_texts()
 
@@ -272,6 +302,32 @@ class TestCelldl(unittest.TestCase):
             expect(dialog.get_by_role("tab", name=re.compile(r"Parameters \("))).to_have_attribute("aria-selected", "true")
             dialog.get_by_role("tab", name=re.compile(r"Plot \(")).click()
             expect(dialog.locator(".simulation-plot .plot-title")).to_have_text(f"{MODULE}/u_i_C")
+            # ----------- END ------------
+
+            browser.close()
+
+    def test_converts_a_composite_storage_node_drawn_in_the_template(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+
+            # ---------- START -----------
+            place(page, "TEMPLATE MODULES", "new_module")
+            dialog = open_editor(page, "new_module")
+            show_diagram_tab(page, dialog)
+            add_component(page, "ZeroStorageNode_q")
+            storage = page.locator(f"{DIAGRAM_SVG} #celldl-diagram-layer > g.celldl-Component")
+            expect(storage).to_have_count(1)
+
+            # Making it chemical storage makes it a composite node, which the editor lists as a junction too.
+            click_element(page, storage.get_attribute("id"))
+            choose_template(page, "Chemical storage with Zero Node")
+
+            # Live conversion takes it as a storage node: it asks for its storage's value, not for a junction type.
+            if dialog.locator("#celldl-live-preview").count() == 0:
+                dialog.locator(".celldl-live-toggle").click()
+            issues = dialog.locator(".celldl-live-issues")
+            expect(issues).to_contain_text("Missing value for parameter K", timeout=DIAGRAM_TIMEOUT)
+            expect(issues).not_to_contain_text("must be one, zero or transform nodes")
             # ----------- END ------------
 
             browser.close()
