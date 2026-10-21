@@ -112,6 +112,15 @@ describe('useCelldlEditorHost', () => {
     expect(host.error.value).toBe('Cannot open')
   })
 
+  it("says what the editor's open error means, without the diagram's IRI", () => {
+    host.onEditorState({ error: "Cannot open https://bg-rdf.org/models/local/phlynx/rc.cellml_rc.celldl -- invalid CellDL file?\n\nTypeError: Cannot read properties of null (reading 'dataset')" })
+    expect(host.error.value).toBe(
+      "The CellDL editor can't open this module's diagram (TypeError: Cannot read properties of null (reading 'dataset')). Its CellML still runs."
+    )
+    host.onEditorState({})
+    expect(host.error.value).toBe('')
+  })
+
   it('opens a source prepared while a pane holds the editor at once, saying it is opening', async () => {
     const editor = mountFakeEditor(host)
     editor.draw()

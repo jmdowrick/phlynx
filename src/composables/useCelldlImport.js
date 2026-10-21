@@ -52,7 +52,7 @@ export function useCelldlImport({ confirm }) {
         } else if (!result.cancelled) {
           notify.error({
             title: 'CellDL Import Error',
-            message: [`${name} can't be converted:`, ...issueLines(result.errors)].map(escapeHtml).join('<br>'),
+            message: [`${name} can't be imported:`, ...issueLines(result.errors)].map(escapeHtml).join('<br>'),
           })
         }
         results.push({ ok: result.ok, name, mathRef: result.ok ? result.mathRef : undefined })

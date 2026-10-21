@@ -6,6 +6,7 @@ import { parseMathRef, parseModuleRef } from '../../utils/config.js'
 import { cleanName, getUniqueName } from '../../utils/identifiers.js'
 import { convertCelldl, knownUnitsFor } from './convert.js'
 import { mintDocumentUri } from './documentUri.js'
+import { undrawnElements, undrawnError } from './drawing.js'
 
 /**
  * Names a diagram's component and CellML file after its file name, avoiding every component,
@@ -33,7 +34,8 @@ export function celldlImportNames(filename, libraryStore) {
 
 /**
  * Converts a CellDL diagram and adds it to the library: its source, then its math (which creates
- * its module), then its units. Nothing is added if it doesn't convert, or its warnings aren't accepted.
+ * its module), then its units. Nothing is added if it doesn't convert, the CellDL editor couldn't
+ * open it, or its warnings aren't accepted.
  *
  * @param {string} filename
  * @param {string} document - The CellDL SVG.
@@ -59,6 +61,9 @@ export async function importCelldl(filename, document, libraryStore, { confirmWa
     const message = `The diagram's CellML has no component named ${componentName}`
     return { ...outcome, errors: [{ message, severity: 'error', stage: 'build' }] }
   }
+  // Its CellDL tab would fail to open a diagram that converts but doesn't draw its elements.
+  const undrawn = undrawnElements(document, Object.keys(result.elements ?? {}))
+  if (undrawn.length) return { ...outcome, errors: [undrawnError(undrawn)] }
   if (result.warnings.length && confirmWarnings && !(await confirmWarnings(result.warnings))) {
     return { ...outcome, cancelled: true }
   }
