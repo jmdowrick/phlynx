@@ -660,6 +660,7 @@ import { useCelldlEditorHost } from '../composables/useCelldlEditorHost'
 import { useWorkspaceSearch } from '../composables/useWorkspaceSearch'
 import { SEARCH_MODES, variableKindLabel } from '../utils/workspaceSearch'
 import { scopeFlowObject } from '../services/simulation/scopedModel'
+import { collectSnapshotMath, getSnapshotMathSource } from '../services/flowSnapshotMath'
 import { relayoutNodes } from '../services/layouts/physics'
 import { extractSimData as extractSimDataFromSedml } from '../services/import/sedml'
 import { extractSimData as extractSimDataFromSimulationJson } from '../services/import/simulation'
@@ -1294,6 +1295,7 @@ async function loadFlowSnapshot(fileName, flowSnapshot, parameterData = {}, { no
     } else {
       // Put math from the snapshot into the library store.
       if (nodeMathFromSnapshot) {
+        libraryStore.setMathSource(node.data.mathRef, getSnapshotMathSource(flowSnapshot, node.data.mathHash))
         libraryStore.addMath(node.data.mathRef, nodeMathFromSnapshot)
       }
       delete node.data.mathHash
@@ -2032,11 +2034,10 @@ function recomputeMissingCouplings() {
  */
 function snapshotFlowState(nodeIds = null) {
   const flowState = scopeFlowObject(toObject(), nodeIds)
-  const mathLibrary = new Map()
 
   const nodeData = flowState.nodes.map((node) => {
     const { handles, ...restData } = node.data ?? {}
-    const slimNode = {
+    return {
       id: node.id,
       data: {
         ...restData,
@@ -2046,35 +2047,17 @@ function snapshotFlowState(nodeIds = null) {
       dimensions: node.dimensions,
       type: node.type,
     }
-
-    if (slimNode.data?.mathRef) {
-      const mathRef = slimNode.data.mathRef
-      const mathText = libraryStore.availableMath.get(mathRef)
-      if (mathText) {
-        const baseHash = libraryStore.getMathHashByRef(mathRef) ?? libraryStore.createMathHash(mathText)
-        let mathHash = baseHash
-        let collisionIndex = 1
-
-        while (mathLibrary.has(mathHash) && mathLibrary.get(mathHash) !== mathText) {
-          mathHash = `${baseHash}_${collisionIndex++}`
-        }
-
-        mathLibrary.set(mathHash, mathText)
-        slimNode.data.mathHash = mathHash
-      }
-    }
-
-    return slimNode
   })
-
-  const mathLibraryObject = Object.fromEntries([...mathLibrary.entries()].sort(([a], [b]) => a.localeCompare(b)))
+  const { mathLibrary, mathSources } = collectSnapshotMath(nodeData, libraryStore)
 
   return JSON.stringify({
     id: 'phlynx-flow-snapshot',
     version: PHLYNX_PROJECT_VERSION,
     nodeData,
     edges: flowState.edges,
-    mathLibrary: mathLibraryObject,
+    mathLibrary,
+    // Only with math generated from a source, so a CellML-only snapshot reads as before.
+    ...(Object.keys(mathSources).length ? { mathSources } : {}),
     globalParameters: Array.from(libraryStore.globalVariables.entries()),
   })
 }
