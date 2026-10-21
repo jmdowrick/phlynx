@@ -53,6 +53,12 @@ export async function importCelldl(filename, document, libraryStore, { confirmWa
   })
   const outcome = { ok: false, mathRef, componentName, errors: result.errors, warnings: result.warnings }
   if (!result.ok) return outcome
+  // Only the named component becomes the module, so a source is never stored without its math.
+  const components = result.components.filter((component) => component.name === componentName)
+  if (!components.length) {
+    const message = `The diagram's CellML has no component named ${componentName}`
+    return { ...outcome, errors: [{ message, severity: 'error', stage: 'build' }] }
+  }
   if (result.warnings.length && confirmWarnings && !(await confirmWarnings(result.warnings))) {
     return { ...outcome, cancelled: true }
   }
@@ -65,7 +71,7 @@ export async function importCelldl(filename, document, libraryStore, { confirmWa
     generator: result.generator,
     frameworkVersion: result.frameworkVersion,
   })
-  libraryStore.addMathFile(cellmlFile, result.components)
+  libraryStore.addMathFile(cellmlFile, components)
   if (result.unitsModel) libraryStore.addUnitsFile({ componentFile: cellmlFile, model: result.unitsModel })
   return { ...outcome, ok: true }
 }

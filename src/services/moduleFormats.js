@@ -32,8 +32,9 @@ export const MODULE_FORMATS = Object.freeze({
     isMathLocked: true,
     // The CA export writes the generated CellML, never the diagram.
     caModuleFormat: 'cellml',
-    // Off in Electron, whose CSP blocks the converter's wasm and which has no simulator.
-    isAvailable: !__IS_ELECTRON__,
+    // Off in Electron, whose CSP blocks the converter's wasm and which has no simulator. The flag
+    // is a Vite define, so it is missing outside Vite builds.
+    isAvailable: typeof __IS_ELECTRON__ === 'undefined' || !__IS_ELECTRON__,
   }),
 })
 
