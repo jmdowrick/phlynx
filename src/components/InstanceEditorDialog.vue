@@ -131,7 +131,7 @@
             @undo="handleEditorUndo"
             @redo="handleEditorRedo"
           />
-          <CelldlPane v-else-if="editorKind === 'celldl'" @variable-click="plotClickedVariable" />
+          <CelldlPane v-else-if="editorKind === 'celldl'" :rows="parameterRows" @variable-click="plotClickedVariable" />
         </div>
       </div>
 

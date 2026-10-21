@@ -853,6 +853,33 @@ describe('InstanceEditorDialog locked math', () => {
     prepare.mockRestore()
   })
 
+  it("plots a diagram element's variable clicked with the Plot tab shown and auto-updating, and nothing otherwise", async () => {
+    const variables = [
+      { name: 't', units: 'second', type: 'variable' },
+      { name: 'x', units: 'metre', type: 'variable' },
+    ]
+    flowNodes.value = [{ id: 'a', data: { name: 'a', mathRef: MATH_REF, variables } }]
+    useLibraryStore().setMathSource(MATH_REF, SOURCE)
+    mountDialog({ defaultTab: 'plot', variables })
+    await wrapper.setProps({ modelValue: true })
+    await vi.waitFor(() => expect(wrapper.findComponent(CelldlPaneStub).exists()).toBe(true))
+    const pane = wrapper.findComponent(CelldlPaneStub)
+    const plottedKeys = () => wrapper.findComponent({ name: 'SimulationPanel' }).props('plotConfig').selections.map((selection) => selection.key)
+
+    expect(pane.vm.$attrs.rows.map((row) => row.name)).toEqual(expect.arrayContaining(['t', 'x']))
+    pane.vm.$emit('variable-click', 'x')
+    await flushPromises()
+    expect(plottedKeys()).toEqual(['a::x'])
+
+    wrapper.vm.showTab('parameters')
+    pane.vm.$emit('variable-click', 't')
+    await flushPromises()
+    expect(wrapper.vm.activeTab).toBe('parameters')
+    wrapper.vm.showTab('plot')
+    await flushPromises()
+    expect(plottedKeys()).toEqual(['a::x'])
+  })
+
   it('locks the CellDL tab for CellML math, saying where diagrams start', async () => {
     const prepare = vi.spyOn(useCelldlEditorHost(), 'prepare')
     mountDialog()

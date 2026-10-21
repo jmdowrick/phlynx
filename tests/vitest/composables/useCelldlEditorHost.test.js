@@ -226,6 +226,34 @@ describe('useCelldlEditorHost', () => {
     expect(onEvent).toHaveBeenCalledTimes(1)
   })
 
+  it("annotates the shown diagram's elements, and their saved elements after a save", async () => {
+    const editor = mountFakeEditor(host)
+    editor.draw()
+    const element = (name) => ({ kind: 'one', symbol: '1', primary: name, variables: [{ name, role: 'flow', ucum: 'A', units: 'ampere' }] })
+    host.prepare({ ...SOURCE, elements: { J: element('v_1') } })
+    expect(host.annotations.value).toEqual({})
+    host.claim(document.createElement('div'))
+    await host.sync()
+    await vi.waitFor(() => expect(host.annotations.value).toEqual({ J: { label: '1', primary: 'v_1', variables: ['v_1'], tooltip: 'v_1 (flow, A)' } }))
+
+    editor.edit('<svg>rlc</svg>')
+    const saved = { ...SOURCE, document: '<svg>rlc</svg>', elements: { J: element('v_2') } }
+    host.markSaved(saved)
+    await vi.waitFor(() => expect(host.annotations.value.J.primary).toBe('v_2'))
+
+    host.prepare({ ...saved, elements: { K: element('v_3') } })
+    await vi.waitFor(() => expect(Object.keys(host.annotations.value)).toEqual(['K']))
+  })
+
+  it('annotates nothing for a source saved without elements', async () => {
+    const editor = mountFakeEditor(host)
+    editor.draw()
+    host.prepare(SOURCE)
+    host.claim(document.createElement('div'))
+    await host.sync()
+    expect(host.annotations.value).toEqual({})
+  })
+
   it("doesn't park the editor for a pane that no longer holds it", () => {
     const first = document.createElement('div')
     const second = document.createElement('div')
