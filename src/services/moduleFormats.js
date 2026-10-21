@@ -8,8 +8,9 @@
  * - `caModuleFormat`: the CA config's `module_format`;
  * - `isAvailable`: whether this build can open the format;
  * - `editorTab` (optional): the instance editor tab that edits the source, `{ value, label, icon, errorHeader,
- *   lockedNotice }`, shown after the CellML Text and Math Editor tabs for every module while the format is
- *   available, and locked, with `lockedNotice` as its tooltip, for math in another format.
+ *   lockedNotice, editedNotice }`, shown after the CellML Text and Math Editor tabs for every module while the
+ *   format is available, and locked, with `lockedNotice` as its tooltip, for math in another format. The template
+ *   offers it until its math is edited, then locks it with `editedNotice`.
  */
 
 export const DEFAULT_MODULE_FORMAT = 'cellml'
@@ -34,6 +35,7 @@ export const MODULE_FORMATS = Object.freeze({
       icon: 'pi-sitemap',
       errorHeader: 'Diagram Has Errors',
       lockedNotice: 'CellDL diagrams can only start from the template',
+      editedNotice: 'The CellML was edited, so this module is CellML. Undo the edits to draw a diagram instead',
     }),
     // Off in Electron, whose CSP blocks the converter's wasm and which has no simulator. The flag
     // is a Vite define, so it is missing outside Vite builds.

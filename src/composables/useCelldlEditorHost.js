@@ -18,6 +18,11 @@ export const EDITOR_OPTIONS = Object.freeze({ tooltip: 'tooltip' })
 /** The class marking a diagram element a conversion failed on. */
 export const ERROR_CLASS = 'phlynx-celldl-error'
 
+/** The diagram's own objects, which a blank diagram has none of. */
+const OBJECT_SELECTOR = ['Annotation', 'Component', 'Connector', 'Connection', 'Conduit', 'Compartment', 'InterfacePort']
+  .map((name) => `.celldl-${name}`)
+  .join(', ')
+
 /** The keys the editor handles on the window: undo and redo, deleting, and cancelling a path. */
 const GATED_KEYS = new Set(['Backspace', 'Delete', 'Escape'])
 
@@ -48,7 +53,10 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   const isActive = computed(() => target.value !== null)
   const command = shallowRef(null)
   const isReady = ref(false)
-  /** Whether the diagram was edited since it was opened or marked clean. A hint: the editor reports any change. */
+  /**
+   * Whether the diagram was edited since it was opened or marked clean. A hint, as the editor reports any change but
+   * not an undo, except for a diagram opened blank: that is edited while it has anything on it.
+   */
   const isDirty = ref(false)
   /** The editor's last error, e.g. a document it couldn't open. */
   const error = ref('')
@@ -69,6 +77,9 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   let shown = null
   let baseline = null
   let isOpening = false
+  // Whether the shown diagram was opened blank and not saved since.
+  let isOpenedBlank = false
+  let contentObserver = null
   let commandCount = 0
   const pendingData = new Map()
   // The claiming pane's handler for the editor's viewer events (select, unselect, active, unactive).
@@ -158,6 +169,9 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
    */
   function attach(element) {
     root = element
+    contentObserver?.disconnect()
+    contentObserver = new MutationObserver(checkBlankEdits)
+    contentObserver.observe(root, { childList: true, subtree: true })
     waitFor(() => svgOf() !== null, readyTimeout, 'start').then(
       () => {
         isReady.value = true
@@ -254,6 +268,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
       // The editor finishes setting the diagram up a tick after drawing it, and may flag it edited as it does.
       await new Promise((resolve) => setTimeout(resolve, 0))
       baseline = await serialise()
+      isOpenedBlank = !source?.document
       isDirty.value = false
     } finally {
       isOpening = false
@@ -318,6 +333,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
    */
   function markSaved(source) {
     markClean()
+    isOpenedBlank = false
     baseline = source.document
     wanted = { source }
     setShown(wanted)
@@ -369,7 +385,18 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   }
 
   function onFileEdited() {
-    if (isActive.value && !isOpening) isDirty.value = true
+    if (isActive.value && !isOpening) isDirty.value = !isOpenedBlank || hasObjects()
+  }
+
+  /** Whether the diagram has anything on it. */
+  const hasObjects = () => !!svgOf()?.querySelector(OBJECT_SELECTOR)
+
+  /**
+   * Follows a diagram opened blank back to blank, as by undo, which the editor doesn't report as an edit. Its objects
+   * are added and removed as elements, which the host watches for.
+   */
+  function checkBlankEdits() {
+    if (isOpenedBlank && isDirty.value && isActive.value && !isOpening && !hasObjects()) isDirty.value = false
   }
 
   /**
@@ -404,6 +431,8 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   }
 
   function unlisten() {
+    contentObserver?.disconnect()
+    contentObserver = null
     document.removeEventListener('file-edited', onFileEdited)
     document.removeEventListener('pointerdown', onPointerOrFocus, true)
     document.removeEventListener('focusin', onPointerOrFocus)

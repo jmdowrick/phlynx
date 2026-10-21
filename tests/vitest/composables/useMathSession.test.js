@@ -262,6 +262,16 @@ describe('useMathSession', () => {
     expect(session.hasUnsavedInvalidEdit()).toBe(false)
   })
 
+  it('follows undo and redo across an edit that leaves the math invalid', async () => {
+    await editorRef.value.report('init', 'ode(x, t) = -k * x;\n', true)
+    await editorRef.value.report('edit', 'ode(x, t) = -k *', true)
+
+    await history.undo()
+    expect(session.hasUnsavedInvalidEdit()).toBe(false)
+    await history.redo()
+    expect(session.hasUnsavedInvalidEdit()).toBe(true)
+  })
+
   describe('when a variable is renamed in the text', () => {
     const SIMPLE_TEXT = 'ode(x, t) = -k * x;\n'
 
@@ -746,6 +756,24 @@ describe('useMathSession', () => {
       expect(session.isDirty()).toBe(false)
       expect(byName(session.parameterRows.value).k).toBeDefined()
       expect(history.canUndo).toBe(false)
+    })
+
+    it('follows a lock its caller gives over the stored format, and reports edits once it lifts', async () => {
+      const isLocked = ref(true)
+      useLibraryStore().setMathSource(MATH_REF, null)
+      session = useMathSession({ history, editorRef, ports, isLocked: () => isLocked.value })
+      editorRef.value = fakeEditor(session)
+      await session.load({ mathRef: MATH_REF, rows: [], managed: false })
+      const text = new CellMLTextGenerator({ simplified: false }).generate(XML)
+      await editorRef.value.report('init', text, false)
+
+      await editorRef.value.report('edit', text.replace(/\bk\b/g, 'kk'), false)
+      expect(session.isMathLocked.value).toBe(true)
+      expect(session.isDirty()).toBe(false)
+
+      isLocked.value = false
+      await editorRef.value.report('edit', text.replace(/\bk\b/g, 'kk'), false)
+      expect(session.isDirty()).toBe(true)
     })
 
     it('keeps the instance values and fills the rest from a generated model', () => {

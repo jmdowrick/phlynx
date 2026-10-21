@@ -178,6 +178,41 @@ describe('useCelldlEditorHost', () => {
     expect(host.isDirty.value).toBe(false)
   })
 
+  it('counts a diagram opened blank as edited only while it has something on it, following undo back to blank', async () => {
+    const editor = mountFakeEditor(host)
+    editor.draw()
+    host.prepare(null)
+    host.claim(document.createElement('div'))
+    await host.sync()
+    const svg = () => editor.root.querySelector('#svg-container > svg')
+
+    document.dispatchEvent(new CustomEvent('file-edited'))
+    expect(host.isDirty.value).toBe(false)
+
+    const component = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+    component.classList.add('celldl-Component')
+    svg().appendChild(component)
+    document.dispatchEvent(new CustomEvent('file-edited'))
+    expect(host.isDirty.value).toBe(true)
+
+    // Undo removes it without reporting an edit.
+    component.remove()
+    await vi.waitFor(() => expect(host.isDirty.value).toBe(false))
+  })
+
+  it("keeps a stored diagram's edits once it is back to blank, as only a serialisation tells", async () => {
+    const editor = mountFakeEditor(host)
+    editor.draw()
+    host.prepare(SOURCE)
+    host.claim(document.createElement('div'))
+    await host.sync()
+
+    document.dispatchEvent(new CustomEvent('file-edited'))
+    editor.root.querySelector('#svg-container > svg').appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'g'))
+    await nextTick()
+    expect(host.isDirty.value).toBe(true)
+  })
+
   it('keeps a saved diagram for the dialog reloading after the save, but reopens one edited since', async () => {
     const editor = mountFakeEditor(host)
     editor.draw()

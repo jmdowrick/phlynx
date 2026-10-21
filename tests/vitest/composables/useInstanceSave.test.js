@@ -440,6 +440,24 @@ describe('useInstanceSave', () => {
       expect([...library.availableCollections.get('library.cellml:growth')]).toEqual([GROWTH_MODULE_REF])
     })
 
+    it('makes a diagram saved from the template a CellDL module in its own file, and undo removes it all', async () => {
+      const mathRef = 'growth.cellml:growth'
+      const source = { format: 'celldl', document: '<diagram/>', documentUri: 'local:growth.celldl' }
+      const units = { componentFile: 'growth.cellml', model: '<model name="units"/>' }
+      await saveInstanceEdit(buildSave({ mathRef, math: GROWTH_XML, source, isSourceChanged: true, units }))
+
+      expect(library.getMathFormat(mathRef)).toBe('celldl')
+      expect(library.getMathSource(mathRef)).toEqual(source)
+      expect(library.availableUnits.find((file) => file.componentFile === 'growth.cellml')?.model).toBe(units.model)
+      expect(findNode('a').data).toMatchObject({ mathRef, moduleRef: 'growth:default' })
+      expect(findNode('b').data.mathRef).toBe(DECAY_REF)
+
+      await history.undo()
+      expect(library.availableMath.has(mathRef)).toBe(false)
+      expect(library.getMathSource(mathRef)).toBeNull()
+      expect(library.availableUnits.some((file) => file.componentFile === 'growth.cellml')).toBe(false)
+    })
+
     it('leaves the module alone when the math already has one', async () => {
       library.addModule({ moduleRef: 'decay:default', mathRef: DECAY_REF, ports: [], variables: [] })
       await saveInstanceEdit(buildSave({ math: DECAY_WITHOUT_K }))

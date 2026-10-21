@@ -67,17 +67,20 @@ function isSameLayout(layout, otherLayout) {
  * @param {Function} [options.beforeInit] - Called just before the first editor's `init` after a load is applied;
  *   its result is passed to onInit.
  * @param {Function} [options.onInit] - Called once the first editor's `init` after a load has been applied.
+ * @param {() => boolean} [options.isLocked] - Whether the math is locked, when that depends on more than its stored
+ *   format, e.g. the template once a diagram is drawn for it.
  * @returns {Object} Session state, queries and actions.
  */
-export function useMathSession({ history, editorRef, ports, plotVariables = null, beforeInit = null, onInit = null }) {
+export function useMathSession({ history, editorRef, ports, plotVariables = null, beforeInit = null, onInit = null, isLocked = null }) {
   const store = useLibraryStore()
 
   const isManaged = ref(true) // Simple Mode: the table owns the declarations
   const loadedMathRef = ref(null)
   /** Whether the math is generated from a source, so editor changes are ignored. */
-  const isMathLocked = computed(() => getModuleFormat(store.getMathFormat(loadedMathRef.value)).isMathLocked)
+  const isMathLocked = computed(() => isLocked?.() ?? getModuleFormat(store.getMathFormat(loadedMathRef.value)).isMathLocked)
   const currentModel = ref('') // latest valid XML
-  // Latest editor text, valid or not, with the layout of the last valid CellML text at that point.
+  // Latest editor text, valid or not, with the layout of the last valid CellML text at that point. `isInvalidEdit`
+  // marks a user's edit that doesn't parse, so isn't in currentModel and isDirty can't see it; undo restores it.
   const currentText = ref({ format: null, value: '', layout: null })
   const originalModel = ref('')
   const loadedLayout = shallowRef(null)
@@ -107,8 +110,6 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
   // An editor mounted after a switch also reports 'init', which only moves the baseline if nothing
   // has changed, since each editor writes the same math its own way (e.g. `0.0` as `0`).
   let hasInitialised = false
-  // The user's latest edit doesn't parse, so it isn't in currentModel and isDirty can't see it.
-  let hasInvalidEdit = false
 
   /**
    * Replaces the rows and records the mode that built them.
@@ -219,7 +220,7 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
    * @returns {boolean}
    */
   function hasUnsavedInvalidEdit() {
-    return hasInvalidEdit
+    return !!currentText.value.isInvalidEdit
   }
 
   // Bumped by each load, so an analysis that arrives after a later load started is dropped.
@@ -247,7 +248,6 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
     currentText.value = { format: null, value: '', layout: null }
     pendingRename.value = null
     hasInitialised = false
-    hasInvalidEdit = false
     parkedRows.clear()
 
     const nextAnalysis = mathRef ? await store.ensureMathAnalysis(mathRef) : null
@@ -328,16 +328,14 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
       format: format ?? editorRef.value?.format ?? null,
       value: text,
       layout: layout ?? currentLayout.value,
+      isInvalidEdit: !valid && source === 'edit',
     }
 
     if (!valid) {
-      if (source === 'edit') {
-        hasInvalidEdit = true
-        await recordTextEdit(textState)
-      } else currentText.value = textState
+      if (source === 'edit') await recordTextEdit(textState)
+      else currentText.value = textState
       return
     }
-    hasInvalidEdit = false
 
     const nextAnalysis = analyzeMathXml(xml)
     if (source === 'edit') return handleValidEdit(xml, textState, nextAnalysis)
