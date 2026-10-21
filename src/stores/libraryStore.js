@@ -475,7 +475,7 @@ export const useLibraryStore = defineStore('library', () => {
     const moduleRef = uniqueModuleRef(`${componentName}:default`, mathRef, (ref) => availableModules.value.get(ref))
     const module = variables
       ? { moduleRef, mathRef, ports: [], variables }
-      : buildModule(moduleRef, mathRef, availableMath.value.get(mathRef))
+      : buildModule(moduleRef, mathRef, availableMath.value.get(mathRef), getMathDefaults(mathRef))
     if (ports) module.ports = ports
     addModule(module)
     return moduleRef
