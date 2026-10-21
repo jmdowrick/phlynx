@@ -245,6 +245,24 @@ describe('useCelldlEditorHost', () => {
     await vi.waitFor(() => expect(Object.keys(host.annotations.value)).toEqual(['K']))
   })
 
+  it('drops annotations that arrive after a newer source, and clears them for a source that fails to open', async () => {
+    const editor = mountFakeEditor(host, { failOpen: true })
+    editor.draw()
+    const elements = { J: { kind: 'one', symbol: '1', primary: 'v_1', variables: [{ name: 'v_1', role: 'flow', ucum: 'A', units: 'ampere' }] } }
+    host.markSaved({ ...SOURCE, elements })
+    host.markSaved(SOURCE)
+    await import('@physiomelinks/bg2cellml')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(host.annotations.value).toEqual({})
+
+    host.markSaved({ ...SOURCE, elements })
+    await vi.waitFor(() => expect(Object.keys(host.annotations.value)).toEqual(['J']))
+    host.prepare({ ...SOURCE, document: '<svg>rlc</svg>', elements })
+    host.claim(document.createElement('div'))
+    await expect(host.sync()).rejects.toThrow('Cannot open')
+    expect(host.annotations.value).toEqual({})
+  })
+
   it('annotates nothing for a source saved without elements', async () => {
     const editor = mountFakeEditor(host)
     editor.draw()
