@@ -84,6 +84,11 @@ onUnmounted(() => {
   overflow: hidden;
   pointer-events: none;
 }
+
+/* A diagram element the last conversion failed on (useCelldlEditorHost's highlight). */
+.celldl-host .phlynx-celldl-error {
+  filter: drop-shadow(0 0 2px var(--p-red-500)) drop-shadow(0 0 4px var(--p-red-500));
+}
 </style>
 
 <style scoped>

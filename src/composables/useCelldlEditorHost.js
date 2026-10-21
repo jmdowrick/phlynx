@@ -12,6 +12,9 @@ import { computed, ref, shallowRef, watch } from 'vue'
 const READY_TIMEOUT_MS = 30000
 const COMMAND_TIMEOUT_MS = 10000
 
+/** The class marking a diagram element a conversion failed on. */
+export const ERROR_CLASS = 'phlynx-celldl-error'
+
 /** The keys the editor handles on the window: undo and redo, deleting, and cancelling a path. */
 const GATED_KEYS = new Set(['Backspace', 'Delete', 'Escape'])
 
@@ -148,6 +151,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
    */
   async function serialise() {
     await whenReady()
+    clearHighlights()
     const kind = `phlynx-${++commandCount}`
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -160,6 +164,22 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
       })
       send({ command: 'file', options: { action: 'data', kind } })
     })
+  }
+
+  /**
+   * Marks the diagram's elements a conversion failed on, until the diagram is next serialised or opened.
+   *
+   * @param {string[]} ids - Their SVG ids.
+   */
+  function highlight(ids) {
+    clearHighlights()
+    const svg = svgOf()
+    ids.forEach((id) => svg?.getElementById(id)?.classList.add(ERROR_CLASS))
+  }
+
+  /** Clears highlight's marks, which must never be saved with the diagram. */
+  function clearHighlights() {
+    root?.querySelectorAll(`.${ERROR_CLASS}`).forEach((element) => element.classList.remove(ERROR_CLASS))
   }
 
   /**
@@ -221,7 +241,9 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
    * @param {Object|null} source
    */
   function prepare(source) {
-    wanted = { source }
+    // The editor already shows an unedited source, e.g. the one just saved.
+    const isShown = !!shown && !isDirty.value && isSameSource(shown.source, source)
+    wanted = isShown ? shown : { source }
     isDirty.value = false
     if (isActive.value) sync().catch((e) => (error.value = e.message))
   }
@@ -257,6 +279,17 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   function markClean() {
     send({ command: 'edit', options: { action: 'clean' } })
     isDirty.value = false
+  }
+
+  /**
+   * Marks the diagram saved as a source, so a dialog reloading after the save keeps it rather than opening it again.
+   *
+   * @param {{document: string, documentUri: string}} source - The source saved, its document as serialised.
+   */
+  function markSaved(source) {
+    markClean()
+    baseline = source.document
+    shown = wanted = { source }
   }
 
   /**
@@ -364,6 +397,8 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     serialise,
     compareWithBaseline,
     markClean,
+    markSaved,
+    highlight,
     claim,
     release,
     onEditorData,
@@ -372,6 +407,17 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     listen,
     unlisten,
   }
+}
+
+/**
+ * Checks whether two sources open as the same diagram.
+ *
+ * @param {Object|null} source
+ * @param {Object|null} other
+ * @returns {boolean}
+ */
+function isSameSource(source, other) {
+  return source?.document === other?.document && source?.documentUri === other?.documentUri
 }
 
 let host = null
