@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+import fs from 'node:fs'
+import path from 'node:path'
+
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { CellMLTextParser } from 'cellml-text-editor'
@@ -307,6 +310,18 @@ describe('instances of a module built from a CellML file', () => {
     const instance = buildInstance('n1', 'decay_1', 'instanceNode', module, [], null, store.getMathAnalysis(MATH_REF), store.getMathDefaults(MATH_REF))
     const rows = Object.fromEntries(instance.data.variables.map((row) => [row.name, row.value]))
     expect(rows).toMatchObject({ k: '0.5', x_init: '1.5' })
+  })
+
+  it("type a DAE's implicit unknown as computed, and its parameters as constants with their values", () => {
+    const store = useLibraryStore()
+    const xml = fs.readFileSync(path.resolve(__dirname, '../fixtures/bg2cellml/rlc_dae.cellml'), 'utf8')
+    store.addMathFile('rlc.cellml', [{ name: 'main', math: xml }])
+    const module = store.availableModules.get('main:default')
+
+    const instance = buildInstance('n1', 'rlc_1', 'instanceNode', module, [], null, store.getMathAnalysis('rlc.cellml:main'), store.getMathDefaults('rlc.cellml:main'))
+    const rows = Object.fromEntries(instance.data.variables.map((row) => [row.name, row]))
+    expect(rows.a_L_m_L.type).toBe('variable')
+    expect(rows.L_L_m_L).toMatchObject({ type: 'constant', value: '1' })
   })
 })
 
