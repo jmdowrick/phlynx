@@ -3,6 +3,7 @@
     :visible="modelValue"
     modal
     :dismissableMask="!loading"
+    :closeOnEscape="!celldlHost.isEngaged.value"
     :draggable="false"
     :style="{ width: '95vw', maxWidth: '1680px', height: '90vh', maxHeight: '960px' }"
     class="module-editor-dialog"
@@ -61,14 +62,23 @@
       :class="{ 'is-dragging': dragging, 'is-suppressed': isScreenTooSmall }"
       :inert="isScreenTooSmall"
     >
-      <!-- LEFT COLUMN: CellML Text or Math Editor -->
+      <!-- LEFT COLUMN: CellML Text, Math Editor or a format's own editor -->
       <div class="pane left-pane" :style="leftPaneStyle">
         <Tabs :key="editorTabsKey" :value="editorKind" class="editor-tabs" @update:value="switchEditor">
           <TabList>
-            <Tab v-for="option in editorOptions" :key="option.value" :value="option.value">
-              <i :class="['pi', option.icon, 'tab-icon']"></i>
-              {{ option.label }}
-            </Tab>
+            <template v-for="option in editorOptions" :key="option.value">
+              <!-- A disabled tab takes no pointer events, so its wrapper shows why. -->
+              <span v-if="option.isLocked" v-tooltip.bottom="option.lockedNotice" class="editor-tab-locked">
+                <Tab :value="option.value" disabled>
+                  <i :class="['pi', option.icon, 'tab-icon']"></i>
+                  {{ option.label }}
+                </Tab>
+              </span>
+              <Tab v-else :value="option.value">
+                <i :class="['pi', option.icon, 'tab-icon']"></i>
+                {{ option.label }}
+              </Tab>
+            </template>
           </TabList>
         </Tabs>
         <Message v-if="pendingRename && !isMathLocked" class="rename-notice" severity="info" size="small" :closable="false">
@@ -121,6 +131,7 @@
             @undo="handleEditorUndo"
             @redo="handleEditorRedo"
           />
+          <CelldlPane v-else-if="editorKind === 'celldl'" @variable-click="plotClickedVariable" />
         </div>
       </div>
 
@@ -491,6 +502,7 @@ import MultiportKey from './MultiportKey.vue'
 import MultiportSummary from './MultiportSummary.vue'
 import PortVariableSelect from './PortVariableSelect.vue'
 import ComponentSaveAsDialog from './dialogs/ComponentSaveAsDialog.vue'
+import CelldlPane from './celldl/CelldlPane.vue'
 import MultiportIcon from './icons/MultiportIcon.vue'
 import BasicportIcon from './icons/BasicportIcon.vue'
 
@@ -502,6 +514,7 @@ import { useGtm } from '../composables/useGtm'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useMathSession } from '../composables/useMathSession'
 import { useAppSettings } from '../composables/useAppSettings'
+import { useCelldlEditorHost } from '../composables/useCelldlEditorHost'
 
 import { isInitialisable } from '../services/math/variableKinds'
 import { resolveBoundaryValues } from '../services/export/boundaryValues'
@@ -521,7 +534,7 @@ import { detachReactivity } from '../utils/reactivity'
 import { waitUntilStable } from '../utils/layout'
 import { notify } from '../utils/notify'
 import { getModelComponentNames, renameLayoutComponent, renameModelComponent } from '../utils/cellml'
-import { getModuleFormat } from '../services/moduleFormats'
+import { getEditorTabFormats, getModuleFormat } from '../services/moduleFormats'
 import { findPort } from '../utils/ports'
 import { previewCouplings } from '../utils/edges'
 import {
@@ -664,6 +677,13 @@ const moduleFormat = computed(() => getModuleFormat(store.getMathFormat(props.ma
 /** Whether the math is generated from a source, so only its values can be edited here. */
 const isMathLocked = computed(() => moduleFormat.value.isMathLocked)
 
+// The CellDL editor, which a CellDL module's diagram opens in when its tab shows. Escape there is the editor's,
+// e.g. to drop a path being drawn, so it doesn't close the dialog.
+const celldlHost = useCelldlEditorHost()
+const isDiagramEditable = computed(() => moduleFormat.value.id === 'celldl')
+/** Whether the diagram has edits, which a run doesn't see either. */
+const isDiagramDirty = computed(() => isDiagramEditable.value && celldlHost.isDirty.value)
+
 const componentNameTitle = computed(() =>
   isMathLocked.value
     ? `The ${moduleFormat.value.label} source sets the component name.`
@@ -677,10 +697,17 @@ const MATH_EDITOR_OPTIONS = [
   { value: 'math', label: 'Math Editor', icon: 'pi-calculator', errorHeader: 'Math Has Errors' },
 ]
 
-/** The editor tabs: the math editors, after the format's own editor when it has one. */
-const editorOptions = computed(() =>
-  moduleFormat.value.editorTab ? [moduleFormat.value.editorTab, ...MATH_EDITOR_OPTIONS] : MATH_EDITOR_OPTIONS
-)
+/**
+ * The editor tabs: the math editors, then each available format's own editor, locked unless the math is in that
+ * format.
+ */
+const editorOptions = computed(() => [
+  ...MATH_EDITOR_OPTIONS,
+  ...getEditorTabFormats().map((format) => ({ ...format.editorTab, isLocked: format.id !== moduleFormat.value.id })),
+])
+
+/** Whether an editor can be chosen for this math. */
+const isEditorOffered = (kind) => editorOptions.value.some((option) => option.value === kind && !option.isLocked)
 
 /**
  * Gets the editor last chosen, if this math offers it.
@@ -690,7 +717,7 @@ const editorOptions = computed(() =>
 function loadStoredEditorKind() {
   try {
     const stored = window.localStorage.getItem(EDITOR_STORAGE_KEY)
-    if (editorOptions.value.some((option) => option.value === stored)) return stored
+    if (isEditorOffered(stored)) return stored
   } catch (e) {
     // localStorage unavailable (e.g. private browsing) - fall back to default
   }
@@ -718,7 +745,7 @@ function getEditorErrors() {
  * @param {string} kind - An editor option's value.
  */
 async function switchEditor(kind) {
-  if (kind === editorKind.value) return
+  if (kind === editorKind.value || !isEditorOffered(kind)) return
   await session.flushPendingChanges()
 
   if (getEditorErrors().length > 0) {
@@ -1154,7 +1181,11 @@ function rebaselineEditorState(wasUnchanged = true) {
 const hasUnsavedEdits = computed(
   () =>
     !loading.value &&
-    (session.isDirty() || session.isLayoutDirty() || session.hasUnsavedInvalidEdit() || signEditorState() !== savedEditorState.value)
+    (session.isDirty() ||
+      session.isLayoutDirty() ||
+      session.hasUnsavedInvalidEdit() ||
+      isDiagramDirty.value ||
+      signEditorState() !== savedEditorState.value)
 )
 
 /** The active right-hand tab's name and count, shown on the collapsed rail. */
@@ -1240,10 +1271,12 @@ async function loadEditor({ keepTab = false } = {}) {
   // A format with its own editor opens on it; another math's editor isn't offered here.
   const formatEditor = moduleFormat.value.editorTab?.value
   if (formatEditor && !keepTab) editorKind.value = formatEditor
-  else if (!editorOptions.value.some((option) => option.value === editorKind.value)) {
+  else if (!isEditorOffered(editorKind.value)) {
     editorKind.value = formatEditor ?? loadStoredEditorKind()
   }
   issueFilter.reset()
+  // The diagram opens as the tab first shows, so a dialog that never shows it never loads the editor.
+  if (isDiagramEditable.value) celldlHost.prepare(store.getMathSource(props.mathRef))
 
   editableName.value = props.initialName
   editableComponentName.value = componentName.value
@@ -1415,7 +1448,7 @@ async function handleCancel() {
   await session.flushPendingChanges()
 
   // Plots and sliders apply as they change, so only the instance's own edits count.
-  if (session.hasUnsavedInvalidEdit() || session.isDirty() || session.isLayoutDirty()) {
+  if (session.hasUnsavedInvalidEdit() || session.isDirty() || session.isLayoutDirty() || isDiagramDirty.value) {
     const confirmed = await confirm({
       header: 'Unsaved Changes',
       message: 'Are you sure you want to discard changes?',
@@ -2044,6 +2077,10 @@ async function handleSave(options) {
 .tab-icon {
   margin-right: 6px;
   font-size: var(--dlg-fs-small);
+}
+
+.editor-tab-locked {
+  display: flex;
 }
 
 /* Parameters tab: row-state stripes reach into ParameterTable via :deep */

@@ -36,6 +36,7 @@ const { default: InstanceEditorDialog } = await import('../../../src/components/
 const { default: ComponentSaveAsDialog } = await import('../../../src/components/dialogs/ComponentSaveAsDialog.vue')
 const { NEW_MODULE_MATH_REF } = await import('../../../src/utils/constants.js')
 const { cycleMultiportType } = await import('../../../src/utils/multiport.js')
+const { useCelldlEditorHost } = await import('../../../src/composables/useCelldlEditorHost.js')
 
 const MATH_REF = 'file:decay'
 const XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
@@ -64,6 +65,15 @@ const FakeEditor = defineComponent({
   setup(_, { expose }) {
     expose({ format: 'mathml', setText, setModel, flush: () => {}, getErrors, focus: () => {} })
     return () => h('div')
+  },
+})
+
+/** Stands in for CelldlPane, which shows the app's CellDL editor. */
+const CelldlPaneStub = defineComponent({
+  name: 'CelldlPane',
+  emits: ['variable-click'],
+  setup() {
+    return () => h('div', { class: 'celldl-pane-stub' })
   },
 })
 
@@ -113,6 +123,7 @@ function mountDialog(props = {}, { isPanelReal = false } = {}) {
         Dialog: DialogStub,
         CellMLTextEditor: FakeEditor,
         MathWorkbenchEditor: FakeEditor,
+        CelldlPane: CelldlPaneStub,
         ParameterTable: ParameterTableStub,
         ...(isPanelReal ? { SimulationPlot: true, FeaturePlot: true } : { SimulationPanel: SimulationPanelStub }),
       },
@@ -758,12 +769,28 @@ describe('InstanceEditorDialog locked math', () => {
     flowNodes.value = []
     window.localStorage.clear()
     getErrors.mockImplementation(() => [])
+    useCelldlEditorHost().isDirty.value = false
   })
+
+  /**
+   * Opens a CellDL module's dialog, which shows its diagram, then switches to the CellML Text editor.
+   *
+   * @returns {Promise<import('@vue/test-utils').VueWrapper>} The editor.
+   */
+  async function openAsText() {
+    await wrapper.setProps({ modelValue: true })
+    await vi.waitFor(() => expect(wrapper.findComponent(CelldlPaneStub).exists()).toBe(true))
+    await wrapper.vm.switchEditor('text')
+    await flushPromises()
+    return wrapper.findComponent(FakeEditor)
+  }
+
+  const editorTab = (label) => wrapper.findAll('.editor-tabs [role="tab"]').find((tab) => tab.text() === label)
 
   it('shows math generated from a source read-only, with only its values editable', async () => {
     useLibraryStore().setMathSource(MATH_REF, SOURCE)
     mountDialog()
-    const editor = await open()
+    const editor = await openAsText()
     await report(editor, 'init', XML)
 
     expect(stubProps(FakeEditor).readonly).toBe(true)
@@ -777,7 +804,7 @@ describe('InstanceEditorDialog locked math', () => {
   it('keeps Simple Mode off in the Math Editor, and saves to every instance', async () => {
     useLibraryStore().setMathSource(MATH_REF, SOURCE)
     mountDialog()
-    const editor = await open()
+    const editor = await openAsText()
     await report(editor, 'init', XML)
 
     await wrapper.vm.switchEditor('math')
@@ -797,7 +824,7 @@ describe('InstanceEditorDialog locked math', () => {
   it("ignores the editor's errors, since its edits are never saved", async () => {
     useLibraryStore().setMathSource(MATH_REF, SOURCE)
     mountDialog()
-    const editor = await open()
+    const editor = await openAsText()
     await report(editor, 'init', XML)
     getErrors.mockImplementation(() => [{ line: 1, message: 'This equation is incomplete.' }])
 
@@ -806,6 +833,79 @@ describe('InstanceEditorDialog locked math', () => {
     await flushPromises()
     expect(confirm).not.toHaveBeenCalled()
     expect(wrapper.emitted('confirm')).toHaveLength(1)
+  })
+
+  it('opens a CellDL module on its diagram, which it prepares for the editor', async () => {
+    const prepare = vi.spyOn(useCelldlEditorHost(), 'prepare')
+    useLibraryStore().setMathSource(MATH_REF, SOURCE)
+    mountDialog()
+    await wrapper.setProps({ modelValue: true })
+    await vi.waitFor(() => expect(wrapper.findComponent(CelldlPaneStub).exists()).toBe(true))
+
+    expect(wrapper.vm.editorKind).toBe('celldl')
+    expect(prepare).toHaveBeenCalledWith(SOURCE)
+    expect(wrapper.findAll('.editor-tabs [role="tab"]').map((tab) => tab.text())).toEqual(['CellML Text', 'Math Editor', 'CellDL'])
+    expect(editorTab('CellDL').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('.editor-tab-locked').exists()).toBe(false)
+    prepare.mockRestore()
+  })
+
+  it('locks the CellDL tab for CellML math, saying where diagrams start', async () => {
+    const prepare = vi.spyOn(useCelldlEditorHost(), 'prepare')
+    mountDialog()
+    await open()
+
+    expect(editorTab('CellDL').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.editor-tab-locked').exists()).toBe(true)
+    await wrapper.vm.switchEditor('celldl')
+    expect(wrapper.vm.editorKind).toBe('text')
+    expect(prepare).not.toHaveBeenCalled()
+    prepare.mockRestore()
+  })
+
+  it('counts diagram edits as unsaved, and asks before discarding them', async () => {
+    useLibraryStore().setMathSource(MATH_REF, SOURCE)
+    mountDialog({ defaultTab: 'plot' })
+    await wrapper.setProps({ modelValue: true })
+    await vi.waitFor(() => expect(wrapper.findComponent(CelldlPaneStub).exists()).toBe(true))
+    expect(wrapper.vm.hasUnsavedEdits).toBe(false)
+    expect(wrapper.find('.plot-tab-note').exists()).toBe(false)
+
+    useCelldlEditorHost().isDirty.value = true
+    await flushPromises()
+    expect(wrapper.vm.hasUnsavedEdits).toBe(true)
+    expect(wrapper.find('.plot-tab-note').exists()).toBe(true)
+
+    confirm.mockResolvedValueOnce(false)
+    await wrapper.findAll('button').find((button) => button.text() === 'Cancel').trigger('click')
+    await flushPromises()
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ header: 'Unsaved Changes' }))
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
+  it('leaves Escape to the diagram while the user works in it', async () => {
+    useLibraryStore().setMathSource(MATH_REF, SOURCE)
+    mountDialog()
+    await wrapper.setProps({ modelValue: true })
+    await vi.waitFor(() => expect(wrapper.findComponent(CelldlPaneStub).exists()).toBe(true))
+    const closeOnEscape = () => wrapper.findComponent(DialogStub).vm.$attrs.closeOnEscape
+
+    expect(closeOnEscape()).toBe(true)
+    useCelldlEditorHost().isEngaged.value = true
+    await flushPromises()
+    expect(closeOnEscape()).toBe(false)
+    useCelldlEditorHost().isEngaged.value = false
+  })
+
+  it("ignores the CellDL editor's edits for CellML math", async () => {
+    useCelldlEditorHost().isDirty.value = true
+    mountDialog()
+    await open()
+
+    await wrapper.findAll('button').find((button) => button.text() === 'Cancel').trigger('click')
+    await flushPromises()
+    expect(confirm).not.toHaveBeenCalled()
+    expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
   })
 
   it('opens on the CellML Text editor when the editor last chosen isn\'t offered', async () => {

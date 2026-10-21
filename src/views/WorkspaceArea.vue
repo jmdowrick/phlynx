@@ -504,6 +504,7 @@
     :default-tab="instanceEditorDefaultTab"
     @confirm="onInstanceEditConfirm"
   />
+  <CelldlEditorHost v-if="isCelldlEditorRequested" />
 
   <SaveDialog v-model="saveDialogVisible" :default-name="sessionMetadataStore.lastSaveName" @confirm="onSaveConfirm" />
 
@@ -632,6 +633,7 @@ import SettingsDialog from '../components/SettingsDialog.vue'
 import HelperLines from '../components/HelperLines.vue'
 import PaneContextMenu from '../components/PaneContextMenu.vue'
 import InstanceEditorDialog from '../components/InstanceEditorDialog.vue'
+import CelldlEditorHost from '../components/celldl/CelldlEditorHost.vue'
 import CreateInspectionModuleDialog from '../components/dialogs/CreateInspectionModule.vue'
 import ContextSidebar from '../components/ContextSidebar.vue'
 
@@ -654,6 +656,7 @@ import { useSimSettingsDialog } from '../composables/useSimSettingsDialog'
 import { useProtocolDialog } from '../composables/useProtocolDialog'
 import { useFloatingViewer } from '../composables/useFloatingViewer'
 import { useActiveDocumentListeners } from '../composables/useActiveDocumentListeners'
+import { useCelldlEditorHost } from '../composables/useCelldlEditorHost'
 import { useWorkspaceSearch } from '../composables/useWorkspaceSearch'
 import { SEARCH_MODES, variableKindLabel } from '../utils/workspaceSearch'
 import { scopeFlowObject } from '../services/simulation/scopedModel'
@@ -809,6 +812,8 @@ const omexStore = useOmexStore()
 const nodeThemeStore = useNodeThemeStore()
 const { isDarkMode } = useColorScheme()
 const { settings: appSettings } = useAppSettings()
+// The CellDL editor mounts once a CellDL tab first asks for it, and stays.
+const { isRequested: isCelldlEditorRequested } = useCelldlEditorHost()
 
 /** MiniMap nodes follow the active node colour theme; uncategorised nodes keep the MiniMap default grey. */
 function miniMapNodeColour(node) {

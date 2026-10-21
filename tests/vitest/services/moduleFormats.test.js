@@ -3,6 +3,7 @@ import {
   DEFAULT_MODULE_FORMAT,
   MODULE_FORMATS,
   checkMathSource,
+  getEditorTabFormats,
   getModuleFormat,
 } from '../../../src/services/moduleFormats.js'
 
@@ -20,6 +21,16 @@ describe('module formats', () => {
   it('gives an unknown format a locked, unavailable fallback named after it', () => {
     const format = getModuleFormat('python')
     expect(format).toMatchObject({ id: 'python', label: 'python', isMathLocked: true, isAvailable: false })
+  })
+
+  it('offers the CellDL editor tab, locked for other formats with a note on where diagrams start', () => {
+    expect(getEditorTabFormats().map((format) => format.id)).toEqual(['celldl'])
+    expect(getModuleFormat('celldl').editorTab).toMatchObject({
+      value: 'celldl',
+      label: 'CellDL',
+      lockedNotice: 'CellDL diagrams can only start from the template',
+    })
+    expect(getModuleFormat('cellml').editorTab).toBeUndefined()
   })
 
   it('does not look formats up on the object prototype', () => {
