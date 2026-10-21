@@ -18,6 +18,7 @@ import {
   findVoiNames,
   inferType,
   isBlank,
+  isEmpty,
   isNumericLiteral,
   syncInitialiserUnits,
 } from '../../utils/variables'
@@ -302,4 +303,17 @@ export function reconcileRows(analysis, previousRows = [], { mode = SIMPLE_MODE,
   resolveStateInitialisers(rows, analysis.stateVariables)
   syncInitialiserUnits(rows, { overwrite: mode === SIMPLE_MODE })
   return rows
+}
+
+/**
+ * Fills blank row values from defaults, e.g. the values a locked math's source generates. Rows with
+ * a value keep it.
+ *
+ * @param {Array} rows - Never mutated.
+ * @param {Map<string, string>} defaults
+ * @returns {Array} The rows, with copies for those filled.
+ */
+export function fillBlankValues(rows, defaults) {
+  if (!defaults.size) return rows
+  return rows.map((row) => (isEmpty(row.value) && defaults.has(row.name) ? { ...row, value: defaults.get(row.name) } : row))
 }

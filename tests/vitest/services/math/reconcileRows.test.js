@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyPortTypes, findUnusedDeclared, getPortVariables, reconcileRows } from '../../../../src/services/math/reconcileRows'
+import { applyPortTypes, fillBlankValues, findUnusedDeclared, getPortVariables, reconcileRows } from '../../../../src/services/math/reconcileRows'
 
 const analysis = (overrides = {}) => ({
   componentName: 'c',
@@ -353,5 +353,21 @@ describe('findUnusedDeclared', () => {
     const previous = [{ name: 'cAMP', units: 'dimensionless', value: '0.01', type: 'constant', data_reference: 'user_defined' }]
     expect(byName(reconcileRows(math, previous)).cAMP).toMatchObject({ value: '0.01', data_reference: 'user_defined' })
     expect(reconcileRows(analysis(), previous)).toEqual([])
+  })
+})
+
+describe('fillBlankValues', () => {
+  it('fills only blank values, leaving the rows given untouched', () => {
+    const rows = [
+      { name: 'a', value: '' },
+      { name: 'b', value: '2' },
+      { name: 'c' },
+      { name: 'd', value: '' },
+    ]
+    const filled = fillBlankValues(rows, new Map([['a', '1'], ['b', '9'], ['c', '3']]))
+
+    expect(filled.map((row) => row.value)).toEqual(['1', '2', '3', ''])
+    expect(rows[0].value).toBe('')
+    expect(filled[1]).toBe(rows[1])
   })
 })

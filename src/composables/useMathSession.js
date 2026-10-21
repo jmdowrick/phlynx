@@ -8,9 +8,11 @@ import { serializeLayout } from 'cellml-text-editor'
 
 import { useLibraryStore } from '../stores/libraryStore'
 import { analyzeMathXml } from '../services/math/analyzeMath'
+import { getModuleFormat } from '../services/moduleFormats'
 import {
   SIMPLE_MODE,
   applyPortTypes,
+  fillBlankValues,
   findUnusedDeclared,
   getPortVariables,
   modeFor,
@@ -54,7 +56,8 @@ function isSameLayout(layout, otherLayout) {
  * `{ source: 'init'|'edit'|'external', format, text, valid, xml, layout? }` and exposes `format` (what its
  * text is written in), `setText`, `setModel`, `flush`, `getErrors` and `renameVariable` (renames
  * a variable everywhere in its text and reports that as an edit). Editors can be swapped
- * mid-session; a later `init` is the new editor's view of the same math.
+ * mid-session; a later `init` is the new editor's view of the same math. Math generated from a
+ * source (see services/moduleFormats) is locked: editors only show it, and applyGeneratedModel changes it.
  *
  * @param {Object} options
  * @param {Object} options.history - The undo history edits are recorded in.
@@ -70,6 +73,9 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
   const store = useLibraryStore()
 
   const isManaged = ref(true) // Simple Mode: the table owns the declarations
+  const loadedMathRef = ref(null)
+  /** Whether the math is generated from a source, so editor changes are ignored. */
+  const isMathLocked = computed(() => getModuleFormat(store.getMathFormat(loadedMathRef.value)).isMathLocked)
   const currentModel = ref('') // latest valid XML
   // Latest editor text, valid or not, with the layout of the last valid CellML text at that point.
   const currentText = ref({ format: null, value: '', layout: null })
@@ -232,6 +238,7 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
   async function load({ mathRef, rows, managed }) {
     const requestId = ++loadRequestId
     isManaged.value = managed
+    loadedMathRef.value = mathRef ?? null
     const math = (mathRef && store.availableMath.get(mathRef)) || ''
     currentModel.value = math
     originalModel.value = math
@@ -307,6 +314,11 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
    * @returns {Promise<void>}
    */
   async function applyEditorChange({ source, format, text, valid, xml, layout }) {
+    // Locked math is the source's: an editor's view of it (even its first) never replaces it.
+    if (isMathLocked.value) {
+      if (source === 'init') hasInitialised = true
+      return
+    }
     const isEditorSwitch = source === 'init' && hasInitialised
     if (isEditorSwitch) source = 'external'
     if (source === 'init') hasInitialised = true
@@ -532,6 +544,7 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
    * @returns {Promise<void>}
    */
   async function renameEverywhere() {
+    if (isMathLocked.value) return
     await flushPendingChanges()
     const pending = pendingRename.value
     if (!pending || !editorRef.value?.renameVariable) return
@@ -561,9 +574,27 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
     setRows(reconcileKeepingRemoved(nextAnalysis, rows, { ...options, defaults: values }))
   }
 
+  /**
+   * Replaces the math with one generated from its source, e.g. a diagram converted on save. Rows keep
+   * the instance's values; rows new or blank take the generated values.
+   *
+   * @param {string} xml - The generated model, values included.
+   */
+  function applyGeneratedModel(xml) {
+    const { math, values } = separateParameters(xml)
+    const nextAnalysis = analyzeMathXml(math)
+    const rows = reconcileKeepingRemoved(nextAnalysis, parameterRows.value, { ...reconcileOptions(), defaults: values })
+    currentModel.value = math
+    analysis.value = nextAnalysis
+    unusedDeclared.value = findUnusedDeclared(nextAnalysis)
+    pendingRename.value = null
+    setRows(fillBlankValues(rows, values))
+  }
+
   return {
     // state
     isManaged,
+    isMathLocked,
     currentModel,
     currentLayout,
     parameterRows,
@@ -583,6 +614,7 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
     handleEditorChange,
     flushPendingChanges,
     separateTypedValues,
+    applyGeneratedModel,
     renameEverywhere,
     dismissRename,
   }

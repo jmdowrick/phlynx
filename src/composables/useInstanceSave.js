@@ -1,7 +1,8 @@
 import { useVueFlow } from '@vue-flow/core'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
-import { getPortVariables, reconcileRows } from '../services/math/reconcileRows'
+import { fillBlankValues, getPortVariables, reconcileRows } from '../services/math/reconcileRows'
+import { getModuleFormat } from '../services/moduleFormats'
 import { getNodeSelections, replaceNodeSelections, setNodePlotVariables } from '../services/simulation/plotSelections'
 import { FLOW_IDS, PROTECTED_MATH_REFS } from '../utils/constants'
 import { previewCouplings } from '../utils/edges'
@@ -51,7 +52,8 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
 
   /**
    * Rebuilds a node's rows from its math, keeping their values. A row the math newly needs starts
-   * blank: the math's defaults only seed new instances.
+   * blank: the math's defaults only seed new instances. Locked math (e.g. generated from a diagram)
+   * can't be edited to fill them, so its blank rows take the math's defaults.
    *
    * @param {Object} node
    * @param {string} mathRef - The math the node now uses.
@@ -59,9 +61,11 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   function updateVariablesFromMath(node, mathRef) {
     const analysis = libraryStore.getMathAnalysis(mathRef)
     if (!analysis) return
-    node.data.variables = reconcileRows(analysis, node.data.variables ?? [], {
+    const rows = reconcileRows(analysis, node.data.variables ?? [], {
       portVariables: getPortVariables(node.data.ports),
     })
+    const isLocked = getModuleFormat(libraryStore.getMathFormat(mathRef)).isMathLocked
+    node.data.variables = isLocked ? fillBlankValues(rows, libraryStore.getMathDefaults(mathRef)) : rows
   }
 
   /**
@@ -108,13 +112,15 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    * @returns {string|null} The ref of the module made for the math, if one was.
    */
   function applySave(save) {
-    const { id, name, variables, ports, mathRef, math, layout, isLayoutChanged, globalConstants, updateAll, siblings } = save
+    const { id, name, variables, ports, mathRef, math, layout, isLayoutChanged, source, isSourceChanged, globalConstants, updateAll, siblings } = save
     // Keep the shared units and reference, so one node's fields don't replace them.
     globalConstants.forEach(({ name, value, units, data_reference, overwrite }) => {
       const shared = libraryStore.getGlobalConstant(name)
       libraryStore.assignGlobalConstant(name, value, shared?.units ?? units, shared?.data_reference ?? data_reference, !!overwrite)
     })
     const isNewModule = isNewModuleSave(save)
+    // The source first, so the math's format is known once the math is added.
+    if (isSourceChanged) libraryStore.setMathSource(mathRef, source ?? null)
     if (math !== null) libraryStore.addMath(mathRef, math, true, layout)
     else if (isLayoutChanged) libraryStore.setMathLayout(mathRef, layout)
     const moduleRef = isNewModule ? libraryStore.createModuleForMath(mathRef, detachReactivity({ ports, variables })) : null
@@ -215,7 +221,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    * @returns {Promise<number>} How many nodes now use the saved math reference.
    */
   async function saveInstanceEdit(save) {
-    const { id, mathRef, previousMathRef, math, isLayoutChanged, updateAll, siblings } = save
+    const { id, mathRef, previousMathRef, math, isLayoutChanged, isSourceChanged, updateAll, siblings } = save
     const affectedIds = [
       ...new Set([
         id,
@@ -223,7 +229,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
         ...nodes.value.filter((node) => [mathRef, previousMathRef].includes(node.data?.mathRef)).map((node) => node.id),
       ]),
     ]
-    const writtenMathRef = math !== null || isLayoutChanged ? mathRef : null
+    const writtenMathRef = math !== null || isLayoutChanged || isSourceChanged ? mathRef : null
     const mathBefore = writtenMathRef && libraryStore.getMathEntry(writtenMathRef)
     let mathAfter = null
 

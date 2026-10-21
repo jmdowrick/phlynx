@@ -7,7 +7,9 @@
  *   SVG export;
  * - `isMathLocked`: whether the CellML is generated from the source, so must not be edited;
  * - `caModuleFormat`: the CA config's `module_format`;
- * - `isAvailable`: whether this build can open the format.
+ * - `isAvailable`: whether this build can open the format;
+ * - `editorTab` (optional): the instance editor tab that edits the source, `{ value, label, icon, errorHeader }`,
+ *   shown beside the CellML Text and Math Editor tabs.
  */
 
 export const DEFAULT_MODULE_FORMAT = 'cellml'
@@ -51,7 +53,7 @@ export const MODULE_FORMAT_SVG_ICONS = Object.freeze({
  * so its generated CellML stays read-only.
  *
  * @param {string|null|undefined} id
- * @returns {{ id: string, label: string, icon: string, svgPath: string, isMathLocked: boolean, caModuleFormat: string, isAvailable: boolean }}
+ * @returns {{ id: string, label: string, icon: string, svgPath: string, isMathLocked: boolean, caModuleFormat: string, isAvailable: boolean, editorTab?: Object }}
  */
 export function getModuleFormat(id) {
   if (!id) return MODULE_FORMATS[DEFAULT_MODULE_FORMAT]

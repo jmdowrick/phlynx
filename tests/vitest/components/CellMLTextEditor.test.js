@@ -167,4 +167,17 @@ describe('CellMLTextEditor', () => {
     vi.runAllTimers()
     expect(wrapper.emitted('variable-click')).toBeUndefined()
   })
+
+  it('shows the math read-only, with Simple Mode fixed, and still reports clicked variables', async () => {
+    await mountEditor(modelWith('<apply><plus/><ci>x</ci><ci>x</ci></apply>'), { readonly: true })
+    expect(isEditable()).toBe(false)
+    expect(wrapper.findComponent({ name: 'ToggleSwitch' }).props('disabled')).toBe(true)
+
+    const text = changes()[0].text
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    mockLayout()
+    clickAt(text.indexOf('x'))
+    vi.runAllTimers()
+    expect(wrapper.emitted('variable-click')).toEqual([['x']])
+  })
 })

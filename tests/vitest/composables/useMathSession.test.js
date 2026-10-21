@@ -717,4 +717,46 @@ describe('useMathSession', () => {
       expect(unusedRows(save().rows)).toEqual(expected)
     })
   })
+
+  describe('locked math', () => {
+    // The decay math as a diagram might generate it, with an extra parameter and new values.
+    const GENERATED_XML = XML.replace('initial_value="0.5"', 'initial_value="0.7"').replace(
+      '<variable name="k"',
+      '<variable name="c" units="metre" initial_value="3"/>\n    <variable name="k"'
+    )
+
+    beforeEach(async () => {
+      useLibraryStore().setMathSource(MATH_REF, { format: 'celldl', document: '', documentUri: 'local:decay.celldl' })
+      await session.load({ mathRef: MATH_REF, rows: [{ name: 'k', value: '2', units: 'per_second', type: 'constant' }], managed: false })
+    })
+
+    it('is locked only for math generated from a source', async () => {
+      expect(session.isMathLocked.value).toBe(true)
+      useLibraryStore().setMathSource(MATH_REF, null)
+      expect(session.isMathLocked.value).toBe(false)
+    })
+
+    it('ignores what the editors report', async () => {
+      const text = new CellMLTextGenerator({ simplified: false }).generate(XML)
+      await editorRef.value.report('init', text, false)
+      await editorRef.value.report('edit', text.replace(/\bk\b/g, 'kk'), false)
+      await editorRef.value.report('external', text.replace(/\bk\b/g, 'kk'), false)
+
+      expect(session.currentModel.value).toBe(useLibraryStore().availableMath.get(MATH_REF))
+      expect(session.isDirty()).toBe(false)
+      expect(byName(session.parameterRows.value).k).toBeDefined()
+      expect(history.canUndo).toBe(false)
+    })
+
+    it('keeps the instance values and fills the rest from a generated model', () => {
+      session.applyGeneratedModel(GENERATED_XML)
+
+      const rows = byName(session.parameterRows.value)
+      expect(rows.k.value).toBe('2')
+      expect(rows.c.value).toBe('3')
+      expect(rows.x0.value).toBe('1')
+      expect(session.currentModel.value).not.toContain('initial_value="3"')
+      expect(session.isDirty()).toBe(true)
+    })
+  })
 })

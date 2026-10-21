@@ -64,7 +64,7 @@
       <div class="editor-section">
         <div class="panel-header">
           <label class="mode-switch">
-            <ToggleSwitch v-model="isSimple" />
+            <ToggleSwitch v-model="isSimple" :disabled="readonly" />
             <span>Simple Mode</span>
           </label>
           <div class="font-size-control" role="group" aria-label="Editor font size">
@@ -99,7 +99,7 @@
           :indent-with-tab="true"
           :tab-size="2"
           :extensions="extensions"
-          :disabled="isLocked"
+          :disabled="isLocked || readonly"
           @ready="handleReady"
           @update="handleStateUpdate"
         >
@@ -160,6 +160,11 @@ const props = defineProps({
   layout: {
     type: Object,
     default: null
+  },
+  // Shows the math without letting it be edited, e.g. math generated from a diagram. Variable clicks still emit.
+  readonly: {
+    type: Boolean,
+    default: false
   },
 })
 
