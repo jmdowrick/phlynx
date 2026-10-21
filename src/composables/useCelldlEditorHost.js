@@ -85,6 +85,8 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   // The claiming pane's handler for the editor's viewer events (select, unselect, active, unactive).
   let eventHandler = null
   let annotationCount = 0
+  // SPIKE: listeners for the editor's diagram-changed emit (E4), e.g. live conversion.
+  const changeListeners = new Set()
 
   const svgOf = () => root?.querySelector('#svg-container > svg') ?? null
 
@@ -384,6 +386,31 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     eventHandler?.(event)
   }
 
+  /**
+   * SPIKE: passes on the editor's `diagram-changed` emit, `{ revision, rdf }`, while a pane holds the editor.
+   *
+   * @param {{revision: number, rdf: string}} change
+   */
+  function onDiagramChanged(change) {
+    if (!isActive.value || isOpening) return
+    const at = performance.now()
+    changeListeners.forEach((listener) => listener(change, at))
+  }
+
+  /**
+   * SPIKE: hears each diagram change.
+   *
+   * @param {(change: {revision: number, rdf: string}, at: number) => void} listener
+   * @returns {() => void} Stops listening.
+   */
+  function onChange(listener) {
+    changeListeners.add(listener)
+    return () => changeListeners.delete(listener)
+  }
+
+  /** SPIKE: the shown source, for its documentUri. */
+  const shownSource = () => shown?.source ?? null
+
   function onFileEdited() {
     if (isActive.value && !isOpening) isDirty.value = !isOpenedBlank || hasObjects()
   }
@@ -465,6 +492,9 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     onEditorData,
     onEditorState,
     onViewerEvent,
+    onDiagramChanged,
+    onChange,
+    shownSource,
     listen,
     unlisten,
   }

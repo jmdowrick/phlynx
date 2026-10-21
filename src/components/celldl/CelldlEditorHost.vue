@@ -9,6 +9,7 @@
         @editor-data="host.onEditorData"
         @editor-state="host.onEditorState"
         @event="host.onViewerEvent"
+        @diagram-changed="host.onDiagramChanged"
       />
     </div>
   </Teleport>

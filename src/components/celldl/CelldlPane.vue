@@ -9,6 +9,20 @@
     </Message>
     <!-- Hidden while opening, or after failing to, as the editor still shows the last module's diagram. -->
     <div ref="slotRef" class="celldl-pane-slot" :class="{ 'is-hidden': isPending || host.error.value }"></div>
+    <!-- SPIKE: live conversion status and CellML preview. -->
+    <div class="celldl-live" :data-status="live.status.value">
+      <span class="celldl-live-status">
+        Live: {{ live.status.value }}<template v-if="live.lastMs.value !== null">
+          ({{ live.lastKind.value }}, {{ Math.round(live.lastMs.value) }} ms after the edit)</template
+        ><template v-if="live.issues.value.length">
+          · {{ live.issues.value.length }} issue(s): {{ live.issues.value[0].message }}</template
+        >
+      </span>
+      <button type="button" class="celldl-live-toggle" @click="showCellml = !showCellml">
+        {{ showCellml ? 'Hide' : 'Show' }} CellML
+      </button>
+    </div>
+    <pre v-if="showCellml" class="celldl-live-cellml">{{ live.cellml.value }}</pre>
   </div>
 </template>
 
@@ -24,6 +38,7 @@ import ProgressSpinner from 'primevue/progressspinner'
 
 import { useCelldlEditorHost } from '../../composables/useCelldlEditorHost'
 import { variableForElement } from '../../services/celldl/elements'
+import { useLiveCelldlConvert } from '../../composables/useLiveCelldlConvert'
 
 const props = defineProps({
   /** The instance's variable rows, which an element's variable must have to be plotted. */
@@ -34,6 +49,8 @@ const emit = defineEmits(['variable-click'])
 
 const host = useCelldlEditorHost()
 const slotRef = ref(null)
+const live = useLiveCelldlConvert()
+const showCellml = ref(false)
 const isPending = computed(() => !host.isReady.value || host.isSyncing.value)
 
 /**
@@ -49,6 +66,7 @@ function onViewerEvent(event) {
 }
 
 onMounted(() => {
+  if ((window.__liveConvertConfig?.mode ?? 'worker') === 'worker') live.startWorker().catch((e) => console.error(e))
   host.claim(slotRef.value, onViewerEvent)
   host.sync().catch((error) => {
     host.error.value = error.message
@@ -85,6 +103,40 @@ onBeforeUnmount(() => host.release(slotRef.value))
   justify-content: center;
   gap: 0.75rem;
   color: var(--p-text-muted-color);
+}
+
+.celldl-live {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 0.8rem;
+  padding: 0.25rem 0.5rem;
+  border-top: 1px solid var(--p-content-border-color);
+  color: var(--p-text-muted-color);
+}
+
+.celldl-live[data-status='error'] .celldl-live-status {
+  color: var(--p-red-500);
+}
+
+.celldl-live-status {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.celldl-live-toggle {
+  text-decoration: underline;
+}
+
+.celldl-live-cellml {
+  max-height: 30%;
+  overflow: auto;
+  font-size: 0.7rem;
+  margin: 0;
+  padding: 0.5rem;
+  background: var(--p-content-hover-background);
 }
 
 .celldl-pane-error {
