@@ -279,6 +279,194 @@ describe('InstanceEditorDialog new module template (#634)', () => {
     expect(wrapper.emitted('confirm')).toBeUndefined()
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
   })
+
+  it('writes no source for a CellML save', async () => {
+    const saveAs = await saveEditedTemplate()
+    saveAs.vm.$emit('confirm', 'my_comp')
+    await flushPromises()
+
+    expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ source: null, isSourceChanged: false, units: null })
+  })
+
+  describe('whichever editor is used first', () => {
+    const DOCUMENT = '<svg>drawn</svg>'
+    const GENERATED_XML = XML.replace(/"decay"/g, '"my_rc"')
+    const stubProps = (component) => wrapper.findComponent(component).vm.$attrs
+    const celldlOption = () => wrapper.vm.editorOptions.find((option) => option.value === 'celldl')
+    let host
+
+    beforeEach(() => {
+      host = useCelldlEditorHost()
+      flowNodes.value = [
+        { id: 'a', data: { name: 'a', mathRef: NEW_MODULE_MATH_REF } },
+        { id: 'b', data: { name: 'b', mathRef: NEW_MODULE_MATH_REF } },
+      ]
+    })
+
+    afterEach(() => {
+      vi.restoreAllMocks()
+      flowNodes.value = []
+      host.isDirty.value = false
+    })
+
+    /** Opens the template on the CellML Text editor, as it opens. */
+    async function openTemplate() {
+      mountDialog({ mathRef: NEW_MODULE_MATH_REF, initialName: 'my_instance' })
+      const editor = await open()
+      await report(editor, 'init', TEMPLATE_XML)
+      return editor
+    }
+
+    it('offers every editor, with a blank diagram, while nothing is edited', async () => {
+      const prepare = vi.spyOn(host, 'prepare')
+      await openTemplate()
+
+      expect(prepare).toHaveBeenCalledWith(null)
+      expect(wrapper.vm.editorOptions.every((option) => !option.isLocked)).toBe(true)
+      expect(stubProps(FakeEditor).readonly).toBe(false)
+      expect(stubProps(ParameterTableStub)['values-only']).toBe(false)
+      await wrapper.vm.switchEditor('celldl')
+      expect(wrapper.findComponent(CelldlPaneStub).exists()).toBe(true)
+    })
+
+    it('locks the diagram once the CellML is edited, saying why, and offers it again once the edit is undone', async () => {
+      const editor = await openTemplate()
+      await report(editor, 'edit', EDITED_TEMPLATE_XML)
+
+      expect(celldlOption()).toMatchObject({ isLocked: true, lockedNotice: expect.stringContaining('Undo the edits') })
+      expect(wrapper.find('.editor-tab-locked').exists()).toBe(true)
+      await wrapper.vm.switchEditor('celldl')
+      expect(wrapper.vm.editorKind).toBe('text')
+
+      editor.vm.$emit('undo')
+      await flushPromises()
+      expect(celldlOption().isLocked).toBe(false)
+    })
+
+    it('locks the diagram once its text no longer parses', async () => {
+      const editor = await openTemplate()
+      editor.vm.$emit('change', { source: 'edit', format: 'mathml', text: '<bad', valid: false, xml: null })
+      await flushPromises()
+      expect(celldlOption().isLocked).toBe(true)
+    })
+
+    it('leaves the diagram for the CellML Text editor once a Parameters edit changes the math', async () => {
+      await openTemplate()
+      await wrapper.vm.switchEditor('celldl')
+      expect(wrapper.vm.editorKind).toBe('celldl')
+
+      // As the table's definitions rewrite the math.
+      wrapper.vm.handleEditorChange({ source: 'edit', format: 'mathml', text: EDITED_TEMPLATE_XML, valid: true, xml: EDITED_TEMPLATE_XML })
+      await flushPromises()
+      expect(wrapper.vm.editorKind).toBe('text')
+      expect(wrapper.findComponent(FakeEditor).exists()).toBe(true)
+    })
+
+    it('makes the math read-only, with only values editable, once a diagram is drawn, until it is blank again', async () => {
+      const editor = await openTemplate()
+      host.isDirty.value = true
+      await flushPromises()
+
+      expect(stubProps(FakeEditor).readonly).toBe(true)
+      expect(stubProps(ParameterTableStub)['values-only']).toBe(true)
+      expect(wrapper.vm.editorOptions.every((option) => !option.isLocked)).toBe(true)
+      await report(editor, 'edit', EDITED_TEMPLATE_XML)
+      expect(wrapper.vm.currentModel).not.toContain('<cn>1</cn>')
+
+      host.isDirty.value = false
+      await flushPromises()
+      expect(stubProps(FakeEditor).readonly).toBe(false)
+      expect(stubProps(ParameterTableStub)['values-only']).toBe(false)
+      await report(editor, 'edit', EDITED_TEMPLATE_XML)
+      expect(wrapper.vm.currentModel).toContain('<cn>1</cn>')
+    })
+
+    describe('saving a drawn diagram', () => {
+      beforeEach(() => {
+        vi.spyOn(host, 'compareWithBaseline').mockResolvedValue({ isChanged: true, document: DOCUMENT })
+        vi.spyOn(host, 'markSaved').mockImplementation(() => {})
+        convertCelldl.mockImplementation(async (document, { documentUri, componentName }) => ({
+          ok: true,
+          components: [{ name: componentName, math: GENERATED_XML }],
+          unitsModel: '<model name="units"/>',
+          elements: { R: { primary: 'v_R' } },
+          documentUri,
+          generator: { name: 'bg2cellml', version: '0.2.0' },
+          frameworkVersion: '1.0',
+          errors: [],
+          warnings: [],
+        }))
+      })
+
+      /** Draws on the template's diagram and saves, which asks for a new component name. */
+      async function saveDrawn() {
+        await openTemplate()
+        await wrapper.vm.switchEditor('celldl')
+        host.isDirty.value = true
+        await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+        await flushPromises()
+        return wrapper.findComponent(ComponentSaveAsDialog)
+      }
+
+      it('converts it as a new CellDL component in its own file, under a new documentUri', async () => {
+        const saveAs = await saveDrawn()
+        expect(convertCelldl).not.toHaveBeenCalled()
+        saveAs.vm.$emit('confirm', 'my_rc')
+        await vi.waitFor(() => expect(wrapper.emitted('confirm')).toHaveLength(1))
+
+        const documentUri = 'https://bg-rdf.org/models/local/phlynx/my_rc.cellml_my_rc.celldl'
+        expect(convertCelldl).toHaveBeenCalledWith(DOCUMENT, expect.objectContaining({ documentUri, componentName: 'my_rc' }))
+        const [save] = wrapper.emitted('confirm')[0]
+        expect(save).toMatchObject({
+          mathRef: 'my_rc.cellml:my_rc',
+          previousMathRef: NEW_MODULE_MATH_REF,
+          math: GENERATED_XML,
+          layout: null,
+          isSourceChanged: true,
+          source: { format: 'celldl', document: DOCUMENT, documentUri, elements: { R: { primary: 'v_R' } } },
+          units: { componentFile: 'my_rc.cellml', model: '<model name="units"/>' },
+          updateAll: false,
+          siblings: [],
+        })
+        expect(useLibraryStore().getMathSource(NEW_MODULE_MATH_REF)).toBeNull()
+        expect(confirm).not.toHaveBeenCalledWith(expect.objectContaining({ header: 'Overwrite Math?' }))
+      })
+
+      it('stays on the diagram after an Apply, though the math it generated is not the template', async () => {
+        host.markSaved.mockImplementation(() => (host.isDirty.value = false))
+        await openTemplate()
+        await wrapper.vm.switchEditor('celldl')
+        host.isDirty.value = true
+        await wrapper.findAll('button').find((button) => button.text() === 'Apply').trigger('click')
+        await flushPromises()
+        wrapper.findComponent(ComponentSaveAsDialog).vm.$emit('confirm', 'my_rc')
+        await vi.waitFor(() => expect(wrapper.emitted('confirm')).toHaveLength(1))
+        await flushPromises()
+
+        expect(wrapper.vm.editorKind).toBe('celldl')
+        expect(celldlOption().isLocked).toBe(false)
+        expect(stubProps(ParameterTableStub)['values-only']).toBe(true)
+      })
+
+      it('saves nothing when the new name is cancelled', async () => {
+        const saveAs = await saveDrawn()
+        saveAs.vm.$emit('cancel')
+        await flushPromises()
+
+        expect(convertCelldl).not.toHaveBeenCalled()
+        expect(wrapper.emitted('confirm')).toBeUndefined()
+        expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+      })
+
+      it('refuses a name whose file the library already has', async () => {
+        useLibraryStore().addUnitsFile({ componentFile: 'taken.cellml', model: '<model name="units"/>' })
+        const saveAs = await saveDrawn()
+
+        expect(saveAs.props('isTaken')('taken')).toBe('A file named "taken.cellml" already exists.')
+        expect(saveAs.props('isTaken')('free')).toBe('')
+      })
+    })
+  })
 })
 
 describe('InstanceEditorDialog Plot tab', () => {
