@@ -16,6 +16,12 @@ vi.mock('../../../src/utils/cellml', () => ({
   generateFlattenedModel: vi.fn(() => new Blob(['<model/>'])),
   extractVoiAndParametersFromModel: vi.fn(() => ({ voi: null, mappedParameters: {} })),
 }))
+const { getModuleFormat } = vi.hoisted(() => ({ getModuleFormat: vi.fn() }))
+vi.mock('../../../src/services/moduleFormats', async (importActual) => {
+  const actual = await importActual()
+  getModuleFormat.mockImplementation(actual.getModuleFormat)
+  return { ...actual, getModuleFormat }
+})
 
 const { useImportExportSend } = await import('../../../src/composables/useImportExportSend.js')
 const { generateOmexArchive } = await import('../../../src/services/compress')
@@ -240,5 +246,34 @@ describe('useImportExportSend selection exports', () => {
     const [flattenedNodes] = generateFlattenedModel.mock.calls.at(-1)
     expect(flattenedNodes).toHaveLength(3)
     expect(snapshotFlowState).toHaveBeenLastCalledWith(null)
+  })
+})
+
+describe('useImportExportSend import options', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  /** The import menu's labels, with libCellML ready. */
+  const importLabels = () =>
+    useImportExportSend({
+      libcellml: { status: 'ready' },
+      nodes: ref([]),
+      edges: ref([]),
+      importDialogVisible: ref(false),
+      exportDialogVisible: ref(false),
+      currentImportConfig: ref(null),
+      onExportConfirm: vi.fn(),
+      hasModelChanged: ref(false),
+      snapshotFlowState: vi.fn(),
+      selectedNodeIds: ref([]),
+    }).importMenuItems.value.map((item) => item.label)
+
+  it('offers CellDL diagrams in builds that can convert them', () => {
+    expect(importLabels()).toContain('CellDL Diagram')
+    expect(importLabels()).toContain('CellML File')
+  })
+
+  it('leaves CellDL diagrams out of builds that can not, such as Electron', () => {
+    getModuleFormat.mockReturnValueOnce({ id: 'celldl', isAvailable: false })
+    expect(importLabels()).not.toContain('CellDL Diagram')
   })
 })

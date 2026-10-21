@@ -175,6 +175,7 @@ export const IMPORT_KEYS = {
   INSTANCE_ARRAY: 'instanceArray',
   MODULE_CONFIG: 'moduleConfig',
   CELLML_FILE: 'cellMLFile',
+  CELLDL_FILE: 'cellDLFile',
   PARAMETER: 'parameter',
   TURTLE: 'turtle',
   OMEX: 'omex',
@@ -190,6 +191,7 @@ export const IMPORT_LABELS = {
   INSTANCE_ARRAY: 'Instance Array (.csv)',
   MODULE_CONFIG: 'Module Configurations (.json)',
   CELLML_FILE: 'CellML File (.cellml or .xml)',
+  CELLDL_FILE: 'CellDL Diagram (.celldl)',
   PARAMETER: 'Parameters (.csv)',
   TURTLE: 'Annotations (.ttl)',
   OMEX: 'COMBINE Archive (OMEX)',
@@ -239,7 +241,7 @@ export const OMEX_FILE_TYPES = [
   },
 ]
 
-export const RELEVANT_EXTENSIONS = new Set(['.csv', '.json', '.omex', '.cellml', '.xml'])
+export const RELEVANT_EXTENSIONS = new Set(['.csv', '.json', '.omex', '.cellml', '.xml', '.celldl'])
 export const DB_NAME = 'phlynx-import'
 export const STORE_NAME = 'handles'
 export const HANDLE_KEY = 'importFolderHandle'

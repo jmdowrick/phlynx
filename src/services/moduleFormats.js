@@ -32,8 +32,8 @@ export const MODULE_FORMATS = Object.freeze({
     isMathLocked: true,
     // The CA export writes the generated CellML, never the diagram.
     caModuleFormat: 'cellml',
-    // Off until PhLynx bundles the CellDL editor and converter.
-    isAvailable: false,
+    // Off in Electron, whose CSP blocks the converter's wasm and which has no simulator.
+    isAvailable: !__IS_ELECTRON__,
   }),
 })
 
