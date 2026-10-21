@@ -149,5 +149,20 @@ describe('useSimulationRunner', () => {
     sidebar.store.error = { message: 'The solver needed more than 500 steps.' }
     expect(sidebar.statusLine.value.hint).toBeNull()
   })
-})
 
+  it('doesn’t suggest running the instance alone when it is the whole model, or the switch is already off', () => {
+    const editor = setUpRunner({ instanceId: 'b' })
+    editor.store.scopeNodeIds = null
+    editor.store.status = 'error'
+    editor.store.error = { message: 'The solver needed more than 500 steps.' }
+    nodes.value = [{ id: 'b' }]
+    expect(editor.statusLine.value.hint).toBeNull()
+
+    // A whole-model failure still shown after the switch is turned off.
+    nodes.value = [{ id: 'b' }, { id: 'a' }]
+    editor.scopeMode.value = 'selection'
+    editor.store.status = 'error'
+    editor.store.scopeNodeIds = null
+    expect(editor.statusLine.value.hint).toBeNull()
+  })
+})

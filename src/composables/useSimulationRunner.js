@@ -149,9 +149,12 @@ export function useSimulationRunner({ instanceId = null, isWholeModelOnly = fals
   }
 
   // In the instance editor, a whole-model run that fails may have failed on another module, which running the
-  // instance alone leaves out.
+  // instance alone leaves out. Not once the switch is off, as for a whole-model failure still shown, nor when the
+  // instance is all the model has.
   const failureHint = computed(() =>
-    getInstanceId() && !store.scopeNodeIds ? 'Turn off Whole model to simulate this instance alone.' : null
+    getInstanceId() && !store.scopeNodeIds && scopeMode.value === 'model' && nodes.value.length > 1
+      ? 'Turn off Whole model to simulate this instance alone.'
+      : null
   )
 
   // What the status line says: the most pressing thing first, with the full lists a click away. Notes, such as a

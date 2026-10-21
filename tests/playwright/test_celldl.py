@@ -229,7 +229,7 @@ class TestCelldl(unittest.TestCase):
             # With Parameters shown, clicking the capacitor plots nothing and keeps the tab.
             dialog.get_by_role("tab", name=re.compile(r"Parameters \(")).click()
             click_element(page, CAPACITOR)
-            page.wait_for_timeout(500)
+            expect(page.locator(f'{DIAGRAM_SVG} [id="{CAPACITOR}"].selected, {DIAGRAM_SVG} [id="{CAPACITOR}"] .selected')).not_to_have_count(0)
             expect(dialog.get_by_role("tab", name=re.compile(r"Parameters \("))).to_have_attribute("aria-selected", "true")
             dialog.get_by_role("tab", name=re.compile(r"Plot \(")).click()
             expect(dialog.locator(".simulation-plot .plot-title")).to_have_text(f"{MODULE}/u_i_C")
@@ -254,12 +254,15 @@ class TestCelldl(unittest.TestCase):
             expect(locked).to_have_count(1)
             expect(locked).to_contain_text("CellDL")
 
+            # The typing may be undone in more than one step.
             content.click()
             for _ in range(3):
-                if locked.count() == 0:
-                    break
                 page.keyboard.press("ControlOrMeta+z")
-                page.wait_for_timeout(500)
+                try:
+                    expect(locked).to_have_count(0, timeout=2000)
+                    break
+                except AssertionError:
+                    pass
             expect(locked).to_have_count(0)
             expect(editor_tab(dialog, "CellDL")).to_be_enabled()
             # ----------- END ------------
