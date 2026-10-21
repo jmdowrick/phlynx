@@ -915,6 +915,17 @@ describe('InstanceEditorDialog locked math', () => {
     expect(wrapper.vm.editorKind).toBe('text')
   })
 
+  it('remembers a math editor chosen from a CellDL module, but not the diagram', async () => {
+    useLibraryStore().setMathSource(MATH_REF, SOURCE)
+    mountDialog()
+    await openAsText()
+    expect(window.localStorage.getItem('instanceEditorDialog.editorKind')).toBe('text')
+
+    await wrapper.vm.switchEditor('celldl')
+    expect(wrapper.vm.editorKind).toBe('celldl')
+    expect(window.localStorage.getItem('instanceEditorDialog.editorKind')).toBe('text')
+  })
+
   it('leaves CellML math editable, with the choice to apply to every instance', async () => {
     mountDialog()
     const editor = await open()

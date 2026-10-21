@@ -680,7 +680,7 @@ const isMathLocked = computed(() => moduleFormat.value.isMathLocked)
 // The CellDL editor, which a CellDL module's diagram opens in when its tab shows. Escape there is the editor's,
 // e.g. to drop a path being drawn, so it doesn't close the dialog.
 const celldlHost = useCelldlEditorHost()
-const isDiagramEditable = computed(() => moduleFormat.value.id === 'celldl')
+const isDiagramEditable = computed(() => isEditorOffered('celldl'))
 /** Whether the diagram has edits, which a run doesn't see either. */
 const isDiagramDirty = computed(() => isDiagramEditable.value && celldlHost.isDirty.value)
 
@@ -764,6 +764,8 @@ async function switchEditor(kind) {
 
   if (kind === 'math' && !isMathLocked.value) isManaged.value = true
   editorKind.value = kind
+  // Only a math editor is remembered: a format's own editor opens with its math anyway.
+  if (!MATH_EDITOR_OPTIONS.some((option) => option.value === kind)) return
   try {
     window.localStorage.setItem(EDITOR_STORAGE_KEY, kind)
   } catch (e) {
@@ -1268,8 +1270,8 @@ async function loadEditor({ keepTab = false } = {}) {
   rejectedName = ''
   flaggedPorts.value = new Set()
   if (!keepTab) activeTab.value = props.defaultTab
-  // A format with its own editor opens on it; another math's editor isn't offered here.
-  const formatEditor = moduleFormat.value.editorTab?.value
+  // A format with its own editor opens on it, where this build offers it; another math's editor is locked.
+  const formatEditor = isEditorOffered(moduleFormat.value.editorTab?.value) ? moduleFormat.value.editorTab.value : null
   if (formatEditor && !keepTab) editorKind.value = formatEditor
   else if (!isEditorOffered(editorKind.value)) {
     editorKind.value = formatEditor ?? loadStoredEditorKind()

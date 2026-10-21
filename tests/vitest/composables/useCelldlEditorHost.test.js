@@ -105,6 +105,38 @@ describe('useCelldlEditorHost', () => {
     expect(host.error.value).toBe('Cannot open')
   })
 
+  it('opens a source prepared while a pane holds the editor at once, saying it is opening', async () => {
+    const editor = mountFakeEditor(host)
+    editor.draw()
+    host.prepare(SOURCE)
+    host.claim(document.createElement('div'))
+    await host.sync()
+
+    const next = { ...SOURCE, document: '<svg>rlc</svg>' }
+    host.prepare(next)
+    expect(host.isSyncing.value).toBe(true)
+    await vi.waitFor(() => expect(host.isSyncing.value).toBe(false))
+    expect(editor.commands.filter(({ options }) => options.action === 'open').map(({ options }) => options.data)).toEqual([
+      SOURCE.document,
+      next.document,
+    ])
+  })
+
+  it('opens a source again after failing to', async () => {
+    const editor = mountFakeEditor(host, { failOpen: true })
+    editor.draw()
+    host.prepare(SOURCE)
+    const pane = document.createElement('div')
+    host.claim(pane)
+    await expect(host.sync()).rejects.toThrow('Cannot open')
+    expect(host.isSyncing.value).toBe(false)
+
+    host.release(pane)
+    host.claim(pane)
+    await expect(host.sync()).rejects.toThrow('Cannot open')
+    expect(editor.commands.filter(({ options }) => options.action === 'open')).toHaveLength(2)
+  })
+
   it('serialises the diagram, and compares it with the one opened', async () => {
     const editor = mountFakeEditor(host)
     editor.draw()

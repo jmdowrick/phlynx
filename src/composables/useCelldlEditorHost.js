@@ -51,6 +51,8 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
    * takes no focus of its own, so a press counts until focus moves elsewhere.
    */
   const isEngaged = ref(false)
+  /** Whether the editor is opening a source, so still shows the one before. */
+  const isSyncing = ref(false)
 
   let root = null
   let readyWaiters = []
@@ -210,17 +212,19 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     }
   }
 
+  let syncing = null
+
   /**
-   * Asks for a source to be shown the next time a pane claims the editor, unless it already is.
+   * Asks for a source to be shown: now if a pane holds the editor, e.g. a dialog reloading after a save, or else
+   * the next time a pane claims it.
    *
    * @param {Object|null} source
    */
   function prepare(source) {
     wanted = { source }
     isDirty.value = false
+    if (isActive.value) sync().catch((e) => (error.value = e.message))
   }
-
-  let syncing = null
 
   /**
    * Opens the wanted source, unless the editor already shows it.
@@ -228,12 +232,24 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
    * @returns {Promise<void>}
    */
   async function sync() {
-    while (wanted && shown !== wanted) {
-      const request = wanted
-      syncing ??= open(request.source)
-        .then(() => (shown = request))
-        .finally(() => (syncing = null))
-      await syncing
+    isSyncing.value = true
+    try {
+      while (wanted && shown !== wanted) {
+        const request = wanted
+        // A source that failed leaves the editor's diagram unknown, so the next sync opens it again.
+        syncing ??= open(request.source)
+          .then(
+            () => (shown = request),
+            (e) => {
+              shown = null
+              throw e
+            }
+          )
+          .finally(() => (syncing = null))
+        await syncing
+      }
+    } finally {
+      isSyncing.value = !!syncing
     }
   }
 
@@ -339,6 +355,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     isDirty,
     error,
     isEngaged,
+    isSyncing,
     attach,
     whenReady,
     open,
