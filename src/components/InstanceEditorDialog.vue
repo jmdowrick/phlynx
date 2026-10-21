@@ -789,8 +789,8 @@ const liveMath = computed(() => {
 const shownModel = computed(() => liveMath.value || currentModel.value)
 
 // A mounted editor follows the live math, and goes back to the session's once the diagram is saved.
-watch(liveMath, (math, previous) => {
-  if (!MATH_EDITOR_KINDS.has(editorKind.value) || (math || null) === (previous || null)) return
+watch(liveMath, () => {
+  if (!MATH_EDITOR_KINDS.has(editorKind.value)) return
   mathEditorRef.value?.setModel?.(shownModel.value)
 })
 
