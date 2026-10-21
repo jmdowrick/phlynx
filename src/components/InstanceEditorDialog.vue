@@ -131,7 +131,13 @@
             @undo="handleEditorUndo"
             @redo="handleEditorRedo"
           />
-          <CelldlPane v-else-if="editorKind === 'celldl'" :rows="parameterRows" @variable-click="plotClickedVariable" />
+          <CelldlPane
+            v-else-if="editorKind === 'celldl'"
+            :rows="parameterRows"
+            :component-name="componentName"
+            :units-file="componentFile"
+            @variable-click="plotClickedVariable"
+          />
         </div>
       </div>
 
@@ -1176,13 +1182,16 @@ function showPlotNotice(text) {
  * no results of its scope are shown. Runs use the saved instance, so only its variables can be plotted.
  *
  * @param {string} name
+ * @param {Object} [options]
+ * @param {boolean} [options.isUnsaved] - The variable is a diagram element's that the math doesn't have until saved.
  */
-function plotClickedVariable(name) {
+function plotClickedVariable(name, { isUnsaved = false } = {}) {
   if (activeTab.value !== 'plot' || rightCollapsed.value || !isAutoUpdate.value) return
   const node = nodes.value.find((candidate) => candidate.id === props.id)
   const row = node?.data?.variables?.find((candidate) => candidate.name === name)
   if (!row) {
-    if (parameterRows.value.some((candidate) => candidate.name === name)) showPlotNotice(`Save to plot ${name}`)
+    const isMathVariable = parameterRows.value.some((candidate) => candidate.name === name)
+    if (isUnsaved || isMathVariable) showPlotNotice(`Save to plot ${name}`)
     return
   }
   plotNotice.value = ''

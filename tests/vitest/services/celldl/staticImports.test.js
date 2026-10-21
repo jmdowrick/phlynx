@@ -6,7 +6,8 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const SRC = path.resolve(__dirname, '../../../../src')
-const ALLOWED = ['services/celldl/', 'components/celldl/']
+// The live conversion's worker is a bundle of its own, so may import them statically.
+const ALLOWED = ['services/celldl/', 'components/celldl/', 'workers/celldlConvertWorker.js']
 const PACKAGES = ['@celldl/editor', '@physiomelinks/bg2cellml']
 
 /** `import … from '<pkg>'`, `import '<pkg>'` or `export … from '<pkg>'`, for a package or its subpaths. */
