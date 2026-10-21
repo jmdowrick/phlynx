@@ -7,8 +7,9 @@
  * - `isMathLocked`: whether the CellML is generated from the source, so must not be edited;
  * - `caModuleFormat`: the CA config's `module_format`;
  * - `isAvailable`: whether this build can open the format;
- * - `editorTab` (optional): the instance editor tab that edits the source, `{ value, label, icon, errorHeader }`,
- *   shown beside the CellML Text and Math Editor tabs.
+ * - `editorTab` (optional): the instance editor tab that edits the source, `{ value, label, icon, errorHeader,
+ *   lockedNotice }`, shown after the CellML Text and Math Editor tabs for every module while the format is
+ *   available, and locked, with `lockedNotice` as its tooltip, for math in another format.
  */
 
 export const DEFAULT_MODULE_FORMAT = 'cellml'
@@ -27,6 +28,13 @@ export const MODULE_FORMATS = Object.freeze({
     isMathLocked: true,
     // The CA export writes the generated CellML, never the diagram.
     caModuleFormat: 'cellml',
+    editorTab: Object.freeze({
+      value: 'celldl',
+      label: 'CellDL',
+      icon: 'pi-sitemap',
+      errorHeader: 'Diagram Has Errors',
+      lockedNotice: 'CellDL diagrams can only start from the template',
+    }),
     // Off in Electron, whose CSP blocks the converter's wasm and which has no simulator. The flag
     // is a Vite define, so it is missing outside Vite builds.
     isAvailable: typeof __IS_ELECTRON__ === 'undefined' || !__IS_ELECTRON__,
@@ -50,6 +58,15 @@ export function getModuleFormat(id) {
     caModuleFormat: 'cellml',
     isAvailable: false,
   })
+}
+
+/**
+ * Gets the formats whose editor tab this build shows.
+ *
+ * @returns {Object[]} Formats, in table order.
+ */
+export function getEditorTabFormats() {
+  return Object.values(MODULE_FORMATS).filter((format) => format.editorTab && format.isAvailable)
 }
 
 /**
