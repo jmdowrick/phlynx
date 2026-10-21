@@ -3,7 +3,7 @@
  * the same under any IRI, but it opens a document with absolute IRIs only under that document's own.
  */
 
-/** bg2cellml's base for local models (its LOCAL_MODEL_BASE), so messages name them briefly. */
+/** PhLynx's folder under bg2cellml's base for local models (LOCAL_MODEL_BASE), so messages name them briefly. */
 export const LOCAL_DOCUMENT_BASE = 'https://bg-rdf.org/models/local/phlynx/'
 
 /**

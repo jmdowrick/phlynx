@@ -11,7 +11,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import { convertCelldl, knownUnitsFor } from '../../../../src/services/celldl/convert.js'
-import { mintDocumentUri } from '../../../../src/services/celldl/documentUri.js'
+import { LOCAL_DOCUMENT_BASE, mintDocumentUri } from '../../../../src/services/celldl/documentUri.js'
 import { variableForElement } from '../../../../src/services/celldl/elements.js'
 import { getConverter } from '../../../../src/services/celldl/runtime.js'
 import { analyzeMathXml } from '../../../../src/services/math/analyzeMath.js'
@@ -27,7 +27,6 @@ const fixture = (name) => fs.readFileSync(path.resolve(__dirname, '../../fixture
 const RC = fixture('rc.celldl')
 const DOCUMENT_URI = mintDocumentUri('rc.cellml:rc')
 
-/** The fixture with absolute IRIs in `document`, as a file from another tool may have. */
 /** Runs `run` with happy-dom's DOMParser, XMLSerializer and Node in place of xmldom's. */
 async function withHappyDom(run) {
   const window = new Window()
@@ -41,6 +40,7 @@ async function withHappyDom(run) {
   }
 }
 
+/** The fixture with absolute IRIs in `document`, as a file from another tool may have. */
 const withAbsoluteIris = (celldl, document) =>
   celldl.replace('@prefix : <#> .', `@prefix : <${document}#> .`).replace('<> a celldl:Document', `<${document}> a celldl:Document`)
 
@@ -139,6 +139,13 @@ describe('convertCelldl', () => {
     expect(result.ok).toBe(true)
     expect(result.documentUri).toBe(document)
   }, 120000)
+})
+
+describe('LOCAL_DOCUMENT_BASE', () => {
+  it("is under bg2cellml's base for local models", async () => {
+    const { LOCAL_MODEL_BASE } = await import('@physiomelinks/bg2cellml')
+    expect(LOCAL_DOCUMENT_BASE).toBe(`${LOCAL_MODEL_BASE}phlynx/`)
+  })
 })
 
 describe('knownUnitsFor', () => {

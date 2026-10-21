@@ -43,7 +43,7 @@ function blockingErrors(result) {
  * @returns {Promise<Object>} `{ ok, components, unitsModel, elements, annotations, documentUri, generator,
  *   frameworkVersion, errors, warnings, renamedUnits }`. `components` and `unitsModel` are as
  *   processCellMLData gives them, and null unless ok. Issues are bg2cellml's
- *   `{ message, severity, stage, subject?, elementId? }`.
+ *   `{ message, severity, stage, subject?, elementId? }`. Rejects if the converter can't start.
  */
 export async function convertCelldl(document, { documentUri, componentName, knownUnits } = {}) {
   const [converter, { toViewerAnnotations }] = await Promise.all([
