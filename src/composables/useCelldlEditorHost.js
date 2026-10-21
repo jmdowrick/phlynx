@@ -17,6 +17,8 @@ export const EDITOR_OPTIONS = Object.freeze({ tooltip: 'tooltip' })
 
 /** The class marking a diagram element a conversion failed on. */
 export const ERROR_CLASS = 'phlynx-celldl-error'
+/** The softer class marking an element the live conversion has an issue with, as diagrams mid-edit often do. */
+export const LIVE_ISSUE_CLASS = 'phlynx-celldl-issue'
 
 /** The diagram's own objects, which a blank diagram has none of. */
 const OBJECT_SELECTOR = ['Annotation', 'Component', 'Connector', 'Connection', 'Conduit', 'Compartment', 'InterfacePort']
@@ -85,6 +87,8 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   // The claiming pane's handler for the editor's viewer events (select, unselect, active, unactive).
   let eventHandler = null
   let annotationCount = 0
+  // Who hears the diagram as it changes or opens (onChange).
+  const changeListeners = new Set()
 
   const svgOf = () => root?.querySelector('#svg-container > svg') ?? null
 
@@ -187,13 +191,12 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   }
 
   /**
-   * Gets the diagram as CellDL. The editor deselects everything to serialise it.
+   * Asks the editor for its diagram in one of its formats.
    *
+   * @param {'data'|'rdf'} action - `data` for the CellDL document, `rdf` for its BG-RDF Turtle.
    * @returns {Promise<string>}
    */
-  async function serialise() {
-    await whenReady()
-    clearHighlights()
+  function request(action) {
     const kind = `phlynx-${++commandCount}`
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -204,24 +207,96 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
         clearTimeout(timer)
         resolve(data)
       })
-      send({ command: 'file', options: { action: 'data', kind } })
+      send({ command: 'file', options: { action, kind } })
     })
   }
 
   /**
-   * Marks the diagram's elements a conversion failed on, until the diagram is next serialised or opened.
+   * Gets the diagram as CellDL. The editor deselects everything to serialise it.
+   *
+   * @returns {Promise<string>}
+   */
+  async function serialise() {
+    await whenReady()
+    clearHighlights()
+    return request('data')
+  }
+
+  /**
+   * Gets the diagram's BG-RDF Turtle, which, unlike serialising, leaves the selection alone.
+   *
+   * @returns {Promise<string>}
+   */
+  async function readRdf() {
+    await whenReady()
+    return request('rdf')
+  }
+
+  /**
+   * Marks the diagram's elements a conversion has issues with, until the diagram is next serialised or opened, or
+   * marked again.
    *
    * @param {string[]} ids - Their SVG ids.
+   * @param {Object} [options]
+   * @param {boolean} [options.isLive] - The issues are the live conversion's, so are marked more softly.
    */
-  function highlight(ids) {
+  function highlight(ids, { isLive = false } = {}) {
     clearHighlights()
     const svg = svgOf()
-    ids.forEach((id) => svg?.getElementById(id)?.classList.add(ERROR_CLASS))
+    const className = isLive ? LIVE_ISSUE_CLASS : ERROR_CLASS
+    ids.forEach((id) => svg?.getElementById(id)?.classList.add(className))
   }
 
   /** Clears highlight's marks, which must never be saved with the diagram. */
   function clearHighlights() {
-    root?.querySelectorAll(`.${ERROR_CLASS}`).forEach((element) => element.classList.remove(ERROR_CLASS))
+    for (const className of [ERROR_CLASS, LIVE_ISSUE_CLASS]) {
+      root?.querySelectorAll(`.${className}`).forEach((element) => element.classList.remove(className))
+    }
+  }
+
+  /**
+   * Annotates the diagram's elements as the live conversion found them, so an element added since the save shows
+   * its variables too. Opening a source annotates it as saved again.
+   *
+   * @param {Object} next - Viewer annotations by SVG id (bg2cellml's toViewerAnnotations).
+   */
+  function setLiveAnnotations(next) {
+    annotationCount += 1
+    annotations.value = next
+  }
+
+  /**
+   * Hears the diagram as it changes, and once a source has opened.
+   *
+   * @param {(change: {rdf: string, documentUri: string|null, isOpened: boolean}) => void} listener
+   * @returns {() => void} Stops listening.
+   */
+  function onChange(listener) {
+    changeListeners.add(listener)
+    return () => changeListeners.delete(listener)
+  }
+
+  function notifyChange(rdf, isOpened) {
+    const change = { rdf, documentUri: shown?.source?.documentUri ?? null, isOpened }
+    changeListeners.forEach((listener) => listener(change))
+  }
+
+  /**
+   * Passes on the editor's `diagram-changed` emit while a pane holds the editor. Opening a source emits none.
+   *
+   * @param {{revision: number, rdf: string}} change
+   */
+  function onDiagramChanged(change) {
+    if (isActive.value && !isOpening && typeof change?.rdf === 'string') notifyChange(change.rdf, false)
+  }
+
+  /** Tells the listeners which diagram a source opened as. */
+  function announceOpened() {
+    if (!changeListeners.size) return
+    readRdf().then(
+      (rdf) => notifyChange(rdf, true),
+      (e) => console.error("CellDL diagram's RDF couldn't be read:", e)
+    )
   }
 
   /**
@@ -306,7 +381,10 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
         // A source that failed leaves the editor's diagram unknown, so the next sync opens it again.
         syncing ??= open(request.source)
           .then(
-            () => setShown(request),
+            () => {
+              setShown(request)
+              announceOpened()
+            },
             (e) => {
               setShown(null)
               throw e
@@ -456,15 +534,19 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     prepare,
     sync,
     serialise,
+    readRdf,
     compareWithBaseline,
     markClean,
     markSaved,
     highlight,
+    setLiveAnnotations,
+    onChange,
     claim,
     release,
     onEditorData,
     onEditorState,
     onViewerEvent,
+    onDiagramChanged,
     listen,
     unlisten,
   }

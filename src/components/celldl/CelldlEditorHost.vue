@@ -9,6 +9,7 @@
         @editor-data="host.onEditorData"
         @editor-state="host.onEditorState"
         @event="host.onViewerEvent"
+        @diagram-changed="host.onDiagramChanged"
       />
     </div>
   </Teleport>
@@ -90,6 +91,11 @@ onUnmounted(() => {
 /* A diagram element the last conversion failed on (useCelldlEditorHost's highlight). */
 .celldl-host .phlynx-celldl-error {
   filter: drop-shadow(0 0 2px var(--p-red-500)) drop-shadow(0 0 4px var(--p-red-500));
+}
+
+/* Softer, for the live conversion's issues, as a diagram mid-edit often has some. */
+.celldl-host .phlynx-celldl-issue {
+  filter: drop-shadow(0 0 2px color-mix(in srgb, var(--p-orange-500) 70%, transparent));
 }
 </style>
 
