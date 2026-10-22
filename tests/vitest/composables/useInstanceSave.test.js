@@ -3,7 +3,7 @@ import { reactive, ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { useInstanceSave } from '../../../src/composables/useInstanceSave.js'
+import { describeKeptValues, useInstanceSave } from '../../../src/composables/useInstanceSave.js'
 import { useNodeDataHistory } from '../../../src/composables/useNodeDataHistory.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
@@ -109,6 +109,14 @@ const fork = () =>
     siblings: ['b'],
   })
 
+describe('describeKeptValues', () => {
+  it('says how many instances kept their own value of each variable', () => {
+    expect(describeKeptValues(new Map([['kappa_r1', 1], ['K_P', 3]]))).toBe(
+      '1 instance keeps its own value for kappa_r1. 3 instances keep their own value for K_P.'
+    )
+  })
+})
+
 describe('useInstanceSave', () => {
   let history, library, saveInstanceEdit
 
@@ -128,7 +136,7 @@ describe('useInstanceSave', () => {
 
   it('undoes a fork applied to every instance as one step, and redoes it exactly', async () => {
     const before = snapshot()
-    expect(await saveInstanceEdit(fork())).toBe(2)
+    expect((await saveInstanceEdit(fork())).count).toBe(2)
     const after = snapshot()
     expect(findNode('b').data.mathRef).toBe(GROWTH_REF)
     expect(library.availableMath.has(GROWTH_REF)).toBe(true)
@@ -245,6 +253,24 @@ describe('useInstanceSave', () => {
       const rows = Object.fromEntries(findNode('b').data.variables.map((row) => [row.name, row]))
       expect(rows.c.value).toBe('3')
       expect(rows.k.value).toBe('0.5')
+    })
+
+    it("moves every instance still on the diagram's previous values to its new ones, and counts those keeping their own", async () => {
+      library.setMathSource(DECAY_REF, SOURCE)
+      const own = createNode('c')
+      own.data.variables = own.data.variables.map((row) => (row.name === 'k' ? { ...row, value: '3' } : row))
+      nodes.value.push(own)
+      const edited = DECAY_XML.replace('initial_value="0.5"', 'initial_value="0.8"')
+
+      const { keptValues } = await saveInstanceEdit(
+        buildSave({ math: edited, source: SOURCE, isSourceChanged: true, previousDefaults: [...library.getMathDefaults(DECAY_REF)], keptValues: ['k'] })
+      )
+
+      const valueOf = (id) => findNode(id).data.variables.find((row) => row.name === 'k').value
+      expect(valueOf('b')).toBe('0.8')
+      expect(valueOf('c')).toBe('3')
+      expect(keptValues).toEqual(new Map([['k', 2]]))
+      expect(describeKeptValues(keptValues)).toBe('2 instances keep their own value for k.')
     })
 
     it('leaves the other instances\' new rows blank for CellML math', async () => {

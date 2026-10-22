@@ -72,15 +72,22 @@ const liveStatus = computed(() => {
     case 'warnings':
       return `Converts, with ${plural(result.warnings.length, 'warning')}`
     default:
-      return live.latest.value.pass === 'full' && result.runnable ? 'Converts and runs' : 'Converts'
+      // Runs check the saved module, so until the diagram is saved only its conversion is known.
+      if (host.isDirty.value) return 'Converts, not yet saved'
+      return isRunnable.value ? 'Converts and runs' : 'Converts'
   }
 })
+
+/** Whether libCellML found the diagram's CellML runnable. */
+const isRunnable = computed(() => live.latest.value?.pass === 'full' && !!live.result.value?.runnable)
 
 const liveTitle = computed(() => {
   if (live.error.value) return live.error.value
   if (live.issues.value.length) return issueLines(live.issues.value).join('\n')
   if (live.isChecking.value && !live.isPending.value) return 'Checking with libCellML…'
-  return live.latest.value?.pass === 'full' ? 'Checked with libCellML' : ''
+  if (live.latest.value?.pass !== 'full') return ''
+  if (host.isDirty.value && isRunnable.value) return 'Checked with libCellML: it runs once saved'
+  return 'Checked with libCellML'
 })
 
 watch(

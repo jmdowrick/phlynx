@@ -6,6 +6,7 @@ import { useConfirm } from 'primevue/useconfirm'
 //   severity?: 'info' | 'success' | 'warning' | 'error'
 //   acceptLabel?: string
 //   rejectLabel?: string
+//   isRejectDefault?: boolean // the reject button is the primary one, and focused
 // }
 
 export function useConfirmDialog() {
@@ -22,9 +23,13 @@ export function useConfirmDialog() {
 
         acceptLabel: options.acceptLabel ?? 'OK',
         rejectLabel: options.rejectLabel,
+        isRejectDefault: !!options.isRejectDefault && !!options.rejectLabel,
 
+        // Escape closes only this dialog, as its reject button would.
+        closeOnEscape: true,
         accept: () => resolve(true),
         reject: () => resolve(false),
+        onHide: () => resolve(false),
       })
     })
   }

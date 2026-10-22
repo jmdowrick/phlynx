@@ -1113,18 +1113,114 @@ describe('InstanceEditorDialog locked math', () => {
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
   })
 
-  it('leaves Escape to the diagram while the user works in it', async () => {
-    useLibraryStore().setMathSource(MATH_REF, SOURCE)
-    mountDialog()
-    await wrapper.setProps({ modelValue: true })
-    await vi.waitFor(() => expect(wrapper.findComponent(CelldlPaneStub).exists()).toBe(true))
-    const closeOnEscape = () => wrapper.findComponent(DialogStub).vm.$attrs.closeOnEscape
+  describe('closing', () => {
+    let mask, others
 
-    expect(closeOnEscape()).toBe(true)
-    useCelldlEditorHost().isEngaged.value = true
-    await flushPromises()
-    expect(closeOnEscape()).toBe(false)
-    useCelldlEditorHost().isEngaged.value = false
+    /** Adds an element to the page, removed after the test. */
+    const addToPage = (tag, className) => {
+      const element = document.createElement(tag)
+      if (className) element.className = className
+      document.body.appendChild(element)
+      others.push(element)
+      return element
+    }
+    const press = (key, target = document.body) => target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+    const pointer = (type, target) => target.dispatchEvent(new Event(type, { bubbles: true }))
+    // The guard acts once the event is done with.
+    const settle = () => new Promise((resolve) => setTimeout(resolve)).then(flushPromises)
+    const closed = () => (wrapper.emitted('update:modelValue') ?? []).some(([visible]) => visible === false)
+
+    beforeEach(async () => {
+      others = []
+      useLibraryStore().setMathSource(MATH_REF, SOURCE)
+      mountDialog()
+      await wrapper.setProps({ modelValue: true })
+      await vi.waitFor(() => expect(wrapper.findComponent(CelldlPaneStub).exists()).toBe(true))
+      mask = addToPage('div', 'p-dialog-mask module-editor-mask')
+    })
+
+    afterEach(() => {
+      others.forEach((element) => element.remove())
+      useCelldlEditorHost().isEngaged.value = false
+      useCelldlEditorHost().isDirty.value = false
+    })
+
+    it('leaves the closing to the guard, not the dialog', () => {
+      const attrs = wrapper.findComponent(DialogStub).vm.$attrs
+      expect(attrs.dismissableMask).toBe(false)
+      expect(attrs.closeOnEscape).toBe(false)
+    })
+
+    it('closes on Escape, unless the diagram is in use', async () => {
+      useCelldlEditorHost().isEngaged.value = true
+      press('Escape')
+      await settle()
+      expect(closed()).toBe(false)
+
+      useCelldlEditorHost().isEngaged.value = false
+      press('Escape')
+      await settle()
+      expect(closed()).toBe(true)
+    })
+
+    it('leaves Escape to a popup, menu or dialog open above it', async () => {
+      const popover = addToPage('div', 'p-popover')
+      press('Escape')
+      await settle()
+      expect(closed()).toBe(false)
+
+      popover.remove()
+      addToPage('div', 'p-dialog-mask')
+      press('Escape')
+      await settle()
+      expect(closed()).toBe(false)
+    })
+
+    it('leaves a focused search box on Escape, rather than closing', async () => {
+      const search = addToPage('input')
+      search.focus()
+      press('Escape', search)
+      await settle()
+      expect(document.activeElement).not.toBe(search)
+      expect(closed()).toBe(false)
+    })
+
+    it('closes on a click outside only while nothing is unsaved', async () => {
+      useCelldlEditorHost().isDirty.value = true
+      await flushPromises()
+      pointer('pointerdown', mask)
+      pointer('pointerup', mask)
+      await settle()
+      expect(closed()).toBe(false)
+      expect(confirm).not.toHaveBeenCalled()
+
+      useCelldlEditorHost().isDirty.value = false
+      await flushPromises()
+      pointer('pointerdown', mask)
+      pointer('pointerup', mask)
+      await settle()
+      expect(closed()).toBe(true)
+    })
+
+    it('never takes a drag that ends outside, e.g. a pan of the diagram, for a click outside', async () => {
+      const canvas = addToPage('div')
+      pointer('pointerdown', canvas)
+      pointer('pointerup', mask)
+      await settle()
+      expect(closed()).toBe(false)
+    })
+
+    it('keeps editing as the default answer when asked about unsaved edits', async () => {
+      useCelldlEditorHost().isDirty.value = true
+      await flushPromises()
+      confirm.mockResolvedValueOnce(false)
+      press('Escape')
+      await settle()
+      expect(confirm).toHaveBeenCalledWith(
+        expect.objectContaining({ header: 'Unsaved Changes', acceptLabel: 'Discard & Close', isRejectDefault: true })
+      )
+      expect(closed()).toBe(false)
+    })
   })
 
   it("ignores the CellDL editor's edits for CellML math", async () => {

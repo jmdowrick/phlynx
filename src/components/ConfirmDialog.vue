@@ -17,17 +17,20 @@
         </div>
 
         <div class="confirm-actions">
+          <!-- With isRejectDefault, rejecting is the primary, focused action, and accepting the secondary one. -->
           <Button
             v-if="message.rejectLabel"
             :label="message.rejectLabel"
-            severity="secondary"
-            outlined
+            :severity="message.isRejectDefault ? undefined : 'secondary'"
+            :outlined="!message.isRejectDefault"
+            :autofocus="!!message.isRejectDefault"
             @click="rejectCallback"
           />
 
           <Button
             :label="message.acceptLabel || 'OK'"
             :severity="getButtonSeverity(message.severity)"
+            :outlined="!!message.isRejectDefault"
             @click="acceptCallback"
           />
         </div>

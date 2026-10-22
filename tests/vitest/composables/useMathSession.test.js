@@ -776,6 +776,42 @@ describe('useMathSession', () => {
       expect(session.isDirty()).toBe(true)
     })
 
+    it("keeps every generated constant's value, even one no equation uses, on a first save", async () => {
+      await session.load({ mathRef: MATH_REF, rows: [], managed: false })
+      session.applyGeneratedModel(
+        GENERATED_XML.replace('<variable name="k"', '<variable name="F" units="C_per_mol" initial_value="96485"/>\n    <variable name="k"')
+      )
+
+      const rows = byName(session.parameterRows.value)
+      expect(rows.F).toMatchObject({ value: '96485', type: 'constant' })
+      expect(rows.c.value).toBe('3')
+      expect(rows.k.value).toBe('0.7')
+      expect(rows.x0.value).toBe('1')
+    })
+
+    it("moves rows still on the source's previous values to its new ones, keeping the instance's own", async () => {
+      await session.load({
+        mathRef: MATH_REF,
+        rows: [
+          { name: 'k', value: '2', units: 'per_second', type: 'constant' },
+          { name: 'x0', value: '0.9', units: 'metre', type: 'constant' },
+        ],
+        managed: false,
+      })
+      const kept = session.applyGeneratedModel(GENERATED_XML, {
+        previousDefaults: new Map([
+          ['k', '0.5'],
+          ['x0', '0.9'],
+        ]),
+      })
+
+      const rows = byName(session.parameterRows.value)
+      expect(rows.x0.value).toBe('1')
+      expect(rows.k.value).toBe('2')
+      expect(rows.c.value).toBe('3')
+      expect(kept).toEqual(['k'])
+    })
+
     it('keeps the instance values and fills the rest from a generated model', () => {
       session.applyGeneratedModel(GENERATED_XML)
 

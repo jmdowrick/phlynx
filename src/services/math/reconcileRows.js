@@ -283,8 +283,11 @@ export function reconcileRows(analysis, previousRows = [], { mode = SIMPLE_MODE,
   }
 
   if (mode === SIMPLE_MODE) {
-    // A row the math still declares stays even if no equation uses it, so its value and source aren't lost.
-    const keptDeclared = analysis.declared.map((variable) => variable.name).filter((name) => previousByName.has(name))
+    // A row the math still declares stays even if no equation uses it, so its value and source aren't lost. So does
+    // one the defaults give a value, e.g. a generated constant, since its declaration has no value of its own.
+    const keptDeclared = analysis.declared
+      .map((variable) => variable.name)
+      .filter((name) => previousByName.has(name) || isNumericLiteral(defaults.get(name)))
     for (const name of new Set([...analysis.referenced, ...initialiserOf.values(), ...keptDeclared])) {
       addRow(buildSimpleModeRow(name, declaredByName.get(name), previousByName.get(name), context))
     }
@@ -316,4 +319,41 @@ export function reconcileRows(analysis, previousRows = [], { mode = SIMPLE_MODE,
 export function fillBlankValues(rows, defaults) {
   if (!defaults.size) return rows
   return rows.map((row) => (isEmpty(row.value) && defaults.has(row.name) ? { ...row, value: defaults.get(row.name) } : row))
+}
+
+/**
+ * Checks whether two values are the same, as numbers when both are.
+ *
+ * @param {*} value
+ * @param {*} other
+ * @returns {boolean}
+ */
+function isSameValue(value, other) {
+  if (isNumericLiteral(value) && isNumericLiteral(other)) return Number(value) === Number(other)
+  return String(value ?? '').trim() === String(other ?? '').trim()
+}
+
+/**
+ * Moves rows to a source's new defaults, e.g. a diagram's values after an edit. A row that is blank, or still holds
+ * the previous default, takes the new one; any other value is the instance's own, so it stays.
+ *
+ * @param {Array} rows - Never mutated.
+ * @param {Map<string, string>} previousDefaults - The defaults before the edit (libraryStore.getMathDefaults).
+ * @param {Map<string, string>} defaults - The defaults the edit gives.
+ * @returns {{rows: Array, kept: string[]}} The rows, with copies for those changed, and the names whose own value
+ *   was kept although their default changed.
+ */
+export function followDefaults(rows, previousDefaults, defaults) {
+  const kept = []
+  const followed = rows.map((row) => {
+    if (!defaults.has(row.name) || row.type === 'global_constant') return row
+    const value = defaults.get(row.name)
+    const previous = previousDefaults.get(row.name)
+    if (isEmpty(row.value) || (previousDefaults.has(row.name) && isSameValue(row.value, previous))) {
+      return isSameValue(row.value, value) && !isEmpty(row.value) ? row : { ...row, value }
+    }
+    if (previousDefaults.has(row.name) && !isSameValue(previous, value) && !isSameValue(row.value, value)) kept.push(row.name)
+    return row
+  })
+  return { rows: followed, kept }
 }
