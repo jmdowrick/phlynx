@@ -613,6 +613,14 @@ describe('the CellDL key gate', () => {
   })
 })
 
+describe('EDITOR_CHROME panels', () => {
+  it('shows the Reactions panel and hides Variables and Annotations', () => {
+    expect(EDITOR_CHROME.panels).toContain('reactions')
+    expect(EDITOR_CHROME.panels).not.toContain('variables')
+    expect(EDITOR_CHROME.panels).not.toContain('annotations')
+  })
+})
+
 describe('EDITOR_CHROME', () => {
   it('shows values read-only in the Properties panel, pointing to the Parameters tab', () => {
     expect(EDITOR_CHROME.values).toBe('readonly')

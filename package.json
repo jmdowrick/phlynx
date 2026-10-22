@@ -49,14 +49,14 @@
     }
   },
   "dependencies": {
-    "@celldl/editor": "https://github.com/physiomelinks/CellDLEditorComponent/releases/download/phlynx-v0.20261007.0-phlynx.5/celldl-editor-0.20261007.0-phlynx.5.tgz",
+    "@celldl/editor": "https://github.com/physiomelinks/CellDLEditorComponent/releases/download/phlynx-v0.20261007.0-phlynx.6/celldl-editor-0.20261007.0-phlynx.6.tgz",
     "@codemirror/language": "^6.12.1",
     "@codemirror/theme-one-dark": "^6.1.3",
     "@dagrejs/dagre": "^1.1.8",
     "@lezer/highlight": "^1.2.3",
     "@lezer/lr": "^1.4.8",
     "@opencor/libopencor": "^1.20261006.1",
-    "@physiomelinks/bg2cellml": "0.3.2",
+    "@physiomelinks/bg2cellml": "0.4.0",
     "@physiomelinks/protocol-kit": "^0.5.0",
     "@primeuix/utils": "^0.6.2",
     "@primevue/themes": "4",

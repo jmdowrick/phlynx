@@ -3,6 +3,7 @@
     <div ref="rootRef" class="celldl-host">
       <CellDLEditor
         :annotations="host.annotations.value"
+        :arrow-style="settings.arrowStyle"
         :chrome="EDITOR_CHROME"
         :editor-command="host.command.value"
         :options="EDITOR_OPTIONS"
@@ -27,10 +28,12 @@
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { EDITOR_CHROME, EDITOR_OPTIONS, useCelldlEditorHost } from '../../composables/useCelldlEditorHost'
+import { useAppSettings } from '../../composables/useAppSettings'
 import { useColorScheme } from '../../composables/useColorScheme'
 
 const host = useCelldlEditorHost()
 const { isDarkMode } = useColorScheme()
+const { settings } = useAppSettings()
 const rootRef = ref(null)
 
 // Made before the first render, so the editor can teleport there from the start.
