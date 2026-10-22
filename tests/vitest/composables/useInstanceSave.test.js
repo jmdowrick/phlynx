@@ -324,6 +324,16 @@ describe('useInstanceSave', () => {
         expect(findNode('a').data.mathRef).toBe(DECAY_REF)
         expect(library.availableMath.has(NEW_REF)).toBe(false)
         expect(library.availableUnits.some((file) => file.componentFile === 'fast.cellml')).toBe(false)
+        expect(library.getMathSource(NEW_REF)).toBeNull()
+        expect(library.availableModules.has('fast:default')).toBe(false)
+        expect(library.getMathEntry(DECAY_REF)).toEqual(decayBefore)
+
+        await history.redo()
+        expect(findNode('a').data).toMatchObject({ mathRef: NEW_REF, moduleRef: 'fast:default' })
+        expect(library.getMathSource(NEW_REF)).toEqual(NEW_SOURCE)
+        expect(library.availableUnits).toContainEqual(NEW_UNITS)
+        expect(library.availableModules.has('fast:default')).toBe(true)
+        expect(library.getMathEntry(DECAY_REF)).toEqual(decayBefore)
       })
 
       it('moves the other instances too when the save applies to all, keeping their values', async () => {
