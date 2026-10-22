@@ -1758,13 +1758,17 @@ let saveAsResolver = null
 const isTemplateName = (name) => [...PROTECTED_MATH_REFS].some((ref) => isSameName(ref.split(':')[1], name))
 
 /**
- * Gets the grouping a new component goes in: User_Modules.celldl for a diagram's, User_Modules.cellml for CellML's.
+ * Gets the grouping a component saved under a new name goes in. Only a module new from the template is a user module:
+ * a diagram's goes in User_Modules.celldl, CellML's in User_Modules.cellml. An edit of existing math, renamed or saved
+ * as new, stays in that math's grouping.
  *
  * @param {boolean} [isDiagram] - Whether it's a diagram's, as the module's format says by default.
  * @returns {string}
  */
-const newComponentFile = (isDiagram = moduleFormat.value.id === 'celldl') =>
-  isDiagram ? CELLDL_USER_MODULES_FILE : USER_MODULES_FILE
+const newComponentFile = (isDiagram = moduleFormat.value.id === 'celldl') => {
+  if (!isTemplate.value) return componentFile.value
+  return isDiagram ? CELLDL_USER_MODULES_FILE : USER_MODULES_FILE
+}
 
 /**
  * Explains why a name can't be a new component's, or returns '' when it can: a template's, the edited component's, or
@@ -1889,14 +1893,14 @@ function renamedDiagramComponent() {
 }
 
 /**
- * Gets the diagram's module a renamed diagram may overwrite: one under that name in the CellDL user modules grouping,
- * where a renamed diagram is saved, never a template's.
+ * Gets the diagram's module a renamed diagram may overwrite: one under that name in the diagram's grouping, where a
+ * renamed diagram is saved, never a template's or CellML's.
  *
  * @param {string} name
  * @returns {string|null} Its math reference, or null when there's none to overwrite.
  */
 function overwritableDiagram(name) {
-  const mathRef = `${CELLDL_USER_MODULES_FILE}:${name}`
+  const mathRef = `${componentFile.value}:${name}`
   if (isTemplateName(name) || isSameName(name, componentName.value ?? '') || PROTECTED_MATH_REFS.has(mathRef)) return null
   if (!store.availableMath.has(mathRef)) return null
   return store.getMathSource(mathRef)?.format === 'celldl' ? mathRef : null
@@ -1905,9 +1909,10 @@ function overwritableDiagram(name) {
 /**
  * Converts the diagram, when edited since it was opened or saved, into the math this save writes. Errors stop the
  * save, keeping the stored math and diagram, with the elements they name highlighted; warnings ask first. The
- * template's diagram, and a diagram whose component is renamed, is a new component, named first so its CellML is, in
- * the CellDL user modules grouping under a new documentUri; a renamed one's module, diagram and units are left as they
- * are. The grouping's modules share its units (groupingUnitsAfterSave). A diagram
+ * template's diagram, and a diagram whose component is renamed, is a new component, named first so its CellML is, under
+ * a new documentUri: the template's in the CellDL user modules grouping, a renamed one's in its module's grouping
+ * (newComponentFile), leaving its module, diagram and units as they are. The grouping's modules share its units
+ * (groupingUnitsAfterSave). A diagram
  * saved under its module's name, or renamed to another diagram's module's (overwritableDiagram), overwrites that, or is
  * converted again as a new component, asking once it converts.
  *
@@ -1942,19 +1947,19 @@ async function stageDiagram({ newName = null, isWarned = false } = {}) {
     }
     if (!stored || isRenamed) {
       isConverting.value = false
+      file = newComponentFile(true)
       overwriteRef = isRenamed && !newName ? overwritableDiagram(name) : null
-      const taken = isRenamed && !newName && !overwriteRef && isComponentNameTaken(name, { file: CELLDL_USER_MODULES_FILE })
+      const taken = isRenamed && !newName && !overwriteRef && isComponentNameTaken(name, { file })
       if (!stored || taken) {
         const renamed = await promptComponentSaveAs(
           stored
             ? `${taken} Save your diagram as a new component under another name.`
             : `"${name}" is the template new instances start from. Save your diagram as a new component instead.`,
-          { file: CELLDL_USER_MODULES_FILE, ...(stored && { initialName: name }) }
+          { file, ...(stored && { initialName: name }) }
         )
         if (!renamed) return false
         name = renamed
       }
-      file = CELLDL_USER_MODULES_FILE
       isConverting.value = true
       const { mintDocumentUri } = await import('../services/celldl/documentUri.js')
       documentUri = (overwriteRef && store.getMathSource(overwriteRef)?.documentUri) || mintDocumentUri(`${file}:${name}`)
@@ -2004,7 +2009,7 @@ async function stageDiagram({ newName = null, isWarned = false } = {}) {
   }
   // Saved under its module's name, it overwrites it, or is converted again as a new component, as CellML is saved.
   if (overwriteRef || (stored && !isRenamed && store.availableMath.has(props.mathRef))) {
-    const choice = await handleMathOverwrite(name, { file: CELLDL_USER_MODULES_FILE, mathRef: overwriteRef ?? props.mathRef })
+    const choice = await handleMathOverwrite(name, { file, mathRef: overwriteRef ?? props.mathRef })
     if (!choice) return false
     if (choice.name) return stageDiagram({ newName: choice.name, isWarned: true })
   }
@@ -2062,7 +2067,8 @@ function renameCelldlRows(renames) {
 /**
  * Works out the math reference a save writes to, asking before overwriting stored math or renaming a save of the
  * template. Math saved under its component's name overwrites it in place; a new component, renamed or saved as new,
- * goes in the CellML user modules grouping.
+ * stays in its math's grouping, or, from the template, goes in the CellML user modules grouping (newComponentFile).
+ * A diagram's module there is never overwritten.
  *
  * @param {string} math - The math to save.
  * @param {Object|null} layout - Its text layout.
@@ -2075,8 +2081,9 @@ async function resolveMathTarget(math, layout) {
     return null
   }
   const newComponentName = componentNames[0].trim()
+  const file = newComponentFile(false)
   const renamedTo = (name) => ({
-    mathRef: `${USER_MODULES_FILE}:${name}`,
+    mathRef: `${file}:${name}`,
     math: renameModelComponent(math, newComponentName, name),
     layout: renameLayoutComponent(layout, newComponentName, name),
   })
@@ -2090,22 +2097,24 @@ async function resolveMathTarget(math, layout) {
       : "is a template and can't be overwritten"
     const renamed = await promptComponentSaveAs(
       `"${newComponentName}" ${why}. Save your changes as a new component instead.`,
-      { file: USER_MODULES_FILE }
+      { file }
     )
     return renamed ? renamedTo(renamed) : null
   }
-  const mathRef = isRenamed ? `${USER_MODULES_FILE}:${newComponentName}` : ownRef
-  // A renamed component's grouping may have its name in another case, which it can't overwrite.
-  const sameName = isRenamed && findInGrouping(store.availableMath.keys(), USER_MODULES_FILE, newComponentName)
-  if (sameName && sameName !== mathRef) {
+  const mathRef = isRenamed ? `${file}:${newComponentName}` : ownRef
+  // A renamed component's grouping may have its name in another case, or a diagram's module under it, neither of which
+  // it can overwrite.
+  const sameName = isRenamed && findInGrouping(store.availableMath.keys(), file, newComponentName)
+  const isDiagramModule = !!sameName && (store.getMathSource(sameName)?.format ?? 'cellml') !== 'cellml'
+  if (sameName && (sameName !== mathRef || isDiagramModule)) {
     const renamed = await promptComponentSaveAs(
       `A component named "${newComponentName}" already exists. Save your changes as a new component under another name.`,
-      { file: USER_MODULES_FILE, initialName: newComponentName }
+      { file, initialName: newComponentName }
     )
     return renamed ? renamedTo(renamed) : null
   }
   if (store.availableMath.has(mathRef)) {
-    const choice = await handleMathOverwrite(newComponentName, { file: USER_MODULES_FILE, mathRef })
+    const choice = await handleMathOverwrite(newComponentName, { file, mathRef })
     if (!choice) return null
     if (choice.name) return renamedTo(choice.name)
   }
