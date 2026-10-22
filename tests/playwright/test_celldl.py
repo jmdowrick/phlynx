@@ -372,13 +372,13 @@ class TestCelldl(unittest.TestCase):
             click_element(page, storage.get_attribute("id"))
             choose_template(page, "Chemical storage with Zero Node")
 
-            # Live conversion takes it as a storage node: it asks for its storage's value, not for a junction type.
-            # The live status lists its issues in its tooltip.
+            # Live conversion takes it as a storage node: the template stores 1 for its K, which the math has, and
+            # no junction type is asked for. The live status lists its issues in its tooltip.
             status = dialog.locator(".celldl-live-status")
-            expect(status).to_have_attribute(
-                "title", re.compile("Missing value for parameter K"), timeout=DIAGRAM_TIMEOUT
-            )
+            expect(status).to_have_attribute("title", re.compile("q_i_j"), timeout=DIAGRAM_TIMEOUT)
             self.assertNotIn("must be one, zero or transform nodes", status.get_attribute("title"))
+            self.assertNotIn("Missing value for parameter K", status.get_attribute("title"))
+            expect(cellml_text(dialog)).to_contain_text("K_q_i_j", timeout=DIAGRAM_TIMEOUT)
             # ----------- END ------------
 
             browser.close()
@@ -486,6 +486,37 @@ class TestCelldl(unittest.TestCase):
                     pass
             expect(locked).to_have_count(0)
             expect(editor_tab(dialog, "CellDL")).to_be_enabled()
+            # ----------- END ------------
+
+            browser.close()
+
+    def test_undoes_in_the_diagram_only_while_working_in_it(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+
+            # ---------- START -----------
+            dialog = import_and_open(page)
+            components = page.locator(f"{DIAGRAM_SVG} #celldl-diagram-layer > g.celldl-Component")
+            add_component(page, "ZeroStorageNode_q")
+            expect(components).to_have_count(4)
+
+            # Undo in the Parameters table leaves the diagram alone.
+            dialog.locator(".parameters-table tr").filter(has_text="R_R_i_R").locator("td").first.click()
+            page.keyboard.press("ControlOrMeta+z")
+            page.wait_for_timeout(500)
+            expect(components).to_have_count(4)
+
+            # Back in the diagram, the keys undo and redo it, as do its toolbar's buttons.
+            box = page.locator(DIAGRAM_SVG).bounding_box()
+            page.mouse.click(box["x"] + box["width"] * 0.1, box["y"] + box["height"] * 0.1)
+            page.keyboard.press("ControlOrMeta+z")
+            expect(components).to_have_count(3)
+            page.keyboard.press("ControlOrMeta+Shift+z")
+            expect(components).to_have_count(4)
+            page.locator("#editor-undo").click()
+            expect(components).to_have_count(3)
+            page.locator("#editor-redo").click()
+            expect(components).to_have_count(4)
             # ----------- END ------------
 
             browser.close()
