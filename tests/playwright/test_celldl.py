@@ -856,6 +856,21 @@ class TestCelldl(unittest.TestCase):
             self.assertEqual(stored_document(page, math_ref), shared)
             self.assertIsNotNone(stored_document(page, "enzyme_mine.cellml:enzyme_mine"))
 
+            # Undo removes the new component and its diagram, leaving the shared one; redo puts them back.
+            expect(page.locator("button:has(.pi-undo)")).to_be_enabled()
+            page.keyboard.press("ControlOrMeta+z")
+            page.wait_for_function(
+                """() => !document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
+                    .get('library').availableMath.has('enzyme_mine.cellml:enzyme_mine')"""
+            )
+            self.assertEqual(stored_document(page, math_ref), shared)
+            page.keyboard.press("ControlOrMeta+Shift+z")
+            page.wait_for_function(
+                """() => document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
+                    .get('library').availableMath.has('enzyme_mine.cellml:enzyme_mine')"""
+            )
+            self.assertEqual(stored_document(page, math_ref), shared)
+
             instances.first.dblclick()
             wait_for_diagram(page)
             self.assertEqual(component_of(dialog), ("enzyme_mine", "enzyme_mine.cellml"))
@@ -897,18 +912,42 @@ class TestCelldl(unittest.TestCase):
             content.click()
             page.keyboard.press("ControlOrMeta+End")
             page.keyboard.type("\nd = b;")
+            # The prompt focuses Save as new component, never Overwrite: Escape cancels the save, and Enter saves as new.
+            prompt = page.locator(".confirm-container").filter(has_text="Overwrite Math?")
             dialog.get_by_role("button", name="Save").click()
-            answer_overwrite(page, "Save as new component")
+            expect(prompt.get_by_role("button", name="Save as new component")).to_be_focused(timeout=DIAGRAM_TIMEOUT)
+            page.keyboard.press("Escape")
+            expect(prompt).to_have_count(0)
+            expect(dialog).to_be_visible()
+            expect(page.get_by_role("dialog", name="Save As New Component")).to_have_count(0)
+            dialog.get_by_role("button", name="Save").click()
+            expect(prompt.get_by_role("button", name="Save as new component")).to_be_focused(timeout=DIAGRAM_TIMEOUT)
+            page.keyboard.press("Enter")
             save_as_new(
                 page,
                 [
                     ("mine", 'A component named "mine" already exists.'),
+                    ("Mine", 'A component named "Mine" already exists.'),
                     ("new_module", '"new_module" is a template and can\'t be overwritten.'),
+                    (" New Module ", '"New_Module" is a template and can\'t be overwritten.'),
                 ],
                 "mine_too",
             )
             expect(dialog).to_be_hidden(timeout=DIAGRAM_TIMEOUT)
             self.assertTrue(has_math(page, "template_modules.cellml:mine_too"))
+
+            # Undo removes the new component, and redo puts it back.
+            expect(page.locator("button:has(.pi-undo)")).to_be_enabled()
+            page.keyboard.press("ControlOrMeta+z")
+            page.wait_for_function(
+                """() => !document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
+                    .get('library').availableMath.has('template_modules.cellml:mine_too')"""
+            )
+            page.keyboard.press("ControlOrMeta+Shift+z")
+            page.wait_for_function(
+                """() => document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
+                    .get('library').availableMath.has('template_modules.cellml:mine_too')"""
+            )
             self.assertTrue(saved_math_has(page, '<ci>d</ci>'))
             self.assertFalse(
                 page.evaluate(

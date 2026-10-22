@@ -1492,6 +1492,8 @@ describe('InstanceEditorDialog locked math', () => {
         expect(isTaken('decay')).toBe('A component named "decay" already exists.')
         expect(isTaken('slow')).toBe('A component named "slow" already exists.')
         expect(isTaken('new_module')).toBe('"new_module" is a template and can\'t be overwritten.')
+        expect(isTaken('Slow')).toBe('A component named "Slow" already exists.')
+        expect(isTaken('Ghost')).toBe('"Ghost" is a template and can\'t be overwritten.')
         expect(isTaken('fast')).toBe('')
         await answer(saveAs, 'fast')
 
@@ -1795,6 +1797,8 @@ describe('InstanceEditorDialog locked math', () => {
       expect(isTaken('decay')).toBe('A component named "decay" already exists.')
       expect(isTaken('growth')).toBe('A component named "growth" already exists.')
       expect(isTaken('new_module')).toBe('"new_module" is a template and can\'t be overwritten.')
+      expect(isTaken('Growth')).toBe('A component named "Growth" already exists.')
+      expect(isTaken('New_Module')).toBe('"New_Module" is a template and can\'t be overwritten.')
       expect(isTaken('fresh')).toBe('')
       await answer(saveAs, 'fresh')
 
@@ -1815,6 +1819,21 @@ describe('InstanceEditorDialog locked math', () => {
       await answer(await startSaveAs(), null)
 
       expect(wrapper.emitted('confirm')).toBeUndefined()
+    })
+
+    it("saves math renamed to a template's name as a new component, never asking to overwrite", async () => {
+      mountDialog()
+      const editor = await open()
+      await report(editor, 'init', XML)
+      await report(editor, 'edit', EDITED_XML.replaceAll('decay', 'new_module'))
+      await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+      await vi.waitFor(() => expect(wrapper.findComponent(ComponentSaveAsDialog).exists()).toBe(true))
+
+      expect(choose).not.toHaveBeenCalled()
+      await answer(wrapper.findComponent(ComponentSaveAsDialog), 'fresh')
+      const [save] = wrapper.emitted('confirm')[0]
+      expect(save.mathRef).toBe('file:fresh')
+      expect(save.math).toContain('<component name="fresh">')
     })
   })
 

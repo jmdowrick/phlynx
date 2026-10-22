@@ -27,11 +27,12 @@
             @click="rejectCallback"
           />
 
-          <!-- A third action (choose), resolved before the dialog closes, so closing doesn't reject it. -->
+          <!-- A third action (choose), resolved before the dialog closes, so closing doesn't reject it. It's the
+               primary, focused action, so Enter takes it and never the accept action beside it. -->
           <Button
             v-if="message.extraLabel"
             :label="message.extraLabel"
-            severity="secondary"
+            autofocus
             @click="
               () => {
                 message.extra?.()
@@ -43,7 +44,7 @@
           <Button
             :label="message.acceptLabel || 'OK'"
             :severity="getButtonSeverity(message.severity)"
-            :outlined="!!message.isRejectDefault"
+            :outlined="!!message.isRejectDefault || !!message.extraLabel"
             @click="acceptCallback"
           />
         </div>

@@ -46,6 +46,16 @@ describe('ConfirmDialog choose', () => {
     expect(await chooseBy(label)).toBe(choice)
   })
 
+  it('focuses Save as new component, never Overwrite, so Enter saves as new', async () => {
+    mountDialog()
+    dialogs.choose({ header: 'Overwrite Math?', message: 'm', acceptLabel: 'Overwrite', extraLabel: 'Save as new component' })
+    await flushPromises()
+    const byLabel = (label) =>
+      [...document.body.querySelectorAll('.confirm-actions button')].find((button) => button.textContent.trim() === label)
+    expect(byLabel('Save as new component').hasAttribute('autofocus')).toBe(true)
+    expect(byLabel('Overwrite').hasAttribute('autofocus')).toBe(false)
+  })
+
   it('shows no third button for a plain confirm', async () => {
     mountDialog()
     dialogs.confirm({ header: 'Sure?', message: 'm', acceptLabel: 'Yes', rejectLabel: 'No' })

@@ -1739,26 +1739,36 @@ async function handleCancel() {
 }
 
 // ── Save As ──────────────────────────────────────────────────────────────────
-const saveAs = ref({ visible: false, message: '', initialName: '', isOwnFile: false, isNew: false })
+const saveAs = ref({ visible: false, message: '', initialName: '', isOwnFile: false })
 let saveAsResolver = null
 
+/** Whether two component names are the same, ignoring case, so their files don't clash on a case-blind disk. */
+const isSameName = (a, b) => a.toLowerCase() === b.toLowerCase()
+
 /**
- * Explains why a component name can't be saved in this file, or returns '' when it can.
+ * Checks whether a component name is a template's (PROTECTED_MATH_REFS), in any file.
  *
  * @param {string} name
- * @param {{isOwnFile?: boolean, isNew?: boolean}} [options] - Whether it goes in its own file (see saveAsFile), and
- *   must be a new component, so not the edited math's either; as Save As last asked by default.
+ * @returns {boolean}
+ */
+const isTemplateName = (name) => [...PROTECTED_MATH_REFS].some((ref) => isSameName(ref.split(':')[1], name))
+
+/**
+ * Explains why a name can't be a new component's, or returns '' when it can: a template's, the edited component's, a
+ * name used in any file, or, in its own file, a used file name are all refused, ignoring case.
+ *
+ * @param {string} name
+ * @param {{isOwnFile?: boolean}} [options] - Whether it goes in its own file (see saveAsFile), as Save As last asked
+ *   by default.
  * @returns {string}
  */
-function isComponentNameTaken(name, { isOwnFile = saveAs.value.isOwnFile, isNew = saveAs.value.isNew } = {}) {
+function isComponentNameTaken(name, { isOwnFile = saveAs.value.isOwnFile } = {}) {
+  if (isTemplateName(name)) return `"${name}" is a template and can't be overwritten.`
+  const isUsed =
+    isSameName(name, componentName.value ?? '') ||
+    [...store.availableMath.keys()].some((mathRef) => isSameName(mathRef.split(':')[1] ?? '', name))
+  if (isUsed) return `A component named "${name}" already exists.`
   const file = saveAsFile(name, { isOwnFile })
-  const mathRef = `${file}:${name}`
-  // A new component takes neither a template's name nor the edited one's, in whichever file it goes.
-  const isTemplate = isNew ? [...PROTECTED_MATH_REFS].some((ref) => ref.split(':')[1] === name) : PROTECTED_MATH_REFS.has(mathRef)
-  if (isTemplate) return `"${name}" is a template and can't be overwritten.`
-  const isEdited = isNew && (mathRef === props.mathRef || name === componentName.value)
-  if (isEdited || (mathRef !== props.mathRef && store.availableMath.has(mathRef)))
-    return `A component named "${name}" already exists.`
   if (isOwnFile && isFileTaken(file)) return `A file named "${file}" already exists.`
   return ''
 }
@@ -1781,8 +1791,8 @@ const saveAsFile = (name, { isOwnFile = saveAs.value.isOwnFile } = {}) => (isOwn
  */
 function isFileTaken(file) {
   return (
-    [...store.availableMath.keys()].some((mathRef) => mathRef.split(':')[0] === file) ||
-    store.availableUnits.some((units) => units.componentFile === file)
+    [...store.availableMath.keys()].some((mathRef) => isSameName(mathRef.split(':')[0], file)) ||
+    store.availableUnits.some((units) => isSameName(units.componentFile ?? '', file))
   )
 }
 
@@ -1790,14 +1800,13 @@ function isFileTaken(file) {
  * Asks for a new component name before saving math that can't keep its current one.
  *
  * @param {string} message - Why a new name is needed.
- * @param {{isOwnFile?: boolean, isNew?: boolean, initialName?: string}} [options] - Save the component in its own
- *   file (see saveAsFile), whether the edited math's name is taken too (isComponentNameTaken), and the name offered,
- *   the instance's by default.
+ * @param {{isOwnFile?: boolean, initialName?: string}} [options] - Save the component in its own file (see
+ *   saveAsFile), and the name offered, the instance's by default.
  * @returns {Promise<string|null>} The new name, or null if cancelled.
  */
-function promptComponentSaveAs(message, { isOwnFile = false, isNew = false, initialName = editableName.value } = {}) {
+function promptComponentSaveAs(message, { isOwnFile = false, initialName = editableName.value } = {}) {
   resolveSaveAs(null)
-  saveAs.value = { visible: true, message, initialName: sanitiseName(initialName ?? ''), isOwnFile, isNew }
+  saveAs.value = { visible: true, message, initialName: sanitiseName(initialName ?? ''), isOwnFile }
   return new Promise((resolve) => {
     saveAsResolver = resolve
   })
@@ -1829,7 +1838,6 @@ async function handleMathOverwrite(name, { isOwnFile = false } = {}) {
   if (choice !== 'extra') return null
   const renamed = await promptComponentSaveAs('Save your changes as a new component under an unused name.', {
     isOwnFile,
-    isNew: true,
     initialName: name,
   })
   return renamed ? { name: renamed } : null
@@ -1920,7 +1928,7 @@ async function stageDiagram({ newName = null, isWarned = false } = {}) {
     }
     if (!stored || isRenamed) {
       isConverting.value = false
-      const taken = isRenamed && !newName && isComponentNameTaken(name, { isOwnFile: true, isNew: true })
+      const taken = isRenamed && !newName && isComponentNameTaken(name, { isOwnFile: true })
       if (!stored || taken) {
         const renamed = await promptComponentSaveAs(
           stored
@@ -2053,9 +2061,14 @@ async function resolveMathTarget(math, layout) {
   const newComponentName = componentNames[0].trim()
 
   const mathRef = `${componentFile.value}:${newComponentName}`
-  if (PROTECTED_MATH_REFS.has(mathRef)) {
+  // The template, or math renamed to a template's name, is saved as a new component, as a diagram is.
+  const isRenamed = newComponentName !== componentName.value
+  if (PROTECTED_MATH_REFS.has(mathRef) || (isRenamed && isTemplateName(newComponentName))) {
+    const why = PROTECTED_MATH_REFS.has(mathRef)
+      ? 'is the template new instances start from'
+      : "is a template and can't be overwritten"
     const renamed = await promptComponentSaveAs(
-      `"${newComponentName}" is the template new instances start from. Save your changes as a new component instead.`
+      `"${newComponentName}" ${why}. Save your changes as a new component instead.`
     )
     if (!renamed) return null
     return {

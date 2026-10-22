@@ -35,7 +35,8 @@ export function useConfirmDialog() {
   }
 
   /**
-   * Asks a question with a third, extra action between rejecting and accepting.
+   * Asks a question with a third, extra action between rejecting and accepting, which is the default: focused, so
+   * Enter takes it, while Escape rejects.
    *
    * @param {Object} options - As confirm's, with extraLabel naming the extra action.
    * @returns {Promise<'accept'|'extra'|'reject'>} The action chosen; closing the dialog rejects.
