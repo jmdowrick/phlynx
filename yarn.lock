@@ -1281,33 +1281,33 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@physiomelinks/bg2cellml@npm:0.3.1":
-  version: 0.3.1
-  resolution: "@physiomelinks/bg2cellml@npm:0.3.1"
+"@physiomelinks/bg2cellml@npm:0.3.2":
+  version: 0.3.2
+  resolution: "@physiomelinks/bg2cellml@npm:0.3.2"
   dependencies:
-    "@physiomelinks/cellml-units": "npm:^0.3.1"
-    "@physiomelinks/math-ast": "npm:^0.3.1"
+    "@physiomelinks/cellml-units": "npm:^0.3.2"
+    "@physiomelinks/math-ast": "npm:^0.3.2"
     "@xmldom/xmldom": "npm:^0.9.8"
   peerDependencies:
     libcellml.js: ">=0.7.1"
     oxigraph: ">=0.5.9 <0.6"
-  checksum: 10c0/b25b37546e6639b8fd2901d3ad05bc392cf378a4203481e86bc5c947fe84fe1362f54cdf8b5edd0dde6edb76e99c727feeaa4efc844e1d839d2e3cce83d3874a
+  checksum: 10c0/765dd41eeb9215b6fb3b7b68b16b6da7a0db857ffea70ec992073dee92a630685626dace65817a223176c326b45b41d57f8382d15bd088e0b792c01a2271c1b0
   languageName: node
   linkType: hard
 
-"@physiomelinks/cellml-units@npm:^0.3.1":
-  version: 0.3.1
-  resolution: "@physiomelinks/cellml-units@npm:0.3.1"
+"@physiomelinks/cellml-units@npm:^0.3.2":
+  version: 0.3.2
+  resolution: "@physiomelinks/cellml-units@npm:0.3.2"
   peerDependencies:
     libcellml.js: ">=0.7.1"
-  checksum: 10c0/71e82cc6c3993d5beab9fdf52dcf28ce464a5f4cd87d09491806d718c436cd3f5461c6da2ce5df37bbd0c7f1cc57399037185f609e2fc233ba804a9b9db1e01d
+  checksum: 10c0/929f5c70bc31d07fc2d7c96dc95c72d01b077d87b78ca0b1fb204ee5f22b1f8ecb3cd2e23234429f91287f1d308b9f05c7ef99b73a78850d2bbb27a63779e127
   languageName: node
   linkType: hard
 
-"@physiomelinks/math-ast@npm:^0.3.1":
-  version: 0.3.1
-  resolution: "@physiomelinks/math-ast@npm:0.3.1"
-  checksum: 10c0/87f1f60688e3e3c04bd10daf4641a50df6c09ebb5f1072bedbf6f57b1139df3cb3b924450bc0a7b77e2bd0954ec3535e6be7e32e916eaff090ca729acdf84239
+"@physiomelinks/math-ast@npm:^0.3.2":
+  version: 0.3.2
+  resolution: "@physiomelinks/math-ast@npm:0.3.2"
+  checksum: 10c0/7b93b4545d2e0b4e767b7ed25e2f6e60607fb4c316e1746166b95f5eaeab043a1e7afdbd6978821d94407fffe4e9800e249cf5ce2f19519b175348a145c44683
   languageName: node
   linkType: hard
 
@@ -6253,7 +6253,7 @@ __metadata:
     "@lezer/highlight": "npm:^1.2.3"
     "@lezer/lr": "npm:^1.4.8"
     "@opencor/libopencor": "npm:^1.20261006.1"
-    "@physiomelinks/bg2cellml": "npm:0.3.1"
+    "@physiomelinks/bg2cellml": "npm:0.3.2"
     "@physiomelinks/protocol-kit": "npm:^0.5.0"
     "@primeuix/utils": "npm:^0.6.2"
     "@primevue/themes": "npm:4"
