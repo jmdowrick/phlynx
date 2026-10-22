@@ -2,34 +2,34 @@
  * Adds a CellDL diagram to the library as a module, with the diagram as its math's source. Load it
  * with import(), as it brings in the converter.
  */
-import { parseMathRef, parseModuleRef } from '../../utils/config.js'
+import { CELLDL_USER_MODULES_FILE, PROTECTED_MATH_REFS } from '../../utils/constants.js'
+import { parseMathRef } from '../../utils/config.js'
 import { cleanName, getUniqueName } from '../../utils/identifiers.js'
-import { convertCelldl, knownUnitsFor } from './convert.js'
+import { groupingUnitsAfterSave } from '../userModules.js'
+import { convertCelldl, knownUnitsForModule } from './convert.js'
 import { mintDocumentUri } from './documentUri.js'
 import { undrawnElements, undrawnError } from './drawing.js'
 
 /**
- * Names a diagram's component and CellML file after its file name, avoiding every component,
- * module type and file the library already has.
+ * Names a diagram's component after its file name, in the CellDL user modules grouping, avoiding, ignoring case,
+ * every component the grouping has and the templates'.
  *
  * @param {string} filename - e.g. `my rc.celldl`.
  * @param {Object} libraryStore
- * @returns {{ componentName: string, cellmlFile: string, mathRef: string }} e.g. `my_rc`,
- *   `my_rc.cellml` and `my_rc.cellml:my_rc`.
+ * @returns {{ componentName: string, mathRef: string }} e.g. `my_rc` and `User_Modules.celldl:my_rc`.
  */
 export function celldlImportNames(filename, libraryStore) {
   const stem = String(filename ?? '').replace(/\.celldl$/i, '')
   const taken = new Set()
-  for (const mathRef of libraryStore.availableMath.keys()) {
+  for (const mathRef of [...libraryStore.availableMath.keys(), ...PROTECTED_MATH_REFS]) {
     const { componentFile, componentName } = parseMathRef(mathRef)
-    taken.add(componentName).add(componentFile?.replace(/\.cellml$/i, ''))
+    if (componentFile === CELLDL_USER_MODULES_FILE || PROTECTED_MATH_REFS.has(mathRef)) taken.add(componentName.toLowerCase())
   }
-  for (const moduleRef of libraryStore.availableModules.keys()) taken.add(parseModuleRef(moduleRef).moduleType)
-  for (const file of libraryStore.availableUnits) taken.add(file.componentFile.replace(/\.cellml$/i, ''))
 
-  const componentName = getUniqueName(cleanName(stem) || 'celldl', taken)
-  const cellmlFile = `${componentName}.cellml`
-  return { componentName, cellmlFile, mathRef: `${cellmlFile}:${componentName}` }
+  const componentName = getUniqueName(cleanName(stem) || 'celldl', {
+    has: (name) => taken.has(name.toLowerCase()),
+  })
+  return { componentName, mathRef: `${CELLDL_USER_MODULES_FILE}:${componentName}` }
 }
 
 /**
@@ -47,11 +47,11 @@ export function celldlImportNames(filename, libraryStore) {
  *   errors: Object[], warnings: Object[] }>} Issues are bg2cellml's. Rejects if the converter can't start.
  */
 export async function importCelldl(filename, document, libraryStore, { confirmWarnings } = {}) {
-  const { componentName, cellmlFile, mathRef } = celldlImportNames(filename, libraryStore)
+  const { componentName, mathRef } = celldlImportNames(filename, libraryStore)
   const result = await convertCelldl(document, {
     documentUri: mintDocumentUri(mathRef),
     componentName,
-    knownUnits: knownUnitsFor(libraryStore.availableUnits, cellmlFile),
+    knownUnits: knownUnitsForModule(libraryStore, mathRef),
   })
   const outcome = { ok: false, mathRef, componentName, errors: result.errors, warnings: result.warnings }
   if (!result.ok) return outcome
@@ -76,7 +76,9 @@ export async function importCelldl(filename, document, libraryStore, { confirmWa
     generator: result.generator,
     frameworkVersion: result.frameworkVersion,
   })
-  libraryStore.addMathFile(cellmlFile, components)
-  if (result.unitsModel) libraryStore.addUnitsFile({ componentFile: cellmlFile, model: result.unitsModel })
+  // The grouping's units first, as they are worked out from its other modules' math.
+  const units = groupingUnitsAfterSave(libraryStore, mathRef, result.unitsModel)
+  libraryStore.addMathFile(CELLDL_USER_MODULES_FILE, components)
+  if (units.model) libraryStore.addUnitsFile(units)
   return { ...outcome, ok: true }
 }

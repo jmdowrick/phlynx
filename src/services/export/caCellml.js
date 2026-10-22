@@ -3,10 +3,11 @@
  * library's math (edits included), and one units file. CA finds module files by the `modules.cellml` ending and units
  * files by the `units.cellml` ending, beside the config.
  */
-import { CELLML_NS, MATHML_NS, STANDARD_UNITS } from '../../utils/constants'
-import { combineComponentModels, getCellmlAttributeNode, whenLibCellMLReady } from '../../utils/cellml'
+import { STANDARD_UNITS } from '../../utils/constants'
+import { combineComponentModels, whenLibCellMLReady } from '../../utils/cellml'
 import { parseMathRef } from '../../utils/config'
 import { unitsModelXml } from '../../utils/unitExpression'
+import { groupingCellmlFile, unitsUsedBy } from '../userModules'
 
 // CA adds this component when a heart has one venous input; it comes from CA's built-in BG modules.
 const ZERO_FLOW_MATH_REF = 'BG_modules.cellml:zero_flow'
@@ -28,14 +29,16 @@ export function listNamed(items) {
 }
 
 /**
- * Names a component file as CA finds module files, ending in `modules.cellml`.
+ * Names a component file as CA finds module files, ending in `modules.cellml`. A grouping of another format, such as
+ * `User_Modules.celldl`, is first named as CellML (groupingCellmlFile).
  *
- * @param {string} componentFile
+ * @param {string} componentFile - A grouping.
  * @returns {string} The name unchanged when it ends so, else `<stem>_modules.cellml`.
  */
 export function caModuleFileName(componentFile) {
-  if (componentFile.endsWith('modules.cellml')) return componentFile
-  const stem = componentFile.replace(/\.cellml$/i, '')
+  const file = groupingCellmlFile(componentFile)
+  if (file.endsWith('modules.cellml')) return file
+  const stem = file.replace(/\.cellml$/i, '')
   return /modules$/i.test(stem) ? `${stem.slice(0, -'modules'.length)}modules.cellml` : `${stem}_modules.cellml`
 }
 
@@ -47,20 +50,6 @@ export function caModuleFileName(componentFile) {
  */
 export function isHeart(moduleType) {
   return moduleType.startsWith('heart') && !moduleType.startsWith('heart_effector')
-}
-
-/**
- * Lists the non-standard units a component's math uses: its variables' units and its numbers' units.
- *
- * @param {string} math - A CellML model with one component.
- * @returns {Set<string>}
- */
-function unitsUsedBy(math) {
-  const doc = new DOMParser().parseFromString(math, 'application/xml')
-  const used = new Set()
-  for (const variable of doc.getElementsByTagNameNS(CELLML_NS, 'variable')) used.add(variable.getAttribute('units'))
-  for (const cn of doc.getElementsByTagNameNS(MATHML_NS, 'cn')) used.add(getCellmlAttributeNode(cn, 'units')?.value)
-  return new Set([...used].filter((name) => name && !STANDARD.has(name)))
 }
 
 /**

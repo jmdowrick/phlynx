@@ -67,19 +67,19 @@ describe('useCelldlImport', () => {
 
     const [result] = await loadCelldlFiles([{ name: 'my rc.celldl', content: document }])
 
-    expect(result).toEqual({ ok: true, name: 'my rc.celldl', mathRef: 'my_rc.cellml:my_rc' })
-    expect(store.availableMath.has('my_rc.cellml:my_rc')).toBe(true)
-    expect(store.getMathFormat('my_rc.cellml:my_rc')).toBe('celldl')
-    expect(store.getMathSource('my_rc.cellml:my_rc')).toMatchObject({
+    expect(result).toEqual({ ok: true, name: 'my rc.celldl', mathRef: 'User_Modules.celldl:my_rc' })
+    expect(store.availableMath.has('User_Modules.celldl:my_rc')).toBe(true)
+    expect(store.getMathFormat('User_Modules.celldl:my_rc')).toBe('celldl')
+    expect(store.getMathSource('User_Modules.celldl:my_rc')).toMatchObject({
       format: 'celldl',
       document,
-      documentUri: expect.stringContaining('my_rc.cellml_my_rc.celldl'),
+      documentUri: expect.stringContaining('User_Modules.celldl_my_rc.celldl'),
       elements: expect.objectContaining({ I_R: expect.any(Object) }),
       generator: { name: '@physiomelinks/bg2cellml', version: expect.any(String) },
       frameworkVersion: expect.any(String),
     })
-    expect(store.availableUnits.find((file) => file.componentFile === 'my_rc.cellml')?.model).toContain('<units ')
-    expect(store.availableModules.get('my_rc:default')?.mathRef).toBe('my_rc.cellml:my_rc')
+    expect(store.availableUnits.find((file) => file.componentFile === 'User_Modules.celldl')?.model).toContain('<units ')
+    expect(store.availableModules.get('my_rc:default')?.mathRef).toBe('User_Modules.celldl:my_rc')
     expect(notify.success).toHaveBeenCalledOnce()
   }, 120000)
 
@@ -125,8 +125,34 @@ describe('useCelldlImport', () => {
       { name: 'rc.celldl', content: fixture('rc.celldl') },
     ])
 
-    expect(results.map((result) => result.mathRef)).toEqual(['rc.cellml:rc', 'rc_1.cellml:rc_1'])
-    expect(store.getMathSource('rc_1.cellml:rc_1').documentUri).not.toBe(store.getMathSource('rc.cellml:rc').documentUri)
+    expect(results.map((result) => result.mathRef)).toEqual(['User_Modules.celldl:rc', 'User_Modules.celldl:rc_1'])
+    expect(store.getMathSource('User_Modules.celldl:rc_1').documentUri).not.toBe(
+      store.getMathSource('User_Modules.celldl:rc').documentUri
+    )
+  }, 120000)
+
+  it("keeps every diagram's units in User_Modules.celldl's one units entry, and flattens them together", async () => {
+    const { loadCelldlFiles } = useCelldlImport({ confirm })
+    const [rc, enzyme] = await loadCelldlFiles([
+      { name: 'rc.celldl', content: fixture('rc.celldl') },
+      { name: 'enzyme.celldl', content: fixture('enzyme_canonical.celldl') },
+    ])
+    expect(rc.ok && enzyme.ok).toBe(true)
+
+    const units = store.availableUnits.filter((file) => file.componentFile.startsWith('User_Modules'))
+    expect(units.map((file) => file.componentFile)).toEqual(['User_Modules.celldl'])
+    const node = (id, mathRef) => {
+      const variables = reconcileRows(analyzeMathXml(store.availableMath.get(mathRef)), [], {
+        defaults: store.getMathDefaults(mathRef),
+      })
+      return { id, type: 'instanceNode', data: { name: id, mathRef, variables, ports: [] } }
+    }
+    const flat = await withHappyDom(async () =>
+      (await generateFlattenedModel([node('rc_a', rc.mathRef), node('enzyme_a', enzyme.mathRef)], [], store)).text()
+    )
+    const validator = new libcellml.Validator()
+    validator.validateModel(new libcellml.Parser(false).parseModel(flat))
+    expect(validator.errorCount()).toBe(0)
   }, 120000)
 
   it("adds nothing for a diagram that doesn't convert, and lists its errors", async () => {
@@ -170,6 +196,6 @@ describe('useCelldlImport', () => {
     expect(notify.error).not.toHaveBeenCalled()
 
     const [accepted] = await loadCelldlFiles([{ name: 'rc.celldl', content: fixture('rc_sine.celldl') }])
-    expect(accepted).toMatchObject({ ok: true, mathRef: 'rc.cellml:rc' })
+    expect(accepted).toMatchObject({ ok: true, mathRef: 'User_Modules.celldl:rc' })
   }, 120000)
 })

@@ -4,7 +4,7 @@ export function extractUnitNames(modelXml) {
   if (typeof modelXml !== 'string' || !modelXml.trim()) return []
 
   const doc = new DOMParser().parseFromString(modelXml, 'application/xml')
-  if (doc.querySelector('parsererror')) return []
+  if (doc.getElementsByTagName('parsererror').length) return []
 
   return Array.from(doc.documentElement.children)
     .filter((el) => el.localName === 'units')
@@ -157,7 +157,7 @@ export function extractUnitDefinitions(modelXml) {
   if (typeof modelXml !== 'string' || !modelXml.trim()) return definitions
 
   const doc = new DOMParser().parseFromString(modelXml, 'application/xml')
-  if (doc.querySelector('parsererror')) return definitions
+  if (doc.getElementsByTagName('parsererror').length) return definitions
 
   for (const el of doc.documentElement.children) {
     const name = el.localName === 'units' && el.getAttribute('name')

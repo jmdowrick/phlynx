@@ -28,6 +28,8 @@ UNDRAWN_RC = os.path.join(RESOURCE_PATH, "..", "vitest", "fixtures", "celldl", "
 # constant F, which no equation uses.
 ENZYME = os.path.join(RESOURCE_PATH, "celldl", "enzyme.celldl")
 ENZYME_MODULE = "enzyme"
+# The library group imported and new diagrams go in, User_Modules.celldl.
+CELLDL_GROUP = "User Modules (CellDL)"
 REACTION_R1 = "ID-00000006"
 # Its reaction r2, and its product P's store and 0-junction.
 REACTION_R2 = "ID-00000011"
@@ -73,7 +75,7 @@ def import_diagram(page, files):
 
 def place(page, group, name, x=700, y=450):
     """Drags a library module, from its group, onto the canvas."""
-    page.locator(".mlc__group-header").filter(has_text=re.compile(rf"^\s*{group}\s*\d+\s*$", re.IGNORECASE)).first.click()
+    page.locator(".mlc__group-header").filter(has_text=re.compile(rf"^\s*{re.escape(group)}\s*\d+\s*$", re.IGNORECASE)).first.click()
     card = page.locator(".mlc__card--draggable").filter(has_text=name).first
     card.drag_to(page.locator(".vue-flow__pane").first, target_position={"x": x, "y": y})
     expect(page.locator(".vue-flow__node").filter(has_text=name)).to_have_count(1)
@@ -91,7 +93,7 @@ def import_and_open(page):
     """Imports the RC discharge diagram, places it and opens its editor on its diagram."""
     import_diagram(page, RC_DISCHARGE)
     expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
-    place(page, "RC DISCHARGE", MODULE)
+    place(page, CELLDL_GROUP, MODULE)
     dialog = open_editor(page, MODULE)
     wait_for_diagram(page)
     return dialog
@@ -508,7 +510,7 @@ class TestCelldl(unittest.TestCase):
             # ---------- START -----------
             import_diagram(page, ENZYME)
             expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
-            place(page, "ENZYME", ENZYME_MODULE)
+            place(page, CELLDL_GROUP, ENZYME_MODULE)
             dialog = open_editor(page, ENZYME_MODULE)
             wait_for_diagram(page)
             expect(parameter_value(dialog, "kappa_Rx_r1_c")).to_have_attribute("placeholder", "10")
@@ -628,7 +630,7 @@ class TestCelldl(unittest.TestCase):
             # ---------- START -----------
             import_diagram(page, ENZYME)
             expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
-            place(page, "ENZYME", ENZYME_MODULE, x=600, y=350)
+            place(page, CELLDL_GROUP, ENZYME_MODULE, x=600, y=350)
             card = page.locator(".mlc__card--draggable").filter(has_text=ENZYME_MODULE).first
             card.drag_to(page.locator(".vue-flow__pane").first, target_position={"x": 900, "y": 600})
             instances = page.locator(".vue-flow__node").filter(has_text=ENZYME_MODULE)
@@ -706,7 +708,7 @@ class TestCelldl(unittest.TestCase):
             # ---------- START -----------
             import_diagram(page, ENZYME)
             expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
-            place(page, "ENZYME", ENZYME_MODULE, x=600, y=350)
+            place(page, CELLDL_GROUP, ENZYME_MODULE, x=600, y=350)
             card = page.locator(".mlc__card--draggable").filter(has_text=ENZYME_MODULE).first
             card.drag_to(page.locator(".vue-flow__pane").first, target_position={"x": 900, "y": 600})
             instances = page.locator(".vue-flow__node").filter(has_text=ENZYME_MODULE)
@@ -754,7 +756,7 @@ class TestCelldl(unittest.TestCase):
             # ---------- START -----------
             import_diagram(page, ENZYME)
             expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
-            place(page, "ENZYME", ENZYME_MODULE, x=600, y=350)
+            place(page, CELLDL_GROUP, ENZYME_MODULE, x=600, y=350)
             card = page.locator(".mlc__card--draggable").filter(has_text=ENZYME_MODULE).first
             card.drag_to(page.locator(".vue-flow__pane").first, target_position={"x": 900, "y": 600})
             instances = page.locator(".vue-flow__node").filter(has_text=ENZYME_MODULE)
@@ -808,11 +810,11 @@ class TestCelldl(unittest.TestCase):
             expect(dialog).to_be_hidden(timeout=DIAGRAM_TIMEOUT)
             expect(page.locator(".confirm-container").filter(has_text="Overwrite Math?")).to_have_count(0)
             self.assertEqual(stored_document(page, math_ref), shared)
-            self.assertIsNotNone(stored_document(page, "enzyme_fast.cellml:enzyme_fast"))
+            self.assertIsNotNone(stored_document(page, "User_Modules.celldl:enzyme_fast"))
 
             instances.first.dblclick()
             wait_for_diagram(page)
-            self.assertEqual(component_of(dialog), ("enzyme_fast", "enzyme_fast.cellml"))
+            self.assertEqual(component_of(dialog), ("enzyme_fast", "User_Modules.celldl"))
             expect(element_row(dialog, REACTION_R1).locator(".element-names")).to_contain_text("kappa_Rx_r1_cyt")
             expect(parameter_value(dialog, "kappa_Rx_r1_cyt")).to_have_value("2")
             dialog.get_by_role("button", name="Cancel").click()
@@ -836,7 +838,7 @@ class TestCelldl(unittest.TestCase):
             # ---------- START -----------
             import_diagram(page, ENZYME)
             expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
-            place(page, "ENZYME", ENZYME_MODULE, x=600, y=350)
+            place(page, CELLDL_GROUP, ENZYME_MODULE, x=600, y=350)
             card = page.locator(".mlc__card--draggable").filter(has_text=ENZYME_MODULE).first
             card.drag_to(page.locator(".vue-flow__pane").first, target_position={"x": 900, "y": 600})
             instances = page.locator(".vue-flow__node").filter(has_text=ENZYME_MODULE)
@@ -864,26 +866,26 @@ class TestCelldl(unittest.TestCase):
             )
             expect(dialog).to_be_hidden(timeout=DIAGRAM_TIMEOUT)
             self.assertEqual(stored_document(page, math_ref), shared)
-            self.assertIsNotNone(stored_document(page, "enzyme_mine.cellml:enzyme_mine"))
+            self.assertIsNotNone(stored_document(page, "User_Modules.celldl:enzyme_mine"))
 
             # Undo removes the new component and its diagram, leaving the shared one; redo puts them back.
             expect(page.locator("button:has(.pi-undo)")).to_be_enabled()
             page.keyboard.press("ControlOrMeta+z")
             page.wait_for_function(
                 """() => !document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
-                    .get('library').availableMath.has('enzyme_mine.cellml:enzyme_mine')"""
+                    .get('library').availableMath.has('User_Modules.celldl:enzyme_mine')"""
             )
             self.assertEqual(stored_document(page, math_ref), shared)
             page.keyboard.press("ControlOrMeta+Shift+z")
             page.wait_for_function(
                 """() => document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
-                    .get('library').availableMath.has('enzyme_mine.cellml:enzyme_mine')"""
+                    .get('library').availableMath.has('User_Modules.celldl:enzyme_mine')"""
             )
             self.assertEqual(stored_document(page, math_ref), shared)
 
             instances.first.dblclick()
             wait_for_diagram(page)
-            self.assertEqual(component_of(dialog), ("enzyme_mine", "enzyme_mine.cellml"))
+            self.assertEqual(component_of(dialog), ("enzyme_mine", "User_Modules.celldl"))
             expect(element_row(dialog, REACTION_R1).locator(".element-names")).to_contain_text("kappa_Rx_r1_cyt")
             dialog.get_by_role("button", name="Cancel").click()
             expect(dialog).to_be_hidden()
@@ -903,7 +905,7 @@ class TestCelldl(unittest.TestCase):
             # ---------- START -----------
             import_diagram(page, ENZYME)
             expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
-            place(page, "ENZYME", ENZYME_MODULE, x=600, y=350)
+            place(page, CELLDL_GROUP, ENZYME_MODULE, x=600, y=350)
             card = page.locator(".mlc__card--draggable").filter(has_text=ENZYME_MODULE).first
             card.drag_to(page.locator(".vue-flow__pane").first, target_position={"x": 900, "y": 600})
             instances = page.locator(".vue-flow__node").filter(has_text=ENZYME_MODULE)
@@ -921,7 +923,7 @@ class TestCelldl(unittest.TestCase):
             expect(element_row(dialog, REACTION_R1).locator(".element-names")).to_contain_text("kappa_Rx_r1_cyt", timeout=DIAGRAM_TIMEOUT)
             dialog.get_by_role("button", name="Save").click()
             expect(dialog).to_be_hidden(timeout=DIAGRAM_TIMEOUT)
-            other = stored_document(page, "enzyme_other.cellml:enzyme_other")
+            other = stored_document(page, "User_Modules.celldl:enzyme_other")
             self.assertIsNotNone(other)
 
             # Renamed onto it, the second's edit asks, naming the instances it affects; saved as new, it leaves it alone.
@@ -943,25 +945,25 @@ class TestCelldl(unittest.TestCase):
                 "enzyme_third",
             )
             expect(dialog).to_be_hidden(timeout=DIAGRAM_TIMEOUT)
-            self.assertEqual(stored_document(page, "enzyme_other.cellml:enzyme_other"), other)
-            self.assertIsNotNone(stored_document(page, "enzyme_third.cellml:enzyme_third"))
+            self.assertEqual(stored_document(page, "User_Modules.celldl:enzyme_other"), other)
+            self.assertIsNotNone(stored_document(page, "User_Modules.celldl:enzyme_third"))
 
             # Renamed onto it again, Overwrite replaces its diagram with the second's, which moves to it.
             instances.nth(1).dblclick()
             wait_for_diagram(page)
-            self.assertEqual(component_of(dialog), ("enzyme_third", "enzyme_third.cellml"))
+            self.assertEqual(component_of(dialog), ("enzyme_third", "User_Modules.celldl"))
             component.fill("enzyme_other")
             component.press("Tab")
             dialog.get_by_role("button", name="Save").click()
             answer_overwrite(page, "Overwrite")
             expect(dialog).to_be_hidden(timeout=DIAGRAM_TIMEOUT)
-            overwritten = stored_document(page, "enzyme_other.cellml:enzyme_other")
+            overwritten = stored_document(page, "User_Modules.celldl:enzyme_other")
             self.assertNotEqual(overwritten, other)
 
             # Both instances now share it, the first with the second's diagram.
             instances.first.dblclick()
             wait_for_diagram(page)
-            self.assertEqual(component_of(dialog), ("enzyme_other", "enzyme_other.cellml"))
+            self.assertEqual(component_of(dialog), ("enzyme_other", "User_Modules.celldl"))
             expect(element_row(dialog, REACTION_R2).locator(".element-names")).to_contain_text("kappa_Rx_r2_cyt")
             expect(element_row(dialog, REACTION_R1).locator(".element-names")).not_to_contain_text("kappa_Rx_r1_cyt")
             expect(dialog.locator(".apply-all-checkbox")).to_contain_text("Apply math changes to all 2 instances")
@@ -972,12 +974,12 @@ class TestCelldl(unittest.TestCase):
             page.keyboard.press("ControlOrMeta+z")
             page.wait_for_function(
                 """(diagram) => document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
-                    .get('library').getMathSource('enzyme_other.cellml:enzyme_other')?.document === diagram""",
+                    .get('library').getMathSource('User_Modules.celldl:enzyme_other')?.document === diagram""",
                 arg=other,
             )
             instances.nth(1).dblclick()
             wait_for_diagram(page)
-            self.assertEqual(component_of(dialog), ("enzyme_third", "enzyme_third.cellml"))
+            self.assertEqual(component_of(dialog), ("enzyme_third", "User_Modules.celldl"))
             # ----------- END ------------
 
             browser.close()
@@ -987,7 +989,7 @@ class TestCelldl(unittest.TestCase):
             browser, page = open_app(playwright)
 
             # ---------- START -----------
-            # The template always saves as a new component, here "mine", in the template's file.
+            # The template always saves as a new component, here "mine", in User_Modules.cellml.
             place(page, "TEMPLATE MODULES", "new_module")
             dialog = open_editor(page, "new_module")
             content = cellml_text(dialog)
@@ -998,7 +1000,7 @@ class TestCelldl(unittest.TestCase):
             expect(page.locator(".confirm-container").filter(has_text="Overwrite Math?")).to_have_count(0)
             save_as_new(page, [], "mine")
             expect(dialog).to_be_hidden(timeout=DIAGRAM_TIMEOUT)
-            self.assertTrue(has_math(page, "template_modules.cellml:mine"))
+            self.assertTrue(has_math(page, "User_Modules.cellml:mine"))
 
             # Saving "mine" again offers to save it as a new component instead, under a name neither used nor the
             # template's; "mine" is left as it was.
@@ -1030,25 +1032,25 @@ class TestCelldl(unittest.TestCase):
                 "mine_too",
             )
             expect(dialog).to_be_hidden(timeout=DIAGRAM_TIMEOUT)
-            self.assertTrue(has_math(page, "template_modules.cellml:mine_too"))
+            self.assertTrue(has_math(page, "User_Modules.cellml:mine_too"))
 
             # Undo removes the new component, and redo puts it back.
             expect(page.locator("button:has(.pi-undo)")).to_be_enabled()
             page.keyboard.press("ControlOrMeta+z")
             page.wait_for_function(
                 """() => !document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
-                    .get('library').availableMath.has('template_modules.cellml:mine_too')"""
+                    .get('library').availableMath.has('User_Modules.cellml:mine_too')"""
             )
             page.keyboard.press("ControlOrMeta+Shift+z")
             page.wait_for_function(
                 """() => document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
-                    .get('library').availableMath.has('template_modules.cellml:mine_too')"""
+                    .get('library').availableMath.has('User_Modules.cellml:mine_too')"""
             )
             self.assertTrue(saved_math_has(page, '<ci>d</ci>'))
             self.assertFalse(
                 page.evaluate(
                     """() => String(document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
-                        .get('library').availableMath.get('template_modules.cellml:mine')).includes('<ci>d</ci>')"""
+                        .get('library').availableMath.get('User_Modules.cellml:mine')).includes('<ci>d</ci>')"""
                 )
             )
             # ----------- END ------------

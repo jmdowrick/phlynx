@@ -33,7 +33,7 @@ vi.mock('../../../src/composables/useSimulation', async () => {
   return { useSimulation: () => ({ run, stop: vi.fn(), keepCurrent: vi.fn(), isStale: simulation.isStale }) }
 })
 const convertCelldl = vi.hoisted(() => vi.fn())
-vi.mock('../../../src/services/celldl/convert.js', () => ({ convertCelldl, knownUnitsFor: () => [] }))
+vi.mock('../../../src/services/celldl/convert.js', () => ({ convertCelldl, knownUnitsFor: () => [], knownUnitsForModule: () => [] }))
 vi.mock('../../../src/services/simulation/libopencorLoader', () => ({ libopencor: { status: 'ready' } }))
 
 const { default: InstanceEditorDialog } = await import('../../../src/components/InstanceEditorDialog.vue')
@@ -277,7 +277,8 @@ describe('InstanceEditorDialog new module template (#634)', () => {
     await flushPromises()
 
     const [save] = wrapper.emitted('confirm')[0]
-    expect(save.mathRef).toBe(`${NEW_MODULE_MATH_REF.split(':')[0]}:my_comp`)
+    expect(save.mathRef).toBe('User_Modules.cellml:my_comp')
+    expect(saveAs.props('file')).toBe('User_Modules.cellml')
     expect(save.previousMathRef).toBe(NEW_MODULE_MATH_REF)
     expect(save.math).toContain('<component name="my_comp"')
     expect(save.math).not.toContain('<component name="new_module"')
@@ -423,23 +424,23 @@ describe('InstanceEditorDialog new module template (#634)', () => {
         return wrapper.findComponent(ComponentSaveAsDialog)
       }
 
-      it('converts it as a new CellDL component in its own file, under a new documentUri', async () => {
+      it('converts it as a new CellDL component in User_Modules.celldl, under a new documentUri', async () => {
         const saveAs = await saveDrawn()
         expect(convertCelldl).not.toHaveBeenCalled()
         saveAs.vm.$emit('confirm', 'my_rc')
         await vi.waitFor(() => expect(wrapper.emitted('confirm')).toHaveLength(1))
 
-        const documentUri = 'https://bg-rdf.org/models/local/phlynx/my_rc.cellml_my_rc.celldl'
+        const documentUri = 'https://bg-rdf.org/models/local/phlynx/User_Modules.celldl_my_rc.celldl'
         expect(convertCelldl).toHaveBeenCalledWith(DOCUMENT, expect.objectContaining({ documentUri, componentName: 'my_rc' }))
         const [save] = wrapper.emitted('confirm')[0]
         expect(save).toMatchObject({
-          mathRef: 'my_rc.cellml:my_rc',
+          mathRef: 'User_Modules.celldl:my_rc',
           previousMathRef: NEW_MODULE_MATH_REF,
           math: GENERATED_XML,
           layout: null,
           isSourceChanged: true,
           source: { format: 'celldl', document: DOCUMENT, documentUri, elements: { R: { primary: 'v_R' } } },
-          units: { componentFile: 'my_rc.cellml', model: '<model name="units"/>' },
+          units: { componentFile: 'User_Modules.celldl', model: '<model name="units"/>' },
           updateAll: false,
           siblings: [],
         })
@@ -473,11 +474,13 @@ describe('InstanceEditorDialog new module template (#634)', () => {
         expect(wrapper.emitted('update:modelValue')).toBeUndefined()
       })
 
-      it('refuses a name whose file the library already has', async () => {
-        useLibraryStore().addUnitsFile({ componentFile: 'taken.cellml', model: '<model name="units"/>' })
+      it("refuses a name User_Modules.celldl has, in any case, but not another grouping's", async () => {
+        useLibraryStore().addMath('User_Modules.celldl:taken', XML.replaceAll('decay', 'taken'))
+        useLibraryStore().addMath('User_Modules.cellml:free', XML.replaceAll('decay', 'free'))
         const saveAs = await saveDrawn()
 
-        expect(saveAs.props('isTaken')('taken')).toBe('A file named "taken.cellml" already exists.')
+        expect(saveAs.props('file')).toBe('User_Modules.celldl')
+        expect(saveAs.props('isTaken')('Taken')).toBe('A component named "Taken" already exists.')
         expect(saveAs.props('isTaken')('free')).toBe('')
       })
     })
@@ -1455,7 +1458,7 @@ describe('InstanceEditorDialog locked math', () => {
     })
 
     describe('saved as a new component', () => {
-      const NEW_URI = 'https://bg-rdf.org/models/local/phlynx/fast.cellml_fast.celldl'
+      const NEW_URI = 'https://bg-rdf.org/models/local/phlynx/User_Modules.celldl_fast.celldl'
       const FAST_XML = GENERATED_XML.replaceAll('decay', 'fast')
 
       beforeEach(() => {
@@ -1486,7 +1489,9 @@ describe('InstanceEditorDialog locked math', () => {
       }
 
       it('refuses a used or template name, then saves a new module for this instance with its own diagram and documentUri', async () => {
-        useLibraryStore().addMath('slow.cellml:slow', XML.replaceAll('decay', 'slow'))
+        useLibraryStore().addMath('User_Modules.celldl:slow', XML.replaceAll('decay', 'slow'))
+        // Names need only differ within a grouping.
+        useLibraryStore().addMath('User_Modules.cellml:quick', XML.replaceAll('decay', 'quick'))
         const saveAs = await startSaveAs()
         const isTaken = saveAs.props('isTaken')
         expect(isTaken('decay')).toBe('A component named "decay" already exists.')
@@ -1494,17 +1499,18 @@ describe('InstanceEditorDialog locked math', () => {
         expect(isTaken('new_module')).toBe('"new_module" is a template and can\'t be overwritten.')
         expect(isTaken('Slow')).toBe('A component named "Slow" already exists.')
         expect(isTaken('Ghost')).toBe('"Ghost" is a template and can\'t be overwritten.')
+        expect(isTaken('quick')).toBe('')
         expect(isTaken('fast')).toBe('')
         await answer(saveAs, 'fast')
 
         expect(convertCelldl).toHaveBeenCalledTimes(2)
         expect(convertCelldl).toHaveBeenLastCalledWith(EDITED_DOCUMENT, expect.objectContaining({ documentUri: NEW_URI, componentName: 'fast' }))
         expect(wrapper.emitted('confirm')[0][0]).toMatchObject({
-          mathRef: 'fast.cellml:fast',
+          mathRef: 'User_Modules.celldl:fast',
           previousMathRef: MATH_REF,
           math: FAST_XML,
           source: { format: 'celldl', document: EDITED_DOCUMENT, documentUri: NEW_URI },
-          units: { componentFile: 'fast.cellml', model: '<model name="units"/>' },
+          units: { componentFile: 'User_Modules.celldl', model: '<model name="units"/>' },
           updateAll: false,
           siblings: [],
         })
@@ -1514,7 +1520,7 @@ describe('InstanceEditorDialog locked math', () => {
       it('moves the other instances to it too when ticked', async () => {
         await answer(await startSaveAs({ isAppliedToAll: true }), 'fast')
 
-        expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: 'fast.cellml:fast', updateAll: true, siblings: ['b'] })
+        expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: 'User_Modules.celldl:fast', updateAll: true, siblings: ['b'] })
       })
 
       it('saves nothing when Save As is cancelled', async () => {
@@ -1527,7 +1533,7 @@ describe('InstanceEditorDialog locked math', () => {
     })
 
     describe('under a new component name', () => {
-      const NEW_URI = 'https://bg-rdf.org/models/local/phlynx/fast.cellml_fast.celldl'
+      const NEW_URI = 'https://bg-rdf.org/models/local/phlynx/User_Modules.celldl_fast.celldl'
       const FAST_XML = GENERATED_XML.replaceAll('decay', 'fast')
 
       beforeEach(() => {
@@ -1551,11 +1557,11 @@ describe('InstanceEditorDialog locked math', () => {
         expect(convertCelldl).toHaveBeenCalledWith(EDITED_DOCUMENT, expect.objectContaining({ documentUri: NEW_URI, componentName: 'fast' }))
         const [save] = wrapper.emitted('confirm')[0]
         expect(save).toMatchObject({
-          mathRef: 'fast.cellml:fast',
+          mathRef: 'User_Modules.celldl:fast',
           previousMathRef: MATH_REF,
           math: FAST_XML,
           source: { format: 'celldl', document: EDITED_DOCUMENT, documentUri: NEW_URI },
-          units: { componentFile: 'fast.cellml', model: '<model name="units"/>' },
+          units: { componentFile: 'User_Modules.celldl', model: '<model name="units"/>' },
           updateAll: false,
           siblings: [],
         })
@@ -1567,7 +1573,7 @@ describe('InstanceEditorDialog locked math', () => {
         await wrapper.find('#applyToAll').setValue(true)
         await clickSave()
 
-        expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: 'fast.cellml:fast', updateAll: true, siblings: ['b'] })
+        expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: 'User_Modules.celldl:fast', updateAll: true, siblings: ['b'] })
       })
 
       it('copies the stored diagram when only the name changed', async () => {
@@ -1577,7 +1583,7 @@ describe('InstanceEditorDialog locked math', () => {
 
         expect(host.compareWithBaseline).not.toHaveBeenCalled()
         expect(convertCelldl).toHaveBeenCalledWith('<svg>stored</svg>', expect.objectContaining({ documentUri: NEW_URI, componentName: 'fast' }))
-        expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: 'fast.cellml:fast', source: { document: '<svg>stored</svg>' } })
+        expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: 'User_Modules.celldl:fast', source: { document: '<svg>stored</svg>' } })
         expect(host.markSaved).not.toHaveBeenCalled()
       })
 
@@ -1593,7 +1599,7 @@ describe('InstanceEditorDialog locked math', () => {
       })
 
       it('asks for another name when the new one is taken', async () => {
-        useLibraryStore().addMath('fast.cellml:fast', XML.replaceAll('decay', 'fast'))
+        useLibraryStore().addMath('User_Modules.celldl:fast', XML.replaceAll('decay', 'fast'))
         await openRenamed()
         await wrapper.findAll('button').find((candidate) => candidate.text() === 'Save').trigger('click')
         await vi.waitFor(() => expect(wrapper.findComponent(ComponentSaveAsDialog).exists()).toBe(true))
@@ -1603,11 +1609,11 @@ describe('InstanceEditorDialog locked math', () => {
         await vi.waitFor(() => expect(wrapper.vm.isSaving).toBe(false))
         await flushPromises()
 
-        expect(wrapper.emitted('confirm')[0][0].mathRef).toBe('faster.cellml:faster')
+        expect(wrapper.emitted('confirm')[0][0].mathRef).toBe('User_Modules.celldl:faster')
       })
 
       describe("onto another diagram's module", () => {
-        const FAST_REF = 'fast.cellml:fast'
+        const FAST_REF = 'User_Modules.celldl:fast'
         const FAST_SOURCE = { format: 'celldl', document: '<svg>fast</svg>', documentUri: 'local:fast.celldl', elements: {} }
 
         beforeEach(() => {
@@ -1636,7 +1642,7 @@ describe('InstanceEditorDialog locked math', () => {
             math: FAST_XML,
             isSourceChanged: true,
             source: { format: 'celldl', document: EDITED_DOCUMENT, documentUri: FAST_SOURCE.documentUri },
-            units: { componentFile: 'fast.cellml', model: '<model name="units"/>' },
+            units: { componentFile: 'User_Modules.celldl', model: '<model name="units"/>' },
             updateAll: false,
             siblings: [],
           })
@@ -1658,7 +1664,7 @@ describe('InstanceEditorDialog locked math', () => {
           await flushPromises()
 
           const [save] = wrapper.emitted('confirm')[0]
-          expect(save).toMatchObject({ mathRef: 'faster.cellml:faster', units: { componentFile: 'faster.cellml' } })
+          expect(save).toMatchObject({ mathRef: 'User_Modules.celldl:faster', units: { componentFile: 'User_Modules.celldl' } })
           expect(save.source.documentUri).not.toBe(FAST_SOURCE.documentUri)
         })
 
@@ -1825,7 +1831,7 @@ describe('InstanceEditorDialog locked math', () => {
     expect(window.localStorage.getItem('instanceEditorDialog.editorKind')).toBe('text')
   })
 
-  it('saves CellML math as before: an overwrite asks and applies here unless ticked, a rename stays in its file', async () => {
+  it('saves CellML math as before: an overwrite asks and applies here unless ticked, a rename goes to User_Modules.cellml', async () => {
     mountDialog()
     const editor = await open()
     await report(editor, 'init', XML)
@@ -1844,12 +1850,44 @@ describe('InstanceEditorDialog locked math', () => {
     await flushPromises()
 
     expect(choose).not.toHaveBeenCalled()
-    expect(wrapper.emitted('confirm')[1][0]).toMatchObject({ mathRef: 'file:growth', updateAll: true, siblings: ['b'], units: null })
+    expect(wrapper.emitted('confirm')[1][0]).toMatchObject({
+      mathRef: 'User_Modules.cellml:growth',
+      updateAll: true,
+      siblings: ['b'],
+      units: null,
+    })
   })
 
-  it("asks before a rename onto another component in the file, counting that component's instances", async () => {
+  it("renames past a component of the name in the module's own file, which it leaves alone", async () => {
     useLibraryStore().addMath('file:growth', XML.replaceAll('decay', 'growth'))
-    flowNodes.value = [...flowNodes.value, { id: 'c', data: { name: 'c', mathRef: 'file:growth' } }]
+    mountDialog()
+    const editor = await open()
+    await report(editor, 'init', XML)
+    await report(editor, 'edit', EDITED_XML.replaceAll('decay', 'growth'))
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await flushPromises()
+
+    expect(choose).not.toHaveBeenCalled()
+    expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: 'User_Modules.cellml:growth', previousMathRef: MATH_REF })
+  })
+
+  it('asks for another name when a rename matches a User_Modules.cellml component in another case', async () => {
+    useLibraryStore().addMath('User_Modules.cellml:Growth', XML.replaceAll('decay', 'Growth'))
+    mountDialog()
+    const editor = await open()
+    await report(editor, 'init', XML)
+    await report(editor, 'edit', EDITED_XML.replaceAll('decay', 'growth'))
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await vi.waitFor(() => expect(wrapper.findComponent(ComponentSaveAsDialog).exists()).toBe(true))
+
+    expect(choose).not.toHaveBeenCalled()
+    expect(wrapper.findComponent(ComponentSaveAsDialog).props('message')).toContain('A component named "growth" already exists.')
+    expect(wrapper.findComponent(ComponentSaveAsDialog).props('file')).toBe('User_Modules.cellml')
+  })
+
+  it("asks before a rename onto another User_Modules.cellml component, counting that component's instances", async () => {
+    useLibraryStore().addMath('User_Modules.cellml:growth', XML.replaceAll('decay', 'growth'))
+    flowNodes.value = [...flowNodes.value, { id: 'c', data: { name: 'c', mathRef: 'User_Modules.cellml:growth' } }]
     mountDialog()
     const editor = await open()
     await report(editor, 'init', XML)
@@ -1860,7 +1898,7 @@ describe('InstanceEditorDialog locked math', () => {
     expect(choose.mock.calls[0][0].message).toBe(
       '"growth" already exists. This will affect 1 other instance. Overwrite it, or save your changes as a new component?'
     )
-    expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: 'file:growth', previousMathRef: MATH_REF })
+    expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: 'User_Modules.cellml:growth', previousMathRef: MATH_REF })
   })
 
   describe('saving CellML math as a new component', () => {
@@ -1887,7 +1925,9 @@ describe('InstanceEditorDialog locked math', () => {
     it('refuses a used or template name, then saves the renamed math as a new module for this instance', async () => {
       const library = useLibraryStore()
       const stored = library.availableMath.get(MATH_REF)
-      library.addMath('file:growth', XML.replaceAll('decay', 'growth'))
+      library.addMath('User_Modules.cellml:growth', XML.replaceAll('decay', 'growth'))
+      // Names need only differ within a grouping.
+      library.addMath('User_Modules.celldl:quick', XML.replaceAll('decay', 'quick'))
       const saveAs = await startSaveAs()
 
       expect(choose).toHaveBeenCalledWith(
@@ -1899,11 +1939,13 @@ describe('InstanceEditorDialog locked math', () => {
       expect(isTaken('new_module')).toBe('"new_module" is a template and can\'t be overwritten.')
       expect(isTaken('Growth')).toBe('A component named "Growth" already exists.')
       expect(isTaken('New_Module')).toBe('"New_Module" is a template and can\'t be overwritten.')
+      expect(isTaken('quick')).toBe('')
       expect(isTaken('fresh')).toBe('')
+      expect(saveAs.props('file')).toBe('User_Modules.cellml')
       await answer(saveAs, 'fresh')
 
       const [save] = wrapper.emitted('confirm')[0]
-      expect(save).toMatchObject({ mathRef: 'file:fresh', previousMathRef: MATH_REF, updateAll: false, siblings: [], source: null })
+      expect(save).toMatchObject({ mathRef: 'User_Modules.cellml:fresh', previousMathRef: MATH_REF, updateAll: false, siblings: [], source: null })
       expect(save.math).toContain('<component name="fresh">')
       expect(save.math).toContain('<cn>1</cn>')
       expect(library.availableMath.get(MATH_REF)).toBe(stored)
@@ -1912,7 +1954,7 @@ describe('InstanceEditorDialog locked math', () => {
     it('moves the other instances to it too when ticked', async () => {
       await answer(await startSaveAs({ isAppliedToAll: true }), 'fresh')
 
-      expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: 'file:fresh', updateAll: true, siblings: ['b'] })
+      expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: 'User_Modules.cellml:fresh', updateAll: true, siblings: ['b'] })
     })
 
     it('saves nothing when Save As is cancelled', async () => {
@@ -1932,7 +1974,7 @@ describe('InstanceEditorDialog locked math', () => {
       expect(choose).not.toHaveBeenCalled()
       await answer(wrapper.findComponent(ComponentSaveAsDialog), 'fresh')
       const [save] = wrapper.emitted('confirm')[0]
-      expect(save.mathRef).toBe('file:fresh')
+      expect(save.mathRef).toBe('User_Modules.cellml:fresh')
       expect(save.math).toContain('<component name="fresh">')
     })
   })

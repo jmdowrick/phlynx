@@ -14,7 +14,9 @@ export const NUM_GHOST_HANDLES_LEFT_RIGHT = 5
 export const NUM_GHOST_HANDLES_TOP_BOT = 7
 export const HANDLE_SPACING = 25
 
+// Groupings new modules go in, by format: a label in each math reference, not a file (see services/userModules).
 export const USER_MODULES_FILE = 'User_Modules.cellml'
+export const CELLDL_USER_MODULES_FILE = 'User_Modules.celldl'
 export const NEW_INSTANCE_MODULE_REF = 'new_module:phlynx'
 export const DEFAULT_CELLML_FILE_NAME = 'model.cellml'
 
