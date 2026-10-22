@@ -603,7 +603,7 @@ import { putSlider } from '../services/simulation/parameterSliders'
 
 import useDragAndDrop from '../composables/useDnD'
 import { useHandleManagement } from '../composables/useHandleManagement'
-import { describeKeptValues, useInstanceSave } from '../composables/useInstanceSave'
+import { useInstanceSave } from '../composables/useInstanceSave'
 import { useNodeDataHistory } from '../composables/useNodeDataHistory'
 import { useLoadFromInstanceArray } from '../composables/useLoadFromInstanceArray'
 import { useLoadFromCellML } from '../composables/useLoadFromCellml'
@@ -1630,7 +1630,7 @@ function onOpenSettingsDialog() {
 }
 
 async function onInstanceEditConfirm(save) {
-  const { count: updatedCount, keptValues } = await saveInstanceEdit(save)
+  const updatedCount = await saveInstanceEdit(save)
   // Applied with the editor kept open: it reloads from the instance as saved.
   if (save.keepOpen) {
     const node = findNode(save.id)
@@ -1649,14 +1649,6 @@ async function onInstanceEditConfirm(save) {
     title: 'CellML Updated',
     message: `Updated ${updatedCount} node${updatedCount !== 1 ? 's' : ''} to ${save.mathRef.split(':').pop()}.`,
   })
-  // A diagram's new values reach every instance still on its old ones; say which kept their own.
-  if (keptValues.size) {
-    notify.info({
-      title: 'Own Values Kept',
-      message: `${describeKeptValues(keptValues)} The rest follow the diagram.`,
-      duration: 8000,
-    })
-  }
 }
 
 const nodeRefs = ref({})

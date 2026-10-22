@@ -329,6 +329,17 @@ export const useLibraryStore = defineStore('library', () => {
   }
 
   /**
+   * Replaces the values that came with a math, e.g. to keep a module's defaults when its source regenerates it.
+   *
+   * @param {string} mathRef
+   * @param {Map<string, string>} defaults
+   */
+  function setMathDefaults(mathRef, defaults) {
+    if (defaults.size) mathDefaults.value.set(mathRef, new Map(defaults))
+    else mathDefaults.value.delete(mathRef)
+  }
+
+  /**
    * Gets the text layout saved with a math.
    *
    * @param {string} mathRef
@@ -728,6 +739,7 @@ export const useLibraryStore = defineStore('library', () => {
     getMathAnalysis,
     ensureMathAnalysis,
     getMathDefaults,
+    setMathDefaults,
     getMathLayout,
     setMathLayout,
     getMathSource,

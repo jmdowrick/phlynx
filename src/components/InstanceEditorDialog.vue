@@ -31,7 +31,7 @@
         <div class="header-group header-group--secondary">
           <span class="header-label header-label--secondary">Component</span>
           <SanitisedInput
-            v-if="isManaged && !isMathLocked"
+            v-if="(isManaged && !isMathLocked) || isDiagramRenamable"
             v-model="editableComponentName"
             :sanitise="sanitiseName"
             :fallback="componentNameForEditor"
@@ -457,12 +457,8 @@
     <!-- DIALOG FOOTER -->
     <template #footer>
       <div class="dialog-footer" v-if="!loading && !isScreenTooSmall">
-        <div v-if="siblingCount > 0 && isMathLocked && !isTemplate" class="apply-all-note">
-          <i class="pi pi-info-circle"></i>
-          Diagram edits apply to every instance of this module
-        </div>
         <div
-          v-else-if="siblingCount > 0"
+          v-if="siblingCount > 0"
           class="apply-all-checkbox"
           :title="`Also switch the ${siblingCount} other instance${
             siblingCount !== 1 ? 's' : ''
@@ -733,6 +729,13 @@ const isMathLocked = computed(() => moduleFormat.value.isMathLocked)
 const isSourceLocked = computed(() => !isTemplate.value || chosenFormat.value !== null)
 
 const isDiagramEditable = computed(() => isEditorOffered('celldl'))
+/**
+ * Whether the component name field names a diagram's module: renamed, a save makes a new module for this instance,
+ * as a renamed CellML component does. The template is always saved as a new component.
+ */
+const isDiagramRenamable = computed(
+  () => isDiagramEditable.value && isMathLocked.value && !isTemplate.value && moduleFormat.value.id === 'celldl'
+)
 /** Whether the diagram has edits, which a run doesn't see either. */
 const isDiagramDirty = computed(() => isDiagramEditable.value && celldlHost.isDirty.value)
 
@@ -1745,13 +1748,13 @@ let saveAsResolver = null
  * @param {string} name
  * @returns {string}
  */
-function isComponentNameTaken(name) {
-  const file = saveAsFile(name)
+function isComponentNameTaken(name, { isOwnFile = saveAs.value.isOwnFile } = {}) {
+  const file = saveAsFile(name, { isOwnFile })
   const mathRef = `${file}:${name}`
   if (PROTECTED_MATH_REFS.has(mathRef)) return `"${name}" is a template and can't be overwritten.`
   if (mathRef !== props.mathRef && store.availableMath.has(mathRef))
     return `A component named "${name}" already exists.`
-  if (saveAs.value.isOwnFile && isFileTaken(file)) return `A file named "${file}" already exists.`
+  if (isOwnFile && isFileTaken(file)) return `A file named "${file}" already exists.`
   return ''
 }
 
@@ -1760,9 +1763,10 @@ function isComponentNameTaken(name) {
  * saved from the template, so its units file is its own.
  *
  * @param {string} name
+ * @param {{isOwnFile?: boolean}} [options] - Whether it goes in its own file, as Save As last asked by default.
  * @returns {string}
  */
-const saveAsFile = (name) => (saveAs.value.isOwnFile ? `${name}.cellml` : componentFile.value)
+const saveAsFile = (name, { isOwnFile = saveAs.value.isOwnFile } = {}) => (isOwnFile ? `${name}.cellml` : componentFile.value)
 
 /**
  * Checks whether the library has math or units in a file.
@@ -1781,12 +1785,13 @@ function isFileTaken(file) {
  * Asks for a new component name before saving math that can't keep its current one.
  *
  * @param {string} message - Why a new name is needed.
- * @param {{isOwnFile?: boolean}} [options] - Save the component in its own file (see saveAsFile).
+ * @param {{isOwnFile?: boolean, initialName?: string}} [options] - Save the component in its own file (see
+ *   saveAsFile), and the name offered, the instance's by default.
  * @returns {Promise<string|null>} The new name, or null if cancelled.
  */
-function promptComponentSaveAs(message, { isOwnFile = false } = {}) {
+function promptComponentSaveAs(message, { isOwnFile = false, initialName = editableName.value } = {}) {
   resolveSaveAs(null)
-  saveAs.value = { visible: true, message, initialName: sanitiseName(editableName.value ?? ''), isOwnFile }
+  saveAs.value = { visible: true, message, initialName: sanitiseName(initialName ?? ''), isOwnFile }
   return new Promise((resolve) => {
     saveAsResolver = resolve
   })
@@ -1847,41 +1852,73 @@ const isSaving = ref(false)
 const isConverting = ref(false)
 
 /**
+ * Gets the component name typed for a diagram's module, when it differs from the module's (isDiagramRenamable).
+ *
+ * @returns {string|null}
+ */
+function renamedDiagramComponent() {
+  if (!isDiagramRenamable.value) return null
+  const name = cleanName(editableComponentName.value)
+  return name && name !== componentName.value ? name : null
+}
+
+/**
  * Converts the diagram, when edited since it was opened or saved, into the math this save writes. Errors stop the
  * save, keeping the stored math and diagram, with the elements they name highlighted; warnings ask first. The
- * template's diagram is a new component, named first so its CellML is, in its own file under a new documentUri.
+ * template's diagram, and a diagram whose component is renamed, is a new component, named first so its CellML is, in
+ * its own file under a new documentUri; a renamed one's module, diagram and units are left as they are.
  *
- * @returns {Promise<{mathRef: string, math: string, source: Object, units: Object}|null|false>} Where the generated
- *   math goes, the math, its source and units file (a null model when it has none); null when the diagram is
- *   unchanged; false when the save stops.
+ * @returns {Promise<{mathRef: string, math: string, source: Object, units: Object, isEditorDocument: boolean}|null|false>}
+ *   Where the generated math goes, the math, its source and units file (a null model when it has none), and whether
+ *   the editor shows the source's document as it is; null when the diagram is unchanged; false when the save stops.
  */
 async function stageDiagram() {
-  if (!isDiagramDirty.value) return null
+  let name = renamedDiagramComponent() ?? componentName.value
+  const isRenamed = name !== componentName.value
+  if (!isDiagramDirty.value && !isRenamed) return null
   const stored = store.getMathSource(props.mathRef)
   const requestId = openRequestId
   let document, result
-  let name = componentName.value
   let file = componentFile.value
+  let documentUri = stored?.documentUri
+  let isEditorDocument = true
   isConverting.value = true
   try {
-    const comparison = await celldlHost.compareWithBaseline()
-    if (!comparison.isChanged) return null
-    document = comparison.document
-    if (!stored) {
+    if (isDiagramDirty.value) {
+      const comparison = await celldlHost.compareWithBaseline()
+      if (!comparison.isChanged && !isRenamed) return null
+      document = comparison.document
+    } else {
+      // Only renamed: the stored diagram is copied, whether or not the editor has opened it.
+      document = stored.document
+      isEditorDocument = false
+    }
+    if (!stored || isRenamed) {
       isConverting.value = false
-      const renamed = await promptComponentSaveAs(
-        `"${name}" is the template new instances start from. Save your diagram as a new component instead.`,
-        { isOwnFile: true }
-      )
-      if (!renamed) return false
-      name = renamed
-      file = saveAsFile(renamed)
+      const taken = isRenamed && isComponentNameTaken(name, { isOwnFile: true })
+      if (!stored || taken) {
+        const renamed = await promptComponentSaveAs(
+          stored
+            ? `${taken} Save your diagram as a new component under another name.`
+            : `"${name}" is the template new instances start from. Save your diagram as a new component instead.`,
+          { isOwnFile: true, ...(stored && { initialName: name }) }
+        )
+        if (!renamed) return false
+        name = renamed
+      }
+      file = saveAsFile(name, { isOwnFile: true })
       isConverting.value = true
+      const { mintDocumentUri } = await import('../services/celldl/documentUri.js')
+      documentUri = mintDocumentUri(`${file}:${name}`)
+      // A diagram naming its model under its own absolute IRI is read under that, so it's renamed to the new one.
+      if (stored?.documentUri && document?.includes(stored.documentUri)) {
+        document = document.split(stored.documentUri).join(documentUri)
+        isEditorDocument = false
+      }
     }
     const { convertCelldl, knownUnitsFor } = await import('../services/celldl/convert.js')
-    const { mintDocumentUri } = await import('../services/celldl/documentUri.js')
     result = await convertCelldl(document, {
-      documentUri: stored?.documentUri ?? mintDocumentUri(`${file}:${name}`),
+      documentUri,
       componentName: name,
       knownUnits: knownUnitsFor(store.availableUnits, file),
     })
@@ -1931,6 +1968,7 @@ async function stageDiagram() {
     },
     // A diagram with no units of its own drops any its module had.
     units: { componentFile: file, model: result.unitsModel },
+    isEditorDocument,
   }
 }
 
@@ -1973,11 +2011,9 @@ function renameCelldlRows(renames) {
  *
  * @param {string} math - The math to save.
  * @param {Object|null} layout - Its text layout.
- * @param {{confirmOverwrite?: boolean}} [options] - A diagram save skips the overwrite prompt, since its edits always
- *   apply to every instance.
  * @returns {Promise<{mathRef: string, math: string, layout: Object|null}|null>} Null when the save stops.
  */
-async function resolveMathTarget(math, layout, { confirmOverwrite = true } = {}) {
+async function resolveMathTarget(math, layout) {
   const componentNames = getModelComponentNames(math)
   if (!componentNames || componentNames.length === 0) {
     notify.error({ message: 'Could not find a valid component name in the model.' })
@@ -1997,7 +2033,7 @@ async function resolveMathTarget(math, layout, { confirmOverwrite = true } = {})
       layout: renameLayoutComponent(layout, newComponentName, renamed),
     }
   }
-  if (confirmOverwrite && store.availableMath.has(mathRef) && !(await handleMathOverwrite())) return null
+  if (store.availableMath.has(mathRef) && !(await handleMathOverwrite())) return null
   return { mathRef, math, layout }
 }
 
@@ -2047,7 +2083,7 @@ async function saveInstance(options) {
     return
   }
 
-  if (isManaged.value && !cleanName(editableComponentName.value)) {
+  if ((isManaged.value || isDiagramRenamable.value) && !cleanName(editableComponentName.value)) {
     notify.error({ message: 'Component name is invalid.' })
     return
   }
@@ -2099,26 +2135,26 @@ async function saveInstance(options) {
     if (!proceed) return
   }
 
-  // An edited diagram gives the math and its values, which rows still on the diagram's previous values follow.
+  // An edited diagram gives the math, and values for variables new to the module.
   const staged = await stageDiagram()
   if (staged === false) return
   // Its math replaces the session's only once the save goes ahead, so a cancelled save keeps the stored math.
   let target = null
-  // The diagram's values before this save, which every instance's rows are compared with (followDefaults).
+  // The module's defaults before this save, which its variables keep (keepDefaults).
   const previousDefaults = staged && store.getMathSource(props.mathRef) ? new Map(store.getMathDefaults(props.mathRef)) : new Map()
-  let keptValues = []
   let renames = new Map()
   if (staged) {
-    // The template's diagram was named as it converted, so is saved as it is.
+    // A diagram saved under its module's name overwrites it, asking first, as CellML does. The template's, or a
+    // renamed one's, was named as it converted, so is a new module.
     target =
       staged.mathRef === props.mathRef
-        ? await resolveMathTarget(staged.math, currentLayout.value, { confirmOverwrite: false })
+        ? await resolveMathTarget(staged.math, currentLayout.value)
         : { mathRef: staged.mathRef, math: staged.math, layout: null }
     if (!target) return
     // Variables the edit renamed keep this instance's values under their new names.
     renames = variableRenames(store.getMathSource(props.mathRef)?.elements ?? null, staged.source.elements ?? null)
     renameCelldlRows(renames)
-    keptValues = session.applyGeneratedModel(staged.math, { previousDefaults: renameValues(previousDefaults, renames) })
+    session.applyGeneratedModel(staged.math, { previousDefaults: renameValues(previousDefaults, renames) })
   }
   if (isCelldlModule.value) applyCelldlValues({ isStaged: !!staged })
 
@@ -2140,8 +2176,7 @@ async function saveInstance(options) {
   const mathToSave = target?.math
   const layoutToSave = target ? target.layout : currentLayout.value
 
-  // Locked math changes only with its source, which every instance shares; the template's other instances stay on it.
-  const updateAll = applyToAll.value || siblingCount.value === 0 || (isMathLocked.value && !isTemplate.value)
+  const updateAll = applyToAll.value || siblingCount.value === 0
 
   trackEvent('editor_action', {
     category: 'Editor',
@@ -2164,11 +2199,10 @@ async function saveInstance(options) {
       source: staged?.source ?? null,
       isSourceChanged: !!staged,
       units: staged?.units ?? null,
-      // Other instances' rows follow the diagram's new values as this one's did, unless they hold their own.
+      // The module's defaults before the diagram regenerated its math, which its variables keep.
       previousDefaults: staged ? [...previousDefaults] : null,
-      // Variables the diagram edit renamed, whose values every instance's rows move to the new names.
+      // Variables the diagram edit renamed, whose values every instance's rows on the saved math move to the new names.
       renames: [...renames],
-      keptValues,
       // Only rows that were already global edit the shared value; a row just switched to global joins it as is.
       globalConstants: parameterRows.value
         .filter((row) => row.type === 'global_constant')
@@ -2189,10 +2223,12 @@ async function saveInstance(options) {
     })
   )
 
-  // The editor keeps the diagram as saved, so the dialog reloading after Apply doesn't open it again.
+  // The editor keeps the diagram as saved, so the dialog reloading after Apply doesn't open it again, unless it shows
+  // another document, which the reload then opens.
   if (staged) {
     isDiagramSaved.value = true
-    celldlHost.markSaved(staged.source)
+    if (staged.isEditorDocument) celldlHost.markSaved(staged.source)
+    else if (isDiagramDirty.value) celldlHost.markClean()
   }
   if (keepOpen) reloadAfterSave = true
   else emit('update:modelValue', false)
@@ -2758,14 +2794,6 @@ async function saveInstance(options) {
   align-items: center;
   gap: 8px;
   font-size: 0.85rem;
-}
-
-.apply-all-note {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.85rem;
-  color: var(--p-text-muted-color);
 }
 
 .footer-buttons {

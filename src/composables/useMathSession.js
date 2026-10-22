@@ -12,7 +12,8 @@ import { getModuleFormat } from '../services/moduleFormats'
 import {
   SIMPLE_MODE,
   applyPortTypes,
-  followDefaults,
+  fillBlankValues,
+  keepDefaults,
   findUnusedDeclared,
   getPortVariables,
   modeFor,
@@ -573,24 +574,23 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
   }
 
   /**
-   * Replaces the math with one generated from its source, e.g. a diagram converted on save. Rows new, blank or still
-   * on the source's previous value take the generated value; a row set to another value keeps it (followDefaults).
+   * Replaces the math with one generated from its source, e.g. a diagram converted on save. Rows keep the instance's
+   * values; rows new or blank take the module's defaults, which keep their values for variables the module already
+   * had (keepDefaults).
    *
    * @param {string} xml - The generated model, values included.
-   * @param {{previousDefaults?: Map<string, string>}} [options] - The values the source generated before the edit.
-   * @returns {string[]} The rows that kept their own value although the source's changed.
+   * @param {{previousDefaults?: Map<string, string>}} [options] - The module's defaults before the save.
    */
   function applyGeneratedModel(xml, { previousDefaults = new Map() } = {}) {
     const { math, values } = separateParameters(xml)
+    const defaults = keepDefaults(values, previousDefaults)
     const nextAnalysis = analyzeMathXml(math)
-    const rows = reconcileKeepingRemoved(nextAnalysis, parameterRows.value, { ...reconcileOptions(), defaults: values })
-    const followed = followDefaults(rows, previousDefaults, values)
+    const rows = reconcileKeepingRemoved(nextAnalysis, parameterRows.value, { ...reconcileOptions(), defaults })
     currentModel.value = math
     analysis.value = nextAnalysis
     unusedDeclared.value = findUnusedDeclared(nextAnalysis)
     pendingRename.value = null
-    setRows(followed.rows)
-    return followed.kept
+    setRows(fillBlankValues(rows, defaults))
   }
 
   return {
