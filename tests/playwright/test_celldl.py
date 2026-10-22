@@ -323,11 +323,12 @@ class TestCelldl(unittest.TestCase):
             choose_template(page, "Chemical storage with Zero Node")
 
             # Live conversion takes it as a storage node: it asks for its storage's value, not for a junction type.
-            if dialog.locator("#celldl-live-preview").count() == 0:
-                dialog.locator(".celldl-live-toggle").click()
-            issues = dialog.locator(".celldl-live-issues")
-            expect(issues).to_contain_text("Missing value for parameter K", timeout=DIAGRAM_TIMEOUT)
-            expect(issues).not_to_contain_text("must be one, zero or transform nodes")
+            # The live status lists its issues in its tooltip.
+            status = dialog.locator(".celldl-live-status")
+            expect(status).to_have_attribute(
+                "title", re.compile("Missing value for parameter K"), timeout=DIAGRAM_TIMEOUT
+            )
+            self.assertNotIn("must be one, zero or transform nodes", status.get_attribute("title"))
             # ----------- END ------------
 
             browser.close()
