@@ -15,6 +15,12 @@ const COMMAND_TIMEOUT_MS = 10000
 /** The editor's options: hovering an element shows its annotation's tooltip, the variables it has. */
 export const EDITOR_OPTIONS = Object.freeze({ tooltip: 'tooltip' })
 
+/**
+ * The editor's chrome: only the Select and bond-graph tools (the drawing tools aren't converted), and no
+ * pointer-position readout. The left toolbar stays, as it's still the only way to place elements and draw bonds.
+ */
+export const EDITOR_CHROME = Object.freeze({ tools: Object.freeze(['select', 'bondgraph']), statusPosition: false })
+
 /** The class marking a diagram element a conversion failed on. */
 export const ERROR_CLASS = 'phlynx-celldl-error'
 /** The softer class marking an element the live conversion has an issue with, as diagrams mid-edit often do. */
