@@ -348,6 +348,47 @@ describe('useInstanceSave', () => {
       })
     })
 
+    describe("a diagram renamed onto another diagram's module", () => {
+      const OTHER_REF = 'growth.cellml:growth'
+      const OTHER_SOURCE = { format: 'celldl', document: '<diagram growth/>', documentUri: 'local:growth.celldl' }
+      const OVERWRITTEN = { format: 'celldl', document: '<diagram decay renamed/>', documentUri: 'local:growth.celldl' }
+      const UNITS = { componentFile: 'growth.cellml', model: '<model name="new_units"/>' }
+
+      beforeEach(() => {
+        library.addMath(OTHER_REF, GROWTH_XML)
+        library.setMathSource(OTHER_REF, OTHER_SOURCE)
+        library.addUnitsFile({ componentFile: 'growth.cellml', model: '<model name="old_units"/>' })
+        const other = createNode('c')
+        other.data.mathRef = OTHER_REF
+        other.data.variables = other.data.variables.map((row) => (row.name === 'k' ? { ...row, value: '9' } : row))
+        nodes.value.push(other)
+      })
+
+      it("overwrites it and moves this instance to it, leaving its instances' rows unrenamed, and undoes as one step", async () => {
+        const otherBefore = library.getMathEntry(OTHER_REF)
+        const renamed = GROWTH_XML.replaceAll('<ci>k</ci>', '<ci>kr</ci>').replace('name="k" units', 'name="kr" units')
+        const variables = findNode('a').data.variables.map((row) => (row.name === 'k' ? { ...row, name: 'kr' } : row))
+
+        await saveInstanceEdit(
+          buildSave({ mathRef: OTHER_REF, math: renamed, source: OVERWRITTEN, isSourceChanged: true, units: UNITS, variables, renames: [['k', 'kr']] })
+        )
+
+        expect(findNode('a').data.mathRef).toBe(OTHER_REF)
+        expect(findNode('b').data.mathRef).toBe(DECAY_REF)
+        expect(library.getMathSource(OTHER_REF)).toEqual(OVERWRITTEN)
+        expect(library.availableUnits).toContainEqual(UNITS)
+        // Its own instance's rows follow its math, not this diagram's renames.
+        const rows = Object.fromEntries(findNode('c').data.variables.map((row) => [row.name, row]))
+        expect(rows.kr.value).not.toBe('9')
+        expect(findNode('c').data.ports.flatMap((port) => port.variables)).not.toContain('kr')
+
+        await history.undo()
+        expect(findNode('a').data.mathRef).toBe(DECAY_REF)
+        expect(library.getMathEntry(OTHER_REF)).toEqual(otherBefore)
+        expect(library.availableUnits.find((file) => file.componentFile === 'growth.cellml').model).toBe('<model name="old_units"/>')
+      })
+    })
+
     it('leaves the other instances\' new rows blank for CellML math', async () => {
       await saveInstanceEdit(buildSave({ math: GENERATED_XML }))
 
