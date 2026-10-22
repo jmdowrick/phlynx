@@ -1,6 +1,6 @@
 <template>
   <ConfirmDialog group="app-confirm">
-    <template #container="{ message, acceptCallback, rejectCallback }">
+    <template #container="{ message, acceptCallback, rejectCallback, closeCallback }">
       <div class="confirm-container">
         <div class="confirm-body">
           <i :class="['confirm-icon', getIcon(message.severity)]" :style="{ color: getIconColor(message.severity) }" />
@@ -27,10 +27,24 @@
             @click="rejectCallback"
           />
 
+          <!-- A third action (choose), resolved before the dialog closes, so closing doesn't reject it. It's the
+               primary, focused action, so Enter takes it and never the accept action beside it. -->
+          <Button
+            v-if="message.extraLabel"
+            :label="message.extraLabel"
+            autofocus
+            @click="
+              () => {
+                message.extra?.()
+                closeCallback()
+              }
+            "
+          />
+
           <Button
             :label="message.acceptLabel || 'OK'"
             :severity="getButtonSeverity(message.severity)"
-            :outlined="!!message.isRejectDefault"
+            :outlined="!!message.isRejectDefault || !!message.extraLabel"
             @click="acceptCallback"
           />
         </div>

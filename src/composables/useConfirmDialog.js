@@ -34,6 +34,32 @@ export function useConfirmDialog() {
     })
   }
 
+  /**
+   * Asks a question with a third, extra action between rejecting and accepting, which is the default: focused, so
+   * Enter takes it, while Escape rejects.
+   *
+   * @param {Object} options - As confirm's, with extraLabel naming the extra action.
+   * @returns {Promise<'accept'|'extra'|'reject'>} The action chosen; closing the dialog rejects.
+   */
+  function choose(options) {
+    return new Promise((resolve) => {
+      confirm.require({
+        group: 'app-confirm',
+        header: options.header,
+        message: options.message,
+        severity: options.severity,
+        acceptLabel: options.acceptLabel ?? 'OK',
+        rejectLabel: options.rejectLabel ?? 'Cancel',
+        extraLabel: options.extraLabel,
+        closeOnEscape: true,
+        accept: () => resolve('accept'),
+        extra: () => resolve('extra'),
+        reject: () => resolve('reject'),
+        onHide: () => resolve('reject'),
+      })
+    })
+  }
+
   async function confirmDialog(options) {
     return await showConfirm(options)
   }
@@ -49,5 +75,6 @@ export function useConfirmDialog() {
   return {
     confirm: confirmDialog,
     alert: alertDialog,
+    choose,
   }
 }

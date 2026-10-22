@@ -3,7 +3,7 @@ import { reactive, ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { describeKeptValues, useInstanceSave } from '../../../src/composables/useInstanceSave.js'
+import { useInstanceSave } from '../../../src/composables/useInstanceSave.js'
 import { useNodeDataHistory } from '../../../src/composables/useNodeDataHistory.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
@@ -109,14 +109,6 @@ const fork = () =>
     siblings: ['b'],
   })
 
-describe('describeKeptValues', () => {
-  it('says how many instances kept their own value of each variable', () => {
-    expect(describeKeptValues(new Map([['kappa_r1', 1], ['K_P', 3]]))).toBe(
-      '1 instance keeps its own value for kappa_r1. 3 instances keep their own value for K_P.'
-    )
-  })
-})
-
 describe('useInstanceSave', () => {
   let history, library, saveInstanceEdit
 
@@ -136,7 +128,7 @@ describe('useInstanceSave', () => {
 
   it('undoes a fork applied to every instance as one step, and redoes it exactly', async () => {
     const before = snapshot()
-    expect((await saveInstanceEdit(fork())).count).toBe(2)
+    expect(await saveInstanceEdit(fork())).toBe(2)
     const after = snapshot()
     expect(findNode('b').data.mathRef).toBe(GROWTH_REF)
     expect(library.availableMath.has(GROWTH_REF)).toBe(true)
@@ -255,25 +247,25 @@ describe('useInstanceSave', () => {
       expect(rows.k.value).toBe('0.5')
     })
 
-    it("moves every instance still on the diagram's previous values to its new ones, and counts those keeping their own", async () => {
+    it("keeps every instance's values and the module's defaults when a diagram is saved again, so only new variables take its values", async () => {
       library.setMathSource(DECAY_REF, SOURCE)
       const own = createNode('c')
       own.data.variables = own.data.variables.map((row) => (row.name === 'k' ? { ...row, value: '3' } : row))
       nodes.value.push(own)
-      const edited = DECAY_XML.replace('initial_value="0.5"', 'initial_value="0.8"')
+      const edited = GENERATED_XML.replace('initial_value="0.5"', 'initial_value="0.8"')
 
-      const { keptValues } = await saveInstanceEdit(
-        buildSave({ math: edited, source: SOURCE, isSourceChanged: true, previousDefaults: [...library.getMathDefaults(DECAY_REF)], keptValues: ['k'] })
+      await saveInstanceEdit(
+        buildSave({ math: edited, source: SOURCE, isSourceChanged: true, previousDefaults: [...library.getMathDefaults(DECAY_REF)] })
       )
 
-      const valueOf = (id) => findNode(id).data.variables.find((row) => row.name === 'k').value
-      expect(valueOf('b')).toBe('0.8')
-      expect(valueOf('c')).toBe('3')
-      expect(keptValues).toEqual(new Map([['k', 2]]))
-      expect(describeKeptValues(keptValues)).toBe('2 instances keep their own value for k.')
+      const rowsOf = (id) => Object.fromEntries(findNode(id).data.variables.map((row) => [row.name, row.value]))
+      expect(rowsOf('b')).toMatchObject({ k: '0.5', c: '3' })
+      expect(rowsOf('c')).toMatchObject({ k: '3', c: '3' })
+      expect(library.getMathDefaults(DECAY_REF).get('k')).toBe('0.5')
+      expect(library.getMathDefaults(DECAY_REF).get('c')).toBe('3')
     })
 
-    it('moves every instance\'s values and ports to the variables a diagram edit renamed', async () => {
+    it("moves every instance's values, ports and the module's defaults to the variables a diagram edit renamed", async () => {
       library.setMathSource(DECAY_REF, SOURCE)
       const own = createNode('c')
       own.data.variables = own.data.variables.map((row) => (row.name === 'k' ? { ...row, value: '3' } : row))
@@ -285,10 +277,75 @@ describe('useInstanceSave', () => {
       )
 
       const rowsOf = (id) => Object.fromEntries(findNode(id).data.variables.map((row) => [row.name, row]))
-      expect(rowsOf('b').kr.value).toBe('0.8')
+      expect(rowsOf('b').kr.value).toBe('0.5')
       expect(rowsOf('b').k).toBeUndefined()
       expect(rowsOf('c').kr.value).toBe('3')
       expect(findNode('c').data.ports[0].variables).toEqual(['x', 'kr'])
+      expect(library.getMathDefaults(DECAY_REF).get('kr')).toBe('0.5')
+    })
+
+    describe('a diagram saved under a new component name', () => {
+      const NEW_REF = 'fast.cellml:fast'
+      const NEW_SOURCE = { format: 'celldl', document: '<diagram copied/>', documentUri: 'local:fast.cellml_fast.celldl' }
+      const NEW_UNITS = { componentFile: 'fast.cellml', model: '<model name="fast_units"/>' }
+      const renamedSave = (overrides) =>
+        buildSave({
+          mathRef: NEW_REF,
+          math: GENERATED_XML.replaceAll('decay', 'fast').replace('initial_value="0.5"', 'initial_value="0.8"'),
+          source: NEW_SOURCE,
+          isSourceChanged: true,
+          units: NEW_UNITS,
+          previousDefaults: [...library.getMathDefaults(DECAY_REF)],
+          ...overrides,
+        })
+
+      beforeEach(() => {
+        library.setMathSource(DECAY_REF, SOURCE)
+        library.addUnitsFile({ componentFile: 'file', model: '<model name="file_units"/>' })
+      })
+
+      it('makes a new module for this instance only, leaving the old one and its other instances alone', async () => {
+        const decayBefore = library.getMathEntry(DECAY_REF)
+        const bBefore = detachReactivity(findNode('b').data)
+
+        await saveInstanceEdit(renamedSave())
+
+        expect(findNode('a').data).toMatchObject({ mathRef: NEW_REF, moduleRef: 'fast:default' })
+        expect(detachReactivity(findNode('b').data)).toEqual(bBefore)
+        expect(library.getMathEntry(DECAY_REF)).toEqual(decayBefore)
+        expect(library.getMathSource(NEW_REF)).toEqual(NEW_SOURCE)
+        expect(library.availableUnits.find((file) => file.componentFile === 'file').model).toBe('<model name="file_units"/>')
+        expect(library.availableUnits).toContainEqual(NEW_UNITS)
+        // The new module keeps the old one's defaults for the variables it already had.
+        expect(library.getMathDefaults(NEW_REF).get('k')).toBe('0.5')
+        expect(library.getMathDefaults(NEW_REF).get('c')).toBe('3')
+
+        await history.undo()
+        expect(findNode('a').data.mathRef).toBe(DECAY_REF)
+        expect(library.availableMath.has(NEW_REF)).toBe(false)
+        expect(library.availableUnits.some((file) => file.componentFile === 'fast.cellml')).toBe(false)
+        expect(library.getMathSource(NEW_REF)).toBeNull()
+        expect(library.availableModules.has('fast:default')).toBe(false)
+        expect(library.getMathEntry(DECAY_REF)).toEqual(decayBefore)
+
+        await history.redo()
+        expect(findNode('a').data).toMatchObject({ mathRef: NEW_REF, moduleRef: 'fast:default' })
+        expect(library.getMathSource(NEW_REF)).toEqual(NEW_SOURCE)
+        expect(library.availableUnits).toContainEqual(NEW_UNITS)
+        expect(library.availableModules.has('fast:default')).toBe(true)
+        expect(library.getMathEntry(DECAY_REF)).toEqual(decayBefore)
+      })
+
+      it('moves the other instances too when the save applies to all, keeping their values', async () => {
+        findNode('b').data.variables = findNode('b').data.variables.map((row) => (row.name === 'k' ? { ...row, value: '7' } : row))
+
+        expect(await saveInstanceEdit(renamedSave({ updateAll: true, siblings: ['b'] }))).toBe(2)
+
+        expect(findNode('b').data).toMatchObject({ mathRef: NEW_REF, moduleRef: 'fast:default' })
+        const rows = Object.fromEntries(findNode('b').data.variables.map((row) => [row.name, row.value]))
+        expect(rows).toMatchObject({ k: '7', c: '3' })
+        expect(library.getMathSource(DECAY_REF)).toEqual(SOURCE)
+      })
     })
 
     it('leaves the other instances\' new rows blank for CellML math', async () => {

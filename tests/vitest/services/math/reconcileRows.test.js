@@ -3,7 +3,7 @@ import {
   applyPortTypes,
   fillBlankValues,
   findUnusedDeclared,
-  followDefaults,
+  keepDefaults,
   getPortVariables,
   reconcileRows,
 } from '../../../../src/services/math/reconcileRows'
@@ -398,44 +398,22 @@ describe('fillBlankValues', () => {
   })
 })
 
-describe('followDefaults', () => {
-  const previous = new Map([
-    ['kappa', '10'],
-    ['K', '1'],
-    ['q0', '0.5'],
-    ['g', '2'],
-  ])
-  const next = new Map([
-    ['kappa', '1'],
-    ['K', '1'],
-    ['q0', '0.5'],
-    ['c', '3'],
-    ['g', '4'],
-  ])
-
-  it('moves rows still on the previous default, or blank, to the new one', () => {
-    const rows = [
-      { name: 'kappa', value: '10.0' },
-      { name: 'c', value: '' },
-      { name: 'K', value: '1' },
-    ]
-    const { rows: followed, kept } = followDefaults(rows, previous, next)
-
-    expect(followed.map((row) => row.value)).toEqual(['1', '3', '1'])
-    expect(followed[2]).toBe(rows[2])
-    expect(rows[0].value).toBe('10.0')
-    expect(kept).toEqual([])
-  })
-
-  it("keeps an instance's own value, and reports it only when the default changed", () => {
-    const rows = [
-      { name: 'kappa', value: '5' },
-      { name: 'q0', value: '0.9' },
-      { name: 'g', value: '2', type: 'global_constant' },
-    ]
-    const { rows: followed, kept } = followDefaults(rows, previous, next)
-
-    expect(followed.map((row) => row.value)).toEqual(['5', '0.9', '2'])
-    expect(kept).toEqual(['kappa'])
+describe('keepDefaults', () => {
+  it("keeps a module's defaults for the variables it had, and takes the source's values only for new ones", () => {
+    const previous = new Map([
+      ['kappa', '10'],
+      ['gone', '2'],
+    ])
+    const values = new Map([
+      ['kappa', '1'],
+      ['c', '3'],
+    ])
+    expect(keepDefaults(values, previous)).toEqual(
+      new Map([
+        ['kappa', '10'],
+        ['c', '3'],
+      ])
+    )
+    expect(keepDefaults(values, new Map())).toEqual(values)
   })
 })

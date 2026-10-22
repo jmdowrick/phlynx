@@ -209,6 +209,56 @@ def choose_element_type(page, dialog, element_id, template):
     expect(element_row(dialog, element_id).locator(".p-select")).to_contain_text(template)
 
 
+def accept_overwrite(page):
+    """Overwrites the module at the "Overwrite Math?" prompt a save under the module's own name asks."""
+    answer_overwrite(page, "Overwrite")
+
+
+def answer_overwrite(page, choice):
+    """Answers the "Overwrite Math?" prompt: Overwrite, Save as new component, or Cancel."""
+    prompt = page.locator(".confirm-container").filter(has_text="Overwrite Math?")
+    expect(prompt).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+    prompt.get_by_role("button", name=choice, exact=True).click()
+
+
+def save_as_new(page, taken, name):
+    """Names a new component in Save As, which refuses taken names, each with why."""
+    save_as = page.get_by_role("dialog", name="Save As New Component")
+    field = save_as.locator("input")
+    save = save_as.get_by_role("button", name="Save", exact=True)
+    for used, reason in taken:
+        field.fill(used)
+        expect(save_as.locator(".error-text")).to_have_text(reason)
+        expect(save).to_be_disabled()
+    field.fill(name)
+    expect(save_as.locator(".error-text")).to_have_count(0)
+    save.click()
+
+
+def has_math(page, math_ref):
+    """Whether the library has math under a reference."""
+    return page.evaluate(
+        """(mathRef) => document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
+            .get('library').availableMath.has(mathRef)""",
+        math_ref,
+    )
+
+
+def component_of(dialog):
+    """The instance's component name and file, from the editor's header."""
+    name = dialog.locator(".header-group--secondary input").input_value()
+    return name, dialog.locator(".header-file-name").inner_text().strip()
+
+
+def stored_document(page, math_ref):
+    """The diagram stored for a module's math."""
+    return page.evaluate(
+        """(mathRef) => document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
+            .get('library').getMathSource(mathRef)?.document ?? null""",
+        math_ref,
+    )
+
+
 def saved_math_has(page, text):
     """Whether any of the library's math, as saved, has some text."""
     return page.evaluate(
@@ -302,6 +352,7 @@ class TestCelldl(unittest.TestCase):
             # Moving the resistor to another location renames its variables.
             relocate_resistor(page, "X")
             dialog.get_by_role("button", name="Apply").click()
+            accept_overwrite(page)
             expect(page.get_by_text("CellML Updated")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
             content = cellml_text(dialog)
             expect(content).to_contain_text("R_R_i_X")
@@ -602,6 +653,7 @@ class TestCelldl(unittest.TestCase):
             kappa.fill("1")
             kappa.press("Enter")
             dialog.get_by_role("button", name="Apply").click()
+            accept_overwrite(page)
             expect(page.get_by_text("CellML Updated")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
             wait_for_diagram(page)
             kappa = parameter_value(dialog, "kappa_Rx_r1_cyt")
@@ -670,6 +722,7 @@ class TestCelldl(unittest.TestCase):
             expect(element_row(dialog, REACTION_R1).locator(".element-names")).to_contain_text("kappa_Rx_r1_cyt", timeout=DIAGRAM_TIMEOUT)
             expect(parameter_value(dialog, "kappa_Rx_r1_cyt")).to_have_value("2")
             dialog.get_by_role("button", name="Save").click()
+            accept_overwrite(page)
             expect(dialog).to_be_hidden()
 
             instances.first.dblclick()
@@ -680,6 +733,228 @@ class TestCelldl(unittest.TestCase):
             instances.nth(1).dblclick()
             wait_for_diagram(page)
             expect(parameter_value(dialog, "kappa_Rx_r1_cyt")).to_have_value("3")
+            # ----------- END ------------
+
+            browser.close()
+
+    def test_saves_a_renamed_component_as_a_new_module_for_this_instance_and_overwrites_after_asking(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+
+            # ---------- START -----------
+            import_diagram(page, ENZYME)
+            expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            place(page, "ENZYME", ENZYME_MODULE, x=600, y=350)
+            card = page.locator(".mlc__card--draggable").filter(has_text=ENZYME_MODULE).first
+            card.drag_to(page.locator(".vue-flow__pane").first, target_position={"x": 900, "y": 600})
+            instances = page.locator(".vue-flow__node").filter(has_text=ENZYME_MODULE)
+            expect(instances).to_have_count(2)
+            dialog = page.locator(".module-editor-dialog")
+
+            # The second instance's own r1 rate.
+            instances.nth(1).dblclick()
+            wait_for_diagram(page)
+            name, file = component_of(dialog)
+            math_ref = f"{file}:{name}"
+            kappa = parameter_value(dialog, "kappa_Rx_r1_c")
+            kappa.fill("3")
+            kappa.press("Enter")
+            dialog.get_by_role("button", name="Save").click()
+            expect(dialog).to_be_hidden()
+
+            # The first's own rate, and r2 moved to cyt under the same name: the save asks before overwriting the
+            # module, whose math both instances then share, each keeping its own values.
+            instances.first.dblclick()
+            wait_for_diagram(page)
+            expect(dialog.locator(".apply-all-checkbox")).to_contain_text("Apply math changes to all 2 instances")
+            kappa = parameter_value(dialog, "kappa_Rx_r1_c")
+            kappa.fill("2")
+            kappa.press("Enter")
+            set_element_field(dialog, REACTION_R2, "Location", "cyt")
+            expect(element_row(dialog, REACTION_R2).locator(".element-names")).to_contain_text("kappa_Rx_r2_cyt", timeout=DIAGRAM_TIMEOUT)
+            dialog.get_by_role("button", name="Save").click()
+            accept_overwrite(page)
+            expect(dialog).to_be_hidden()
+            shared = stored_document(page, math_ref)
+
+            instances.nth(1).dblclick()
+            wait_for_diagram(page)
+            expect(element_row(dialog, REACTION_R2).locator(".element-names")).to_contain_text("kappa_Rx_r2_cyt")
+            expect(parameter_value(dialog, "kappa_Rx_r1_c")).to_have_value("3")
+            dialog.get_by_role("button", name="Cancel").click()
+            expect(dialog).to_be_hidden()
+
+            # Renamed, the first's diagram edit is a new module for it alone, with its own copy of the diagram: no
+            # prompt, and the second stays on the old module and diagram.
+            instances.first.dblclick()
+            wait_for_diagram(page)
+            expect(parameter_value(dialog, "kappa_Rx_r1_c")).to_have_value("2")
+            component = dialog.locator(".header-group--secondary input")
+            component.fill("enzyme_fast")
+            component.press("Tab")
+            set_element_field(dialog, REACTION_R1, "Location", "cyt")
+            expect(element_row(dialog, REACTION_R1).locator(".element-names")).to_contain_text("kappa_Rx_r1_cyt", timeout=DIAGRAM_TIMEOUT)
+            dialog.get_by_role("button", name="Save").click()
+            expect(dialog).to_be_hidden(timeout=DIAGRAM_TIMEOUT)
+            expect(page.locator(".confirm-container").filter(has_text="Overwrite Math?")).to_have_count(0)
+            self.assertEqual(stored_document(page, math_ref), shared)
+            self.assertIsNotNone(stored_document(page, "enzyme_fast.cellml:enzyme_fast"))
+
+            instances.first.dblclick()
+            wait_for_diagram(page)
+            self.assertEqual(component_of(dialog), ("enzyme_fast", "enzyme_fast.cellml"))
+            expect(element_row(dialog, REACTION_R1).locator(".element-names")).to_contain_text("kappa_Rx_r1_cyt")
+            expect(parameter_value(dialog, "kappa_Rx_r1_cyt")).to_have_value("2")
+            dialog.get_by_role("button", name="Cancel").click()
+            expect(dialog).to_be_hidden()
+
+            instances.nth(1).dblclick()
+            wait_for_diagram(page)
+            self.assertEqual(component_of(dialog), (name, file))
+            expect(element_row(dialog, REACTION_R1).locator(".element-names")).to_contain_text("kappa_Rx_r1_c")
+            expect(element_row(dialog, REACTION_R1).locator(".element-names")).not_to_contain_text("kappa_Rx_r1_cyt")
+            expect(parameter_value(dialog, "kappa_Rx_r1_c")).to_have_value("3")
+            expect(dialog.locator(".apply-all-checkbox")).to_have_count(0)
+            # ----------- END ------------
+
+            browser.close()
+
+    def test_saves_a_diagram_edit_as_a_new_component_for_this_instance_instead_of_overwriting(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+
+            # ---------- START -----------
+            import_diagram(page, ENZYME)
+            expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            place(page, "ENZYME", ENZYME_MODULE, x=600, y=350)
+            card = page.locator(".mlc__card--draggable").filter(has_text=ENZYME_MODULE).first
+            card.drag_to(page.locator(".vue-flow__pane").first, target_position={"x": 900, "y": 600})
+            instances = page.locator(".vue-flow__node").filter(has_text=ENZYME_MODULE)
+            expect(instances).to_have_count(2)
+            dialog = page.locator(".module-editor-dialog")
+
+            # Not overwriting, the first's edit is saved as a new component under an unused name, with its own copy of
+            # the diagram; the second stays on the shared module and diagram.
+            instances.first.dblclick()
+            wait_for_diagram(page)
+            name, file = component_of(dialog)
+            math_ref = f"{file}:{name}"
+            shared = stored_document(page, math_ref)
+            set_element_field(dialog, REACTION_R1, "Location", "cyt")
+            expect(element_row(dialog, REACTION_R1).locator(".element-names")).to_contain_text("kappa_Rx_r1_cyt", timeout=DIAGRAM_TIMEOUT)
+            dialog.get_by_role("button", name="Save").click()
+            answer_overwrite(page, "Save as new component")
+            save_as_new(
+                page,
+                [
+                    (name, f'A component named "{name}" already exists.'),
+                    ("new_module", '"new_module" is a template and can\'t be overwritten.'),
+                ],
+                "enzyme_mine",
+            )
+            expect(dialog).to_be_hidden(timeout=DIAGRAM_TIMEOUT)
+            self.assertEqual(stored_document(page, math_ref), shared)
+            self.assertIsNotNone(stored_document(page, "enzyme_mine.cellml:enzyme_mine"))
+
+            # Undo removes the new component and its diagram, leaving the shared one; redo puts them back.
+            expect(page.locator("button:has(.pi-undo)")).to_be_enabled()
+            page.keyboard.press("ControlOrMeta+z")
+            page.wait_for_function(
+                """() => !document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
+                    .get('library').availableMath.has('enzyme_mine.cellml:enzyme_mine')"""
+            )
+            self.assertEqual(stored_document(page, math_ref), shared)
+            page.keyboard.press("ControlOrMeta+Shift+z")
+            page.wait_for_function(
+                """() => document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
+                    .get('library').availableMath.has('enzyme_mine.cellml:enzyme_mine')"""
+            )
+            self.assertEqual(stored_document(page, math_ref), shared)
+
+            instances.first.dblclick()
+            wait_for_diagram(page)
+            self.assertEqual(component_of(dialog), ("enzyme_mine", "enzyme_mine.cellml"))
+            expect(element_row(dialog, REACTION_R1).locator(".element-names")).to_contain_text("kappa_Rx_r1_cyt")
+            dialog.get_by_role("button", name="Cancel").click()
+            expect(dialog).to_be_hidden()
+
+            instances.nth(1).dblclick()
+            wait_for_diagram(page)
+            self.assertEqual(component_of(dialog), (name, file))
+            expect(element_row(dialog, REACTION_R1).locator(".element-names")).not_to_contain_text("kappa_Rx_r1_cyt")
+            # ----------- END ------------
+
+            browser.close()
+
+    def test_saves_a_cellml_edit_as_a_new_component_instead_of_overwriting(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+
+            # ---------- START -----------
+            # The template always saves as a new component, here "mine", in the template's file.
+            place(page, "TEMPLATE MODULES", "new_module")
+            dialog = open_editor(page, "new_module")
+            content = cellml_text(dialog)
+            content.click()
+            page.keyboard.press("ControlOrMeta+End")
+            page.keyboard.type("\na = b+c;")
+            dialog.get_by_role("button", name="Save").click()
+            expect(page.locator(".confirm-container").filter(has_text="Overwrite Math?")).to_have_count(0)
+            save_as_new(page, [], "mine")
+            expect(dialog).to_be_hidden(timeout=DIAGRAM_TIMEOUT)
+            self.assertTrue(has_math(page, "template_modules.cellml:mine"))
+
+            # Saving "mine" again offers to save it as a new component instead, under a name neither used nor the
+            # template's; "mine" is left as it was.
+            page.locator(".vue-flow__node").first.dblclick()
+            dialog.wait_for()
+            content = cellml_text(dialog)
+            content.click()
+            page.keyboard.press("ControlOrMeta+End")
+            page.keyboard.type("\nd = b;")
+            # The prompt focuses Save as new component, never Overwrite: Escape cancels the save, and Enter saves as new.
+            prompt = page.locator(".confirm-container").filter(has_text="Overwrite Math?")
+            dialog.get_by_role("button", name="Save").click()
+            expect(prompt.get_by_role("button", name="Save as new component")).to_be_focused(timeout=DIAGRAM_TIMEOUT)
+            page.keyboard.press("Escape")
+            expect(prompt).to_have_count(0)
+            expect(dialog).to_be_visible()
+            expect(page.get_by_role("dialog", name="Save As New Component")).to_have_count(0)
+            dialog.get_by_role("button", name="Save").click()
+            expect(prompt.get_by_role("button", name="Save as new component")).to_be_focused(timeout=DIAGRAM_TIMEOUT)
+            page.keyboard.press("Enter")
+            save_as_new(
+                page,
+                [
+                    ("mine", 'A component named "mine" already exists.'),
+                    ("Mine", 'A component named "Mine" already exists.'),
+                    ("new_module", '"new_module" is a template and can\'t be overwritten.'),
+                    (" New Module ", '"New_Module" is a template and can\'t be overwritten.'),
+                ],
+                "mine_too",
+            )
+            expect(dialog).to_be_hidden(timeout=DIAGRAM_TIMEOUT)
+            self.assertTrue(has_math(page, "template_modules.cellml:mine_too"))
+
+            # Undo removes the new component, and redo puts it back.
+            expect(page.locator("button:has(.pi-undo)")).to_be_enabled()
+            page.keyboard.press("ControlOrMeta+z")
+            page.wait_for_function(
+                """() => !document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
+                    .get('library').availableMath.has('template_modules.cellml:mine_too')"""
+            )
+            page.keyboard.press("ControlOrMeta+Shift+z")
+            page.wait_for_function(
+                """() => document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
+                    .get('library').availableMath.has('template_modules.cellml:mine_too')"""
+            )
+            self.assertTrue(saved_math_has(page, '<ci>d</ci>'))
+            self.assertFalse(
+                page.evaluate(
+                    """() => String(document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
+                        .get('library').availableMath.get('template_modules.cellml:mine')).includes('<ci>d</ci>')"""
+                )
+            )
             # ----------- END ------------
 
             browser.close()

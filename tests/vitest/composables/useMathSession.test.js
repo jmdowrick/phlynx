@@ -789,16 +789,16 @@ describe('useMathSession', () => {
       expect(rows.x0.value).toBe('1')
     })
 
-    it("moves rows still on the source's previous values to its new ones, keeping the instance's own", async () => {
+    it("keeps the instance's values, and fills blank rows from the module's previous defaults, new ones from the source", async () => {
       await session.load({
         mathRef: MATH_REF,
         rows: [
           { name: 'k', value: '2', units: 'per_second', type: 'constant' },
-          { name: 'x0', value: '0.9', units: 'metre', type: 'constant' },
+          { name: 'x0', value: '', units: 'metre', type: 'constant' },
         ],
         managed: false,
       })
-      const kept = session.applyGeneratedModel(GENERATED_XML, {
+      session.applyGeneratedModel(GENERATED_XML, {
         previousDefaults: new Map([
           ['k', '0.5'],
           ['x0', '0.9'],
@@ -806,10 +806,9 @@ describe('useMathSession', () => {
       })
 
       const rows = byName(session.parameterRows.value)
-      expect(rows.x0.value).toBe('1')
+      expect(rows.x0.value).toBe('0.9')
       expect(rows.k.value).toBe('2')
       expect(rows.c.value).toBe('3')
-      expect(kept).toEqual(['k'])
     })
 
     it('keeps the instance values and fills the rest from a generated model', () => {
