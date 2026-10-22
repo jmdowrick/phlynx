@@ -1,7 +1,15 @@
 import { useVueFlow } from '@vue-flow/core'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
-import { fillBlankValues, followDefaults, getPortVariables, reconcileRows } from '../services/math/reconcileRows'
+import {
+  fillBlankValues,
+  followDefaults,
+  getPortVariables,
+  reconcileRows,
+  renamePortVariables,
+  renameRows,
+  renameValues,
+} from '../services/math/reconcileRows'
 import { getModuleFormat } from '../services/moduleFormats'
 import { getNodeSelections, replaceNodeSelections, setNodePlotVariables } from '../services/simulation/plotSelections'
 import { FLOW_IDS, PROTECTED_MATH_REFS } from '../utils/constants'
@@ -144,7 +152,9 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   function applySave(save) {
     const { id, name, variables, ports, mathRef, math, layout, isLayoutChanged, source, isSourceChanged, units, globalConstants, updateAll, siblings } =
       save
-    const previousDefaults = save.previousDefaults ? new Map(save.previousDefaults) : null
+    const renames = new Map(save.renames ?? [])
+    // Rows the source's edit renamed are compared with their old names' values.
+    const previousDefaults = save.previousDefaults ? renameValues(new Map(save.previousDefaults), renames) : null
     const keptValues = new Map()
     const countKept = (names) => names.forEach((kept) => keptValues.set(kept, (keptValues.get(kept) ?? 0) + 1))
     countKept(save.keptValues ?? [])
@@ -180,6 +190,11 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     cleanPorts(findNode(id))
     const otherNodes = nodes.value.filter((node) => node.id !== id && node.data?.mathRef === mathRef)
     otherNodes.forEach((node) => {
+      // Values, and ports, follow variables the source's edit renamed.
+      if (renames.size) {
+        node.data.variables = renameRows(node.data.variables ?? [], renames)
+        node.data.ports = renamePortVariables(node.data.ports, renames)
+      }
       countKept(updateVariablesFromMath(node, mathRef, previousDefaults))
       cleanPorts(node)
     })

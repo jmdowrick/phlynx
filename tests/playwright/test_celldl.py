@@ -640,5 +640,53 @@ class TestCelldl(unittest.TestCase):
             browser.close()
 
 
+    def test_keeps_each_instances_values_when_a_rename_renames_their_variables(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+
+            # ---------- START -----------
+            import_diagram(page, ENZYME)
+            expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            place(page, "ENZYME", ENZYME_MODULE, x=600, y=350)
+            card = page.locator(".mlc__card--draggable").filter(has_text=ENZYME_MODULE).first
+            card.drag_to(page.locator(".vue-flow__pane").first, target_position={"x": 900, "y": 600})
+            instances = page.locator(".vue-flow__node").filter(has_text=ENZYME_MODULE)
+            expect(instances).to_have_count(2)
+            dialog = page.locator(".module-editor-dialog")
+
+            # The second instance's own r1 rate.
+            instances.nth(1).dblclick()
+            wait_for_diagram(page)
+            kappa = parameter_value(dialog, "kappa_Rx_r1_c")
+            kappa.fill("3")
+            kappa.press("Enter")
+            dialog.get_by_role("button", name="Save").click()
+            expect(dialog).to_be_hidden()
+
+            # The first's, then r1 moves to cyt: the value goes with the new name before the save, and after it.
+            instances.first.dblclick()
+            wait_for_diagram(page)
+            kappa = parameter_value(dialog, "kappa_Rx_r1_c")
+            kappa.fill("2")
+            kappa.press("Enter")
+            set_element_field(dialog, REACTION_R1, "Location", "cyt")
+            expect(element_row(dialog, REACTION_R1).locator(".element-names")).to_contain_text("kappa_Rx_r1_cyt", timeout=DIAGRAM_TIMEOUT)
+            expect(parameter_value(dialog, "kappa_Rx_r1_cyt")).to_have_value("2")
+            dialog.get_by_role("button", name="Save").click()
+            expect(dialog).to_be_hidden()
+
+            instances.first.dblclick()
+            wait_for_diagram(page)
+            expect(parameter_value(dialog, "kappa_Rx_r1_cyt")).to_have_value("2")
+            dialog.get_by_role("button", name="Cancel").click()
+            expect(dialog).to_be_hidden()
+            instances.nth(1).dblclick()
+            wait_for_diagram(page)
+            expect(parameter_value(dialog, "kappa_Rx_r1_cyt")).to_have_value("3")
+            # ----------- END ------------
+
+            browser.close()
+
+
 if __name__ == '__main__':
     unittest.main()

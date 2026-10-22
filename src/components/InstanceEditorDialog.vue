@@ -557,7 +557,8 @@ import { notify } from '../utils/notify'
 import { getModelComponentNames, renameLayoutComponent, renameModelComponent } from '../utils/cellml'
 import { getEditorTabFormats, getModuleFormat } from '../services/moduleFormats'
 import { issueLines } from '../services/celldl/issues'
-import { buildElementTable } from '../services/celldl/elementTable'
+import { buildElementTable, variableRenames } from '../services/celldl/elementTable'
+import { renamePortVariables, renameRows, renameValues } from '../services/math/reconcileRows'
 import { liveComponentMath } from '../services/celldl/liveMath'
 import { findPort } from '../utils/ports'
 import { previewCouplings } from '../utils/edges'
@@ -849,6 +850,12 @@ const namesManifest = computed(() => {
   return store.getMathSource(props.mathRef)?.elements ?? null
 })
 
+/**
+ * The variables the diagram's unsaved edits renamed, e.g. `K_q_S_c` to `K_q_Sub_c` for a new species, whose values
+ * this instance's rows hold under their old names until the save renames them.
+ */
+const celldlRenames = computed(() => variableRenames(store.getMathSource(props.mathRef)?.elements ?? null, namesManifest.value))
+
 const celldlTable = computed(() =>
   buildElementTable({
     elements: celldlHost.elements.value,
@@ -857,6 +864,7 @@ const celldlTable = computed(() =>
     rows: celldlRows.value,
     savedDefaults: savedDefaults.value,
     savedManifest: store.getMathSource(props.mathRef)?.elements ?? null,
+    renames: celldlRenames.value,
   })
 )
 
@@ -885,7 +893,9 @@ function setInstanceValue(cell, value) {
     return
   }
   const next = new Map(pendingValues.value)
-  if (value === '') next.delete(cell.name)
+  // A blank value for a renamed variable is kept, so the value its old name held doesn't come back.
+  const isRenamed = [...celldlRenames.value.values()].includes(cell.name)
+  if (value === '' && !isRenamed) next.delete(cell.name)
   else next.set(cell.name, value)
   pendingValues.value = next
 }
@@ -1934,9 +1944,27 @@ function applyCelldlValues({ isStaged }) {
   const pending = pendingValues.value
   const defaults = savedDefaults.value
   parameterRows.value.forEach((row) => {
-    if (pending.has(row.name)) row.value = pending.get(row.name)
-    else if (!isStaged && isEmpty(row.value) && defaults.has(row.name)) row.value = defaults.get(row.name)
+    // A blank pending value is a renamed row's, which the conversion already gave the diagram's value.
+    if (pending.has(row.name)) {
+      if (pending.get(row.name) !== '') row.value = pending.get(row.name)
+    } else if (!isStaged && isEmpty(row.value) && defaults.has(row.name)) row.value = defaults.get(row.name)
   })
+}
+
+/**
+ * Renames this instance's rows, and the plotted variables it follows, for the variables a diagram edit renamed, so
+ * their values go with them. Values typed for the new names replace the old names' values, a blank one with the
+ * diagram's.
+ *
+ * @param {Map<string, string>} renames - Each old name to its new one (variableRenames).
+ */
+function renameCelldlRows(renames) {
+  if (!renames.size) return
+  const pending = pendingValues.value
+  parameterRows.value = renameRows(parameterRows.value, renames).map((row) =>
+    pending.has(row.name) ? { ...row, value: pending.get(row.name) } : row
+  )
+  trackedNames.value = trackedNames.value.map((entry) => ({ ...entry, name: renames.get(entry.name) ?? entry.name }))
 }
 
 /**
@@ -2079,6 +2107,7 @@ async function saveInstance(options) {
   // The diagram's values before this save, which every instance's rows are compared with (followDefaults).
   const previousDefaults = staged && store.getMathSource(props.mathRef) ? new Map(store.getMathDefaults(props.mathRef)) : new Map()
   let keptValues = []
+  let renames = new Map()
   if (staged) {
     // The template's diagram was named as it converted, so is saved as it is.
     target =
@@ -2086,7 +2115,10 @@ async function saveInstance(options) {
         ? await resolveMathTarget(staged.math, currentLayout.value, { confirmOverwrite: false })
         : { mathRef: staged.mathRef, math: staged.math, layout: null }
     if (!target) return
-    keptValues = session.applyGeneratedModel(staged.math, { previousDefaults })
+    // Variables the edit renamed keep this instance's values under their new names.
+    renames = variableRenames(store.getMathSource(props.mathRef)?.elements ?? null, staged.source.elements ?? null)
+    renameCelldlRows(renames)
+    keptValues = session.applyGeneratedModel(staged.math, { previousDefaults: renameValues(previousDefaults, renames) })
   }
   if (isCelldlModule.value) applyCelldlValues({ isStaged: !!staged })
 
@@ -2134,6 +2166,8 @@ async function saveInstance(options) {
       units: staged?.units ?? null,
       // Other instances' rows follow the diagram's new values as this one's did, unless they hold their own.
       previousDefaults: staged ? [...previousDefaults] : null,
+      // Variables the diagram edit renamed, whose values every instance's rows move to the new names.
+      renames: [...renames],
       keptValues,
       // Only rows that were already global edit the shared value; a row just switched to global joins it as is.
       globalConstants: parameterRows.value
@@ -2146,7 +2180,7 @@ async function saveInstance(options) {
           overwrite: wasGlobal.has(name),
         })),
       variables: parameterRows.value,
-      ports: finalPorts,
+      ports: renamePortVariables(finalPorts, renames),
       // The instance's plotted variables, under the names this save gives them.
       plotVariables: renamedPlotEntries(),
       updateAll,

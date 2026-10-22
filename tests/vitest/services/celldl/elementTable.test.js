@@ -18,7 +18,9 @@ import {
   templateLabel,
   typeOptions,
   unsetReasons,
+  variableRenames,
 } from '../../../../src/services/celldl/elementTable.js'
+import { renamePortVariables, renameRows, renameValues } from '../../../../src/services/math/reconcileRows.js'
 
 const read = (name) => JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../fixtures/celldl', name), 'utf8'))
 const ELEMENTS = read('enzyme_canonical.elements.json')
@@ -207,6 +209,95 @@ describe('the CellDL Parameters table', () => {
       expect(structureEdits(store, 'species', 'Glc', { junction, follow: false })).toHaveLength(1)
       expect(structureEdits(store, 'species', 'S', { junction })).toEqual([])
     })
+  })
+})
+
+describe('renamed variables', () => {
+  /** The instance's rows with its own K and initial value of q_S_c. */
+  const ownRows = () =>
+    freshRows().map((row) =>
+      row.name === 'K_q_S_c' ? { ...row, value: '5' } : row.name === 'q_S_c_init' ? { ...row, value: '2' } : row
+    )
+
+  it("maps a store's and its junction's variables to the names a species change gives them", () => {
+    const renames = variableRenames(MANIFEST, renamedManifest())
+    expect(Object.fromEntries(renames)).toEqual({
+      q_S_c: 'q_Glc_c',
+      q_S_c_init: 'q_Glc_c_init',
+      v_q_S_c: 'v_q_Glc_c',
+      u_q_S_c: 'u_q_Glc_c',
+      K_q_S_c: 'K_q_Glc_c',
+      u_S_c: 'u_Glc_c',
+    })
+    expect(variableRenames(MANIFEST, MANIFEST).size).toBe(0)
+    expect(variableRenames(null, MANIFEST).size).toBe(0)
+  })
+
+  it('leaves out a rename onto a name another element still has, which is a clash', () => {
+    const renames = variableRenames(MANIFEST, renamedManifest({ [STORE_S]: 'E', [JUNCTION_S]: 'E' }))
+    expect(renames.size).toBe(0)
+  })
+
+  it('swaps the names of two elements that swapped species', () => {
+    const swapped = structuredClone(MANIFEST)
+    const swap = (id, from, to) => {
+      const entry = swapped[id]
+      const rename = (text) => text.replace(new RegExp(`_${from}_c$`), `_${to}_c`)
+      entry.symbol = rename(entry.symbol)
+      entry.variables = entry.variables.map((variable) => ({ ...variable, name: rename(variable.name) }))
+    }
+    swap(STORE_S, 'S', 'P')
+    swap('ID-00000014', 'P', 'S')
+    const renames = variableRenames(MANIFEST, swapped)
+    expect(renames.get('K_q_S_c')).toBe('K_q_P_c')
+    expect(renames.get('K_q_P_c')).toBe('K_q_S_c')
+
+    const rows = renameRows(ownRows(), renames)
+    expect(rows.find((row) => row.name === 'K_q_P_c').value).toBe('5')
+    expect(rows.filter((row) => row.name === 'K_q_S_c')).toHaveLength(1)
+    const values = renameValues(new Map(DEFAULTS), renames)
+    expect(values.get('K_q_P_c')).toBe('1')
+    expect(values.get('K_q_S_c')).toBe('0.01')
+  })
+
+  it("shows the instance's own values under the new names before the save", () => {
+    const table = buildElementTable({
+      elements: edit(STORE_S, { species: 'Glc' }),
+      manifest: renamedManifest(),
+      rows: ownRows(),
+      savedDefaults: new Map(DEFAULTS),
+      savedManifest: MANIFEST,
+      renames: variableRenames(MANIFEST, renamedManifest()),
+    })
+    const [initial, K] = table.rowsById.get(STORE_S).values
+    expect(K).toMatchObject({ name: 'K_q_Glc_c', row: { value: '5', carriedFrom: 'K_q_S_c' } })
+    expect(initial).toMatchObject({ name: 'q_Glc_c_init', row: { value: '2', carriedFrom: 'q_S_c_init' } })
+    expect(isDefaultValue(K, new Map(DEFAULTS))).toBe(false)
+    // A row on the saved default still counts as the default under its new name.
+    const onDefault = { ...K, row: { ...K.row, value: '1' } }
+    expect(isDefaultValue({ ...onDefault, defaultValue: '3' }, new Map(DEFAULTS))).toBe(true)
+  })
+
+  it('renames rows, initialisers, values and port variables, dropping a stale row under a new name', () => {
+    const renames = new Map([
+      ['q_S_c', 'q_Glc_c'],
+      ['q_S_c_init', 'q_Glc_c_init'],
+    ])
+    const rows = renameRows(
+      [
+        { name: 'q_S_c', initialiser: 'q_S_c_init', value: '' },
+        { name: 'q_S_c_init', value: '2' },
+        { name: 'q_Glc_c_init', value: '9' },
+      ],
+      renames
+    )
+    expect(rows).toEqual([
+      { name: 'q_Glc_c', initialiser: 'q_Glc_c_init', value: '' },
+      { name: 'q_Glc_c_init', value: '2' },
+    ])
+    expect(renamePortVariables([{ label: 'p', variables: ['q_S_c', 't'] }], renames)).toEqual([
+      { label: 'p', variables: ['q_Glc_c', 't'] },
+    ])
   })
 })
 

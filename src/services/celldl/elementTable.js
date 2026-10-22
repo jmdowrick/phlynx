@@ -275,7 +275,8 @@ export function isDefaultValue(cell, savedDefaults = new Map()) {
   const value = cell.row?.value
   if (isEmpty(value)) return true
   if (isSameValue(value, cell.defaultValue)) return true
-  return !!cell.name && savedDefaults.has(cell.name) && isSameValue(value, savedDefaults.get(cell.name))
+  const savedName = cell.row?.carriedFrom ?? cell.name
+  return !!savedName && savedDefaults.has(savedName) && isSameValue(value, savedDefaults.get(savedName))
 }
 
 /**
@@ -290,6 +291,8 @@ export function isDefaultValue(cell, savedDefaults = new Map()) {
  * @param {Map<string, string>} [options.savedDefaults] - The module's values as saved, the constants' defaults.
  * @param {Object|null} [options.savedManifest] - The saved diagram's ElementManifest, whose elements' rows a renamed
  *   element leaves until the diagram is saved; they aren't the model's constants.
+ * @param {Map<string, string>} [options.renames] - The variables unsaved diagram edits renamed (variableRenames),
+ *   whose values the instance's rows hold under their old names until the save.
  * @returns {{sections: Object[], rowsById: Map<string, Object>, clashCount: number, unsetCount: number}}
  */
 export function buildElementTable({
@@ -299,9 +302,10 @@ export function buildElementTable({
   rows,
   savedDefaults = new Map(),
   savedManifest = null,
+  renames = new Map(),
 }) {
-  const rowsByName = new Map((rows ?? []).map((row) => [row.name, row]))
   const naming = manifest ?? namesManifest ?? {}
+  const rowsByName = carryRenamedRows(new Map((rows ?? []).map((row) => [row.name, row])), renames)
   const clashes = findClashes(elements, manifest)
   const links = linkJunctions(elements)
   const linkedJunctions = new Map([...links].map(([storeId, junctionId]) => [junctionId, storeId]))
@@ -400,4 +404,79 @@ export function hasOwnNaming(junction, store) {
     const defaultValue = field === 'species' ? DEFAULT_SPECIES : DEFAULT_LOCATION
     return own !== undefined && own !== store[field] && own !== defaultValue
   })
+}
+
+/**
+ * Gets a variable's name for an element whose symbol changed, e.g. `K_q_Sub_c` for `K_q_S_c` when `q_S_c` became
+ * `q_Sub_c`; null for a name not built on the symbol.
+ *
+ * @param {string} name
+ * @param {string} symbol - The element's symbol before.
+ * @param {string} next - Its symbol after.
+ * @returns {string|null}
+ */
+function renamedVariable(name, symbol, next) {
+  if (name === symbol) return next
+  if (name.endsWith(`_${symbol}`)) return `${name.slice(0, -symbol.length)}${next}`
+  return null
+}
+
+/**
+ * Finds the variables a diagram edit renamed: those of an element whose species or location changed, matched by
+ * role to the names the element now generates. A state's initialiser (`q_S_c_init`) is renamed with it. A rename to
+ * a name another element still generated before is left out, since that is a clash, not a rename.
+ *
+ * @param {Object|null} previous - The ElementManifest before, e.g. the saved diagram's.
+ * @param {Object|null} next - The ElementManifest after.
+ * @returns {Map<string, string>} Each old name to its new one.
+ */
+export function variableRenames(previous, next) {
+  const renames = new Map()
+  if (!previous || !next) return renames
+  for (const [id, entry] of Object.entries(next)) {
+    const before = previous[id]
+    if (!before?.symbol || !entry?.symbol || before.symbol === entry.symbol) continue
+    const roles = new Map((entry.variables ?? []).map((variable) => [variable.name, variable.role]))
+    for (const variable of before.variables ?? []) {
+      const name = renamedVariable(variable.name, before.symbol, entry.symbol)
+      if (!name || name === variable.name || roles.get(name) !== variable.role) continue
+      renames.set(variable.name, name)
+      if (variable.role === 'quantity') renames.set(`${variable.name}_init`, `${name}_init`)
+    }
+  }
+  const previousNames = new Set(
+    Object.values(previous).flatMap((entry) =>
+      (entry.variables ?? []).flatMap((variable) =>
+        variable.role === 'quantity' ? [variable.name, `${variable.name}_init`] : [variable.name]
+      )
+    )
+  )
+  const targetCounts = new Map()
+  renames.forEach((name) => targetCounts.set(name, (targetCounts.get(name) ?? 0) + 1))
+  for (const [old, name] of renames) {
+    if (targetCounts.get(name) > 1 || (previousNames.has(name) && !renames.has(name))) renames.delete(old)
+  }
+  return renames
+}
+
+/**
+ * Gives renamed variables the instance's rows under their old names, until a save renames the rows, so the tab shows
+ * the values that follow them. A row already under the new name, e.g. a pending value, wins.
+ *
+ * @param {Map<string, Object>} rowsByName - Never mutated.
+ * @param {Map<string, string>} renames - Each old name to its new one (variableRenames).
+ * @returns {Map<string, Object>}
+ */
+function carryRenamedRows(rowsByName, renames) {
+  if (!renames?.size) return rowsByName
+  const carried = new Map(rowsByName)
+  renames.forEach((name, old) => {
+    const row = rowsByName.get(old)
+    if (!row) return
+    const current = rowsByName.get(name)
+    if (current && (current.pending || !renames.has(name))) return
+    const initialiser = row.initialiser && (renames.get(row.initialiser) ?? row.initialiser)
+    carried.set(name, { ...row, name, ...(initialiser && { initialiser }), carriedFrom: old })
+  })
+  return carried
 }

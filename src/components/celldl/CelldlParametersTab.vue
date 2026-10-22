@@ -334,7 +334,11 @@ const isMissing = (cell) => isEmpty(cell.row?.value) && isEmpty(cell.defaultValu
 
 function valueTitle(cell) {
   if (!cell.name) return 'Converting the diagram...'
-  const own = cell.row?.pending ? ' It is kept for this instance when the diagram is saved.' : ''
+  const own = cell.row?.carriedFrom
+    ? ` It was ${cell.row.carriedFrom}'s, and moves to the new name when the diagram is saved.`
+    : cell.row?.pending
+      ? ' It is kept for this instance when the diagram is saved.'
+      : ''
   if (isDefault(cell)) {
     return isEmpty(cell.defaultValue) ? `${cell.name}: no value yet` : `${cell.name}: the diagram's ${cell.defaultValue}.${own}`
   }
