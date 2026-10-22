@@ -49,3 +49,12 @@ describe('app settings registry', () => {
     expect(isValidAppSetting('imageExportWarnings', 'yes')).toBe(false)
   })
 })
+
+describe('bond arrowheads setting', () => {
+  it('defaults to the bond-graph half arrow, offering classic as the other choice', () => {
+    expect(defaultAppSettings().arrowStyle).toBe('bond')
+    expect(APP_SETTINGS.get('arrowStyle').options.map((option) => option.value)).toEqual(['bond', 'classic'])
+    expect(isValidAppSetting('arrowStyle', 'classic')).toBe(true)
+    expect(isValidAppSetting('arrowStyle', 'notched')).toBe(false)
+  })
+})

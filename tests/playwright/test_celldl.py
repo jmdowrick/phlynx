@@ -33,7 +33,17 @@ REACTION_R1 = "ID-00000006"
 REACTION_R2 = "ID-00000011"
 PRODUCT, PRODUCT_JUNCTION = "ID-00000014", "ID-00000013"
 
+# A + 2 B + ATP <=> C and C + ATP <=> D, drawn in the editor's Reactions panel: composite reaction nodes bonded
+# straight to stores, a bondCount of 2, and a copy of the ATP chemostat beside each reaction.
+REACTIONS_PANEL = os.path.join(RESOURCE_PATH, "celldl", "reactions_panel.celldl")
+REACTIONS_MODULE = "reactions_panel"
+
 DIAGRAM_SVG = ".celldl-pane .celldl-host #svg-container > svg"
+# The marker a bond is drawn with: its arrowhead style's display marker, whatever the document saved.
+BOND_MARKER = """() => {
+    const bond = document.querySelector('.celldl-pane .celldl-host #svg-container > svg .celldl-Connection.bondgraph.arrow')
+    return bond ? getComputedStyle(bond).markerEnd : null
+}"""
 SHORT_SIMULATION = (
     "document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s"
     ".get('simulationSettings').setSimulationSettings({ endingPoint: 1, pointInterval: 0.01 })"
@@ -1041,6 +1051,54 @@ class TestCelldl(unittest.TestCase):
                         .get('library').availableMath.get('template_modules.cellml:mine')).includes('<ci>d</ci>')"""
                 )
             )
+            # ----------- END ------------
+
+            browser.close()
+
+
+    def test_draws_bonds_with_the_chosen_arrowheads_and_shows_the_reactions_panel(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+
+            # ---------- START -----------
+            import_diagram(page, REACTIONS_PANEL)
+            expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            place(page, "REACTIONS PANEL", REACTIONS_MODULE)
+            dialog = open_editor(page, REACTIONS_MODULE)
+            wait_for_diagram(page)
+
+            # Bonds end in the bond-graph half arrow by default.
+            page.wait_for_function(f"({BOND_MARKER})()?.includes('celldl-display-arrow-bond')")
+
+            # The Reactions panel shows each reaction's equation, with B's bondCount as its coefficient; the
+            # editor's Variables and Annotations panels aren't offered.
+            host = page.locator(".celldl-pane .celldl-host")
+            expect(host.locator("#variables-panel, #annotations-panel")).to_have_count(0)
+            host.locator("#reactions-panel").click()
+            expect(host.get_by_label("Equation of r1")).to_have_value("A[c] + 2 B[c] + ATP[c] ⇌ C[c]")
+            expect(host.get_by_label("Equation of r2")).to_have_value("C[c] + ATP[c] ⇌ D[c]")
+
+            # Chosen in Settings, classic arrowheads replace them.
+            dialog.get_by_role("button", name="Cancel").click()
+            expect(dialog).to_be_hidden()
+            page.get_by_role("button", name="Settings", exact=True).click()
+            settings = page.get_by_role("dialog", name="Settings")
+            settings.get_by_label("Bond arrowheads").click()
+            page.get_by_role("option", name=re.compile("^Classic")).click()
+            settings.get_by_role("button", name="Save Changes").click()
+            expect(settings).to_be_hidden()
+            dialog = open_editor(page, REACTIONS_MODULE)
+            wait_for_diagram(page)
+            page.wait_for_function(f"({BOND_MARKER})()?.includes('celldl-display-arrow-classic')")
+
+            # A change applies to an open diagram straight away.
+            page.evaluate(
+                """async () => {
+                    const { useAppSettings } = await import('/src/composables/useAppSettings.js')
+                    useAppSettings().saveAppSettings({ arrowStyle: 'bond' })
+                }"""
+            )
+            page.wait_for_function(f"({BOND_MARKER})()?.includes('celldl-display-arrow-bond')")
             # ----------- END ------------
 
             browser.close()
