@@ -73,7 +73,7 @@ export function groupingTag(grouping) {
  * numbered from 2 while that is taken.
  *
  * @param {Map<string, Set<string>>} typesByFile - Component names by grouping.
- * @returns {Array<{file: string, from: string, to: string}>} The renames, in grouping order for each name.
+ * @returns {Array<{file: string, from: string, to: string}>} The renames, by name and then in grouping order.
  */
 export function renameClashingComponents(typesByFile) {
   const filesByType = new Map()
@@ -84,7 +84,8 @@ export function renameClashingComponents(typesByFile) {
   const order = (a, b) => isCellml(b) - isCellml(a) || (a < b ? -1 : a > b ? 1 : 0)
   const taken = new Set(filesByType.keys())
   const renames = []
-  for (const [type, files] of filesByType) {
+  // By name, so the numbering doesn't follow the nodes' order.
+  for (const [type, files] of [...filesByType].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     if (files.length < 2) continue
     for (const file of [...files].sort(order).slice(1)) {
       const base = `${type}_${groupingTag(file)}`
