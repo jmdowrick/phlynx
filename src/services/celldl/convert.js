@@ -6,7 +6,7 @@ import { processCellMLData } from '../../utils/cellml.js'
 import { documentUriFor } from './documentUri.js'
 import { getConverter } from './runtime.js'
 
-export { knownUnitsFor } from './knownUnits.js'
+export { knownUnitsFor, knownUnitsForModule } from './knownUnits.js'
 
 /** An error of the converter's shape, for a failure it gives no issue for. */
 const errorIssue = (message, stage) => ({ message, severity: 'error', stage })

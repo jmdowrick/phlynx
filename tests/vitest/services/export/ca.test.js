@@ -154,6 +154,11 @@ describe('caModuleFileName', () => {
     expect(caModuleFileName('my_math.cellml')).toBe('my_math_modules.cellml')
     expect(caModuleFileName('template_modules.CellML')).toBe('template_modules.cellml')
   })
+
+  it("names a CellDL grouping as CellML, apart from the CellML grouping of its stem", () => {
+    expect(caModuleFileName('User_Modules.celldl')).toBe('User_CellDL_modules.cellml')
+    expect(caModuleFileName('User_Modules.cellml')).not.toBe(caModuleFileName('User_Modules.celldl'))
+  })
 })
 
 describe('generateExportZip', () => {
@@ -355,6 +360,35 @@ describe('generateExportZip', () => {
     library.addModule({ moduleRef: 'other:vp', mathRef: 'other_modules.cellml:vp_simple_type', ports: [], variables: [] })
     const other = { id: 'o', data: { name: 'o', moduleRef: 'other:vp', mathRef: 'other_modules.cellml:vp_simple_type', ports: [], variables: [] } }
     await expect(generateExportZip('heart', [nodeWith('vp', []), other], [], library)).rejects.toThrow('vp_simple_type')
+  })
+
+  it('writes the CellDL user modules grouping as a .cellml file, beside the CellML one', async () => {
+    library.addGeneratedUnits({ name: 'per_min', parts: [{ units: 'second', prefix: 0, exponent: -1, multiplier: 60 }] })
+    const groupings = { cellml: 'User_Modules.cellml:rate_type', celldl: 'User_Modules.celldl:diagram_type' }
+    library.addMath(groupings.cellml, RATE_MATH)
+    library.addMath(groupings.celldl, RATE_MATH.replace('rate_type', 'diagram_type'))
+    library.setMathSource(groupings.celldl, { format: 'celldl', document: null, documentUri: 'https://example.org/d.celldl' })
+    const nodes = Object.entries(groupings).map(([id, mathRef]) => {
+      library.addModule({ moduleRef: `${id}:default`, mathRef, ports: [], variables: [] })
+      return { id, data: { name: id, moduleRef: `${id}:default`, mathRef, ports: [], variables: [] } }
+    })
+    const files = await readZip(await generateExportZip('heart', nodes, [], library))
+    const entries = JSON.parse(files['modules/heart_module_config.json'])
+    expect(entries.map((entry) => entry.component_file).sort()).toEqual(['User_CellDL_modules.cellml', 'User_modules.cellml'])
+    expect(files['modules/User_CellDL_modules.cellml']).toContain('<component name="diagram_type">')
+    expect(files['modules/User_modules.cellml']).toContain('<component name="rate_type">')
+    expect(Object.keys(files).some((name) => name.includes('.celldl'))).toBe(false)
+  })
+
+  it('fails, naming it, when a component of one name is in both user modules groupings', async () => {
+    library.addGeneratedUnits({ name: 'per_min', parts: [{ units: 'second', prefix: 0, exponent: -1, multiplier: 60 }] })
+    const nodes = ['User_Modules.cellml', 'User_Modules.celldl'].map((grouping, i) => {
+      const mathRef = `${grouping}:rate_type`
+      library.addMath(mathRef, RATE_MATH)
+      library.addModule({ moduleRef: `rate${i}:default`, mathRef, ports: [], variables: [] })
+      return { id: `r${i}`, data: { name: `r${i}`, moduleRef: `rate${i}:default`, mathRef, ports: [], variables: [] } }
+    })
+    await expect(generateExportZip('heart', nodes, [], library)).rejects.toThrow('rate_type')
   })
 
   it('gives files CA assembles into a model libCellML parses', async () => {

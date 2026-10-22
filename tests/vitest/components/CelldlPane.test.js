@@ -99,11 +99,11 @@ describe('CelldlPane live conversion', () => {
   const status = () => wrapper.find('.celldl-live-status')
 
   it('starts converting, for the module the dialog edits', async () => {
-    mountPane({ componentName: 'rc', unitsFile: 'rc.cellml' })
+    mountPane({ componentName: 'rc', mathRef: 'rc.cellml:rc' })
     expect(live.start).toHaveBeenCalled()
-    expect(live.setModule).toHaveBeenLastCalledWith({ componentName: 'rc', unitsFile: 'rc.cellml' })
+    expect(live.setModule).toHaveBeenLastCalledWith({ componentName: 'rc', mathRef: 'rc.cellml:rc' })
     await wrapper.setProps({ componentName: 'rc_2' })
-    expect(live.setModule).toHaveBeenLastCalledWith({ componentName: 'rc_2', unitsFile: 'rc.cellml' })
+    expect(live.setModule).toHaveBeenLastCalledWith({ componentName: 'rc_2', mathRef: 'rc.cellml:rc' })
   })
 
   it('says it is converting until the latest diagram has a result', async () => {

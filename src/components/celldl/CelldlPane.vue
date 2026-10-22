@@ -34,9 +34,9 @@ import { issueLines } from '../../services/celldl/issues'
 const props = defineProps({
   /** The instance's variable rows, which an element's variable must have to be plotted. */
   rows: { type: Array, default: () => [] },
-  /** The module's component name and units file, which the live conversion generates its CellML as. */
+  /** The module's component name and math, which the live conversion generates its CellML as. */
   componentName: { type: String, default: undefined },
-  unitsFile: { type: String, default: null },
+  mathRef: { type: String, default: null },
 })
 
 const emit = defineEmits(['variable-click'])
@@ -91,8 +91,8 @@ const liveTitle = computed(() => {
 })
 
 watch(
-  () => [props.componentName, props.unitsFile],
-  ([componentName, unitsFile]) => live.setModule({ componentName, unitsFile }),
+  () => [props.componentName, props.mathRef],
+  ([componentName, mathRef]) => live.setModule({ componentName, mathRef }),
   { immediate: true }
 )
 

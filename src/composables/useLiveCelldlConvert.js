@@ -12,7 +12,7 @@ import { computed, ref, shallowRef, watch } from 'vue'
 import { useCelldlEditorHost } from './useCelldlEditorHost'
 import { useLibraryStore } from '../stores/libraryStore'
 import { getModuleFormat } from '../services/moduleFormats'
-import { knownUnitsFor } from '../services/celldl/knownUnits.js'
+import { knownUnitsForModule } from '../services/celldl/knownUnits.js'
 
 /** How long edits must pause before the cheap pass, and the diagram be left alone before the full one. */
 export const CHEAP_DELAY_MS = 150
@@ -276,21 +276,21 @@ export function useLiveCelldlConvert() {
   if (live) return live
   const store = useLibraryStore()
   const host = useCelldlEditorHost()
-  const ownUnitsFile = ref(null)
+  const mathRef = ref(null)
   live = createLiveCelldlConvert({
     host,
-    knownUnits: () => knownUnitsFor(store.availableUnits, ownUnitsFile.value),
+    knownUnits: () => knownUnitsForModule(store, mathRef.value),
     isAvailable: getModuleFormat('celldl').isAvailable && typeof Worker !== 'undefined',
   })
   /**
-   * Sets the module the diagram is converted for: its component name and its own units file, which its CellML
-   * replaces, so isn't a known units file.
+   * Sets the module the diagram is converted for: its component name and its math, whose own units its CellML
+   * replaces, so aren't known units (knownUnitsForModule).
    *
-   * @param {{componentName?: string, unitsFile?: string|null}} module
+   * @param {{componentName?: string, mathRef?: string|null}} module
    */
-  live.setModule = ({ componentName, unitsFile } = {}) => {
+  live.setModule = ({ componentName, mathRef: ref } = {}) => {
     live.setComponentName(componentName)
-    ownUnitsFile.value = unitsFile ?? null
+    mathRef.value = ref ?? null
   }
   // A page kept for going back to keeps its worker too.
   window.addEventListener('pagehide', (event) => event.persisted || live.stop())

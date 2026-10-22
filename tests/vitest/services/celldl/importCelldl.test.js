@@ -17,13 +17,15 @@ describe('importCelldl', () => {
     store = useLibraryStore()
   })
 
-  it('names a diagram apart from the units files the library has', () => {
-    store.addUnitsFile({ componentFile: 'rc.cellml', model: '<model/>' })
-    expect(celldlImportNames('rc.celldl', store)).toEqual({
-      componentName: 'rc_1',
-      cellmlFile: 'rc_1.cellml',
-      mathRef: 'rc_1.cellml:rc_1',
-    })
+  it("names a diagram apart, ignoring case, from User_Modules.celldl's components and the templates", () => {
+    store.addMath('User_Modules.celldl:RC', MATH.replace('"rc"', '"RC"'))
+    // Another grouping's component, or units file, of the name doesn't matter.
+    store.addMath('User_Modules.cellml:pump', MATH.replace('"rc"', '"pump"'))
+    store.addUnitsFile({ componentFile: 'pump.cellml', model: '<model/>' })
+
+    expect(celldlImportNames('rc.celldl', store)).toEqual({ componentName: 'rc_1', mathRef: 'User_Modules.celldl:rc_1' })
+    expect(celldlImportNames('pump.celldl', store)).toEqual({ componentName: 'pump', mathRef: 'User_Modules.celldl:pump' })
+    expect(celldlImportNames('New_Module.celldl', store).componentName).toBe('New_Module_1')
     expect(celldlImportNames('2 pools.CELLDL', store).componentName).toBe('_2_pools')
   })
 
@@ -38,7 +40,7 @@ describe('importCelldl', () => {
     const result = await importCelldl('rc.celldl', '<svg/>', store)
 
     expect(result).toMatchObject({ ok: false, errors: [expect.objectContaining({ message: expect.stringContaining('rc') })] })
-    expect(store.getMathSource('rc.cellml:rc')).toBeNull()
+    expect(store.getMathSource('User_Modules.celldl:rc')).toBeNull()
     expect(store.availableMath.size).toBe(0)
   })
 })
