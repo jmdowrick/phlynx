@@ -125,6 +125,18 @@ describe('CelldlPane live conversion', () => {
     expect(status().attributes('title')).toBe('Checked with libCellML')
   })
 
+  it('says a diagram with unsaved edits is not yet saved, since runs use the saved module', async () => {
+    mountPane()
+    useCelldlEditorHost().isDirty.value = true
+    live.latest.value = converted('full', { runnable: true })
+    await nextTick()
+    expect(status().text()).toBe('Converts, not yet saved')
+    expect(status().attributes('title')).toBe('Checked with libCellML: it runs once saved')
+    useCelldlEditorHost().isDirty.value = false
+    await nextTick()
+    expect(status().text()).toBe('Converts and runs')
+  })
+
   it('counts issues quietly, as save checks again', async () => {
     mountPane()
     live.latest.value = converted('full', {

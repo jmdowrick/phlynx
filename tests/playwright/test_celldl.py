@@ -24,6 +24,11 @@ JUNCTION, CAPACITOR, RESISTOR = "ID-00000001", "ID-00000002", "ID-00000003"
 # An RC circuit's BG-RDF with an empty group for each element: bg2cellml converts it, but the CellDL editor can't
 # open it.
 UNDRAWN_RC = os.path.join(RESOURCE_PATH, "..", "vitest", "fixtures", "celldl", "rc.celldl")
+# The enzyme cycle S + E <=> C -> P + E: its reaction r1 (ID-00000006) has kappa 10. bg2cellml declares Faraday's
+# constant F, which no equation uses.
+ENZYME = os.path.join(RESOURCE_PATH, "celldl", "enzyme.celldl")
+ENZYME_MODULE = "enzyme"
+REACTION_R1 = "ID-00000006"
 
 DIAGRAM_SVG = ".celldl-pane .celldl-host #svg-container > svg"
 SHORT_SIMULATION = (
@@ -159,6 +164,51 @@ def choose_template(page, template):
 
 def selected_tabs(dialog):
     return dialog.locator("[role=tab][aria-selected=true]").all_inner_texts()
+
+
+def set_property(page, element_id, label, value):
+    """Sets a field of a diagram element in the editor's properties panel."""
+    click_element(page, element_id)
+    host = page.locator(".celldl-pane .celldl-host")
+    page.locator("#properties-property-panel").click()
+    field = host.locator("label", has_text=label).locator("xpath=..").locator("input")
+    field.fill(value)
+    field.press("Tab")
+    page.locator("#properties-property-panel").click()
+
+
+def draw_in_editor(page, path):
+    """Opens a diagram in the CellDL editor as if drawn there, unsaved. Needs the dev server, which serves /src."""
+    with open(path) as f:
+        document = f.read()
+    page.evaluate(
+        """async (data) => {
+            const { useCelldlEditorHost } = await import('/src/composables/useCelldlEditorHost.js')
+            useCelldlEditorHost().command.value = { command: 'file', options: { action: 'open', data, name: 'drawn.celldl' } }
+        }""",
+        document,
+    )
+    page.locator(f"{DIAGRAM_SVG} #celldl-diagram-layer > g.celldl-Component").first.wait_for(timeout=DIAGRAM_TIMEOUT)
+
+
+def parameter_value(dialog, name):
+    """The value a parameter row holds."""
+    dialog.get_by_role("tab", name=re.compile(r"Parameters \(")).click()
+    row = dialog.locator(".parameters-table tr").filter(has=dialog.page.get_by_text(name, exact=True))
+    return row.locator("input").first
+
+
+def final_value(page, name):
+    """The last value of a variable in the latest run's results, by its name's ending."""
+    return page.evaluate(
+        """(name) => {
+            const results = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
+                .get('simulationResults').results
+            const entry = [...(results?.variables ?? [])].find(([key]) => key === name || key.endsWith('/' + name))
+            return entry ? entry[1].values[entry[1].values.length - 1] : null
+        }""",
+        name,
+    )
 
 
 class TestCelldl(unittest.TestCase):
@@ -329,6 +379,81 @@ class TestCelldl(unittest.TestCase):
                 "title", re.compile("Missing value for parameter K"), timeout=DIAGRAM_TIMEOUT
             )
             self.assertNotIn("must be one, zero or transform nodes", status.get_attribute("title"))
+            # ----------- END ------------
+
+            browser.close()
+
+    def test_saves_every_generated_constant_from_the_template_so_the_whole_model_runs(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+            page.evaluate(SHORT_SIMULATION)
+
+            # ---------- START -----------
+            place(page, "TEMPLATE MODULES", "new_module")
+            dialog = open_editor(page, "new_module")
+            show_diagram_tab(page, dialog)
+            draw_in_editor(page, ENZYME)
+            dialog.get_by_role("button", name="Apply").click()
+            save_as = page.locator(".p-dialog").filter(has_text="Save As New Component")
+            save_as.locator("input").fill(ENZYME_MODULE)
+            save_as.get_by_role("button", name="Save").click()
+            expect(page.get_by_text("CellML Updated")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+
+            # F is a constant no equation uses, yet it keeps its value, so the whole model runs.
+            expect(parameter_value(dialog, "F")).to_have_value("96485")
+            expect(parameter_value(dialog, "kappa_Rx_r1_c")).to_have_value("10")
+            dialog.get_by_role("tab", name=re.compile(r"Plot \(")).click()
+            expect(dialog.get_by_role("switch", name="Simulate the whole model, not this instance")).to_be_checked()
+            dialog.get_by_role("button", name="Simulate the whole model").click()
+            expect(dialog.get_by_text("Simulated the whole model")).to_be_visible(timeout=SIMULATION_TIMEOUT)
+            # ----------- END ------------
+
+            browser.close()
+
+    def test_runs_a_diagram_value_edited_after_the_first_save(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+            page.evaluate(SHORT_SIMULATION)
+
+            # ---------- START -----------
+            import_diagram(page, ENZYME)
+            expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            place(page, "ENZYME", ENZYME_MODULE)
+            dialog = open_editor(page, ENZYME_MODULE)
+            wait_for_diagram(page)
+            expect(parameter_value(dialog, "kappa_Rx_r1_c")).to_have_value("10")
+
+            # Run this instance on its own, as saved.
+            dialog.get_by_role("tab", name=re.compile(r"Plot \(")).click()
+            dialog.get_by_role("switch", name="Simulate the whole model, not this instance").uncheck()
+            dialog.get_by_role("button", name="Simulate this instance").click()
+            expect(dialog.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=SIMULATION_TIMEOUT)
+            before = final_value(page, "q_P_c")
+            self.assertIsNotNone(before)
+
+            # Slowing r1 in the diagram, and saving, gives the instance the new value, so the run changes.
+            show_diagram(page, dialog)
+            set_property(page, REACTION_R1, "kappa", "1")
+            expect(page.locator(".celldl-live-status")).to_have_text("Converts, not yet saved", timeout=DIAGRAM_TIMEOUT)
+            dialog.get_by_role("button", name="Apply").click()
+            expect(page.get_by_text("CellML Updated")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            expect(parameter_value(dialog, "kappa_Rx_r1_c")).to_have_value("1")
+
+            dialog.get_by_role("tab", name=re.compile(r"Plot \(")).click()
+            dialog.get_by_role("switch", name="Simulate the whole model, not this instance").uncheck()
+            dialog.get_by_role("button", name="Simulate this instance").click()
+            expect(dialog.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=SIMULATION_TIMEOUT)
+            page.wait_for_function(
+                """([name, before]) => {
+                    const results = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
+                        .get('simulationResults').results
+                    const entry = [...(results?.variables ?? [])].find(([key]) => key === name || key.endsWith('/' + name))
+                    return entry && entry[1].values[entry[1].values.length - 1] !== before
+                }""",
+                arg=["q_P_c", before],
+                timeout=SIMULATION_TIMEOUT,
+            )
+            self.assertLess(final_value(page, "q_P_c"), before)
             # ----------- END ------------
 
             browser.close()

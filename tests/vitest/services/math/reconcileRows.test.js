@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { applyPortTypes, fillBlankValues, findUnusedDeclared, getPortVariables, reconcileRows } from '../../../../src/services/math/reconcileRows'
+import {
+  applyPortTypes,
+  fillBlankValues,
+  findUnusedDeclared,
+  followDefaults,
+  getPortVariables,
+  reconcileRows,
+} from '../../../../src/services/math/reconcileRows'
 
 const analysis = (overrides = {}) => ({
   componentName: 'c',
@@ -15,6 +22,25 @@ const analysis = (overrides = {}) => ({
 const byName = (rows) => Object.fromEntries(rows.map((row) => [row.name, row]))
 
 describe('reconcileRows (simple mode)', () => {
+  it('keeps a constant no equation uses when the defaults give it a value, e.g. a diagram\'s F', () => {
+    const declared = [
+      { name: 'F', units: 'C_per_mol', initialValue: '', interface: '' },
+      { name: 'RT', units: 'J_per_mol', initialValue: '', interface: '' },
+      { name: 'spare', units: 'metre', initialValue: '', interface: '' },
+    ]
+    const rows = byName(
+      reconcileRows(analysis({ declared, referenced: ['RT'] }), [], {
+        defaults: new Map([
+          ['F', '96485'],
+          ['RT', '2578.73058'],
+        ]),
+      })
+    )
+    expect(rows.F).toMatchObject({ value: '96485', type: 'constant' })
+    expect(rows.RT.value).toBe('2578.73058')
+    expect(rows.spare).toBeUndefined()
+  })
+
   it('creates a default initialiser for a state and marks computed variables', () => {
     const rows = byName(
       reconcileRows(analysis({ referenced: ['t', 'V', 'k', 'I'], stateVariables: ['V'], assigned: ['I'], voi: ['t'] }))
@@ -369,5 +395,47 @@ describe('fillBlankValues', () => {
     expect(filled.map((row) => row.value)).toEqual(['1', '2', '3', ''])
     expect(rows[0].value).toBe('')
     expect(filled[1]).toBe(rows[1])
+  })
+})
+
+describe('followDefaults', () => {
+  const previous = new Map([
+    ['kappa', '10'],
+    ['K', '1'],
+    ['q0', '0.5'],
+    ['g', '2'],
+  ])
+  const next = new Map([
+    ['kappa', '1'],
+    ['K', '1'],
+    ['q0', '0.5'],
+    ['c', '3'],
+    ['g', '4'],
+  ])
+
+  it('moves rows still on the previous default, or blank, to the new one', () => {
+    const rows = [
+      { name: 'kappa', value: '10.0' },
+      { name: 'c', value: '' },
+      { name: 'K', value: '1' },
+    ]
+    const { rows: followed, kept } = followDefaults(rows, previous, next)
+
+    expect(followed.map((row) => row.value)).toEqual(['1', '3', '1'])
+    expect(followed[2]).toBe(rows[2])
+    expect(rows[0].value).toBe('10.0')
+    expect(kept).toEqual([])
+  })
+
+  it("keeps an instance's own value, and reports it only when the default changed", () => {
+    const rows = [
+      { name: 'kappa', value: '5' },
+      { name: 'q0', value: '0.9' },
+      { name: 'g', value: '2', type: 'global_constant' },
+    ]
+    const { rows: followed, kept } = followDefaults(rows, previous, next)
+
+    expect(followed.map((row) => row.value)).toEqual(['5', '0.9', '2'])
+    expect(kept).toEqual(['kappa'])
   })
 })

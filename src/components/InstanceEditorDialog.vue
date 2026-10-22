@@ -2,8 +2,8 @@
   <Dialog
     :visible="modelValue"
     modal
-    :dismissableMask="!loading"
-    :closeOnEscape="!celldlHost.isEngaged.value"
+    :dismissableMask="false"
+    :closeOnEscape="false"
     :draggable="false"
     :style="{ width: '95vw', maxWidth: '1680px', height: '90vh', maxHeight: '960px' }"
     class="module-editor-dialog"
@@ -522,6 +522,7 @@ import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useMathSession } from '../composables/useMathSession'
 import { useAppSettings } from '../composables/useAppSettings'
 import { useCelldlEditorHost } from '../composables/useCelldlEditorHost'
+import { useEditorCloseGuard } from '../composables/useEditorCloseGuard'
 import { useLiveCelldlConvert } from '../composables/useLiveCelldlConvert'
 
 import { isInitialisable } from '../services/math/variableKinds'
@@ -611,7 +612,11 @@ const editorWrapperRef = ref(null)
 // The dialog focuses its close button once its opening transition ends, so the editor takes focus
 // after that. Dialog has no event for it; its transition options are merged into its <Transition>.
 const isDialogShown = ref(false)
+/** A class on the dialog's mask, so the close guard knows it from other dialogs' masks. */
+const EDITOR_MASK_CLASS = 'module-editor-mask'
 const DIALOG_PT = {
+  // Clicks on it and Escape are guarded (useEditorCloseGuard).
+  mask: { class: EDITOR_MASK_CLASS },
   transition: {
     onAfterEnter: () => {
       isDialogShown.value = true
@@ -1506,6 +1511,43 @@ function deletePort(index) {
   editablePorts.value.splice(index, 1)
 }
 
+/**
+ * Whether the instance has edits Cancel asks before discarding. Plots and sliders apply as they change, so only the
+ * instance's own edits count.
+ *
+ * @returns {boolean}
+ */
+function hasDiscardableEdits() {
+  return session.hasUnsavedInvalidEdit() || session.isDirty() || session.isLayoutDirty() || isDiagramDirty.value
+}
+
+/** Commits any rename and editor change still in flight, so an edit typed just before closing counts. */
+async function flushEdits() {
+  parameterTableRef.value?.flushPendingRenames()
+  await session.flushPendingChanges()
+}
+
+/** Closes the editor on a click outside it, unless that would discard edits. */
+async function closeOnOutsideClick() {
+  if (loading.value) return
+  await flushEdits()
+  // Any edit at all keeps the editor open, the instance's name and ports included.
+  if (hasUnsavedEdits.value || hasDiscardableEdits()) {
+    notify.info({ message: 'Save or cancel your edits to close the editor.', duration: 2500 })
+    return
+  }
+  emit('update:modelValue', false)
+}
+
+useEditorCloseGuard({
+  isOpen: () => props.modelValue,
+  maskClass: EDITOR_MASK_CLASS,
+  // Escape in the CellDL editor is its own, e.g. to drop a path being drawn.
+  ownsEscape: () => celldlHost.isEngaged.value,
+  onOutsideClick: closeOnOutsideClick,
+  onEscape: handleCancel,
+})
+
 const onDialogVisibleChange = (visible) => {
   if (visible) {
     emit('update:modelValue', true)
@@ -1515,18 +1557,16 @@ const onDialogVisibleChange = (visible) => {
 }
 
 async function handleCancel() {
-  // Commit any rename and editor change still in flight, so an edit typed just before Escape counts.
-  parameterTableRef.value?.flushPendingRenames()
-  await session.flushPendingChanges()
-
-  // Plots and sliders apply as they change, so only the instance's own edits count.
-  if (session.hasUnsavedInvalidEdit() || session.isDirty() || session.isLayoutDirty() || isDiagramDirty.value) {
+  await flushEdits()
+  if (hasDiscardableEdits()) {
+    // Keeping the edits is the default, so a stray Enter or click doesn't lose them.
     const confirmed = await confirm({
       header: 'Unsaved Changes',
       message: 'Are you sure you want to discard changes?',
       severity: 'warning',
       acceptLabel: 'Discard & Close',
-      rejectLabel: 'Cancel',
+      rejectLabel: 'Keep Editing',
+      isRejectDefault: true,
     })
     if (!confirmed) return
   }
@@ -1864,11 +1904,14 @@ async function saveInstance(options) {
     if (!proceed) return
   }
 
-  // An edited diagram gives the math, with its values for the rows still blank.
+  // An edited diagram gives the math and its values, which rows still on the diagram's previous values follow.
   const staged = await stageDiagram()
   if (staged === false) return
   // Its math replaces the session's only once the save goes ahead, so a cancelled save keeps the stored math.
   let target = null
+  // The diagram's values before this save, which every instance's rows are compared with (followDefaults).
+  const previousDefaults = staged && store.getMathSource(props.mathRef) ? new Map(store.getMathDefaults(props.mathRef)) : new Map()
+  let keptValues = []
   if (staged) {
     // The template's diagram was named as it converted, so is saved as it is.
     target =
@@ -1876,7 +1919,7 @@ async function saveInstance(options) {
         ? await resolveMathTarget(staged.math, currentLayout.value, { confirmOverwrite: false })
         : { mathRef: staged.mathRef, math: staged.math, layout: null }
     if (!target) return
-    session.applyGeneratedModel(staged.math)
+    keptValues = session.applyGeneratedModel(staged.math, { previousDefaults })
   }
 
   // Values typed into the text belong in the rows, so an edit to values alone leaves the math unchanged.
@@ -1921,6 +1964,9 @@ async function saveInstance(options) {
       source: staged?.source ?? null,
       isSourceChanged: !!staged,
       units: staged?.units ?? null,
+      // Other instances' rows follow the diagram's new values as this one's did, unless they hold their own.
+      previousDefaults: staged ? [...previousDefaults] : null,
+      keptValues,
       // Only rows that were already global edit the shared value; a row just switched to global joins it as is.
       globalConstants: parameterRows.value
         .filter((row) => row.type === 'global_constant')
