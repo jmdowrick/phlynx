@@ -42,6 +42,9 @@ export default defineConfig({
     // Exclude the wasm-based libraries from pre-bundling, which breaks their wasm URLs. Saving converts
     // with the CellDL editor's own bundled oxigraph; the live conversion's worker loads oxigraph's.
     exclude: ['vue3-libcellml.js', 'oxigraph'],
+    // The live conversion's worker imports these. Listed up front, so the dev server doesn't find them
+    // when the CellDL tab first opens and reload the page.
+    include: ['libcellml.js/libcellml.js', '@xmldom/xmldom'],
     esbuildOptions: {
       target: 'es2020',
     },
