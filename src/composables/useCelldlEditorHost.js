@@ -21,8 +21,14 @@ export const EDITOR_OPTIONS = Object.freeze({ tooltip: 'tooltip', elementList: t
 /**
  * The editor's chrome: only the Select and bond-graph tools (the drawing tools aren't converted), and no
  * pointer-position readout. The left toolbar stays, as it's still the only way to place elements and draw bonds.
+ * The Properties panel shows values read-only: they're set per instance, in the Parameters tab.
  */
-export const EDITOR_CHROME = Object.freeze({ tools: Object.freeze(['select', 'bondgraph']), statusPosition: false })
+export const EDITOR_CHROME = Object.freeze({
+  tools: Object.freeze(['select', 'bondgraph']),
+  statusPosition: false,
+  values: 'readonly',
+  valuesHint: 'Set values in the Parameters tab',
+})
 
 /** The class marking a diagram element a conversion failed on. */
 export const ERROR_CLASS = 'phlynx-celldl-error'

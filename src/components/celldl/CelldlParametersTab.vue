@@ -25,8 +25,8 @@
         </label>
       </div>
       <p class="toolbar-note">
-        Types, species and locations change the diagram, for every instance. Values are this instance's: a blank one
-        uses the diagram's, shown greyed.
+        Types, species and locations change the diagram. Values are this instance's: a blank one uses the diagram's,
+        shown greyed.
       </p>
       <Message v-if="!isDiagramShown" class="toolbar-message" severity="secondary" size="small" :closable="false">
         <span class="toolbar-message-body">
@@ -133,7 +133,7 @@
                 <span v-else class="cell-static cell-static--muted">Model constant</span>
               </td>
 
-              <!-- Species and location: the diagram's, for every instance -->
+              <!-- Species and location: the diagram's -->
               <td v-for="field in NAME_FIELDS" :key="field" class="cell-name">
                 <template v-if="row.element && row.element[field] !== undefined">
                   <CommitInput
@@ -190,8 +190,8 @@
 <script setup>
 /**
  * The Parameters tab of a CellDL module: its diagram's elements, one row each (services/celldl/elementTable). Type,
- * species and location edit the diagram through the CellDL editor, one undo step each, so every instance follows;
- * values edit this instance's rows, with the diagram's values as greyed defaults.
+ * species and location edit the diagram through the CellDL editor, one undo step each; values edit this instance's
+ * rows, with the diagram's values as greyed defaults.
  */
 import { computed, nextTick, ref, watch } from 'vue'
 

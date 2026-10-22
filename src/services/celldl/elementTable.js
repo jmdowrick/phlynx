@@ -3,7 +3,7 @@
  * (useCelldlEditorHost's `elements`), paired with bg2cellml's element manifest, which names each element's variables
  * in the CellML, and with the instance's variable rows, which hold this instance's values.
  *
- * The diagram's structure (an element's type, species and location) is edited in the diagram, for every instance;
+ * The diagram's structure (an element's type, species and location) is edited in the diagram;
  * its values are this instance's, and the diagram's own values are only their defaults.
  */
 import { isEmpty } from '../../utils/variables.js'

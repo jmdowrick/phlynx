@@ -169,17 +169,6 @@ def selected_tabs(dialog):
     return dialog.locator("[role=tab][aria-selected=true]").all_inner_texts()
 
 
-def set_property(page, element_id, label, value):
-    """Sets a field of a diagram element in the editor's properties panel."""
-    click_element(page, element_id)
-    host = page.locator(".celldl-pane .celldl-host")
-    page.locator("#properties-property-panel").click()
-    field = host.locator("label", has_text=label).locator("xpath=..").locator("input")
-    field.fill(value)
-    field.press("Tab")
-    page.locator("#properties-property-panel").click()
-
-
 def draw_in_editor(page, path):
     """Opens a diagram in the CellDL editor as if drawn there, unsaved. Needs the dev server, which serves /src."""
     with open(path) as f:
@@ -450,7 +439,7 @@ class TestCelldl(unittest.TestCase):
 
             browser.close()
 
-    def test_runs_a_diagram_value_edited_after_the_first_save(self):
+    def test_runs_an_instance_value_set_after_the_first_save(self):
         with sync_playwright() as playwright:
             browser, page = open_app(playwright)
             page.evaluate(SHORT_SIMULATION)
@@ -471,14 +460,22 @@ class TestCelldl(unittest.TestCase):
             before = final_value(page, "q_P_c")
             self.assertIsNotNone(before)
 
-            # Slowing r1 in the diagram, and saving, gives the instance the new value, so the run changes.
+            # The diagram's Properties panel only shows r1's values, pointing to the Parameters tab.
             show_diagram(page, dialog)
-            set_property(page, REACTION_R1, "kappa", "1")
-            expect(page.locator(".celldl-live-status")).to_have_text("Converts, not yet saved", timeout=DIAGRAM_TIMEOUT)
+            click_element(page, REACTION_R1)
+            host = page.locator(".celldl-pane .celldl-host")
+            page.locator("#properties-property-panel").click()
+            expect(host.locator(".values-hint")).to_have_text("Set values in the Parameters tab")
+            page.locator("#properties-property-panel").click()
+
+            # Slowing r1 in the Parameters tab, and applying, gives the instance its own value, so the run changes.
+            kappa = parameter_value(dialog, "kappa_Rx_r1_c")
+            kappa.fill("1")
+            kappa.press("Enter")
             dialog.get_by_role("button", name="Apply").click()
             expect(page.get_by_text("CellML Updated")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
-            expect(parameter_value(dialog, "kappa_Rx_r1_c")).to_have_attribute("placeholder", "1")
-            expect(parameter_value(dialog, "kappa_Rx_r1_c")).to_have_value("")
+            expect(parameter_value(dialog, "kappa_Rx_r1_c")).to_have_attribute("placeholder", "10")
+            expect(parameter_value(dialog, "kappa_Rx_r1_c")).to_have_value("1")
 
             dialog.get_by_role("tab", name=re.compile(r"Plot \(")).click()
             dialog.get_by_role("switch", name="Simulate the whole model, not this instance").uncheck()

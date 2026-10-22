@@ -3,6 +3,7 @@ import { nextTick, watch } from 'vue'
 
 import {
   createCelldlEditorHost,
+  EDITOR_CHROME,
   ERROR_CLASS,
   isEditorKey,
   LIVE_ISSUE_CLASS,
@@ -609,5 +610,12 @@ describe('the CellDL key gate', () => {
     expect(host.isEngaged.value).toBe(false)
     press('z', { metaKey: true })
     expect(reached).toEqual([])
+  })
+})
+
+describe('EDITOR_CHROME', () => {
+  it('shows values read-only in the Properties panel, pointing to the Parameters tab', () => {
+    expect(EDITOR_CHROME.values).toBe('readonly')
+    expect(EDITOR_CHROME.valuesHint).toBe('Set values in the Parameters tab')
   })
 })
