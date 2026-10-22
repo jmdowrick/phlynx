@@ -6,20 +6,29 @@
  * Commands go to the editor through its `editorCommand` prop, which it watches by reference, so each is a
  * new object.
  */
-import { computed, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, ref, shallowRef, watch } from 'vue'
 
 /** How long to wait for the editor to mount, and to answer a command. */
 const READY_TIMEOUT_MS = 30000
 const COMMAND_TIMEOUT_MS = 10000
 
-/** The editor's options: hovering an element shows its annotation's tooltip, the variables it has. */
-export const EDITOR_OPTIONS = Object.freeze({ tooltip: 'tooltip' })
+/**
+ * The editor's options: hovering an element shows its annotation's tooltip, the variables it has, and its element
+ * list follows every diagram change, for the Parameters tab.
+ */
+export const EDITOR_OPTIONS = Object.freeze({ tooltip: 'tooltip', elementList: true })
 
 /**
  * The editor's chrome: only the Select and bond-graph tools (the drawing tools aren't converted), and no
  * pointer-position readout. The left toolbar stays, as it's still the only way to place elements and draw bonds.
+ * The Properties panel shows values read-only: they're set per instance, in the Parameters tab.
  */
-export const EDITOR_CHROME = Object.freeze({ tools: Object.freeze(['select', 'bondgraph']), statusPosition: false })
+export const EDITOR_CHROME = Object.freeze({
+  tools: Object.freeze(['select', 'bondgraph']),
+  statusPosition: false,
+  values: 'readonly',
+  valuesHint: 'Set values in the Parameters tab',
+})
 
 /** The class marking a diagram element a conversion failed on. */
 export const ERROR_CLASS = 'phlynx-celldl-error'
@@ -93,6 +102,12 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   const isSyncing = ref(false)
   /** The shown source's elements as the editor's annotations, by SVG id: their variables, primary one and tooltip. */
   const annotations = shallowRef({})
+  /** The shown diagram's bond-graph elements, as the editor lists them (its `elements` emit); empty while opening. */
+  const elements = shallowRef([])
+  /** The diagram revision `elements` was listed at, or -1 before any list. */
+  const elementsRevision = ref(-1)
+  /** The element selected in the diagram, as its viewer events tell, and whether the host selected it. */
+  const selection = shallowRef({ id: null, isHostSelection: false })
 
   let root = null
   let readyWaiters = []
@@ -106,6 +121,11 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   let contentObserver = null
   let commandCount = 0
   const pendingData = new Map()
+  // `element` commands waiting for their reply, by kind: `list` for `elements`, `set` and `select` for `element-result`.
+  const pendingElements = new Map()
+  const pendingResults = new Map()
+  // The element the host last selected, whose `select` event the pane is told about as the host's own.
+  let hostSelection = null
   // The claiming pane's handler for the editor's viewer events (select, unselect, active, unactive).
   let eventHandler = null
   let annotationCount = 0
@@ -210,8 +230,47 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     )
   }
 
+  // Commands sent in one tick would reach the editor's watcher as only the last, so each after the first waits a tick.
+  const queued = []
+  let isSending = false
+
   function send(next) {
+    if (isSending) return queued.push(next)
+    isSending = true
     command.value = next
+    nextTick(sendQueued)
+  }
+
+  function sendQueued() {
+    if (!queued.length) {
+      isSending = false
+      return
+    }
+    command.value = queued.shift()
+    nextTick(sendQueued)
+  }
+
+  /**
+   * Sends a command whose reply comes back carrying its `kind`, and waits for that reply.
+   *
+   * @param {Map<string, Function>} pending - Where the reply's handler finds the waiter.
+   * @param {(kind: string) => Object} make - Makes the command for a kind.
+   * @param {string} what - Named in the timeout's error.
+   * @returns {Promise<any>}
+   */
+  function sendAwaiting(pending, make, what) {
+    const kind = `phlynx-${++commandCount}`
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pending.delete(kind)
+        reject(new Error(`The CellDL editor didn't ${what} in time`))
+      }, commandTimeout)
+      pending.set(kind, (reply) => {
+        clearTimeout(timer)
+        resolve(reply)
+      })
+      send(make(kind))
+    })
   }
 
   /**
@@ -221,18 +280,91 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
    * @returns {Promise<string>}
    */
   function request(action) {
-    const kind = `phlynx-${++commandCount}`
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        pendingData.delete(kind)
-        reject(new Error("The CellDL editor didn't return its diagram in time"))
-      }, commandTimeout)
-      pendingData.set(kind, (data) => {
-        clearTimeout(timer)
-        resolve(data)
-      })
-      send({ command: 'file', options: { action, kind } })
-    })
+    return sendAwaiting(pendingData, (kind) => ({ command: 'file', options: { action, kind } }), 'return its diagram')
+  }
+
+  /**
+   * Asks the editor for the diagram's elements, which also become `elements`.
+   *
+   * @returns {Promise<Object[]>} Its DiagramElements.
+   */
+  async function listElements() {
+    await whenReady()
+    const change = await sendAwaiting(
+      pendingElements,
+      (kind) => ({ command: 'element', options: { action: 'list', kind } }),
+      'list its elements'
+    )
+    return change.elements
+  }
+
+  /**
+   * Edits elements' fields in the diagram, as one undoable step; the editor then reports the change as any edit.
+   *
+   * @param {{id: string, field: string, value: string}[]} edits - Its ElementEdits.
+   * @returns {Promise<{ok: boolean, errors?: {id: string, field: string, message: string}[]}>}
+   */
+  async function setElement(edits) {
+    await whenReady()
+    const { kind, ...result } = await sendAwaiting(
+      pendingResults,
+      (kind) => ({ command: 'element', options: { action: 'set', kind, edits } }),
+      'edit the diagram'
+    )
+    return result
+  }
+
+  /**
+   * Selects one element in the diagram, or none, panning to it if asked. Its `select` event reaches the pane marked
+   * as the host's own (`isHostSelection`).
+   *
+   * @param {string|null} id
+   * @param {boolean|'if-hidden'} [centre]
+   * @returns {Promise<{ok: boolean}>}
+   */
+  async function selectElement(id, centre = false) {
+    await whenReady()
+    hostSelection = id
+    try {
+      const { kind, ...result } = await sendAwaiting(
+        pendingResults,
+        (kind) => ({ command: 'element', options: { action: 'select', kind, id, centre } }),
+        'select the element'
+      )
+      return result
+    } finally {
+      // The editor emits its select before it replies.
+      if (hostSelection === id) hostSelection = null
+    }
+  }
+
+  /**
+   * Takes the editor's `elements` emit: a reply to a list, or the list after a diagram change. A list made while a
+   * source opens is the old diagram's, so is dropped.
+   *
+   * @param {{kind?: string, revision: number, elements: Object[]}} change
+   */
+  function onElements(change) {
+    const resolve = change?.kind && pendingElements.get(change.kind)
+    if (resolve) {
+      pendingElements.delete(change.kind)
+      resolve(change)
+    }
+    if (!Array.isArray(change?.elements) || isOpening) return
+    elements.value = change.elements
+    elementsRevision.value = change.revision ?? -1
+  }
+
+  /**
+   * Passes on the editor's `element-result` event to the `set` or `select` it answers.
+   *
+   * @param {{kind?: string, ok: boolean, errors?: Object[]}} result
+   */
+  function onElementResult(result) {
+    const resolve = result?.kind && pendingResults.get(result.kind)
+    if (!resolve) return
+    pendingResults.delete(result.kind)
+    resolve(result)
   }
 
   /**
@@ -313,6 +445,11 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   }
 
   function notifyChange(rdf, isOpened) {
+    if (rdf === null) {
+      elements.value = []
+      elementsRevision.value = -1
+      selection.value = { id: null, isHostSelection: false }
+    }
     const change = { rdf, documentUri: shown?.source?.documentUri ?? null, isOpened }
     changeListeners.forEach((listener) => listener(change))
   }
@@ -326,8 +463,9 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     if (isActive.value && !isOpening && typeof change?.rdf === 'string') notifyChange(change.rdf, false)
   }
 
-  /** Tells the listeners which diagram a source opened as. */
+  /** Lists the opened source's elements, and tells the listeners which diagram it opened as. */
   function announceOpened() {
+    listElements().catch((e) => console.error("CellDL diagram's elements couldn't be listed:", e))
     if (!changeListeners.size) return
     readRdf().then(
       (rdf) => notifyChange(rdf, true),
@@ -496,7 +634,12 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
    * @param {Object} event
    */
   function onViewerEvent(event) {
-    eventHandler?.(event)
+    const id = event?.component?.id ?? null
+    const isOwn = event?.type === 'select' && hostSelection !== null && id === hostSelection
+    if (isOwn) hostSelection = null
+    if (event?.type === 'select' && id) selection.value = { id, isHostSelection: isOwn }
+    else if (event?.type === 'unselect' && id === selection.value.id) selection.value = { id: null, isHostSelection: false }
+    eventHandler?.(isOwn ? { ...event, isHostSelection: true } : event)
   }
 
   function onFileEdited() {
@@ -565,6 +708,9 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     isEngaged,
     isSyncing,
     annotations,
+    elements,
+    elementsRevision,
+    selection,
     attach,
     whenReady,
     open,
@@ -584,6 +730,11 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     onEditorState,
     onViewerEvent,
     onDiagramChanged,
+    onElements,
+    onElementResult,
+    listElements,
+    setElement,
+    selectElement,
     listen,
     unlisten,
   }

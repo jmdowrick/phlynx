@@ -273,6 +273,24 @@ describe('useInstanceSave', () => {
       expect(describeKeptValues(keptValues)).toBe('2 instances keep their own value for k.')
     })
 
+    it('moves every instance\'s values and ports to the variables a diagram edit renamed', async () => {
+      library.setMathSource(DECAY_REF, SOURCE)
+      const own = createNode('c')
+      own.data.variables = own.data.variables.map((row) => (row.name === 'k' ? { ...row, value: '3' } : row))
+      nodes.value.push(own)
+      const renamed = DECAY_XML.replaceAll('<ci>k</ci>', '<ci>kr</ci>').replace('name="k" units="per_second" initial_value="0.5"', 'name="kr" units="per_second" initial_value="0.8"')
+
+      await saveInstanceEdit(
+        buildSave({ math: renamed, source: SOURCE, isSourceChanged: true, previousDefaults: [...library.getMathDefaults(DECAY_REF)], renames: [['k', 'kr']] })
+      )
+
+      const rowsOf = (id) => Object.fromEntries(findNode(id).data.variables.map((row) => [row.name, row]))
+      expect(rowsOf('b').kr.value).toBe('0.8')
+      expect(rowsOf('b').k).toBeUndefined()
+      expect(rowsOf('c').kr.value).toBe('3')
+      expect(findNode('c').data.ports[0].variables).toEqual(['x', 'kr'])
+    })
+
     it('leaves the other instances\' new rows blank for CellML math', async () => {
       await saveInstanceEdit(buildSave({ math: GENERATED_XML }))
 

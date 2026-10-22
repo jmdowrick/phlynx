@@ -11,6 +11,8 @@
         @editor-state="host.onEditorState"
         @event="host.onViewerEvent"
         @diagram-changed="host.onDiagramChanged"
+        @elements="host.onElements"
+        @element-result="host.onElementResult"
       />
     </div>
   </Teleport>

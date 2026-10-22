@@ -357,3 +357,55 @@ export function followDefaults(rows, previousDefaults, defaults) {
   })
   return { rows: followed, kept }
 }
+
+/**
+ * Renames rows, e.g. after a diagram edit renamed the variables its elements generate, so their values go with them.
+ * A row a rename leaves under a name another row now takes is dropped.
+ *
+ * @param {Array} rows - Never mutated.
+ * @param {Map<string, string>} renames - Each old name to its new one.
+ * @returns {Array} The rows, with copies for those renamed.
+ */
+export function renameRows(rows, renames) {
+  if (!renames?.size) return rows
+  const renamed = rows.map((row) => {
+    const name = renames.get(row.name)
+    const initialiser = row.initialiser && renames.get(row.initialiser)
+    if (!name && !initialiser) return row
+    return { ...row, ...(name && { name }), ...(initialiser && { initialiser }) }
+  })
+  const targets = new Set(renames.values())
+  return renamed.filter((row, index) => !targets.has(row.name) || renames.has(rows[index].name))
+}
+
+/**
+ * Renames a source's values to match renamed rows (renameRows).
+ *
+ * @param {Map<string, string>} values - Never mutated.
+ * @param {Map<string, string>} renames - Each old name to its new one.
+ * @returns {Map<string, string>}
+ */
+export function renameValues(values, renames) {
+  if (!renames?.size) return values
+  const renamed = new Map([...values].filter(([name]) => !renames.has(name)))
+  renames.forEach((name, old) => {
+    if (values.has(old)) renamed.set(name, values.get(old))
+  })
+  return renamed
+}
+
+/**
+ * Renames the variables ports carry (renameRows).
+ *
+ * @param {Array} ports - Never mutated.
+ * @param {Map<string, string>} renames - Each old name to its new one.
+ * @returns {Array}
+ */
+export function renamePortVariables(ports, renames) {
+  if (!renames?.size || !ports) return ports
+  return ports.map((port) =>
+    (port.variables ?? []).some((name) => renames.has(name))
+      ? { ...port, variables: port.variables.map((name) => renames.get(name) ?? name) }
+      : port
+  )
+}

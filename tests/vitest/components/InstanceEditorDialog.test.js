@@ -81,6 +81,16 @@ const CelldlPaneStub = defineComponent({
   },
 })
 
+/** Stands in for the CellDL Parameters tab, which the dialog shows for a diagram's module. */
+const CelldlParametersTabStub = defineComponent({
+  name: 'CelldlParametersTab',
+  props: ['table', 'savedDefaults', 'isDiagramShown', 'isOpening'],
+  emits: ['set-value', 'show-in-diagram'],
+  setup() {
+    return () => h('div', { class: 'celldl-parameters-stub' })
+  },
+})
+
 const ParameterTableStub = defineComponent({
   setup(_, { expose }) {
     expose({ flushPendingRenames: () => {} })
@@ -129,6 +139,7 @@ function mountDialog(props = {}, { isPanelReal = false } = {}) {
         MathWorkbenchEditor: FakeEditor,
         CelldlPane: CelldlPaneStub,
         ParameterTable: ParameterTableStub,
+        CelldlParametersTab: CelldlParametersTabStub,
         ...(isPanelReal ? { SimulationPlot: true, FeaturePlot: true } : { SimulationPanel: SimulationPanelStub }),
       },
       directives: { tooltip: {} },
@@ -369,7 +380,9 @@ describe('InstanceEditorDialog new module template (#634)', () => {
       await flushPromises()
 
       expect(stubProps(FakeEditor).readonly).toBe(true)
-      expect(stubProps(ParameterTableStub)['values-only']).toBe(true)
+      // The Parameters tab is the diagram's.
+      expect(wrapper.findComponent(CelldlParametersTabStub).exists()).toBe(true)
+      expect(wrapper.findComponent(ParameterTableStub).exists()).toBe(false)
       expect(wrapper.vm.editorOptions.every((option) => !option.isLocked)).toBe(true)
       await report(editor, 'edit', EDITED_TEMPLATE_XML)
       expect(wrapper.vm.currentModel).not.toContain('<cn>1</cn>')
@@ -446,7 +459,7 @@ describe('InstanceEditorDialog new module template (#634)', () => {
 
         expect(wrapper.vm.editorKind).toBe('celldl')
         expect(celldlOption().isLocked).toBe(false)
-        expect(stubProps(ParameterTableStub)['values-only']).toBe(true)
+        expect(wrapper.findComponent(CelldlParametersTabStub).exists()).toBe(true)
       })
 
       it('saves nothing when the new name is cancelled', async () => {
@@ -997,11 +1010,33 @@ describe('InstanceEditorDialog locked math', () => {
     await report(editor, 'init', XML)
 
     expect(stubProps(FakeEditor).readonly).toBe(true)
-    expect(stubProps(ParameterTableStub)['values-only']).toBe(true)
+    // Its Parameters tab is the diagram's, with the math's text editor shown too.
+    expect(wrapper.findComponent(CelldlParametersTabStub).exists()).toBe(true)
+    expect(wrapper.findComponent(ParameterTableStub).exists()).toBe(false)
+    expect(wrapper.findComponent(CelldlParametersTabStub).props('isDiagramShown')).toBe(false)
     expect(wrapper.vm.isManaged).toBe(false)
     expect(wrapper.find('.header-group--secondary input').exists()).toBe(false)
     expect(wrapper.find('.apply-all-note').text()).toBe('Diagram edits apply to every instance of this module')
     expect(wrapper.find('.apply-all-checkbox').exists()).toBe(false)
+  })
+
+  it("edits this instance's value from the diagram's Parameters tab, a blank one taking the diagram's", async () => {
+    useLibraryStore().setMathSource(MATH_REF, SOURCE)
+    mountDialog()
+    const editor = await openAsText()
+    await report(editor, 'init', XML)
+    const tab = wrapper.findComponent(CelldlParametersTabStub)
+    tab.vm.$emit('set-value', { name: 'k', row: {} }, '2')
+    tab.vm.$emit('set-value', { name: 'x0', row: {} }, '')
+    await flushPromises()
+    expect(wrapper.vm.hasUnsavedEdits).toBe(true)
+
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await flushPromises()
+    const [save] = wrapper.emitted('confirm')[0]
+    expect(save.math).toBeNull()
+    expect(save.variables.find((row) => row.name === 'k').value).toBe('2')
+    expect(save.variables.find((row) => row.name === 'x0').value).toBe('1')
   })
 
   it('keeps Simple Mode off in the Math Editor, and saves to every instance', async () => {
@@ -1388,6 +1423,21 @@ describe('InstanceEditorDialog locked math', () => {
       })
       expect(save.variables.find((row) => row.name === 'c').value).toBe('3')
       expect(host.markSaved).toHaveBeenCalledWith(save.source)
+    })
+
+    it("gives a value typed for a variable the diagram adds to the row the save makes", async () => {
+      mountDialog()
+      await wrapper.setProps({ modelValue: true })
+      await vi.waitFor(() => expect(wrapper.findComponent(CelldlPaneStub).exists()).toBe(true))
+      host.isDirty.value = true
+      const tab = wrapper.findComponent(CelldlParametersTabStub)
+      tab.vm.$emit('set-value', { name: 'c', row: null }, '7')
+      tab.vm.$emit('set-value', { name: 'k', row: {} }, '0.25')
+      await clickSave()
+
+      const [save] = wrapper.emitted('confirm')[0]
+      expect(save.variables.find((row) => row.name === 'c').value).toBe('7')
+      expect(save.variables.find((row) => row.name === 'k').value).toBe('0.25')
     })
 
     it('saves its own conversion, not the live one shown', async () => {

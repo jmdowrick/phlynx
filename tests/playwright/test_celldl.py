@@ -29,6 +29,9 @@ UNDRAWN_RC = os.path.join(RESOURCE_PATH, "..", "vitest", "fixtures", "celldl", "
 ENZYME = os.path.join(RESOURCE_PATH, "celldl", "enzyme.celldl")
 ENZYME_MODULE = "enzyme"
 REACTION_R1 = "ID-00000006"
+# Its reaction r2, and its product P's store and 0-junction.
+REACTION_R2 = "ID-00000011"
+PRODUCT, PRODUCT_JUNCTION = "ID-00000014", "ID-00000013"
 
 DIAGRAM_SVG = ".celldl-pane .celldl-host #svg-container > svg"
 SHORT_SIMULATION = (
@@ -166,17 +169,6 @@ def selected_tabs(dialog):
     return dialog.locator("[role=tab][aria-selected=true]").all_inner_texts()
 
 
-def set_property(page, element_id, label, value):
-    """Sets a field of a diagram element in the editor's properties panel."""
-    click_element(page, element_id)
-    host = page.locator(".celldl-pane .celldl-host")
-    page.locator("#properties-property-panel").click()
-    field = host.locator("label", has_text=label).locator("xpath=..").locator("input")
-    field.fill(value)
-    field.press("Tab")
-    page.locator("#properties-property-panel").click()
-
-
 def draw_in_editor(page, path):
     """Opens a diagram in the CellDL editor as if drawn there, unsaved. Needs the dev server, which serves /src."""
     with open(path) as f:
@@ -192,10 +184,46 @@ def draw_in_editor(page, path):
 
 
 def parameter_value(dialog, name):
-    """The value a parameter row holds."""
+    """The field holding this instance's value of a diagram's variable, in the CellDL Parameters tab. A value still on
+    the diagram's shows blank, with the diagram's as its placeholder."""
     dialog.get_by_role("tab", name=re.compile(r"Parameters \(")).click()
-    row = dialog.locator(".parameters-table tr").filter(has=dialog.page.get_by_text(name, exact=True))
-    return row.locator("input").first
+    return dialog.locator(f'.celldl-parameters [data-variable="{name}"] input')
+
+
+def element_row(dialog, element_id):
+    """A diagram element's row in the CellDL Parameters tab."""
+    return dialog.locator(f'.celldl-parameters tr.element-row--main[data-element-id="{element_id}"]')
+
+
+def set_element_field(dialog, element_id, label, value):
+    """Sets an element's species or location from the CellDL Parameters tab."""
+    field = element_row(dialog, element_id).get_by_label(re.compile(rf"^{label} of"))
+    field.fill(value)
+    field.press("Enter")
+
+
+def choose_element_type(page, dialog, element_id, template):
+    """Chooses an element's type from the CellDL Parameters tab."""
+    element_row(dialog, element_id).locator(".p-select").click()
+    page.locator(".p-select-option").filter(has_text=re.compile(rf"^\s*{re.escape(template)}\s*$")).click()
+    expect(element_row(dialog, element_id).locator(".p-select")).to_contain_text(template)
+
+
+def saved_math_has(page, text):
+    """Whether any of the library's math, as saved, has some text."""
+    return page.evaluate(
+        """(text) => [...document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
+            .get('library').availableMath.values()].some((math) => String(math).includes(text))""",
+        text,
+    )
+
+
+def run_this_instance(page, dialog):
+    """Runs the instance on its own from the Plot tab, as saved."""
+    dialog.get_by_role("tab", name=re.compile(r"Plot \(")).click()
+    dialog.get_by_role("switch", name="Simulate the whole model, not this instance").uncheck()
+    dialog.get_by_role("button", name="Simulate this instance").click()
+    expect(dialog.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=SIMULATION_TIMEOUT)
 
 
 def final_value(page, name):
@@ -229,15 +257,17 @@ class TestCelldl(unittest.TestCase):
             expect(content).to_contain_text("ode(q_e_C, t)")
             expect(content).to_have_attribute("contenteditable", "false")
 
-            # Only its values can be edited in Parameters: no row selection, no types to change.
-            parameters = dialog.locator(".parameters-table")
-            expect(parameters.locator(".p-datatable-tbody tr")).not_to_have_count(0)
-            expect(parameters.locator(".p-checkbox")).to_have_count(0)
-            types = parameters.locator(".p-select")
-            for index in range(types.count()):
-                expect(types.nth(index)).to_have_class(re.compile(r"\bp-disabled\b"))
-            value = parameters.locator("tr").filter(has_text="R_R_i_R").locator("input").first
+            # Its Parameters tab lists the diagram's elements, not the math's rows: species and location edit the
+            # diagram, and values this instance, the diagram's showing as their defaults.
+            parameters = dialog.locator(".celldl-parameters")
+            expect(dialog.locator(".parameters-table")).to_have_count(0)
+            expect(parameters.locator("tr.element-row--main[data-element-id]")).to_have_count(3)
+            show_diagram(page, dialog)
+            expect(element_row(dialog, RESISTOR).get_by_label(re.compile("^Location of"))).to_be_editable()
+            value = parameter_value(dialog, "R_R_i_R")
             expect(value).to_be_editable()
+            expect(value).to_have_value("")
+            expect(value).to_have_attribute("placeholder", re.compile(r"\S"))
             # ----------- END ------------
 
             browser.close()
@@ -286,8 +316,7 @@ class TestCelldl(unittest.TestCase):
             error = page.locator(".confirm-container").filter(has_text="Diagram Has Errors")
             expect(error).to_contain_text("The diagram can't be converted, so nothing was saved:")
             error.get_by_role("button").last.click()
-            parameters = dialog.locator(".parameters-table")
-            expect(parameters.locator("tr").filter(has_text="R_R_i_X")).not_to_have_count(0)
+            self.assertTrue(saved_math_has(page, "R_R_i_X"))
             # ----------- END ------------
 
             browser.close()
@@ -300,14 +329,14 @@ class TestCelldl(unittest.TestCase):
             dialog = import_and_open(page)
             expect(page.get_by_text("Live CellML")).to_have_count(0)
 
-            # The CellML Text shows the edited diagram's math before it is saved; the rows stay as saved.
+            # The CellML Text, and the Parameters tab's names, show the edited diagram's math before it is saved.
             relocate_resistor(page, "X")
             content = cellml_text(dialog)
             expect(content).to_contain_text("R_R_i_X", timeout=DIAGRAM_TIMEOUT)
             expect(content).not_to_contain_text("R_R_i_R")
             expect(content).to_have_attribute("contenteditable", "false")
-            parameters = dialog.locator(".parameters-table")
-            expect(parameters.locator("tr").filter(has_text="R_R_i_R")).not_to_have_count(0)
+            expect(element_row(dialog, RESISTOR).locator(".element-names")).to_contain_text("R_R_i_X")
+            self.assertTrue(saved_math_has(page, "R_R_i_R"))
 
             # Cancelling discards the edit, so the math shows as saved again.
             dialog.get_by_role("button", name="Cancel").click()
@@ -400,8 +429,8 @@ class TestCelldl(unittest.TestCase):
             expect(page.get_by_text("CellML Updated")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
 
             # F is a constant no equation uses, yet it keeps its value, so the whole model runs.
-            expect(parameter_value(dialog, "F")).to_have_value("96485")
-            expect(parameter_value(dialog, "kappa_Rx_r1_c")).to_have_value("10")
+            expect(parameter_value(dialog, "F")).to_have_attribute("placeholder", "96485")
+            expect(parameter_value(dialog, "kappa_Rx_r1_c")).to_have_attribute("placeholder", "10")
             dialog.get_by_role("tab", name=re.compile(r"Plot \(")).click()
             expect(dialog.get_by_role("switch", name="Simulate the whole model, not this instance")).to_be_checked()
             dialog.get_by_role("button", name="Simulate the whole model").click()
@@ -410,7 +439,7 @@ class TestCelldl(unittest.TestCase):
 
             browser.close()
 
-    def test_runs_a_diagram_value_edited_after_the_first_save(self):
+    def test_runs_an_instance_value_set_after_the_first_save(self):
         with sync_playwright() as playwright:
             browser, page = open_app(playwright)
             page.evaluate(SHORT_SIMULATION)
@@ -421,7 +450,7 @@ class TestCelldl(unittest.TestCase):
             place(page, "ENZYME", ENZYME_MODULE)
             dialog = open_editor(page, ENZYME_MODULE)
             wait_for_diagram(page)
-            expect(parameter_value(dialog, "kappa_Rx_r1_c")).to_have_value("10")
+            expect(parameter_value(dialog, "kappa_Rx_r1_c")).to_have_attribute("placeholder", "10")
 
             # Run this instance on its own, as saved.
             dialog.get_by_role("tab", name=re.compile(r"Plot \(")).click()
@@ -431,12 +460,21 @@ class TestCelldl(unittest.TestCase):
             before = final_value(page, "q_P_c")
             self.assertIsNotNone(before)
 
-            # Slowing r1 in the diagram, and saving, gives the instance the new value, so the run changes.
+            # The diagram's Properties panel only shows r1's values, pointing to the Parameters tab.
             show_diagram(page, dialog)
-            set_property(page, REACTION_R1, "kappa", "1")
-            expect(page.locator(".celldl-live-status")).to_have_text("Converts, not yet saved", timeout=DIAGRAM_TIMEOUT)
+            click_element(page, REACTION_R1)
+            host = page.locator(".celldl-pane .celldl-host")
+            page.locator("#properties-property-panel").click()
+            expect(host.locator(".values-hint")).to_have_text("Set values in the Parameters tab")
+            page.locator("#properties-property-panel").click()
+
+            # Slowing r1 in the Parameters tab, and applying, gives the instance its own value, so the run changes.
+            kappa = parameter_value(dialog, "kappa_Rx_r1_c")
+            kappa.fill("1")
+            kappa.press("Enter")
             dialog.get_by_role("button", name="Apply").click()
             expect(page.get_by_text("CellML Updated")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            expect(parameter_value(dialog, "kappa_Rx_r1_c")).to_have_attribute("placeholder", "10")
             expect(parameter_value(dialog, "kappa_Rx_r1_c")).to_have_value("1")
 
             dialog.get_by_role("tab", name=re.compile(r"Plot \(")).click()
@@ -500,8 +538,8 @@ class TestCelldl(unittest.TestCase):
             add_component(page, "ZeroStorageNode_q")
             expect(components).to_have_count(4)
 
-            # Undo in the Parameters table leaves the diagram alone.
-            dialog.locator(".parameters-table tr").filter(has_text="R_R_i_R").locator("td").first.click()
+            # Undo in the Parameters tab leaves the diagram alone.
+            dialog.locator(".celldl-parameters .toolbar-note").click()
             page.keyboard.press("ControlOrMeta+z")
             page.wait_for_timeout(500)
             expect(components).to_have_count(4)
@@ -517,6 +555,131 @@ class TestCelldl(unittest.TestCase):
             expect(components).to_have_count(3)
             page.locator("#editor-redo").click()
             expect(components).to_have_count(4)
+            # ----------- END ------------
+
+            browser.close()
+
+    def test_names_and_values_a_diagram_from_its_parameters_tab(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+            page.evaluate(SHORT_SIMULATION)
+
+            # ---------- START -----------
+            import_diagram(page, ENZYME)
+            expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            place(page, "ENZYME", ENZYME_MODULE, x=600, y=350)
+            card = page.locator(".mlc__card--draggable").filter(has_text=ENZYME_MODULE).first
+            card.drag_to(page.locator(".vue-flow__pane").first, target_position={"x": 900, "y": 600})
+            instances = page.locator(".vue-flow__node").filter(has_text=ENZYME_MODULE)
+            expect(instances).to_have_count(2)
+            instances.first.dblclick()
+            dialog = page.locator(".module-editor-dialog")
+            wait_for_diagram(page)
+            glyph = page.locator(f'{DIAGRAM_SVG} [id="{PRODUCT}"]')
+            drawn = glyph.inner_html()
+
+            # The product's species, from the table: its 0-junction follows, and the diagram's CellML is renamed.
+            set_element_field(dialog, PRODUCT, "Species", "Prod")
+            expect(element_row(dialog, PRODUCT_JUNCTION).get_by_label(re.compile("^Species of"))).to_have_value("Prod")
+            expect(element_row(dialog, PRODUCT).locator(".element-names")).to_contain_text("q_Prod_c", timeout=DIAGRAM_TIMEOUT)
+            # r1's location, and r2's type there and back.
+            set_element_field(dialog, REACTION_R1, "Location", "cyt")
+            expect(element_row(dialog, REACTION_R1).locator(".element-names")).to_contain_text("kappa_Rx_r1_cyt", timeout=DIAGRAM_TIMEOUT)
+            choose_element_type(page, dialog, REACTION_R2, "NKETransporter")
+            expect(dialog.locator(f'.celldl-parameters tr.element-row--values[data-element-id="{REACTION_R2}"]')).to_contain_text("k_NKE")
+            choose_element_type(page, dialog, REACTION_R2, "Chemical reaction")
+            expect(element_row(dialog, REACTION_R2).locator(".element-names")).to_contain_text("kappa_Rx_r2_c", timeout=DIAGRAM_TIMEOUT)
+            content = cellml_text(dialog)
+            expect(content).to_contain_text("q_Prod_c", timeout=DIAGRAM_TIMEOUT)
+            expect(content).to_contain_text("kappa_Rx_r1_cyt")
+            self.assertTrue(saved_math_has(page, "kappa_Rx_r1_c"))
+            show_diagram(page, dialog)
+            self.assertNotEqual(glyph.inner_html(), drawn)
+
+            # A value for this instance alone: r1 slowed from the diagram's 10, set before its name is saved.
+            kappa = parameter_value(dialog, "kappa_Rx_r1_cyt")
+            expect(kappa).to_have_attribute("placeholder", "10")
+            kappa.fill("1")
+            kappa.press("Enter")
+            dialog.get_by_role("button", name="Apply").click()
+            expect(page.get_by_text("CellML Updated")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            wait_for_diagram(page)
+            kappa = parameter_value(dialog, "kappa_Rx_r1_cyt")
+            expect(kappa).to_have_value("1")
+            self.assertTrue(saved_math_has(page, "kappa_Rx_r1_cyt"))
+
+            run_this_instance(page, dialog)
+            slowed = final_value(page, "q_Prod_c")
+            self.assertIsNotNone(slowed)
+            dialog.get_by_role("button", name="Save").click()
+            expect(dialog).to_be_hidden()
+
+            # The other instance has the diagram's new names, and keeps its default, so its product forms faster.
+            instances.nth(1).dblclick()
+            wait_for_diagram(page)
+            kappa = parameter_value(dialog, "kappa_Rx_r1_cyt")
+            expect(kappa).to_have_value("")
+            expect(kappa).to_have_attribute("placeholder", "10")
+            run_this_instance(page, dialog)
+            page.wait_for_function(
+                """([name, before]) => {
+                    const results = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
+                        .get('simulationResults').results
+                    const entry = [...(results?.variables ?? [])].find(([key]) => key.endsWith('/' + name))
+                    return entry && entry[1].values[entry[1].values.length - 1] !== before
+                }""",
+                arg=["q_Prod_c", slowed],
+                timeout=SIMULATION_TIMEOUT,
+            )
+            self.assertGreater(final_value(page, "q_Prod_c"), slowed)
+            # ----------- END ------------
+
+            browser.close()
+
+
+    def test_keeps_each_instances_values_when_a_rename_renames_their_variables(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+
+            # ---------- START -----------
+            import_diagram(page, ENZYME)
+            expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            place(page, "ENZYME", ENZYME_MODULE, x=600, y=350)
+            card = page.locator(".mlc__card--draggable").filter(has_text=ENZYME_MODULE).first
+            card.drag_to(page.locator(".vue-flow__pane").first, target_position={"x": 900, "y": 600})
+            instances = page.locator(".vue-flow__node").filter(has_text=ENZYME_MODULE)
+            expect(instances).to_have_count(2)
+            dialog = page.locator(".module-editor-dialog")
+
+            # The second instance's own r1 rate.
+            instances.nth(1).dblclick()
+            wait_for_diagram(page)
+            kappa = parameter_value(dialog, "kappa_Rx_r1_c")
+            kappa.fill("3")
+            kappa.press("Enter")
+            dialog.get_by_role("button", name="Save").click()
+            expect(dialog).to_be_hidden()
+
+            # The first's, then r1 moves to cyt: the value goes with the new name before the save, and after it.
+            instances.first.dblclick()
+            wait_for_diagram(page)
+            kappa = parameter_value(dialog, "kappa_Rx_r1_c")
+            kappa.fill("2")
+            kappa.press("Enter")
+            set_element_field(dialog, REACTION_R1, "Location", "cyt")
+            expect(element_row(dialog, REACTION_R1).locator(".element-names")).to_contain_text("kappa_Rx_r1_cyt", timeout=DIAGRAM_TIMEOUT)
+            expect(parameter_value(dialog, "kappa_Rx_r1_cyt")).to_have_value("2")
+            dialog.get_by_role("button", name="Save").click()
+            expect(dialog).to_be_hidden()
+
+            instances.first.dblclick()
+            wait_for_diagram(page)
+            expect(parameter_value(dialog, "kappa_Rx_r1_cyt")).to_have_value("2")
+            dialog.get_by_role("button", name="Cancel").click()
+            expect(dialog).to_be_hidden()
+            instances.nth(1).dblclick()
+            wait_for_diagram(page)
+            expect(parameter_value(dialog, "kappa_Rx_r1_cyt")).to_have_value("3")
             # ----------- END ------------
 
             browser.close()
