@@ -1065,7 +1065,7 @@ class TestCelldl(unittest.TestCase):
             # ---------- START -----------
             import_diagram(page, REACTIONS_PANEL)
             expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
-            place(page, "REACTIONS PANEL", REACTIONS_MODULE)
+            place(page, CELLDL_GROUP, REACTIONS_MODULE)
             dialog = open_editor(page, REACTIONS_MODULE)
             wait_for_diagram(page)
 
