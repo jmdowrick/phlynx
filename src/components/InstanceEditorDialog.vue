@@ -102,7 +102,7 @@
           <CellMLTextEditor
             v-else-if="editorKind === 'text'"
             ref="mathEditorRef"
-            :model-value="currentModel"
+            :model-value="shownModel"
             :layout="currentLayout"
             :simple="isManaged"
             @update:simple="onSimpleToggle"
@@ -120,7 +120,7 @@
           <MathWorkbenchEditor
             v-else-if="editorKind === 'math'"
             ref="mathEditorRef"
-            :model-value="currentModel"
+            :model-value="shownModel"
             :component-name="componentNameForEditor"
             :variable-definitions="editorDefinitions"
             :keep-variables="keptVariables"
@@ -522,6 +522,7 @@ import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useMathSession } from '../composables/useMathSession'
 import { useAppSettings } from '../composables/useAppSettings'
 import { useCelldlEditorHost } from '../composables/useCelldlEditorHost'
+import { useLiveCelldlConvert } from '../composables/useLiveCelldlConvert'
 
 import { isInitialisable } from '../services/math/variableKinds'
 import { resolveBoundaryValues } from '../services/export/boundaryValues'
@@ -543,6 +544,7 @@ import { notify } from '../utils/notify'
 import { getModelComponentNames, renameLayoutComponent, renameModelComponent } from '../utils/cellml'
 import { getEditorTabFormats, getModuleFormat } from '../services/moduleFormats'
 import { issueLines } from '../services/celldl/issues'
+import { liveComponentMath } from '../services/celldl/liveMath'
 import { findPort } from '../utils/ports'
 import { previewCouplings } from '../utils/edges'
 import {
@@ -727,6 +729,7 @@ const MATH_EDITOR_OPTIONS = [
   { value: 'text', label: 'CellML Text', icon: 'pi-code', errorHeader: 'CellML Text Has Errors' },
   { value: 'math', label: 'Math Editor', icon: 'pi-calculator', errorHeader: 'Math Has Errors' },
 ]
+const MATH_EDITOR_KINDS = new Set(MATH_EDITOR_OPTIONS.map((option) => option.value))
 
 /**
  * The editor tabs: the math editors, then each available format's own editor, locked once the math is in another
@@ -770,6 +773,26 @@ watch(
     if (isLocked) editorKind.value = loadStoredEditorKind()
   }
 )
+
+// The diagram's live conversion, which the math editors show while the diagram has unsaved edits. Locked math
+// ignores what they report, so the session keeps the saved math.
+const liveConvert = useLiveCelldlConvert()
+
+/** The live conversion's math, read only for a math editor shown over an edited diagram; null otherwise. */
+const liveMath = computed(() => {
+  if (!isMathLocked.value || !isDiagramDirty.value || !MATH_EDITOR_KINDS.has(editorKind.value)) return null
+  const conversion = liveConvert.cellml.value
+  return conversion && liveComponentMath(conversion.cellml, conversion.componentName)
+})
+
+/** The math the math editors show: the live conversion's, or else the session's. */
+const shownModel = computed(() => liveMath.value || currentModel.value)
+
+// A mounted editor follows the live math, and goes back to the session's once the diagram is saved.
+watch(liveMath, () => {
+  if (!MATH_EDITOR_KINDS.has(editorKind.value)) return
+  mathEditorRef.value?.setModel?.(shownModel.value)
+})
 
 /**
  * Gets the mounted editor's errors. Locked math ignores its editor, so none of them can be saved.

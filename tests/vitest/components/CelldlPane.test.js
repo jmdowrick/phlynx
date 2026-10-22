@@ -146,16 +146,13 @@ describe('CelldlPane live conversion', () => {
     expect(status().attributes('title')).toBe('no wasm')
   })
 
-  it('shows the CellML and its issues once opened', async () => {
+  it('lists the issues in its tooltip, and shows no CellML, which the math editors show', async () => {
     mountPane()
-    expect(wrapper.find('.celldl-live-preview').exists()).toBe(false)
     live.latest.value = converted('cheap', { errors: [{ message: 'no template', elementId: 'X' }] })
-    await wrapper.find('.celldl-live-toggle').trigger('click')
-    expect(wrapper.find('.celldl-live-toggle').attributes('aria-expanded')).toBe('true')
-    expect(wrapper.find('.celldl-live-issues').text()).toContain('X: no template')
-    expect(wrapper.find('.celldl-live-cellml').text()).toBe('<model name="rc"/>')
-    await wrapper.find('.celldl-live-toggle').trigger('click')
-    expect(wrapper.find('.celldl-live-preview').exists()).toBe(false)
+    await nextTick()
+    expect(status().attributes('title')).toContain('X: no template')
+    expect(wrapper.text()).not.toContain('Live CellML')
+    expect(wrapper.text()).not.toContain('<model')
   })
 
   it('shows nothing of it for a diagram that failed to open', async () => {
