@@ -195,7 +195,7 @@
           <TabList>
             <Tab value="parameters">
               <i class="pi pi-sliders-h tab-icon"></i>
-              Parameters ({{ parameterRows.length }})
+              Parameters ({{ parametersCount }})
             </Tab>
             <Tab value="ports">
               <i class="pi pi-link tab-icon"></i>
@@ -210,7 +210,18 @@
           <TabPanels class="tab-panels-container">
             <!-- TAB 1: PARAMETER EDITOR -->
             <TabPanel value="parameters" class="tab-panel-flex">
+              <!-- A diagram's elements, whose structure is the diagram's and values this instance's -->
+              <CelldlParametersTab
+                v-if="isCelldlModule"
+                :table="celldlTable"
+                :saved-defaults="savedDefaults"
+                :is-diagram-shown="isDiagramShown"
+                :is-opening="celldlHost.isSyncing.value"
+                @set-value="setInstanceValue"
+                @show-in-diagram="showInDiagram"
+              />
               <ParameterTable
+                v-else
                 ref="parameterTableRef"
                 :rows="parameterRows"
                 :is-managed="isManaged"
@@ -510,6 +521,7 @@ import MultiportSummary from './MultiportSummary.vue'
 import PortVariableSelect from './PortVariableSelect.vue'
 import ComponentSaveAsDialog from './dialogs/ComponentSaveAsDialog.vue'
 import CelldlPane from './celldl/CelldlPane.vue'
+import CelldlParametersTab from './celldl/CelldlParametersTab.vue'
 import MultiportIcon from './icons/MultiportIcon.vue'
 import BasicportIcon from './icons/BasicportIcon.vue'
 
@@ -545,6 +557,7 @@ import { notify } from '../utils/notify'
 import { getModelComponentNames, renameLayoutComponent, renameModelComponent } from '../utils/cellml'
 import { getEditorTabFormats, getModuleFormat } from '../services/moduleFormats'
 import { issueLines } from '../services/celldl/issues'
+import { buildElementTable } from '../services/celldl/elementTable'
 import { liveComponentMath } from '../services/celldl/liveMath'
 import { findPort } from '../utils/ports'
 import { previewCouplings } from '../utils/edges'
@@ -782,6 +795,126 @@ watch(
 // The diagram's live conversion, which the math editors show while the diagram has unsaved edits. Locked math
 // ignores what they report, so the session keeps the saved math.
 const liveConvert = useLiveCelldlConvert()
+
+// ── CellDL Parameters ───────────────────────────────────────────────────────
+/**
+ * Whether the Parameters tab shows the diagram's elements: for a module drawn in CellDL, and for the template
+ * while its diagram is shown and no format is chosen yet, where this build can edit diagrams.
+ */
+const isCelldlModule = computed(
+  () =>
+    isDiagramEditable.value &&
+    (moduleFormat.value.id === 'celldl' || (isTemplate.value && chosenFormat.value === null && editorKind.value === 'celldl'))
+)
+
+/** Whether the diagram shows, so the editor can change it. */
+const isDiagramShown = computed(
+  () =>
+    editorKind.value === 'celldl' &&
+    celldlHost.isActive.value &&
+    !celldlHost.isSyncing.value &&
+    !celldlHost.error.value
+)
+
+/** The module's values as saved: the defaults its instances' rows follow. */
+const savedDefaults = computed(() => store.getMathDefaults(props.mathRef))
+
+/**
+ * Values typed for variables an unsaved diagram edit adds, which have no row until the diagram is saved, by name.
+ * The save gives them to the rows it makes.
+ */
+const pendingValues = ref(new Map())
+
+/** The instance's rows, with the pending values as rows of their own. */
+const celldlRows = computed(() => {
+  const rows = parameterRows.value
+  const names = new Set(rows.map((row) => row.name))
+  const pending = [...pendingValues.value]
+    .filter(([name]) => !names.has(name))
+    .map(([name, value]) => ({ name, value, units: '', type: 'constant', pending: true }))
+  return [...rows, ...pending]
+})
+
+/**
+ * The element manifest for the diagram as it is, from the live conversion once it has caught up; null until then.
+ * Names are read from the last one, or the saved diagram's, meanwhile.
+ */
+const liveManifest = computed(() => {
+  const elements = liveConvert.result.value?.elements
+  return !liveConvert.isPending.value && elements && Object.keys(elements).length ? elements : null
+})
+const namesManifest = computed(() => {
+  const elements = liveConvert.result.value?.elements
+  if (elements && Object.keys(elements).length) return elements
+  return store.getMathSource(props.mathRef)?.elements ?? null
+})
+
+const celldlTable = computed(() =>
+  buildElementTable({
+    elements: celldlHost.elements.value,
+    manifest: liveManifest.value,
+    namesManifest: namesManifest.value,
+    rows: celldlRows.value,
+    savedDefaults: savedDefaults.value,
+    savedManifest: store.getMathSource(props.mathRef)?.elements ?? null,
+  })
+)
+
+// The editor lists a diagram's elements as it opens and as it changes; one it holds without either, e.g. drawn
+// before the tab showed, is listed once the table needs it.
+watch(
+  () => isCelldlModule.value && isDiagramShown.value && activeTab.value === 'parameters' && !celldlHost.elements.value.length,
+  (isNeeded) => {
+    if (isNeeded) celldlHost.listElements().catch((e) => console.error("CellDL diagram's elements couldn't be listed:", e))
+  },
+  { immediate: true }
+)
+
+/**
+ * Sets this instance's value of a diagram element's variable: in its row, or, for a variable the diagram has yet to
+ * be saved with, kept until the save makes its row. A blank value follows the diagram's.
+ *
+ * @param {{name: string|null, row: Object|null}} cell - A value cell (services/celldl/elementTable).
+ * @param {string} value
+ */
+function setInstanceValue(cell, value) {
+  if (!cell.name) return
+  const row = parameterRows.value.find((candidate) => candidate.name === cell.name)
+  if (row) {
+    row.value = value
+    return
+  }
+  const next = new Map(pendingValues.value)
+  if (value === '') next.delete(cell.name)
+  else next.set(cell.name, value)
+  pendingValues.value = next
+}
+
+/**
+ * Shows the diagram in the CellDL tab, then selects an element in it.
+ *
+ * @param {string|null} id
+ */
+async function showInDiagram(id) {
+  await switchEditor('celldl')
+  if (!id) return
+  await new Promise((resolve) => {
+    const stop = watch(
+      isDiagramShown,
+      (isShown) => {
+        if (!isShown) return
+        queueMicrotask(() => stop())
+        resolve()
+      },
+      { immediate: true }
+    )
+    setTimeout(() => {
+      stop()
+      resolve()
+    }, 10000)
+  })
+  if (isDiagramShown.value) celldlHost.selectElement(id, 'if-hidden').catch(() => {})
+}
 
 /** The live conversion's math, read only for a math editor shown over an edited diagram; null otherwise. */
 const liveMath = computed(() => {
@@ -1074,7 +1207,18 @@ const ISSUE_MATCHERS = {
   unconnected: (row) => connectionStatus.value.get(row.name)?.state === 'missing',
 }
 
+/** The CellDL tab's issues, as chips for the collapsed rail. */
+const celldlIssueChips = computed(() => {
+  const { unsetCount, clashCount } = celldlTable.value
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
+  return [
+    unsetCount && { key: 'unset', kind: 'units', icon: 'pi-exclamation-circle', count: unsetCount, label: `${plural(unsetCount, 'row')} to set` },
+    clashCount && { key: 'clash', kind: 'units', icon: 'pi-clone', count: clashCount, label: `${plural(clashCount, 'name')} clashing` },
+  ].filter(Boolean)
+})
+
 const issueChips = computed(() => {
+  if (isCelldlModule.value) return celldlIssueChips.value
   const rows = parameterRows.value
   const count = (fn) => rows.filter(fn).length
   const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
@@ -1264,11 +1408,18 @@ const hasUnsavedEdits = computed(
       signEditorState() !== savedEditorState.value)
 )
 
+/** How many rows the Parameters tab has: a diagram's elements and constants, or the math's variables. */
+const parametersCount = computed(() =>
+  isCelldlModule.value
+    ? celldlTable.value.sections.reduce((count, section) => count + section.rows.length, 0)
+    : parameterRows.value.length
+)
+
 /** The active right-hand tab's name and count, shown on the collapsed rail. */
 const rightTabLabel = computed(() => {
   if (activeTab.value === 'ports') return `Ports (${editablePorts.value.length})`
   if (activeTab.value === 'plot') return `Plot (${plottedCount.value})`
-  return `Parameters (${parameterRows.value.length})`
+  return `Parameters (${parametersCount.value})`
 })
 
 // Screen readers get the same information the badges show.
@@ -1352,6 +1503,7 @@ async function loadEditor({ keepTab = false } = {}) {
     editorKind.value = formatEditor ?? loadStoredEditorKind()
   }
   issueFilter.reset()
+  pendingValues.value = new Map()
   // The diagram opens as the tab first shows, so a dialog that never shows it never loads the editor.
   if (isDiagramEditable.value) celldlHost.prepare(store.getMathSource(props.mathRef))
 
@@ -1773,6 +1925,21 @@ async function stageDiagram() {
 }
 
 /**
+ * Gives a diagram's rows the values typed in the Parameters tab for variables they lacked before the save, and blank
+ * rows the diagram's values, as a blank value follows them.
+ *
+ * @param {{isStaged: boolean}} options - Whether the save converts the diagram, whose values blank rows then took.
+ */
+function applyCelldlValues({ isStaged }) {
+  const pending = pendingValues.value
+  const defaults = savedDefaults.value
+  parameterRows.value.forEach((row) => {
+    if (pending.has(row.name)) row.value = pending.get(row.name)
+    else if (!isStaged && isEmpty(row.value) && defaults.has(row.name)) row.value = defaults.get(row.name)
+  })
+}
+
+/**
  * Works out the math reference a save writes to, asking before overwriting stored math or renaming a save of the
  * template.
  *
@@ -1921,6 +2088,7 @@ async function saveInstance(options) {
     if (!target) return
     keptValues = session.applyGeneratedModel(staged.math, { previousDefaults })
   }
+  if (isCelldlModule.value) applyCelldlValues({ isStaged: !!staged })
 
   // Values typed into the text belong in the rows, so an edit to values alone leaves the math unchanged.
   session.separateTypedValues()

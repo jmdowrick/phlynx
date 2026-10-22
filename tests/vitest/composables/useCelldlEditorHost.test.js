@@ -14,7 +14,7 @@ const SOURCE = { format: 'celldl', document: '<svg>rc</svg>', documentUri: 'http
  * Stands in for the CellDL editor: it draws a diagram into the host's root once mounted, and answers commands
  * as the editor does.
  */
-function mountFakeEditor(host, { failOpen = false } = {}) {
+function mountFakeEditor(host, { failOpen = false, listsElements = true } = {}) {
   const root = document.createElement('div')
   document.body.appendChild(root)
   const container = document.createElement('div')
@@ -26,6 +26,9 @@ function mountFakeEditor(host, { failOpen = false } = {}) {
   watch(host.command, (command) => {
     commands.push(command)
     const { action, data, kind } = command.options
+    if (command.command === 'element' && action === 'list' && listsElements) {
+      queueMicrotask(() => host.onElements({ kind, revision: 0, elements: [] }))
+    }
     if (command.command !== 'file') return
     if (action === 'open') {
       if (failOpen) return host.onEditorState({ error: 'Cannot open' })
@@ -85,13 +88,15 @@ describe('useCelldlEditorHost', () => {
       options: { action: 'open', data: SOURCE.document, name: SOURCE.documentUri },
     })
     expect(editor.commands[1].options.action).toBe('data')
+    // Its elements are listed for the Parameters tab.
+    await vi.waitFor(() => expect(editor.commands[2]).toMatchObject({ command: 'element', options: { action: 'list' } }))
 
     // Shown again without reopening.
     host.release(pane)
     expect(host.isActive.value).toBe(false)
     host.claim(pane)
     await host.sync()
-    expect(editor.commands).toHaveLength(2)
+    expect(editor.commands).toHaveLength(3)
   })
 
   it('closes the diagram for a source with no document', async () => {
@@ -394,6 +399,109 @@ describe('useCelldlEditorHost', () => {
     host.claim(second)
     host.release(first)
     expect(host.target.value).toBe(second)
+  })
+})
+
+describe("the CellDL editor's element command", () => {
+  let host
+  let editor
+  const ELEMENT = { id: 'ID-1', kind: 'QuantityStore', species: 'S' }
+
+  /** Stands in for the editor's element command: it lists, sets and selects, replying with the command's kind. */
+  function mountElementEditor({ isSilent = false } = {}) {
+    const fake = mountFakeEditor(host, { listsElements: false })
+    fake.draw()
+    let elements = [ELEMENT]
+    let revision = 1
+    watch(host.command, (command) => {
+      if (command.command !== 'element' || isSilent) return
+      const { action, kind, edits, id } = command.options
+      queueMicrotask(() => {
+        if (action === 'list') host.onElements({ kind, revision, elements })
+        else if (action === 'set') {
+          const bad = edits.filter((edit) => edit.value === '{')
+          elements = elements.map((element) => ({ ...element, ...Object.fromEntries(edits.filter((e) => e.value !== '{').map((e) => [e.field, e.value])) }))
+          revision += 1
+          // The edit's diagram change brings the new list, with no kind, before the reply.
+          host.onElements({ revision, elements })
+          host.onElementResult(bad.length ? { kind, ok: false, errors: bad.map((e) => ({ ...e, message: 'bad' })) } : { kind, ok: true })
+        } else if (action === 'select') {
+          host.onViewerEvent({ type: 'unselect', component: { id: 'ID-0' } })
+          host.onViewerEvent({ type: 'select', component: { id } })
+          host.onElementResult({ kind, ok: true })
+        }
+      })
+    })
+    return fake
+  }
+
+  beforeEach(() => {
+    host = createCelldlEditorHost({ readyTimeout: 500, commandTimeout: 200 })
+    host.listen()
+  })
+
+  afterEach(() => {
+    host.unlisten()
+    document.body.replaceChildren()
+  })
+
+  it('lists the elements, keeping them as the latest list', async () => {
+    editor = mountElementEditor()
+    await expect(host.listElements()).resolves.toEqual([ELEMENT])
+    expect(host.elements.value).toEqual([ELEMENT])
+    expect(host.elementsRevision.value).toBe(1)
+  })
+
+  it('matches a set to its reply by kind, and follows the list the edit brings', async () => {
+    editor = mountElementEditor()
+    // Another command's reply is not this one's.
+    host.onElementResult({ kind: 'someone-else', ok: false })
+    const result = await host.setElement([{ id: 'ID-1', field: 'species', value: 'Glc' }])
+    expect(result).toEqual({ ok: true })
+    expect(host.elements.value[0].species).toBe('Glc')
+    expect(host.elementsRevision.value).toBe(2)
+
+    await expect(host.setElement([{ id: 'ID-1', field: 'species', value: '{' }])).resolves.toMatchObject({ ok: false, errors: [{ field: 'species' }] })
+  })
+
+  it("gives up on an element command the editor doesn't answer", async () => {
+    editor = mountElementEditor({ isSilent: true })
+    await expect(host.setElement([{ id: 'ID-1', field: 'species', value: 'Glc' }])).rejects.toThrow("didn't edit the diagram in time")
+    await expect(host.listElements()).rejects.toThrow("didn't list its elements in time")
+  })
+
+  it('sends each of several commands made at once', async () => {
+    editor = mountElementEditor()
+    const [listed, set] = await Promise.all([host.listElements(), host.setElement([{ id: 'ID-1', field: 'location', value: 'm' }])])
+    expect(listed).toHaveLength(1)
+    expect(set.ok).toBe(true)
+    expect(editor.commands.map((command) => command.options.action)).toEqual(['list', 'set'])
+  })
+
+  it("marks the selection it made as its own, and the user's as not", async () => {
+    editor = mountElementEditor()
+    const onEvent = vi.fn()
+    host.claim(document.createElement('div'), onEvent)
+    await host.selectElement('ID-1', 'if-hidden')
+    expect(editor.commands.at(-1).options).toMatchObject({ action: 'select', id: 'ID-1', centre: 'if-hidden' })
+    expect(host.selection.value).toEqual({ id: 'ID-1', isHostSelection: true })
+    expect(onEvent).toHaveBeenLastCalledWith({ type: 'select', component: { id: 'ID-1' }, isHostSelection: true })
+
+    host.onViewerEvent({ type: 'select', component: { id: 'ID-1' } })
+    expect(host.selection.value).toEqual({ id: 'ID-1', isHostSelection: false })
+    host.onViewerEvent({ type: 'unselect', component: { id: 'ID-1' } })
+    expect(host.selection.value.id).toBe(null)
+  })
+
+  it("drops the elements as another source opens, and lists the new one's", async () => {
+    editor = mountElementEditor()
+    await host.listElements()
+    host.prepare(SOURCE)
+    host.claim(document.createElement('div'))
+    const syncing = host.sync()
+    expect(host.elements.value).toEqual([])
+    await syncing
+    await vi.waitFor(() => expect(host.elements.value).toEqual([ELEMENT]))
   })
 })
 
