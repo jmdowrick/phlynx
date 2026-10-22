@@ -3,6 +3,7 @@
     <div ref="rootRef" class="celldl-host">
       <CellDLEditor
         :annotations="host.annotations.value"
+        :chrome="EDITOR_CHROME"
         :editor-command="host.command.value"
         :options="EDITOR_OPTIONS"
         :theme="isDarkMode ? 'dark' : 'light'"
@@ -23,7 +24,7 @@
  */
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
 
-import { EDITOR_OPTIONS, useCelldlEditorHost } from '../../composables/useCelldlEditorHost'
+import { EDITOR_CHROME, EDITOR_OPTIONS, useCelldlEditorHost } from '../../composables/useCelldlEditorHost'
 import { useColorScheme } from '../../composables/useColorScheme'
 
 const host = useCelldlEditorHost()
