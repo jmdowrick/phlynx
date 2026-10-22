@@ -1818,14 +1818,24 @@ function resolveSaveAs(name) {
 }
 
 /**
+ * Counts the instances, other than this one, on a module's math.
+ *
+ * @param {string} mathRef
+ * @returns {number}
+ */
+const otherInstanceCount = (mathRef) => nodes.value.filter((n) => n.id !== props.id && n.data?.mathRef === mathRef).length
+
+/**
  * Asks whether to overwrite stored math, or save it as a new component under an unused name.
  *
  * @param {string} name - The stored component's name, offered to edit.
- * @param {{isOwnFile?: boolean}} [options] - Whether a new component goes in its own file (see saveAsFile).
+ * @param {{isOwnFile?: boolean, mathRef?: string}} [options] - Whether a new component goes in its own file (see
+ *   saveAsFile), and the math overwritten, the instance's by default, whose other instances the warning counts.
  * @returns {Promise<{name: string|null}|null>} The new component's name, a null name to overwrite, or null to cancel.
  */
-async function handleMathOverwrite(name, { isOwnFile = false } = {}) {
-  const affects = siblingCount.value > 0 ? ` This will affect ${siblingCount.value} other instances.` : ''
+async function handleMathOverwrite(name, { isOwnFile = false, mathRef = props.mathRef } = {}) {
+  const count = otherInstanceCount(mathRef)
+  const affects = count > 0 ? ` This will affect ${count} other instance${count === 1 ? '' : 's'}.` : ''
   const choice = await choose({
     header: 'Overwrite Math?',
     message: `"${name}" already exists.${affects} Overwrite it, or save your changes as a new component?`,
@@ -1893,11 +1903,26 @@ function renamedDiagramComponent() {
 }
 
 /**
+ * Gets the diagram's module a renamed diagram may overwrite: one under that name in its own file, as a renamed diagram
+ * is saved, never a template's or CellML's, whose file may hold other components.
+ *
+ * @param {string} name
+ * @returns {string|null} Its math reference, or null when there's none to overwrite.
+ */
+function overwritableDiagram(name) {
+  const mathRef = `${saveAsFile(name, { isOwnFile: true })}:${name}`
+  if (isTemplateName(name) || isSameName(name, componentName.value ?? '') || PROTECTED_MATH_REFS.has(mathRef)) return null
+  if (!store.availableMath.has(mathRef)) return null
+  return store.getMathSource(mathRef)?.format === 'celldl' ? mathRef : null
+}
+
+/**
  * Converts the diagram, when edited since it was opened or saved, into the math this save writes. Errors stop the
  * save, keeping the stored math and diagram, with the elements they name highlighted; warnings ask first. The
  * template's diagram, and a diagram whose component is renamed, is a new component, named first so its CellML is, in
  * its own file under a new documentUri; a renamed one's module, diagram and units are left as they are. A diagram
- * saved under its module's name overwrites it, or is converted again as a new component, asking once it converts.
+ * saved under its module's name, or renamed to another diagram's module's (overwritableDiagram), overwrites that, or is
+ * converted again as a new component, asking once it converts.
  *
  * @param {{newName?: string|null, isWarned?: boolean}} [options] - A new component's name, chosen instead of
  *   overwriting, and whether its warnings were already accepted.
@@ -1915,6 +1940,8 @@ async function stageDiagram({ newName = null, isWarned = false } = {}) {
   let file = componentFile.value
   let documentUri = stored?.documentUri
   let isEditorDocument = true
+  // Another diagram's module this renamed one may overwrite, its source replaced by this diagram.
+  let overwriteRef = null
   isConverting.value = true
   try {
     if (isDiagramDirty.value) {
@@ -1928,7 +1955,8 @@ async function stageDiagram({ newName = null, isWarned = false } = {}) {
     }
     if (!stored || isRenamed) {
       isConverting.value = false
-      const taken = isRenamed && !newName && isComponentNameTaken(name, { isOwnFile: true })
+      overwriteRef = isRenamed && !newName ? overwritableDiagram(name) : null
+      const taken = isRenamed && !newName && !overwriteRef && isComponentNameTaken(name, { isOwnFile: true })
       if (!stored || taken) {
         const renamed = await promptComponentSaveAs(
           stored
@@ -1942,7 +1970,7 @@ async function stageDiagram({ newName = null, isWarned = false } = {}) {
       file = saveAsFile(name, { isOwnFile: true })
       isConverting.value = true
       const { mintDocumentUri } = await import('../services/celldl/documentUri.js')
-      documentUri = mintDocumentUri(`${file}:${name}`)
+      documentUri = (overwriteRef && store.getMathSource(overwriteRef)?.documentUri) || mintDocumentUri(`${file}:${name}`)
       // A diagram naming its model under its own absolute IRI is read under that, so it's renamed to the new one.
       if (stored?.documentUri && document?.includes(stored.documentUri)) {
         document = document.split(stored.documentUri).join(documentUri)
@@ -1988,8 +2016,8 @@ async function stageDiagram({ newName = null, isWarned = false } = {}) {
     if (!proceed) return false
   }
   // Saved under its module's name, it overwrites it, or is converted again as a new component, as CellML is saved.
-  if (stored && !isRenamed && store.availableMath.has(props.mathRef)) {
-    const choice = await handleMathOverwrite(name, { isOwnFile: true })
+  if (overwriteRef || (stored && !isRenamed && store.availableMath.has(props.mathRef))) {
+    const choice = await handleMathOverwrite(name, { isOwnFile: true, mathRef: overwriteRef ?? props.mathRef })
     if (!choice) return false
     if (choice.name) return stageDiagram({ newName: choice.name, isWarned: true })
   }
@@ -1997,7 +2025,7 @@ async function stageDiagram({ newName = null, isWarned = false } = {}) {
     mathRef: `${file}:${name}`,
     math: component.math,
     source: {
-      ...stored,
+      ...(overwriteRef ? store.getMathSource(overwriteRef) : stored),
       format: moduleFormat.value.id,
       document,
       documentUri: result.documentUri,
@@ -2078,7 +2106,7 @@ async function resolveMathTarget(math, layout) {
     }
   }
   if (store.availableMath.has(mathRef)) {
-    const choice = await handleMathOverwrite(newComponentName)
+    const choice = await handleMathOverwrite(newComponentName, { mathRef })
     if (!choice) return null
     if (choice.name) {
       return {

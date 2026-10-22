@@ -886,6 +886,92 @@ class TestCelldl(unittest.TestCase):
 
             browser.close()
 
+    def test_asks_before_a_rename_onto_another_diagrams_component(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+
+            # ---------- START -----------
+            import_diagram(page, ENZYME)
+            expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            place(page, "ENZYME", ENZYME_MODULE, x=600, y=350)
+            card = page.locator(".mlc__card--draggable").filter(has_text=ENZYME_MODULE).first
+            card.drag_to(page.locator(".vue-flow__pane").first, target_position={"x": 900, "y": 600})
+            instances = page.locator(".vue-flow__node").filter(has_text=ENZYME_MODULE)
+            expect(instances).to_have_count(2)
+            dialog = page.locator(".module-editor-dialog")
+            prompt = page.locator(".confirm-container").filter(has_text="Overwrite Math?")
+
+            # The first's edit, renamed, is a new component "enzyme_other" for it alone.
+            instances.first.dblclick()
+            wait_for_diagram(page)
+            component = dialog.locator(".header-group--secondary input")
+            component.fill("enzyme_other")
+            component.press("Tab")
+            set_element_field(dialog, REACTION_R1, "Location", "cyt")
+            expect(element_row(dialog, REACTION_R1).locator(".element-names")).to_contain_text("kappa_Rx_r1_cyt", timeout=DIAGRAM_TIMEOUT)
+            dialog.get_by_role("button", name="Save").click()
+            expect(dialog).to_be_hidden(timeout=DIAGRAM_TIMEOUT)
+            other = stored_document(page, "enzyme_other.cellml:enzyme_other")
+            self.assertIsNotNone(other)
+
+            # Renamed onto it, the second's edit asks, naming the instances it affects; saved as new, it leaves it alone.
+            instances.nth(1).dblclick()
+            wait_for_diagram(page)
+            component.fill("enzyme_other")
+            component.press("Tab")
+            set_element_field(dialog, REACTION_R2, "Location", "cyt")
+            expect(element_row(dialog, REACTION_R2).locator(".element-names")).to_contain_text("kappa_Rx_r2_cyt", timeout=DIAGRAM_TIMEOUT)
+            dialog.get_by_role("button", name="Save").click()
+            expect(prompt).to_contain_text('"enzyme_other" already exists. This will affect 1 other instance.', timeout=DIAGRAM_TIMEOUT)
+            answer_overwrite(page, "Save as new component")
+            save_as_new(
+                page,
+                [
+                    ("enzyme_other", 'A component named "enzyme_other" already exists.'),
+                    ("new_module", '"new_module" is a template and can\'t be overwritten.'),
+                ],
+                "enzyme_third",
+            )
+            expect(dialog).to_be_hidden(timeout=DIAGRAM_TIMEOUT)
+            self.assertEqual(stored_document(page, "enzyme_other.cellml:enzyme_other"), other)
+            self.assertIsNotNone(stored_document(page, "enzyme_third.cellml:enzyme_third"))
+
+            # Renamed onto it again, Overwrite replaces its diagram with the second's, which moves to it.
+            instances.nth(1).dblclick()
+            wait_for_diagram(page)
+            self.assertEqual(component_of(dialog), ("enzyme_third", "enzyme_third.cellml"))
+            component.fill("enzyme_other")
+            component.press("Tab")
+            dialog.get_by_role("button", name="Save").click()
+            answer_overwrite(page, "Overwrite")
+            expect(dialog).to_be_hidden(timeout=DIAGRAM_TIMEOUT)
+            overwritten = stored_document(page, "enzyme_other.cellml:enzyme_other")
+            self.assertNotEqual(overwritten, other)
+
+            # Both instances now share it, the first with the second's diagram.
+            instances.first.dblclick()
+            wait_for_diagram(page)
+            self.assertEqual(component_of(dialog), ("enzyme_other", "enzyme_other.cellml"))
+            expect(element_row(dialog, REACTION_R2).locator(".element-names")).to_contain_text("kappa_Rx_r2_cyt")
+            expect(element_row(dialog, REACTION_R1).locator(".element-names")).not_to_contain_text("kappa_Rx_r1_cyt")
+            expect(dialog.locator(".apply-all-checkbox")).to_contain_text("Apply math changes to all 2 instances")
+            dialog.get_by_role("button", name="Cancel").click()
+            expect(dialog).to_be_hidden()
+
+            # Undo puts its diagram back, and the second on its own component.
+            page.keyboard.press("ControlOrMeta+z")
+            page.wait_for_function(
+                """(diagram) => document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
+                    .get('library').getMathSource('enzyme_other.cellml:enzyme_other')?.document === diagram""",
+                arg=other,
+            )
+            instances.nth(1).dblclick()
+            wait_for_diagram(page)
+            self.assertEqual(component_of(dialog), ("enzyme_third", "enzyme_third.cellml"))
+            # ----------- END ------------
+
+            browser.close()
+
     def test_saves_a_cellml_edit_as_a_new_component_instead_of_overwriting(self):
         with sync_playwright() as playwright:
             browser, page = open_app(playwright)

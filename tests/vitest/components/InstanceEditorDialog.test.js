@@ -1413,7 +1413,7 @@ describe('InstanceEditorDialog locked math', () => {
       await saveEdited()
 
       expect(choose).toHaveBeenCalledWith(expect.objectContaining({ header: 'Overwrite Math?' }))
-      expect(choose.mock.calls[0][0].message).toContain('This will affect 1 other instances.')
+      expect(choose.mock.calls[0][0].message).toContain('This will affect 1 other instance.')
 
       expect(convertCelldl).toHaveBeenCalledWith(EDITED_DOCUMENT, expect.objectContaining({ documentUri: SOURCE.documentUri, componentName: 'decay' }))
       const [save] = wrapper.emitted('confirm')[0]
@@ -1605,6 +1605,90 @@ describe('InstanceEditorDialog locked math', () => {
 
         expect(wrapper.emitted('confirm')[0][0].mathRef).toBe('faster.cellml:faster')
       })
+
+      describe("onto another diagram's module", () => {
+        const FAST_REF = 'fast.cellml:fast'
+        const FAST_SOURCE = { format: 'celldl', document: '<svg>fast</svg>', documentUri: 'local:fast.celldl', elements: {} }
+
+        beforeEach(() => {
+          const library = useLibraryStore()
+          library.addMath(FAST_REF, XML.replaceAll('decay', 'fast'))
+          library.setMathSource(FAST_REF, FAST_SOURCE)
+          flowNodes.value = [...flowNodes.value, { id: 'c', data: { name: 'c', mathRef: FAST_REF } }, { id: 'd', data: { name: 'd', mathRef: FAST_REF } }]
+          convertCelldl.mockResolvedValue(converted({ components: [{ name: 'fast', math: FAST_XML }], documentUri: FAST_SOURCE.documentUri }))
+        })
+
+        it("asks, then overwrites it with this diagram under its documentUri and file, moving this instance to it", async () => {
+          await openRenamed()
+          await clickSave()
+
+          expect(choose).toHaveBeenCalledWith(
+            expect.objectContaining({ header: 'Overwrite Math?', acceptLabel: 'Overwrite', extraLabel: 'Save as new component' })
+          )
+          expect(choose.mock.calls[0][0].message).toBe(
+            '"fast" already exists. This will affect 2 other instances. Overwrite it, or save your changes as a new component?'
+          )
+          expect(convertCelldl).toHaveBeenCalledWith(EDITED_DOCUMENT, expect.objectContaining({ documentUri: FAST_SOURCE.documentUri, componentName: 'fast' }))
+          const [save] = wrapper.emitted('confirm')[0]
+          expect(save).toMatchObject({
+            mathRef: FAST_REF,
+            previousMathRef: MATH_REF,
+            math: FAST_XML,
+            isSourceChanged: true,
+            source: { format: 'celldl', document: EDITED_DOCUMENT, documentUri: FAST_SOURCE.documentUri },
+            units: { componentFile: 'fast.cellml', model: '<model name="units"/>' },
+            updateAll: false,
+            siblings: [],
+          })
+          expect(useLibraryStore().getMathSource(MATH_REF)).toEqual(SOURCE)
+        })
+
+        it('saves as a new component under an unused name instead, when asked', async () => {
+          choose.mockResolvedValueOnce('extra')
+          await openRenamed()
+          await wrapper.findAll('button').find((candidate) => candidate.text() === 'Save').trigger('click')
+          await vi.waitFor(() => expect(wrapper.findComponent(ComponentSaveAsDialog).exists()).toBe(true))
+          const saveAs = wrapper.findComponent(ComponentSaveAsDialog)
+          expect(saveAs.props('initialName')).toBe('fast')
+          expect(saveAs.props('isTaken')('fast')).toBe('A component named "fast" already exists.')
+          expect(saveAs.props('isTaken')('new_module')).toBe('"new_module" is a template and can\'t be overwritten.')
+          convertCelldl.mockResolvedValue(converted({ components: [{ name: 'faster', math: FAST_XML.replaceAll('fast', 'faster') }] }))
+          saveAs.vm.$emit('confirm', 'faster')
+          await vi.waitFor(() => expect(wrapper.vm.isSaving).toBe(false))
+          await flushPromises()
+
+          const [save] = wrapper.emitted('confirm')[0]
+          expect(save).toMatchObject({ mathRef: 'faster.cellml:faster', units: { componentFile: 'faster.cellml' } })
+          expect(save.source.documentUri).not.toBe(FAST_SOURCE.documentUri)
+        })
+
+        it('saves nothing when cancelled', async () => {
+          choose.mockResolvedValueOnce('reject')
+          await openRenamed()
+          await clickSave()
+
+          expect(wrapper.emitted('confirm')).toBeUndefined()
+        })
+
+        it("goes straight to Save As for a CellML module's name", async () => {
+          useLibraryStore().setMathSource(FAST_REF, null)
+          await openRenamed()
+          await wrapper.findAll('button').find((candidate) => candidate.text() === 'Save').trigger('click')
+          await vi.waitFor(() => expect(wrapper.findComponent(ComponentSaveAsDialog).exists()).toBe(true))
+
+          expect(choose).not.toHaveBeenCalled()
+          expect(wrapper.findComponent(ComponentSaveAsDialog).props('message')).toContain('A component named "fast" already exists.')
+        })
+
+        it("goes straight to Save As for a template's name", async () => {
+          await openRenamed('new_module')
+          await wrapper.findAll('button').find((candidate) => candidate.text() === 'Save').trigger('click')
+          await vi.waitFor(() => expect(wrapper.findComponent(ComponentSaveAsDialog).exists()).toBe(true))
+
+          expect(choose).not.toHaveBeenCalled()
+          expect(wrapper.findComponent(ComponentSaveAsDialog).props('message')).toContain('is a template')
+        })
+      })
     })
 
     it("gives a value typed for a variable the diagram adds to the row the save makes", async () => {
@@ -1761,6 +1845,22 @@ describe('InstanceEditorDialog locked math', () => {
 
     expect(choose).not.toHaveBeenCalled()
     expect(wrapper.emitted('confirm')[1][0]).toMatchObject({ mathRef: 'file:growth', updateAll: true, siblings: ['b'], units: null })
+  })
+
+  it("asks before a rename onto another component in the file, counting that component's instances", async () => {
+    useLibraryStore().addMath('file:growth', XML.replaceAll('decay', 'growth'))
+    flowNodes.value = [...flowNodes.value, { id: 'c', data: { name: 'c', mathRef: 'file:growth' } }]
+    mountDialog()
+    const editor = await open()
+    await report(editor, 'init', XML)
+    await report(editor, 'edit', EDITED_XML.replaceAll('decay', 'growth'))
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await flushPromises()
+
+    expect(choose.mock.calls[0][0].message).toBe(
+      '"growth" already exists. This will affect 1 other instance. Overwrite it, or save your changes as a new component?'
+    )
+    expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: 'file:growth', previousMathRef: MATH_REF })
   })
 
   describe('saving CellML math as a new component', () => {

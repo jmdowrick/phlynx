@@ -149,6 +149,10 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
       }
     } else if (isLayoutChanged) libraryStore.setMathLayout(mathRef, layout)
     const moduleRef = isNewModule ? libraryStore.createModuleForMath(mathRef, detachReactivity({ ports, variables })) : null
+    // The source's renames are its own variables', so they move only the rows of nodes that were on the saved math,
+    // not those of another module's it overwrote.
+    const previousMathRef = save.previousMathRef ?? mathRef
+    const renamedIds = new Set(nodes.value.filter((node) => node.data?.mathRef === previousMathRef).map((node) => node.id))
 
     // Without its own module, a node would keep its old one's ref, which export keys configs by.
     // Only siblings on the edited node's old module share its ports, so only they move to the new one.
@@ -168,7 +172,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     const otherNodes = nodes.value.filter((node) => node.id !== id && node.data?.mathRef === mathRef)
     otherNodes.forEach((node) => {
       // Values, and ports, follow variables the source's edit renamed.
-      if (renames.size) {
+      if (renames.size && renamedIds.has(node.id)) {
         node.data.variables = renameRows(node.data.variables ?? [], renames)
         node.data.ports = renamePortVariables(node.data.ports, renames)
       }
