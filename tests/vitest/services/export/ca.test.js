@@ -10,7 +10,8 @@ const notified = vi.hoisted(() => ({ error: vi.fn(), warning: vi.fn() }))
 vi.mock('../../../../src/utils/notify', () => ({ notify: notified }))
 
 const { generateExportZip } = await import('../../../../src/services/export/ca.js')
-const { caModuleFileName } = await import('../../../../src/services/export/caCellml.js')
+const { caModuleFileName, groupingTag, renameClashingComponents } = await import('../../../../src/services/export/caCellml.js')
+const { combineComponentModels, processCellMLData } = await import('../../../../src/utils/cellml.js')
 const { useLibraryStore } = await import('../../../../src/stores/libraryStore.js')
 
 const BG_MATH_REF = 'BG_modules.cellml:vp_simple_type'
@@ -158,6 +159,39 @@ describe('caModuleFileName', () => {
   it("names a CellDL grouping as CellML, apart from the CellML grouping of its stem", () => {
     expect(caModuleFileName('User_Modules.celldl')).toBe('User_CellDL_modules.cellml')
     expect(caModuleFileName('User_Modules.cellml')).not.toBe(caModuleFileName('User_Modules.celldl'))
+  })
+})
+
+describe('renameClashingComponents', () => {
+  it('keeps the name for a CellML grouping, then the first by name, and tags the rest', () => {
+    const typesByFile = new Map([
+      ['User_Modules.celldl', new Set(['decay', 'grow'])],
+      ['b_modules.cellml', new Set(['decay'])],
+      ['a.cellml', new Set(['decay'])],
+    ])
+    expect(renameClashingComponents(typesByFile)).toEqual([
+      { file: 'b_modules.cellml', from: 'decay', to: 'decay_b' },
+      { file: 'User_Modules.celldl', from: 'decay', to: 'decay_celldl' },
+    ])
+  })
+
+  it('numbers past names any grouping holds', () => {
+    const typesByFile = new Map([
+      ['User_Modules.cellml', new Set(['decay', 'decay_celldl'])],
+      ['User_Modules.celldl', new Set(['decay'])],
+    ])
+    expect(renameClashingComponents(typesByFile)).toEqual([{ file: 'User_Modules.celldl', from: 'decay', to: 'decay_celldl_2' }])
+  })
+
+  it('renames nothing when names differ', () => {
+    expect(renameClashingComponents(new Map([['a.cellml', new Set(['x'])], ['b.celldl', new Set(['y'])]]))).toEqual([])
+  })
+
+  it('tags groupings as CellML identifiers', () => {
+    expect(groupingTag('User_Modules.celldl')).toBe('celldl')
+    expect(groupingTag('BG_modules.cellml')).toBe('bg')
+    expect(groupingTag('my-math v2.cellml')).toBe('my_math_v2')
+    expect(groupingTag('modules.cellml')).toBe('file')
   })
 })
 
@@ -355,11 +389,19 @@ describe('generateExportZip', () => {
     await expect(generateExportZip('heart', [node], [], library)).rejects.toThrow('gone.cellml:stub_type')
   })
 
-  it('fails when two files hold components of one name, as CA finds components by name', async () => {
+  it('renames a component another file holds by name, in the config and its file, and warns', async () => {
     library.addMath('other_modules.cellml:vp_simple_type', VP_MATH)
     library.addModule({ moduleRef: 'other:vp', mathRef: 'other_modules.cellml:vp_simple_type', ports: [], variables: [] })
     const other = { id: 'o', data: { name: 'o', moduleRef: 'other:vp', mathRef: 'other_modules.cellml:vp_simple_type', ports: [], variables: [] } }
-    await expect(generateExportZip('heart', [nodeWith('vp', []), other], [], library)).rejects.toThrow('vp_simple_type')
+    const files = await readZip(await generateExportZip('heart', [nodeWith('vp', []), other], [], library))
+    const entries = JSON.parse(files['modules/heart_module_config.json'])
+    expect(entries.map((entry) => [entry.module_type, entry.component_file, entry.component_type])).toEqual([
+      ['arterial_simple', 'BG_modules.cellml', 'vp_simple_type'],
+      ['other', 'other_modules.cellml', 'vp_simple_type_other'],
+    ])
+    expect(files['modules/other_modules.cellml']).toContain('<component name="vp_simple_type_other">')
+    expect(files['modules/BG_modules.cellml']).toContain('<component name="vp_simple_type">')
+    expect(library.availableMath.has('other_modules.cellml:vp_simple_type')).toBe(true)
   })
 
   it('writes the CellDL user modules grouping as a .cellml file, beside the CellML one', async () => {
@@ -380,15 +422,87 @@ describe('generateExportZip', () => {
     expect(Object.keys(files).some((name) => name.includes('.celldl'))).toBe(false)
   })
 
-  it('fails, naming it, when a component of one name is in both user modules groupings', async () => {
+  /**
+   * Adds a rate_type module, and a node on it, in each grouping.
+   *
+   * @param {string[]} groupings
+   * @returns {Array} The nodes.
+   */
+  function rateNodesIn(groupings) {
     library.addGeneratedUnits({ name: 'per_min', parts: [{ units: 'second', prefix: 0, exponent: -1, multiplier: 60 }] })
-    const nodes = ['User_Modules.cellml', 'User_Modules.celldl'].map((grouping, i) => {
+    return groupings.map((grouping, i) => {
       const mathRef = `${grouping}:rate_type`
       library.addMath(mathRef, RATE_MATH)
-      library.addModule({ moduleRef: `rate${i}:default`, mathRef, ports: [], variables: [] })
-      return { id: `r${i}`, data: { name: `r${i}`, moduleRef: `rate${i}:default`, mathRef, ports: [], variables: [] } }
+      library.addModule({ moduleRef: `rate${i}:default`, mathRef, ports: [], variables: [{ name: 'r', type: 'constant', units: 'per_min', value: i }] })
+      return { id: `r${i}`, data: { name: `r${i}`, moduleRef: `rate${i}:default`, mathRef, ports: [], variables: [{ name: 'r', type: 'constant', units: 'per_min', value: i }] } }
     })
-    await expect(generateExportZip('heart', nodes, [], library)).rejects.toThrow('rate_type')
+  }
+
+  it('renames the CellDL user module of a CellML user module\'s name everywhere it is named, and warns', async () => {
+    const nodes = rateNodesIn(['User_Modules.celldl', 'User_Modules.cellml'])
+    const files = await readZip(await generateExportZip('heart', nodes, [], library))
+    const entries = JSON.parse(files['modules/heart_module_config.json'])
+    expect(entries.map((entry) => [entry.module_type, entry.component_file, entry.component_type])).toEqual([
+      ['rate0', 'User_CellDL_modules.cellml', 'rate_type_celldl'],
+      ['rate1', 'User_modules.cellml', 'rate_type'],
+    ])
+    expect(files['modules/User_CellDL_modules.cellml']).toContain('<component name="rate_type_celldl">')
+    expect(files['modules/User_CellDL_modules.cellml']).not.toContain('"rate_type"')
+    expect(files['modules/User_modules.cellml']).toContain('<component name="rate_type">')
+    // The module array and parameters name instances and module types, which the rename leaves alone.
+    const { data: rows } = Papa.parse(files['heart_module_array.csv'], { header: true, skipEmptyLines: true })
+    expect(rows.map((row) => `${row.module_type}:${row.module_subtype}`)).toEqual(['rate0:default', 'rate1:default'])
+    expect(Object.keys(parametersOf(files))).toEqual(['r_r0', 'r_r1'])
+    expect(notified.warning).toHaveBeenCalledWith({
+      title: 'Components Renamed',
+      message: 'CA finds components by name, so the export renames "rate_type" in User_Modules.celldl to "rate_type_celldl". The library keeps the original names.',
+    })
+    expect(library.availableMath.has('User_Modules.celldl:rate_type')).toBe(true)
+  })
+
+  it('numbers a renamed component while its name is taken, listing each rename', async () => {
+    const nodes = rateNodesIn(['User_Modules.celldl', 'Lab_Modules.celldl', 'User_Modules.cellml'])
+    const files = await readZip(await generateExportZip('heart', nodes, [], library))
+    const entries = JSON.parse(files['modules/heart_module_config.json'])
+    expect(entries.map((entry) => entry.component_type)).toEqual(['rate_type_celldl_2', 'rate_type_celldl', 'rate_type'])
+    expect(files['modules/User_CellDL_modules.cellml']).toContain('<component name="rate_type_celldl_2">')
+    expect(files['modules/Lab_CellDL_modules.cellml']).toContain('<component name="rate_type_celldl">')
+    const { message } = notified.warning.mock.calls.find(([warning]) => warning.title === 'Components Renamed')[0]
+    expect(message).toContain('"rate_type" in Lab_Modules.celldl to "rate_type_celldl"')
+    expect(message).toContain('"rate_type" in User_Modules.celldl to "rate_type_celldl_2"')
+  })
+
+  it('writes a CA model libCellML parses when components are renamed', async () => {
+    const files = await readZip(await generateExportZip('heart', rateNodesIn(['User_Modules.celldl', 'User_Modules.cellml']), [], library))
+    const parser = new libcellml.Parser(false)
+    const model = parser.parseModel(assembleAsCa(files))
+    expect(Array.from({ length: parser.errorCount() }, (_, i) => parser.error(i).description())).toEqual([])
+    expect(model.componentCount()).toBe(2)
+    model.delete()
+    parser.delete()
+  })
+
+  it('imports the export as CellML modules under the names it was written with', async () => {
+    const files = await readZip(await generateExportZip('heart', rateNodesIn(['User_Modules.celldl', 'User_Modules.cellml']), [], library))
+    setActivePinia(createPinia())
+    const imported = useLibraryStore()
+    for (const [path, text] of Object.entries(files)) {
+      const name = path.replace(/^modules\//, '')
+      if (name.endsWith('modules.cellml')) imported.addMathFile(name, processCellMLData(text).components)
+    }
+    imported.addConfigFile('heart_module_config.json', JSON.parse(files['modules/heart_module_config.json']))
+    expect(imported.availableModules.get('rate0:default').mathRef).toBe('User_CellDL_modules.cellml:rate_type_celldl')
+    expect(imported.availableModules.get('rate1:default').mathRef).toBe('User_modules.cellml:rate_type')
+    expect(imported.availableModules.get('rate0:default').isStub).toBeUndefined()
+  })
+
+  it('writes the same files as before when no components clash', async () => {
+    const nodes = rateNodesIn(['User_Modules.celldl'])
+    const files = await readZip(await generateExportZip('heart', [nodeWith('vp', []), ...nodes], [], library))
+    expect(files['modules/User_CellDL_modules.cellml']).toBe(combineComponentModels('modules', [library.availableMath.get('User_Modules.celldl:rate_type')]))
+    expect(files['modules/BG_modules.cellml']).toBe(combineComponentModels('modules', [library.availableMath.get(BG_MATH_REF)]))
+    expect(JSON.parse(files['modules/heart_module_config.json']).map((entry) => entry.component_type)).toEqual(['vp_simple_type', 'rate_type'])
+    expect(notified.warning).not.toHaveBeenCalled()
   })
 
   it('gives files CA assembles into a model libCellML parses', async () => {

@@ -17,7 +17,8 @@ const MODULES_DIR = 'modules'
 const PULMONARY_MODULE_REF = 'arterial_simple:vp'
 
 /**
- * Generates a zip blob for the Circulatory Autogen export.
+ * Generates a zip blob for the Circulatory Autogen export. Components of one name in several groupings are renamed in
+ * the export only, with a warning (buildCaCellmlFiles).
  * @param {string} fileName - The name for the exported files.
  * @param {Array} nodes - The array of nodes from Vue Flow.
  * @param {Array} edges - The array of edges from Vue Flow.
@@ -112,7 +113,13 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
     const module_config = Array.from(uniqueModuleConfigs.values());
 
     // The config's CellML, edits included; may rename component files so CA finds them.
-    const { files: cellmlFiles, missingUnits } = await buildCaCellmlFiles(fileName, module_config, libraryStore)
+    const { files: cellmlFiles, missingUnits, renamedComponents } = await buildCaCellmlFiles(fileName, module_config, libraryStore)
+    if (renamedComponents.length) {
+      notify.warning({
+        title: 'Components Renamed',
+        message: `CA finds components by name, so the export renames ${renamedComponents.map(({ file, from, to }) => `"${from}" in ${file} to "${to}"`).join(', ')}. The library keeps the original names.`,
+      })
+    }
     if (missingUnits.length) {
       notify.warning({
         title: 'Missing Units',

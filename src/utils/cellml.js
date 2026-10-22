@@ -1647,23 +1647,25 @@ export function doesComponentExistInModel(cellmlString, componentName) {
  *
  * @param {string} modelName - The combined model's name.
  * @param {string[]} componentModels - CellML models, each holding one component.
+ * @param {Array<string|undefined>} [names] - A new name for each model's component, where given.
  * @returns {string} The combined model's CellML, one element per line.
  */
-export function combineComponentModels(modelName, componentModels) {
+export function combineComponentModels(modelName, componentModels, names = []) {
   const parser = new _libcellml.Parser(false)
   const printer = new _libcellml.Printer()
   const model = new _libcellml.Model()
   model.setName(modelName)
   try {
-    for (const componentModel of componentModels) {
+    componentModels.forEach((componentModel, index) => {
       const source = parser.parseModel(componentModel)
       const component = source.componentByIndex(0)
       const clone = component.clone()
+      if (names[index]) clone.setName(names[index])
       model.addComponent(clone)
       clone.delete()
       component.delete()
       source.delete()
-    }
+    })
     return printer.printModel(model, false)
   } finally {
     model.delete()
