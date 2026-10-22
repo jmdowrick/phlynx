@@ -1185,6 +1185,26 @@ describe('InstanceEditorDialog locked math', () => {
       expect(closed()).toBe(false)
     })
 
+    it('leaves Escape to a field that uses it, e.g. to abandon a rename', async () => {
+      const name = addToPage('input')
+      name.addEventListener('keydown', (event) => event.stopPropagation())
+      name.focus()
+      press('Escape', name)
+      await settle()
+      expect(document.activeElement).toBe(name)
+      expect(closed()).toBe(false)
+    })
+
+    it('leaves Escape to a popup that closes itself as the key reaches it', async () => {
+      const popover = addToPage('div', 'p-popover')
+      const item = document.createElement('button')
+      popover.appendChild(item)
+      item.addEventListener('keydown', () => popover.remove())
+      press('Escape', item)
+      await settle()
+      expect(closed()).toBe(false)
+    })
+
     it('closes on a click outside only while nothing is unsaved', async () => {
       useCelldlEditorHost().isDirty.value = true
       await flushPromises()

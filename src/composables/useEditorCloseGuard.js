@@ -47,7 +47,8 @@ export function isNestedPopupOpen(maskClass, root = document) {
  *   CellDL editor while in use.
  * @param {() => void} options.onOutsideClick - A press and release on the mask.
  * @param {() => void} options.onEscape - Escape with nothing nested open.
- * @returns {{onPointerDown: Function, onPointerUp: Function, onKeyDown: Function}} The listeners, for tests.
+ * @returns {{onPointerDown: Function, onPointerUp: Function, onKeyDownCapture: Function, onKeyDown: Function}} The
+ *   listeners, for tests.
  */
 export function useEditorCloseGuard({ isOpen, maskClass, ownsEscape = () => false, onOutsideClick, onEscape }) {
   let isPressedOnMask = false
@@ -63,11 +64,20 @@ export function useEditorCloseGuard({ isOpen, maskClass, ownsEscape = () => fals
     if (isClick && isOpen()) setTimeout(onOutsideClick)
   }
 
+  // Escapes that met a popup or dialog above the editor, noted before the popup's own handler closes it.
+  const nestedEscapes = new WeakSet()
+
+  function onKeyDownCapture(event) {
+    if (event.key !== 'Escape' || !isOpen()) return
+    if (isNestedPopupOpen(maskClass, event.target?.ownerDocument ?? document)) nestedEscapes.add(event)
+  }
+
   function onKeyDown(event) {
-    if (event.key !== 'Escape' || event.isComposing || !isOpen() || ownsEscape()) return
+    if (event.key !== 'Escape' || event.isComposing || event.defaultPrevented || !isOpen() || ownsEscape()) return
     // The popup or dialog above closes itself.
-    if (isNestedPopupOpen(maskClass, event.target?.ownerDocument ?? document)) return
-    // A text field is left first, e.g. a search box.
+    if (nestedEscapes.has(event)) return
+    // A text field is left first, e.g. a search box. A field that uses Escape itself, e.g. to abandon a rename,
+    // stops it reaching here.
     if (event.target?.matches?.(TEXT_FIELD_SELECTOR)) {
       event.target.blur()
       return
@@ -78,16 +88,19 @@ export function useEditorCloseGuard({ isOpen, maskClass, ownsEscape = () => fals
   }
 
   onMounted(() => {
-    // Captured, so the editor hears a popup still open before the popup's own Escape closes it.
     document.addEventListener('pointerdown', onPointerDown, true)
     document.addEventListener('pointerup', onPointerUp, true)
-    document.addEventListener('keydown', onKeyDown, true)
+    // Captured, so the editor hears a popup still open before the popup's own Escape closes it; decided once the
+    // key has bubbled, so a field or menu that handles Escape itself keeps it.
+    document.addEventListener('keydown', onKeyDownCapture, true)
+    document.addEventListener('keydown', onKeyDown)
   })
   onUnmounted(() => {
     document.removeEventListener('pointerdown', onPointerDown, true)
     document.removeEventListener('pointerup', onPointerUp, true)
-    document.removeEventListener('keydown', onKeyDown, true)
+    document.removeEventListener('keydown', onKeyDownCapture, true)
+    document.removeEventListener('keydown', onKeyDown)
   })
 
-  return { onPointerDown, onPointerUp, onKeyDown }
+  return { onPointerDown, onPointerUp, onKeyDownCapture, onKeyDown }
 }
