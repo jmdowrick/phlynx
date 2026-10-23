@@ -2,7 +2,7 @@ import os
 import re
 import unittest
 
-from playwright.sync_api import expect, sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, expect, sync_playwright
 
 try:
     from .config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
@@ -39,6 +39,8 @@ PRODUCT, PRODUCT_JUNCTION = "ID-00000014", "ID-00000013"
 # straight to stores, a bondCount of 2, and a copy of the ATP chemostat beside each reaction.
 REACTIONS_PANEL = os.path.join(RESOURCE_PATH, "celldl", "reactions_panel.celldl")
 REACTIONS_MODULE = "reactions_panel"
+# Its A store (ID-00000003), bonded straight to r1's node (ID-00000002).
+STORE_A, BOND_A = "ID-00000003", "ID-00000004"
 
 DIAGRAM_SVG = ".celldl-pane .celldl-host #svg-container > svg"
 # The marker a bond is drawn with: its arrowhead style's display marker, whatever the document saved.
@@ -52,9 +54,9 @@ SHORT_SIMULATION = (
 )
 
 
-def open_app(playwright):
-    """Opens an empty workspace, isolated so it can simulate."""
-    browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+def open_app(playwright, engine="chromium"):
+    """Opens an empty workspace, isolated so it can simulate, in Chromium unless another engine is asked for."""
+    browser = getattr(playwright, engine).launch(headless=HEADLESS_MODE)
     context = browser.new_context(viewport={"width": 1600, "height": 1000})
     context.add_init_script(OPT_IN_TO_ISOLATION)
     page = context.new_page()
@@ -103,6 +105,26 @@ def wait_for_diagram(page):
     """Waits for the CellDL tab to show its diagram's elements."""
     page.locator(f"{DIAGRAM_SVG} #celldl-diagram-layer > g.celldl-Component").first.wait_for(timeout=DIAGRAM_TIMEOUT)
     expect(page.locator(".celldl-pane-pending")).to_have_count(0, timeout=DIAGRAM_TIMEOUT)
+
+
+def path_points(page, path_id):
+    """A bond's points, as its path draws them."""
+    d = page.locator(f'{DIAGRAM_SVG} path[id="{path_id}"]').get_attribute("d")
+    return [(float(x), float(y)) for x, y in re.findall(r"[ML]\s*(-?[\d.]+)[ ,](-?[\d.]+)", d)]
+
+
+def wait_for_level_bond(page, path_id, end_x):
+    """Waits, up to the diagram timeout, for a bond to be one level line ending at `end_x`, as the editor redraws it
+    after an edit: a slow machine can still be rerouting it when the edit's own controls have updated."""
+    page.wait_for_function(
+        """([selector, endX]) => {
+            const d = document.querySelector(selector)?.getAttribute('d') ?? ''
+            const points = [...d.matchAll(/[ML]\\s*(-?[\\d.]+)[ ,](-?[\\d.]+)/g)].map(m => [+m[1], +m[2]])
+            return points.length === 2 && Math.abs(points[0][1] - points[1][1]) <= 0.5 && Math.abs(points[1][0] - endX) <= 0.5
+        }""",
+        arg=[f'{DIAGRAM_SVG} path[id="{path_id}"]', end_x],
+        timeout=DIAGRAM_TIMEOUT,
+    )
 
 
 def element_centre(page, element_id):
@@ -154,16 +176,13 @@ def show_diagram_tab(page, dialog):
     expect(page.locator(".celldl-pane-pending")).to_have_count(0, timeout=DIAGRAM_TIMEOUT)
 
 
-def add_component(page, component):
-    """Drags a component from the bond graph palette onto the diagram, clear of the palette."""
-    page.locator("#editor-bondgraph-tool").click()
-    palette_item = page.locator(f'[id="bondgraph-components/{component}"]')
-    palette_item.wait_for()
+def add_component(page, entry):
+    """Places an element from the editor's palette, by its tile's entry id, e.g. `chemical/species`: a click arms
+    the tile, a click on the canvas places it there, clear of the palette, and Escape disarms it."""
+    page.locator(f'.celldl-pane .palette-tile[data-entry-id="{entry}"]').click()
     box = page.locator(DIAGRAM_SVG).bounding_box()
-    palette_item.drag_to(
-        page.locator(DIAGRAM_SVG), target_position={"x": box["width"] * 0.65, "y": box["height"] * 0.5}
-    )
-    page.locator("#editor-select-tool").click()
+    page.mouse.click(box["x"] + box["width"] * 0.65, box["y"] + box["height"] * 0.5)
+    page.keyboard.press("Escape")
 
 
 def choose_template(page, template):
@@ -456,21 +475,22 @@ class TestCelldl(unittest.TestCase):
             place(page, "TEMPLATE MODULES", "new_module")
             dialog = open_editor(page, "new_module")
             show_diagram_tab(page, dialog)
-            add_component(page, "ZeroStorageNode_q")
+            add_component(page, "chemical/species")
             storage = page.locator(f"{DIAGRAM_SVG} #celldl-diagram-layer > g.celldl-Component")
             expect(storage).to_have_count(1)
 
-            # Making it chemical storage makes it a composite node, which the editor lists as a junction too.
+            # The palette's Species is chemical storage, a composite node the editor lists as a junction too. It's
+            # named S1, in the default location c.
             click_element(page, storage.get_attribute("id"))
             choose_template(page, "Chemical storage with Zero Node")
 
             # Live conversion takes it as a storage node: the template stores 1 for its K, which the math has, and
             # no junction type is asked for. The live status lists its issues in its tooltip.
             status = dialog.locator(".celldl-live-status")
-            expect(status).to_have_attribute("title", re.compile("q_i_j"), timeout=DIAGRAM_TIMEOUT)
+            expect(status).to_have_attribute("title", re.compile("q_S1_c"), timeout=DIAGRAM_TIMEOUT)
             self.assertNotIn("must be one, zero or transform nodes", status.get_attribute("title"))
             self.assertNotIn("Missing value for parameter K", status.get_attribute("title"))
-            expect(cellml_text(dialog)).to_contain_text("K_q_i_j", timeout=DIAGRAM_TIMEOUT)
+            expect(cellml_text(dialog)).to_contain_text("K_q_S1_c", timeout=DIAGRAM_TIMEOUT)
             # ----------- END ------------
 
             browser.close()
@@ -598,7 +618,7 @@ class TestCelldl(unittest.TestCase):
             # ---------- START -----------
             dialog = import_and_open(page)
             components = page.locator(f"{DIAGRAM_SVG} #celldl-diagram-layer > g.celldl-Component")
-            add_component(page, "ZeroStorageNode_q")
+            add_component(page, "chemical/species")
             expect(components).to_have_count(4)
 
             # Undo in the Parameters tab leaves the diagram alone.
@@ -607,7 +627,11 @@ class TestCelldl(unittest.TestCase):
             page.wait_for_timeout(500)
             expect(components).to_have_count(4)
 
-            # Back in the diagram, the keys undo and redo it, as do its toolbar's buttons.
+            # Back in the diagram, the keys undo and redo it, as do its toolbar's buttons, the only ones it shows:
+            # the palette replaced its tools.
+            expect(page.locator("#editor-undo")).to_be_visible()
+            expect(page.locator("#editor-redo")).to_be_visible()
+            expect(page.locator("#editor-select-tool, #editor-bondgraph-tool")).to_have_count(0)
             box = page.locator(DIAGRAM_SVG).bounding_box()
             page.mouse.click(box["x"] + box["width"] * 0.1, box["y"] + box["height"] * 0.1)
             page.keyboard.press("ControlOrMeta+z")
@@ -648,7 +672,7 @@ class TestCelldl(unittest.TestCase):
             # r1's location, and r2's type there and back.
             set_element_field(dialog, REACTION_R1, "Location", "cyt")
             expect(element_row(dialog, REACTION_R1).locator(".element-names")).to_contain_text("kappa_Rx_r1_cyt", timeout=DIAGRAM_TIMEOUT)
-            choose_element_type(page, dialog, REACTION_R2, "NKETransporter")
+            choose_element_type(page, dialog, REACTION_R2, "NKE transporter")
             expect(dialog.locator(f'.celldl-parameters tr.element-row--values[data-element-id="{REACTION_R2}"]')).to_contain_text("k_NKE")
             choose_element_type(page, dialog, REACTION_R2, "Chemical reaction")
             expect(element_row(dialog, REACTION_R2).locator(".element-names")).to_contain_text("kappa_Rx_r2_c", timeout=DIAGRAM_TIMEOUT)
@@ -1057,6 +1081,81 @@ class TestCelldl(unittest.TestCase):
 
             browser.close()
 
+
+    def test_keeps_a_bonded_store_where_it_was_after_editing_it_from_its_parameters_tab(self):
+        # Safari measured an element before its new picture loaded, and lost its transform attribute, so a store
+        # edited from the table jumped away, couldn't be clicked or dragged, and its bonds broke. WebKit runs where
+        # it's installed, and always in CI, which installs it.
+        for engine in ("chromium", "webkit"):
+            with self.subTest(engine=engine), sync_playwright() as playwright:
+                # Only a missing browser skips, and never in CI: one that fails to open the app fails the test.
+                if engine != "chromium" and not os.path.exists(getattr(playwright, engine).executable_path):
+                    if os.environ.get("CI"):
+                        self.fail(f"{engine} isn't installed")
+                    self.skipTest(f"{engine} isn't installed")
+                browser, page = open_app(playwright, engine)
+
+                # ---------- START -----------
+                import_diagram(page, REACTIONS_PANEL)
+                expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+                place(page, CELLDL_GROUP, REACTIONS_MODULE)
+                dialog = open_editor(page, REACTIONS_MODULE)
+                wait_for_diagram(page)
+                glyph = page.locator(f'{DIAGRAM_SVG} [id="{STORE_A}"]')
+                transform = glyph.get_attribute("transform")
+                (_, from_y), reaction_end = path_points(page, BOND_A)
+
+                # Its species, location and type there and back, from its row.
+                set_element_field(dialog, STORE_A, "Species", "m")
+                expect(element_row(dialog, STORE_A).locator(".element-names")).to_contain_text("q_m_c", timeout=DIAGRAM_TIMEOUT)
+                set_element_field(dialog, STORE_A, "Location", "i")
+                expect(element_row(dialog, STORE_A).locator(".element-names")).to_contain_text("q_m_i", timeout=DIAGRAM_TIMEOUT)
+                type_select = element_row(dialog, STORE_A).locator(".p-select")
+                type_select.click()
+                page.locator(".p-select-option").filter(has_text=re.compile(r"^\s*Zero storage node\s*$")).click()
+                expect(type_select).to_contain_text("Choose a type")
+                choose_element_type(page, dialog, STORE_A, "Chemical storage with Zero Node")
+
+                # It stays put, and its bond stays level, from the store's new right-hand edge to the same point on
+                # r1's edge, once the editor has redrawn it; if it never settles, the checks below say how it's off.
+                # Not the saved route itself: glyphs measure differently between platforms (Linux's WebKit draws them
+                # taller and wider), and a redraw routes the bond between the glyphs as they're drawn there.
+                try:
+                    wait_for_level_bond(page, BOND_A, reaction_end[0])
+                except PlaywrightTimeoutError:
+                    pass
+                self.assertIsNotNone(glyph.get_attribute("transform"))
+                matrix = [float(v) for v in glyph.get_attribute("transform")[len("matrix("):-1].split(",")]
+                saved = [float(v) for v in transform[len("matrix("):-1].split(",")]
+                self.assertAlmostEqual(matrix[4], saved[4], delta=2)
+                self.assertAlmostEqual(matrix[5], saved[5], delta=2)
+                width, height = glyph.locator("image").evaluate("i => { const b = i.getBBox(); return [b.width, b.height] }")
+                points = path_points(page, BOND_A)
+                self.assertEqual(len(points), 2)
+                self.assertAlmostEqual(points[1][0], reaction_end[0], delta=0.5)
+                self.assertAlmostEqual(points[0][1], points[1][1], delta=0.5)
+                self.assertAlmostEqual(points[0][1], matrix[5] + height / 2, delta=1.5)
+                self.assertAlmostEqual(points[0][0], matrix[4] + width, delta=1.5)
+
+                # It can be clicked, and dragged with its bond.
+                click_element(page, STORE_A)
+                expect(glyph.locator("rect.selection-element")).to_have_class(re.compile(r"\bselected\b"))
+                box = glyph.bounding_box()
+                x, y = element_centre(page, STORE_A)
+                page.mouse.down()
+                page.mouse.move(x + 60, y + 40, steps=8)
+                page.mouse.up()
+                moved = glyph.bounding_box()
+                self.assertAlmostEqual(moved["x"] - box["x"], 60, delta=12)
+                self.assertAlmostEqual(moved["y"] - box["y"], 40, delta=12)
+                # Its end at r1 slides round r1's edge as the bond turns.
+                dragged = path_points(page, BOND_A)
+                self.assertEqual(len(dragged), 2)
+                self.assertAlmostEqual(dragged[1][0], reaction_end[0], delta=0.5)
+                self.assertGreater(dragged[0][1], from_y + 20)
+                # ----------- END ------------
+
+                browser.close()
 
     def test_draws_bonds_with_the_chosen_arrowheads_and_shows_the_reactions_panel(self):
         with sync_playwright() as playwright:
