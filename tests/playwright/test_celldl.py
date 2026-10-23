@@ -42,6 +42,16 @@ REACTIONS_MODULE = "reactions_panel"
 # Its A store (ID-00000003), bonded straight to r1's node (ID-00000002).
 STORE_A, BOND_A = "ID-00000003", "ID-00000004"
 
+# A store's base kind, which only its templates make convertible.
+ZERO_STORAGE_NODE = "https://bg-rdf.org/ontologies/bondgraph-framework#ZeroStorageNode"
+STORAGE_NODES = [
+    "Chemical storage with Zero Node",
+    "Electrical storage with Zero Node",
+    "Hydraulic storage with Zero Node",
+    "Hydraulic elastic storage with Zero Node",
+    "Mechanical storage with Zero Node",
+]
+
 DIAGRAM_SVG = ".celldl-pane .celldl-host #svg-container > svg"
 # The marker a bond is drawn with: its arrowhead style's display marker, whatever the document saved.
 BOND_MARKER = """() => {
@@ -247,6 +257,29 @@ def choose_element_type(page, dialog, element_id, template):
     element_row(dialog, element_id).locator(".p-select").click()
     page.locator(".p-select-option").filter(has_text=re.compile(rf"^\s*{re.escape(template)}\s*$")).click()
     expect(element_row(dialog, element_id).locator(".p-select")).to_contain_text(template)
+
+
+def type_options(page, dialog, element_id):
+    """The types an element's type list in the CellDL Parameters tab offers, closing it again."""
+    element_row(dialog, element_id).locator(".p-select").click()
+    options = page.locator(".p-select-option")
+    options.first.wait_for()
+    labels = [label.strip() for label in options.all_inner_texts()]
+    page.keyboard.press("Escape")
+    expect(options).to_have_count(0)
+    return labels
+
+
+def set_element_type(page, element_id, kind):
+    """Sets an element's type in the diagram, as a diagram saved with it would have it, through the editor host."""
+    result = page.evaluate(
+        """async ([id, value]) => {
+            const { useCelldlEditorHost } = await import('/src/composables/useCelldlEditorHost.js')
+            return useCelldlEditorHost().setElement([{ id, field: 'type', value }])
+        }""",
+        [element_id, kind],
+    )
+    assert result["ok"], result
 
 
 def accept_overwrite(page):
@@ -609,6 +642,54 @@ class TestCelldl(unittest.TestCase):
             self.assertNotIn("Missing value for parameter K", listed.inner_text())
             page.keyboard.press("Escape")
             expect(cellml_text(dialog)).to_contain_text("K_q_S1_c", timeout=DIAGRAM_TIMEOUT)
+            # ----------- END ------------
+
+            browser.close()
+
+    def test_offers_a_store_the_types_its_properties_panel_does_from_its_parameters_tab(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+
+            # ---------- START -----------
+            place(page, "TEMPLATE MODULES", "new_module")
+            dialog = open_editor(page, "new_module")
+            show_diagram_tab(page, dialog)
+            add_component(page, "chemical/species")
+            storage = page.locator(f"{DIAGRAM_SVG} #celldl-diagram-layer > g.celldl-Component")
+            expect(storage).to_have_count(1)
+            store = storage.get_attribute("id")
+            dialog.get_by_role("tab", name=re.compile(r"Parameters \(")).click()
+
+            # An unbonded store can be any domain's storage node, as in the Properties panel, but not the bare
+            # zero storage node, which nothing converts.
+            offered = type_options(page, dialog, store)
+            self.assertEqual(sorted(offered), sorted(STORAGE_NODES))
+            choose_element_type(page, dialog, store, "Electrical storage with Zero Node")
+            expect(element_row(dialog, store).locator(".element-names")).to_contain_text("q_S1_c", timeout=DIAGRAM_TIMEOUT)
+
+            # A store saved as a zero storage node shows it, and can be given any of them.
+            set_element_type(page, store, ZERO_STORAGE_NODE)
+            type_select = element_row(dialog, store).locator(".p-select")
+            expect(type_select).to_contain_text("Zero storage node")
+            expect(type_select).to_have_class(re.compile(r"\bp-invalid\b"))
+            expect(dialog.locator(f'.celldl-parameters tbody[data-section="stores"] tr[data-element-id="{store}"]')).to_have_count(1)
+            self.assertEqual(sorted(type_options(page, dialog, store)), sorted(STORAGE_NODES))
+            choose_element_type(page, dialog, store, "Mechanical storage with Zero Node")
+
+            # The Properties panel offers the same, with the base kind as well.
+            editor_tab(dialog, "CellDL").click()
+            click_element(page, store)
+            host = page.locator(".celldl-pane .celldl-host")
+            template_select = host.locator(".p-select").first
+            if not template_select.is_visible():
+                page.locator("#properties-property-panel").click()
+            expect(template_select).to_contain_text("Mechanical storage with Zero Node")
+            template_select.click()
+            listbox = template_select.locator("[role=combobox]").get_attribute("aria-controls")
+            panel_options = page.locator(f'[id="{listbox}"] .p-select-option')
+            panel_options.first.wait_for()
+            panel = [label.strip() for label in panel_options.all_inner_texts()]
+            self.assertEqual(sorted(panel), sorted(STORAGE_NODES + ["Zero storage node"]))
             # ----------- END ------------
 
             browser.close()
@@ -1228,10 +1309,9 @@ class TestCelldl(unittest.TestCase):
                 expect(element_row(dialog, STORE_A).locator(".element-names")).to_contain_text("q_m_c", timeout=DIAGRAM_TIMEOUT)
                 set_element_field(dialog, STORE_A, "Location", "i")
                 expect(element_row(dialog, STORE_A).locator(".element-names")).to_contain_text("q_m_i", timeout=DIAGRAM_TIMEOUT)
-                type_select = element_row(dialog, STORE_A).locator(".p-select")
-                type_select.click()
-                page.locator(".p-select-option").filter(has_text=re.compile(r"^\s*Zero storage node\s*$")).click()
-                expect(type_select).to_contain_text("Choose a type")
+                # The type, cleared in the diagram, then chosen again from the row, the only type its bonds allow.
+                set_element_type(page, STORE_A, ZERO_STORAGE_NODE)
+                expect(element_row(dialog, STORE_A).locator(".p-select")).to_contain_text("Zero storage node")
                 choose_element_type(page, dialog, STORE_A, "Chemical storage with Zero Node")
 
                 # It stays put, and its bond stays level, from the store's new right-hand edge to the same point on

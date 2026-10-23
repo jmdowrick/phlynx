@@ -36,16 +36,8 @@ export const isJunction = (element) => !element.isBondElement
 export const isZeroJunction = (element) => isJunction(element) && /ZeroNode$/.test(fragment(element.kind))
 /** A store has an initial value, or, before its type is chosen, is of a storage kind. */
 export const isStore = (element) =>
-  element.isBondElement && (element.value !== undefined || /(Store|Storage)$/i.test(fragment(element.kind)))
+  element.isBondElement && (element.value !== undefined || /(Store|Storage(Node)?)$/i.test(fragment(element.kind)))
 export const isReaction = (element) => element.isBondElement && /Reaction/i.test(fragment(element.kind))
-
-/**
- * Checks whether a template's physical domain is chemistry's.
- *
- * @param {string} [domain] - The domain's IRI.
- * @returns {boolean}
- */
-export const isChemicalDomain = (domain) => /^chemi/i.test(fragment(domain))
 
 /**
  * Gets the section an element's row is in.
@@ -87,24 +79,26 @@ export const templateLabel = (template) =>
   !template.name || /^[a-z][a-z0-9+.-]*:\/\//i.test(template.name) ? fragment(template.name || template.type) : template.name
 
 /**
- * Gets the types an element can be given, as Select options. With the chemistry filter on, only chemistry's
- * templates are offered, and the base kind (no template), which comes first.
+ * Gets the types an element can be given, as Select options: the templates the editor's Properties panel offers it,
+ * which its bonds limit to their domain, without the base kind, which bg2cellml can't convert. An element still of
+ * its base kind has no value, so the Select shows the kind as its placeholder; a template the list lacks is kept, so
+ * it still shows.
  *
  * @param {Object} element - A DiagramElement.
- * @param {{chemistryOnly?: boolean}} [options]
- * @returns {{options: {value: string, label: string}[], value: string, isHidingSome: boolean}}
+ * @returns {{options: {value: string, label: string}[], value: string|null, placeholder: string}}
  */
-export function typeOptions(element, { chemistryOnly = true } = {}) {
-  const templates = element.templates ?? []
-  const shown = templates.filter(
-    (template, index) => index === 0 || !chemistryOnly || isChemicalDomain(template.domain) || template.type === element.template
-  )
-  const value = element.template ?? element.kind
-  const options = shown.map((template, index) => ({
-    value: template.type,
-    label: index === 0 && !element.template ? 'Choose a type' : templateLabel(template),
-  }))
-  return { options, value, isHidingSome: shown.length < templates.length }
+export function typeOptions(element) {
+  const options = (element.templates ?? [])
+    .filter((template) => template.type !== element.kind)
+    .map((template) => ({ value: template.type, label: templateLabel(template) }))
+  if (element.template && !options.some((option) => option.value === element.template)) {
+    options.unshift({ value: element.template, label: templateLabel({ type: element.template, name: element.templateName }) })
+  }
+  return {
+    options,
+    value: element.template || null,
+    placeholder: element.kindName ?? fragment(element.kind),
+  }
 }
 
 /**

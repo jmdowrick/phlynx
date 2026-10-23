@@ -113,12 +113,13 @@
                 <div class="element-names" :title="row.names.join(', ')">{{ row.names.join(', ') || ' ' }}</div>
               </td>
 
-              <!-- Type: the element's templates, chemistry's only unless asked for all -->
+              <!-- Type: the templates the editor's Properties panel offers the element -->
               <td class="cell-type">
-                <template v-if="row.element?.isBondElement && row.element.templates.length > 1">
+                <template v-if="row.element?.isBondElement && typeOptions(row.element).options.length">
                   <Select
-                    :model-value="typeChoices(row.element).value"
-                    :options="typeChoices(row.element).options"
+                    :model-value="typeOptions(row.element).value"
+                    :options="typeOptions(row.element).options"
+                    :placeholder="typeOptions(row.element).placeholder"
                     option-label="label"
                     option-value="value"
                     size="small"
@@ -229,8 +230,6 @@ const emit = defineEmits(['set-value', 'show-in-diagram'])
 
 const host = useCelldlEditorHost()
 const NAME_FIELDS = ['species', 'location']
-const CHEMISTRY_ON = '__chemistry-only__'
-const CHEMISTRY_OFF = '__all-domains__'
 const FOLLOW_STORAGE_KEY = 'celldlParameters.followStore'
 
 // ── Toolbar ─────────────────────────────────────────────────────────────────
@@ -249,8 +248,6 @@ watch(isFollowing, (value) => {
     // ignore storage errors
   }
 })
-
-const isChemistryOnly = ref(true)
 
 const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`
 const chips = computed(() => {
@@ -345,14 +342,6 @@ function valueTitle(cell) {
   return `${cell.name}: this instance's own value.${own}`
 }
 
-const typeChoices = (element) => {
-  const choices = typeOptions(element, { chemistryOnly: isChemistryOnly.value })
-  const options = [...choices.options]
-  if (choices.isHidingSome) options.push({ value: CHEMISTRY_OFF, label: 'All domains…' })
-  else if (!isChemistryOnly.value) options.push({ value: CHEMISTRY_ON, label: 'Chemistry types only' })
-  return { ...choices, options }
-}
-
 // ── Edits ───────────────────────────────────────────────────────────────────
 /**
  * Sends edits to the diagram, saying why any couldn't be made.
@@ -372,11 +361,7 @@ async function sendEdits(edits) {
 }
 
 function onTypeChange(element, value) {
-  if (value === CHEMISTRY_OFF || value === CHEMISTRY_ON) {
-    isChemistryOnly.value = value === CHEMISTRY_ON
-    return
-  }
-  if (value === (element.template ?? element.kind)) return
+  if (!value || value === element.template) return
   sendEdits([{ id: element.id, field: 'type', value }])
 }
 
