@@ -615,6 +615,8 @@ class TestCelldl(unittest.TestCase):
 
             # Back in the diagram, the keys undo and redo it, as do its toolbar's buttons, the only ones it shows:
             # the palette replaced its tools.
+            expect(page.locator("#editor-undo")).to_be_visible()
+            expect(page.locator("#editor-redo")).to_be_visible()
             expect(page.locator("#editor-select-tool, #editor-bondgraph-tool")).to_have_count(0)
             box = page.locator(DIAGRAM_SVG).bounding_box()
             page.mouse.click(box["x"] + box["width"] * 0.1, box["y"] + box["height"] * 0.1)
