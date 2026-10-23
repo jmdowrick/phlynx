@@ -49,10 +49,10 @@ export const SETTING_SECTIONS = [
         label: 'Bond arrowheads',
         description: 'How the end of each bond is drawn. Only the display changes; saved diagrams are not altered.',
         options: [
-          { value: 'bond', label: 'Bond graph', hint: 'A half arrow (⇀), one barb on the left of the bond' },
           { value: 'classic', label: 'Classic', hint: 'A closed arrowhead' },
+          { value: 'bond', label: 'Bond graph', hint: 'A half arrow (⇀), one barb on the left of the bond' },
         ],
-        default: 'bond',
+        default: 'classic',
       },
     ],
   },

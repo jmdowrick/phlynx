@@ -1366,8 +1366,8 @@ class TestCelldl(unittest.TestCase):
             dialog = open_editor(page, REACTIONS_MODULE)
             wait_for_diagram(page)
 
-            # Bonds end in the bond-graph half arrow by default.
-            page.wait_for_function(f"({BOND_MARKER})()?.includes('celldl-display-arrow-bond')")
+            # Bonds end in a classic closed arrowhead by default.
+            page.wait_for_function(f"({BOND_MARKER})()?.includes('celldl-display-arrow-classic')")
 
             # The Reactions panel shows each reaction's equation, with B's bondCount as its coefficient; the
             # editor's Variables and Annotations panels aren't offered.
@@ -1377,27 +1377,27 @@ class TestCelldl(unittest.TestCase):
             expect(host.get_by_label("Equation of r1")).to_have_value("A[c] + 2 B[c] + ATP[c] ⇌ C[c]")
             expect(host.get_by_label("Equation of r2")).to_have_value("C[c] + ATP[c] ⇌ D[c]")
 
-            # Chosen in Settings, classic arrowheads replace them.
+            # Chosen in Settings, bond-graph half arrows replace them.
             dialog.get_by_role("button", name="Cancel").click()
             expect(dialog).to_be_hidden()
             page.get_by_role("button", name="Settings", exact=True).click()
             settings = page.get_by_role("dialog", name="Settings")
             settings.get_by_label("Bond arrowheads").click()
-            page.get_by_role("option", name=re.compile("^Classic")).click()
+            page.get_by_role("option", name=re.compile("^Bond graph")).click()
             settings.get_by_role("button", name="Save Changes").click()
             expect(settings).to_be_hidden()
             dialog = open_editor(page, REACTIONS_MODULE)
             wait_for_diagram(page)
-            page.wait_for_function(f"({BOND_MARKER})()?.includes('celldl-display-arrow-classic')")
+            page.wait_for_function(f"({BOND_MARKER})()?.includes('celldl-display-arrow-bond')")
 
             # A change applies to an open diagram straight away.
             page.evaluate(
                 """async () => {
                     const { useAppSettings } = await import('/src/composables/useAppSettings.js')
-                    useAppSettings().saveAppSettings({ arrowStyle: 'bond' })
+                    useAppSettings().saveAppSettings({ arrowStyle: 'classic' })
                 }"""
             )
-            page.wait_for_function(f"({BOND_MARKER})()?.includes('celldl-display-arrow-bond')")
+            page.wait_for_function(f"({BOND_MARKER})()?.includes('celldl-display-arrow-classic')")
             # ----------- END ------------
 
             browser.close()
