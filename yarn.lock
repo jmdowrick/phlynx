@@ -105,9 +105,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@celldl/editor@https://github.com/physiomelinks/CellDLEditorComponent/releases/download/phlynx-v0.20261007.0-phlynx.7/celldl-editor-0.20261007.0-phlynx.7.tgz":
-  version: 0.20261007.0-phlynx.7
-  resolution: "@celldl/editor@https://github.com/physiomelinks/CellDLEditorComponent/releases/download/phlynx-v0.20261007.0-phlynx.7/celldl-editor-0.20261007.0-phlynx.7.tgz"
+"@celldl/editor@https://github.com/physiomelinks/CellDLEditorComponent/releases/download/phlynx-v0.20261007.0-phlynx.8/celldl-editor-0.20261007.0-phlynx.8.tgz":
+  version: 0.20261007.0-phlynx.8
+  resolution: "@celldl/editor@https://github.com/physiomelinks/CellDLEditorComponent/releases/download/phlynx-v0.20261007.0-phlynx.8/celldl-editor-0.20261007.0-phlynx.8.tgz"
   dependencies:
     "@atomic-ehr/ucum": "npm:^0.2.5"
     "@celldl/metadata": "npm:^1.20260822.0"
@@ -134,7 +134,7 @@ __metadata:
     vue-tippy: "npm:^6.7.1"
   peerDependencies:
     primevue: ^4.5.5
-  checksum: 10c0/fac8963aadc20cf52271c78afb776c5c56246b68d234380f28d4d3901d700acb731f34511127f0c2337b69d6aeb4c11feee70251efc9c0a78ec6113d99933b9f
+  checksum: 10c0/ca924b4d649317361c0e6096ac4c3dd321b26e691597acfed0dabb1f14c410a32b1ea4278c2dec9922123c7f446b4e2ef6a68704d2d1141b2af0da2e456bdb81
   languageName: node
   linkType: hard
 
@@ -6245,7 +6245,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "phlynx@workspace:."
   dependencies:
-    "@celldl/editor": "https://github.com/physiomelinks/CellDLEditorComponent/releases/download/phlynx-v0.20261007.0-phlynx.7/celldl-editor-0.20261007.0-phlynx.7.tgz"
+    "@celldl/editor": "https://github.com/physiomelinks/CellDLEditorComponent/releases/download/phlynx-v0.20261007.0-phlynx.8/celldl-editor-0.20261007.0-phlynx.8.tgz"
     "@codemirror/language": "npm:^6.12.1"
     "@codemirror/theme-one-dark": "npm:^6.1.3"
     "@dagrejs/dagre": "npm:^1.1.8"
