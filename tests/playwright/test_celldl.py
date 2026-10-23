@@ -2,7 +2,7 @@ import os
 import re
 import unittest
 
-from playwright.sync_api import expect, sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, expect, sync_playwright
 
 try:
     from .config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
@@ -111,6 +111,20 @@ def path_points(page, path_id):
     """A bond's points, as its path draws them."""
     d = page.locator(f'{DIAGRAM_SVG} path[id="{path_id}"]').get_attribute("d")
     return [(float(x), float(y)) for x, y in re.findall(r"[ML]\s*(-?[\d.]+)[ ,](-?[\d.]+)", d)]
+
+
+def wait_for_bond_end(page, path_id, end, delta):
+    """Waits, up to the diagram timeout, for a two-point bond to end within `delta` of `end`, as the editor redraws
+    it after an edit: a slow machine can still be rerouting it when the edit's own controls have updated."""
+    page.wait_for_function(
+        """([selector, end, delta]) => {
+            const d = document.querySelector(selector)?.getAttribute('d') ?? ''
+            const points = [...d.matchAll(/[ML]\\s*(-?[\\d.]+)[ ,](-?[\\d.]+)/g)].map(m => [+m[1], +m[2]])
+            return points.length === 2 && Math.abs(points[1][0] - end[0]) <= delta && Math.abs(points[1][1] - end[1]) <= delta
+        }""",
+        arg=[f'{DIAGRAM_SVG} path[id="{path_id}"]', list(end), delta],
+        timeout=DIAGRAM_TIMEOUT,
+    )
 
 
 def element_centre(page, element_id):
@@ -1102,7 +1116,12 @@ class TestCelldl(unittest.TestCase):
                 expect(type_select).to_contain_text("Choose a type")
                 choose_element_type(page, dialog, STORE_A, "Chemical storage with Zero Node")
 
-                # It stays put, and its bond keeps its route, its end moving only to the store's new edge.
+                # It stays put, and its bond keeps its route, its end moving only to the store's new edge, once the
+                # editor has redrawn it. If it never settles there, the checks below say how it's off.
+                try:
+                    wait_for_bond_end(page, BOND_A, reaction_end, 0.5)
+                except PlaywrightTimeoutError:
+                    pass
                 self.assertIsNotNone(glyph.get_attribute("transform"))
                 self.assertAlmostEqual(
                     float(glyph.get_attribute("transform").split(",")[5].rstrip(")")),
