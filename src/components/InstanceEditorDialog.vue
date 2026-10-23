@@ -135,7 +135,7 @@
             v-else-if="editorKind === 'celldl'"
             :rows="parameterRows"
             :component-name="componentName"
-            :math-ref="mathRef"
+            :math-ref="diagramPreviewRef"
             @variable-click="plotClickedVariable"
           />
         </div>
@@ -546,13 +546,18 @@ import {
 import { isEmpty, syncInitialiserUnits } from '../utils/variables'
 import { getUnknownUnitsNotice, isValueMissing } from '../utils/parameterRows'
 import {
-  CELLDL_USER_MODULES_FILE,
   NEW_MODULE_MATH_REF,
   PORT_TYPE_OPTIONS,
   PROTECTED_MATH_REFS,
   USER_MODULES_FILE,
 } from '../utils/constants'
-import { findInGrouping, groupingUnitsAfterSave, isSameName } from '../services/userModules'
+import {
+  diagramSaveRef,
+  findInGrouping,
+  groupingUnitsAfterSave,
+  isSameName,
+  newComponentGrouping,
+} from '../services/userModules'
 import { cleanName, sanitiseName } from '../utils/identifiers'
 import { detachReactivity } from '../utils/reactivity'
 import { waitUntilStable } from '../utils/layout'
@@ -1765,10 +1770,8 @@ const isTemplateName = (name) => [...PROTECTED_MATH_REFS].some((ref) => isSameNa
  * @param {boolean} [isDiagram] - Whether it's a diagram's, as the module's format says by default.
  * @returns {string}
  */
-const newComponentFile = (isDiagram = moduleFormat.value.id === 'celldl') => {
-  if (!isTemplate.value) return componentFile.value
-  return isDiagram ? CELLDL_USER_MODULES_FILE : USER_MODULES_FILE
-}
+const newComponentFile = (isDiagram = moduleFormat.value.id === 'celldl') =>
+  newComponentGrouping(props.mathRef, { isDiagram })
 
 /**
  * Explains why a name can't be a new component's, or returns '' when it can: a template's, the edited component's, or
@@ -1893,6 +1896,12 @@ function renamedDiagramComponent() {
 }
 
 /**
+ * The math the diagram's save converts for, which its live conversion names units against: the template's in the
+ * CellDL user modules grouping, a renamed module's under its new name in its own grouping.
+ */
+const diagramPreviewRef = computed(() => diagramSaveRef(props.mathRef, renamedDiagramComponent()))
+
+/**
  * Gets the diagram's module a renamed diagram may overwrite: one under that name in the diagram's grouping, where a
  * renamed diagram is saved, never a template's or CellML's.
  *
@@ -1929,7 +1938,8 @@ async function stageDiagram({ newName = null, isWarned = false } = {}) {
   const stored = store.getMathSource(props.mathRef)
   const requestId = openRequestId
   let document, result
-  let file = componentFile.value
+  // The grouping the diagram's live conversion named its units against too (diagramPreviewRef).
+  let file = newComponentFile(true)
   let documentUri = stored?.documentUri
   let isEditorDocument = true
   // Another diagram's module this renamed one may overwrite, its source replaced by this diagram.
@@ -1947,7 +1957,6 @@ async function stageDiagram({ newName = null, isWarned = false } = {}) {
     }
     if (!stored || isRenamed) {
       isConverting.value = false
-      file = newComponentFile(true)
       overwriteRef = isRenamed && !newName ? overwritableDiagram(name) : null
       const taken = isRenamed && !newName && !overwriteRef && isComponentNameTaken(name, { file })
       if (!stored || taken) {
