@@ -113,16 +113,16 @@ def path_points(page, path_id):
     return [(float(x), float(y)) for x, y in re.findall(r"[ML]\s*(-?[\d.]+)[ ,](-?[\d.]+)", d)]
 
 
-def wait_for_bond_end(page, path_id, end, delta):
-    """Waits, up to the diagram timeout, for a two-point bond to end within `delta` of `end`, as the editor redraws
-    it after an edit: a slow machine can still be rerouting it when the edit's own controls have updated."""
+def wait_for_level_bond(page, path_id, end_x):
+    """Waits, up to the diagram timeout, for a bond to be one level line ending at `end_x`, as the editor redraws it
+    after an edit: a slow machine can still be rerouting it when the edit's own controls have updated."""
     page.wait_for_function(
-        """([selector, end, delta]) => {
+        """([selector, endX]) => {
             const d = document.querySelector(selector)?.getAttribute('d') ?? ''
             const points = [...d.matchAll(/[ML]\\s*(-?[\\d.]+)[ ,](-?[\\d.]+)/g)].map(m => [+m[1], +m[2]])
-            return points.length === 2 && Math.abs(points[1][0] - end[0]) <= delta && Math.abs(points[1][1] - end[1]) <= delta
+            return points.length === 2 && Math.abs(points[0][1] - points[1][1]) <= 0.5 && Math.abs(points[1][0] - endX) <= 0.5
         }""",
-        arg=[f'{DIAGRAM_SVG} path[id="{path_id}"]', list(end), delta],
+        arg=[f'{DIAGRAM_SVG} path[id="{path_id}"]', end_x],
         timeout=DIAGRAM_TIMEOUT,
     )
 
@@ -1103,7 +1103,7 @@ class TestCelldl(unittest.TestCase):
                 wait_for_diagram(page)
                 glyph = page.locator(f'{DIAGRAM_SVG} [id="{STORE_A}"]')
                 transform = glyph.get_attribute("transform")
-                (from_x, from_y), reaction_end = path_points(page, BOND_A)
+                (_, from_y), reaction_end = path_points(page, BOND_A)
 
                 # Its species, location and type there and back, from its row.
                 set_element_field(dialog, STORE_A, "Species", "m")
@@ -1116,24 +1116,26 @@ class TestCelldl(unittest.TestCase):
                 expect(type_select).to_contain_text("Choose a type")
                 choose_element_type(page, dialog, STORE_A, "Chemical storage with Zero Node")
 
-                # It stays put, and its bond keeps its route, its end moving only to the store's new edge, once the
-                # editor has redrawn it. If it never settles there, the checks below say how it's off.
+                # It stays put, and its bond stays level, from the store's new right-hand edge to the same point on
+                # r1's edge, once the editor has redrawn it; if it never settles, the checks below say how it's off.
+                # Not the saved route itself: glyphs measure differently between platforms (Linux's WebKit draws them
+                # taller and wider), and a redraw routes the bond between the glyphs as they're drawn there.
                 try:
-                    wait_for_bond_end(page, BOND_A, reaction_end, 0.5)
+                    wait_for_level_bond(page, BOND_A, reaction_end[0])
                 except PlaywrightTimeoutError:
                     pass
                 self.assertIsNotNone(glyph.get_attribute("transform"))
-                self.assertAlmostEqual(
-                    float(glyph.get_attribute("transform").split(",")[5].rstrip(")")),
-                    float(transform.split(",")[5].rstrip(")")),
-                    delta=2,
-                )
+                matrix = [float(v) for v in glyph.get_attribute("transform")[len("matrix("):-1].split(",")]
+                saved = [float(v) for v in transform[len("matrix("):-1].split(",")]
+                self.assertAlmostEqual(matrix[4], saved[4], delta=2)
+                self.assertAlmostEqual(matrix[5], saved[5], delta=2)
+                width, height = glyph.locator("image").evaluate("i => { const b = i.getBBox(); return [b.width, b.height] }")
                 points = path_points(page, BOND_A)
                 self.assertEqual(len(points), 2)
                 self.assertAlmostEqual(points[1][0], reaction_end[0], delta=0.5)
-                self.assertAlmostEqual(points[1][1], reaction_end[1], delta=0.5)
-                self.assertAlmostEqual(points[0][0], from_x, delta=3)
-                self.assertAlmostEqual(points[0][1], from_y, delta=1)
+                self.assertAlmostEqual(points[0][1], points[1][1], delta=0.5)
+                self.assertAlmostEqual(points[0][1], matrix[5] + height / 2, delta=1.5)
+                self.assertAlmostEqual(points[0][0], matrix[4] + width, delta=1.5)
 
                 # It can be clicked, and dragged with its bond.
                 click_element(page, STORE_A)
