@@ -63,3 +63,26 @@ describe('ConfirmDialog choose', () => {
     expect([...document.body.querySelectorAll('.confirm-actions button')].map((button) => button.textContent.trim())).toEqual(['No', 'Yes'])
   })
 })
+
+describe('ConfirmDialog issues', () => {
+  it('lists issues, linking those that name an element, and closes on following one', async () => {
+    mountDialog()
+    const followed = []
+    const answer = dialogs.alert({
+      header: 'Diagram Has Errors',
+      message: "The diagram can't be converted:",
+      issues: [
+        { key: 'error-0', message: 'no template', elementId: 'ID-1', label: 'R' },
+        { key: 'error-1', message: 'no model' },
+      ],
+      onIssue: (issue) => followed.push(issue.elementId),
+    })
+    await flushPromises()
+    const items = [...document.body.querySelectorAll('.confirm-issues li')]
+    expect(items.map((item) => item.textContent.replace(/\s+/g, ' ').trim())).toEqual(['R no template', 'no model'])
+    expect(items[1].querySelector('button')).toBeNull()
+    items[0].querySelector('.confirm-issue-link').click()
+    expect(await answer).toBe(false)
+    expect(followed).toEqual(['ID-1'])
+  })
+})

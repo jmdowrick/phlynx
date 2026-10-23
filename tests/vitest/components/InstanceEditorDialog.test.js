@@ -3,6 +3,7 @@ import { defineComponent, h, ref } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import PrimeVue from 'primevue/config'
+import ToastEventBus from 'primevue/toasteventbus'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -1782,12 +1783,75 @@ describe('InstanceEditorDialog locked math', () => {
       await saveEdited()
 
       expect(alert).toHaveBeenCalledWith(expect.objectContaining({ header: 'Diagram Has Errors', severity: 'error' }))
-      expect(alert.mock.calls[0][0].message).toContain('• R: R has no value')
+      expect(alert.mock.calls[0][0].message).toBe("The diagram can't be converted, so nothing was saved:")
+      expect(alert.mock.calls[0][0].issues).toEqual([
+        { key: 'error-0', severity: 'error', message: 'R has no value', elementId: 'R', label: 'R' },
+        { key: 'error-1', severity: 'error', message: 'No model', elementId: null, label: null },
+      ])
       expect(host.highlight).toHaveBeenCalledWith(['R'])
       expect(wrapper.emitted('confirm')).toBeUndefined()
       expect(wrapper.emitted('update:modelValue')).toBeUndefined()
       expect(useLibraryStore().getMathSource(MATH_REF)).toEqual(SOURCE)
       expect(wrapper.vm.hasUnsavedEdits).toBe(true)
+    })
+
+    describe("following an error's element link", () => {
+      let toasts
+      let pane
+      const onToast = (toast) => toasts.push(toast)
+
+      beforeEach(() => {
+        toasts = []
+        ToastEventBus.on('add', onToast)
+        convertCelldl.mockResolvedValue(
+          converted({ ok: false, components: null, errors: [{ message: 'R has no value', elementId: 'R' }], elements: { R: { symbol: 'R_1' } } })
+        )
+      })
+
+      /** Follows the first issue's link in the next alert or confirm, which closes it. */
+      const followFirstIssue = (dialog) =>
+        dialog.mockImplementationOnce(async ({ issues, onIssue }) => {
+          onIssue(issues[0])
+          return false
+        })
+
+      afterEach(() => {
+        ToastEventBus.off('add', onToast)
+        host.release(pane)
+      })
+
+      async function follow(reply, dialog = alert) {
+        followFirstIssue(dialog)
+        const reveal = vi.spyOn(host, 'revealElement').mockResolvedValue(reply)
+        await saveEdited()
+        // The CellDL tab shows the diagram once its pane holds the editor.
+        pane = document.createElement('div')
+        host.claim(pane)
+        await vi.waitFor(() => expect(reveal).toHaveBeenCalledWith('R'))
+        await flushPromises()
+        return reveal
+      }
+
+      it('shows the CellDL tab and reveals the element, keeping the error highlight', async () => {
+        await follow({ ok: true })
+        expect(wrapper.vm.editorKind).toBe('celldl')
+        expect(alert.mock.calls[0][0].issues[0].label).toBe('R_1')
+        expect(host.highlight).toHaveBeenCalledTimes(1)
+        expect(toasts).toEqual([])
+        expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+      })
+
+      it("cancels a save with warnings on following a warning's link", async () => {
+        convertCelldl.mockResolvedValue(converted({ warnings: [{ message: 'Unused bond', elementId: 'R' }] }))
+        await follow({ ok: true }, confirm)
+        expect(wrapper.emitted('confirm')).toBeUndefined()
+        expect(wrapper.vm.editorKind).toBe('celldl')
+      })
+
+      it('says quietly when the element has gone since', async () => {
+        await follow({ ok: false })
+        expect(toasts).toEqual([expect.objectContaining({ severity: 'info', detail: 'R_1 is no longer in the diagram.' })])
+      })
     })
 
     it('asks before saving a diagram with warnings', async () => {
@@ -1796,7 +1860,9 @@ describe('InstanceEditorDialog locked math', () => {
       await saveEdited()
 
       expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ header: 'Diagram Warnings' }))
-      expect(confirm.mock.calls[0][0].message).toContain('• B: Unused bond')
+      expect(confirm.mock.calls[0][0].issues).toEqual([
+        { key: 'warning-0', severity: 'warning', message: 'Unused bond', elementId: 'B', label: 'B' },
+      ])
       expect(wrapper.emitted('confirm')).toBeUndefined()
 
       await clickSave()

@@ -564,7 +564,7 @@ import { waitUntilStable } from '../utils/layout'
 import { notify } from '../utils/notify'
 import { getModelComponentNames, renameLayoutComponent, renameModelComponent } from '../utils/cellml'
 import { getEditorTabFormats, getModuleFormat } from '../services/moduleFormats'
-import { issueLines } from '../services/celldl/issues'
+import { issueItems } from '../services/celldl/issues'
 import { buildElementTable, variableRenames } from '../services/celldl/elementTable'
 import { renamePortVariables, renameRows, renameValues } from '../services/math/reconcileRows'
 import { liveComponentMath } from '../services/celldl/liveMath'
@@ -921,8 +921,34 @@ function setInstanceValue(cell, value) {
  * @param {string|null} id
  */
 async function showInDiagram(id) {
+  if (!id) return switchEditor('celldl')
+  if (!(await openDiagram())) return
+  celldlHost.selectElement(id, 'if-hidden').catch(() => {})
+}
+
+/**
+ * Shows the diagram in the CellDL tab, then takes the user to the element an issue names, centring it at the same
+ * zoom, or says it has gone since.
+ *
+ * @param {{elementId: string, label: string}} issue
+ */
+async function showIssueInDiagram({ elementId, label }) {
+  if (!(await openDiagram())) return
+  try {
+    const { ok } = await celldlHost.revealElement(elementId)
+    if (!ok) notify.info({ message: `${label} is no longer in the diagram.`, duration: 3000 })
+  } catch (e) {
+    console.error("CellDL element couldn't be shown:", e)
+  }
+}
+
+/**
+ * Switches to the CellDL tab, waiting for it to show its diagram.
+ *
+ * @returns {Promise<boolean>} Whether it shows the diagram.
+ */
+async function openDiagram() {
   await switchEditor('celldl')
-  if (!id) return
   await new Promise((resolve) => {
     const stop = watch(
       isDiagramShown,
@@ -938,7 +964,7 @@ async function showInDiagram(id) {
       resolve()
     }, 10000)
   })
-  if (isDiagramShown.value) celldlHost.selectElement(id, 'if-hidden').catch(() => {})
+  return isDiagramShown.value
 }
 
 /** The live conversion's math, read only for a math editor shown over an edited diagram; null otherwise. */
@@ -1997,23 +2023,35 @@ async function stageDiagram({ newName = null, isWarned = false } = {}) {
   const component = result.components?.find((candidate) => candidate.name === name)
   const errors =
     result.ok && !component ? [{ message: `The diagram's CellML has no component named ${name}` }] : result.errors
+  // Where issues' element labels come from: the conversion's manifest, else the diagram's annotations.
+  const labelSources = { elements: result.elements, annotations: celldlHost.annotations.value }
   if (errors.length) {
     celldlHost.highlight(errors.map((issue) => issue.elementId).filter(Boolean))
+    // An issue naming an element links to it: following the link closes this and shows the element.
+    let followed = null
     await alert({
       header: moduleFormat.value.editorTab.errorHeader,
-      message: ["The diagram can't be converted, so nothing was saved:", ...issueLines(errors)].join('\n'),
+      message: "The diagram can't be converted, so nothing was saved:",
+      issues: issueItems({ errors }, labelSources),
+      onIssue: (issue) => (followed = issue),
       severity: 'error',
     })
+    if (followed) showIssueInDiagram(followed)
     return false
   }
   if (result.warnings.length && !isWarned) {
+    let followed = null
     const proceed = await confirm({
       header: 'Diagram Warnings',
-      message: ['The diagram converted with warnings:', ...issueLines(result.warnings), '', 'Save it anyway?'].join('\n'),
+      message: 'The diagram converted with warnings. Save it anyway?',
+      issues: issueItems({ warnings: result.warnings }, labelSources),
+      // Following a warning's link cancels the save.
+      onIssue: (issue) => (followed = issue),
       severity: 'warning',
       acceptLabel: 'Save',
       rejectLabel: 'Cancel',
     })
+    if (followed) showIssueInDiagram(followed)
     if (!proceed) return false
   }
   // Saved under its module's name, it overwrites it, or is converted again as a new component, as CellML is saved.
