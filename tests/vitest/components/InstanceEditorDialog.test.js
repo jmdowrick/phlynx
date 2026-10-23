@@ -474,6 +474,13 @@ describe('InstanceEditorDialog new module template (#634)', () => {
         expect(wrapper.findComponent(CelldlParametersTabStub).exists()).toBe(true)
       })
 
+      it("previews the diagram against User_Modules.celldl, the grouping its save converts it in", async () => {
+        await openTemplate()
+        await wrapper.vm.switchEditor('celldl')
+
+        expect(wrapper.findComponent(CelldlPaneStub).vm.$attrs['math-ref']).toBe('User_Modules.celldl:new_module')
+      })
+
       it('saves nothing when the new name is cancelled', async () => {
         const saveAs = await saveDrawn()
         saveAs.vm.$emit('cancel')
@@ -1576,6 +1583,14 @@ describe('InstanceEditorDialog locked math', () => {
           siblings: [],
         })
         expect(useLibraryStore().getMathSource(MATH_REF)).toEqual(SOURCE)
+      })
+
+      it('previews the diagram under its own math, then under the name it is renamed to', async () => {
+        await openRenamed(MATH_REF.split(':')[1], { isEdited: false })
+        expect(wrapper.findComponent(CelldlPaneStub).vm.$attrs['math-ref']).toBe(MATH_REF)
+
+        await wrapper.find('.header-group--secondary input').setValue('fast')
+        expect(wrapper.findComponent(CelldlPaneStub).vm.$attrs['math-ref']).toBe('file:fast')
       })
 
       it('moves the other instances to it too when ticked', async () => {

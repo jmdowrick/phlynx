@@ -4,7 +4,14 @@
  * math reference. New CellML modules go in USER_MODULES_FILE and new or imported CellDL modules in
  * CELLDL_USER_MODULES_FILE, whose modules share one units entry.
  */
-import { CELLML_NS, MATHML_NS, STANDARD_UNITS } from '../utils/constants'
+import {
+  CELLDL_USER_MODULES_FILE,
+  CELLML_NS,
+  MATHML_NS,
+  NEW_MODULE_MATH_REF,
+  STANDARD_UNITS,
+  USER_MODULES_FILE,
+} from '../utils/constants'
 import { getCellmlAttributeNode } from '../utils/cellml'
 import { parseMathRef } from '../utils/config'
 import { extractUnitDefinitions } from '../utils/units'
@@ -32,6 +39,33 @@ export function groupingCellmlFile(grouping) {
   return modules
     ? `${stem.slice(0, modules.index)}${modules[1]}${format}_${modules[2]}.cellml`
     : `${stem}_${format}.cellml`
+}
+
+/**
+ * Gets the grouping a module's math is saved in under a new name. Only a module new from the template is a user
+ * module: a diagram's goes in User_Modules.celldl, CellML's in User_Modules.cellml. An edit of existing math, renamed
+ * or saved as new, stays in that math's grouping.
+ *
+ * @param {string|null} mathRef - The edited module's math, e.g. NEW_MODULE_MATH_REF for the template.
+ * @param {{isDiagram?: boolean}} [options] - Whether the module is a diagram's.
+ * @returns {string|undefined} Undefined when there's no math.
+ */
+export function newComponentGrouping(mathRef, { isDiagram = false } = {}) {
+  if (mathRef !== NEW_MODULE_MATH_REF) return mathRef ? parseMathRef(mathRef).componentFile : undefined
+  return isDiagram ? CELLDL_USER_MODULES_FILE : USER_MODULES_FILE
+}
+
+/**
+ * Gets the math reference a diagram's save converts for (newComponentGrouping), which its live conversion checks and
+ * names units against too.
+ *
+ * @param {string|null} mathRef - The edited module's math.
+ * @param {string|null} [name] - The component name it's saved under, the module's own by default.
+ * @returns {string|null} Null when there's no math.
+ */
+export function diagramSaveRef(mathRef, name = null) {
+  if (!mathRef) return null
+  return `${newComponentGrouping(mathRef, { isDiagram: true })}:${name || parseMathRef(mathRef).componentName}`
 }
 
 /**

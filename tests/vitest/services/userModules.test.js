@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import { knownUnitsForModule } from '../../../src/services/celldl/knownUnits.js'
 import {
+  diagramSaveRef,
   findInGrouping,
   groupingCellmlFile,
   groupingUnitsAfterSave,
   keptGroupingUnits,
+  newComponentGrouping,
 } from '../../../src/services/userModules.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { extractUnitDefinitions } from '../../../src/utils/units.js'
@@ -34,6 +36,37 @@ describe('groupingCellmlFile', () => {
     expect(groupingCellmlFile('User_Modules.cellml')).toBe('User_Modules.cellml')
     expect(groupingCellmlFile('User_Modules.celldl')).toBe('User_CellDL_Modules.cellml')
     expect(groupingCellmlFile('rc.celldl')).toBe('rc_CellDL.cellml')
+  })
+})
+
+describe('newComponentGrouping and diagramSaveRef', () => {
+  const TEMPLATE = 'template_modules.cellml:new_module'
+
+  it("puts the template's new components in the user modules groupings, and others' in their own", () => {
+    expect(newComponentGrouping(TEMPLATE, { isDiagram: true })).toBe('User_Modules.celldl')
+    expect(newComponentGrouping(TEMPLATE)).toBe('User_Modules.cellml')
+    expect(newComponentGrouping('file:decay', { isDiagram: true })).toBe('file')
+    expect(newComponentGrouping(null)).toBeUndefined()
+  })
+
+  it('names the math a diagram saves to, under its own name unless renamed', () => {
+    expect(diagramSaveRef(TEMPLATE)).toBe('User_Modules.celldl:new_module')
+    expect(diagramSaveRef('file:decay')).toBe('file:decay')
+    expect(diagramSaveRef('file:decay', 'fast')).toBe('file:fast')
+    expect(diagramSaveRef(null)).toBeNull()
+  })
+
+  it("previews the template against User_Modules.celldl's units, keeping those its modules use", () => {
+    setActivePinia(createPinia())
+    const store = useLibraryStore()
+    store.addUnitsFile({ componentFile: 'template_modules.cellml', model: unitsModel('tpl') })
+    store.addUnitsFile({ componentFile: GROUP, model: unitsModel('mm', 'unused') })
+    store.addMath(`${GROUP}:rc`, math('rc', 'mm'))
+    const known = knownUnitsForModule(store, diagramSaveRef(TEMPLATE)).join('')
+
+    expect(known).toContain('tpl')
+    expect(known).toContain('mm')
+    expect(known).not.toContain('unused')
   })
 })
 
