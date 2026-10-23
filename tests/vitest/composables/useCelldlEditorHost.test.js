@@ -458,6 +458,8 @@ describe('useCelldlEditorHost', () => {
       host.markSaved(SOURCE)
       host.prepare(SOURCE)
       await host.sync()
+      // A view set now would be sent once the command watcher next runs.
+      await new Promise((resolve) => setTimeout(resolve, 20))
       expect(viewsSet(editor)).toEqual([])
     })
 
