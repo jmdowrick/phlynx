@@ -188,6 +188,21 @@ describe('useInstanceSave', () => {
       expect(library.getMathSource(DECAY_REF)).toEqual(SOURCE)
     })
 
+    it("replaces only the diagram of a save that keeps its math, leaving the module's defaults and every instance's values", async () => {
+      library.setMathSource(DECAY_REF, SOURCE)
+      const moved = { ...SOURCE, document: '<diagram moved/>' }
+      findNode('b').data.variables[1].value = '0.7'
+      const mathBefore = library.getMathEntry(DECAY_REF)
+      await saveInstanceEdit(buildSave({ name: 'a', source: moved, isSourceChanged: true, updateAll: true, siblings: ['b'] }))
+      expect(library.getMathEntry(DECAY_REF)).toEqual({ ...mathBefore, source: moved })
+      const valueOf = (id) => findNode(id).data.variables.find((row) => row.name === 'k').value
+      expect([valueOf('a'), valueOf('b')]).toEqual(['0.5', '0.7'])
+
+      await history.undo()
+      expect(library.getMathEntry(DECAY_REF)).toEqual(mathBefore)
+      expect(history.canUndo).toBe(false)
+    })
+
     it('undoes the source and its generated math together', async () => {
       const mathBefore = library.getMathEntry(DECAY_REF)
       await saveInstanceEdit(buildSave({ math: GENERATED_XML, source: SOURCE, isSourceChanged: true }))

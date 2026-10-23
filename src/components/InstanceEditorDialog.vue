@@ -562,7 +562,9 @@ import { cleanName, sanitiseName } from '../utils/identifiers'
 import { detachReactivity } from '../utils/reactivity'
 import { waitUntilStable } from '../utils/layout'
 import { notify } from '../utils/notify'
-import { getModelComponentNames, renameLayoutComponent, renameModelComponent } from '../utils/cellml'
+import { areModelsEquivalent, getModelComponentNames, renameLayoutComponent, renameModelComponent } from '../utils/cellml'
+import { areUnitsModelsEquivalent } from '../utils/units'
+import { separateParameters } from '../services/math/separateParameters'
 import { getEditorTabFormats, getModuleFormat } from '../services/moduleFormats'
 import { issueLines } from '../services/celldl/issues'
 import { buildElementTable, variableRenames } from '../services/celldl/elementTable'
@@ -1916,6 +1918,21 @@ function overwritableDiagram(name) {
 }
 
 /**
+ * Checks whether a diagram's conversion gives its module's stored math and units, compared as the math's dirty check
+ * does, so the edit changed only the diagram, e.g. its layout. Values are left out: the module keeps its defaults.
+ *
+ * @param {string} math - The converted component's math.
+ * @param {{componentFile: string, model: string|null}} units - Its grouping's units after the save.
+ * @returns {boolean}
+ */
+function isDiagramOnlyChange(math, units) {
+  const storedMath = store.availableMath.get(props.mathRef)
+  if (!storedMath || !areModelsEquivalent(storedMath, separateParameters(math).math)) return false
+  const storedUnits = store.availableUnits.find((file) => file.componentFile === units.componentFile)?.model ?? null
+  return areUnitsModelsEquivalent(storedUnits, units.model)
+}
+
+/**
  * Converts the diagram, when edited since it was opened or saved, into the math this save writes. Errors stop the
  * save, keeping the stored math and diagram, with the elements they name highlighted; warnings ask first. The
  * template's diagram, and a diagram whose component is renamed, is a new component, named first so its CellML is, under
@@ -1923,13 +1940,15 @@ function overwritableDiagram(name) {
  * (newComponentFile), leaving its module, diagram and units as they are. The grouping's modules share its units
  * (groupingUnitsAfterSave). A diagram
  * saved under its module's name, or renamed to another diagram's module's (overwritableDiagram), overwrites that, or is
- * converted again as a new component, asking once it converts.
+ * converted again as a new component, asking once it converts. One saved under its module's name that gives the
+ * stored math and units (isDiagramOnlyChange) replaces only the module's diagram, without asking.
  *
  * @param {{newName?: string|null, isWarned?: boolean}} [options] - A new component's name, chosen instead of
  *   overwriting, and whether its warnings were already accepted.
- * @returns {Promise<{mathRef: string, math: string, source: Object, units: Object, isEditorDocument: boolean}|null|false>}
+ * @returns {Promise<{mathRef: string, math: string|null, source: Object, units: Object|null, isEditorDocument: boolean}|null|false>}
  *   Where the generated math goes, the math, its source and its grouping's units (a null model when none), and whether
- *   the editor shows the source's document as it is; null when the diagram is unchanged; false when the save stops.
+ *   the editor shows the source's document as it is; null math and units when only the diagram changed; null when the
+ *   diagram is unchanged; false when the save stops.
  */
 async function stageDiagram({ newName = null, isWarned = false } = {}) {
   let name = newName ?? renamedDiagramComponent() ?? componentName.value
@@ -2016,8 +2035,24 @@ async function stageDiagram({ newName = null, isWarned = false } = {}) {
     })
     if (!proceed) return false
   }
+  const source = {
+    ...(overwriteRef ? store.getMathSource(overwriteRef) : stored),
+    format: moduleFormat.value.id,
+    document,
+    documentUri: result.documentUri,
+    elements: result.elements,
+    generator: result.generator,
+    frameworkVersion: result.frameworkVersion,
+  }
+  // A diagram with no units of its own drops any its module had, keeping those its grouping's other modules use.
+  const units = groupingUnitsAfterSave(store, `${file}:${name}`, result.unitsModel)
+  const isOwnModule = stored && !isRenamed && store.availableMath.has(props.mathRef)
+  // Only the diagram changed, so its module keeps its math, and the instances on it theirs.
+  if (isOwnModule && !overwriteRef && isDiagramOnlyChange(component.math, units)) {
+    return { mathRef: props.mathRef, math: null, source, units: null, isEditorDocument }
+  }
   // Saved under its module's name, it overwrites it, or is converted again as a new component, as CellML is saved.
-  if (overwriteRef || (stored && !isRenamed && store.availableMath.has(props.mathRef))) {
+  if (overwriteRef || isOwnModule) {
     const choice = await handleMathOverwrite(name, { file, mathRef: overwriteRef ?? props.mathRef })
     if (!choice) return false
     if (choice.name) return stageDiagram({ newName: choice.name, isWarned: true })
@@ -2025,17 +2060,8 @@ async function stageDiagram({ newName = null, isWarned = false } = {}) {
   return {
     mathRef: `${file}:${name}`,
     math: component.math,
-    source: {
-      ...(overwriteRef ? store.getMathSource(overwriteRef) : stored),
-      format: moduleFormat.value.id,
-      document,
-      documentUri: result.documentUri,
-      elements: result.elements,
-      generator: result.generator,
-      frameworkVersion: result.frameworkVersion,
-    },
-    // A diagram with no units of its own drops any its module had, keeping those its grouping's other modules use.
-    units: groupingUnitsAfterSave(store, `${file}:${name}`, result.unitsModel),
+    source,
+    units,
     isEditorDocument,
   }
 }
@@ -2231,12 +2257,14 @@ async function saveInstance(options) {
   // An edited diagram gives the math, and values for variables new to the module.
   const staged = await stageDiagram()
   if (staged === false) return
+  // A diagram giving new math, not one whose diagram alone changed.
+  const isRegenerated = !!staged?.math
   // Its math replaces the session's only once the save goes ahead, so a cancelled save keeps the stored math.
   let target = null
   // The module's defaults before this save, which its variables keep (keepDefaults).
-  const previousDefaults = staged && store.getMathSource(props.mathRef) ? new Map(store.getMathDefaults(props.mathRef)) : new Map()
+  const previousDefaults = isRegenerated && store.getMathSource(props.mathRef) ? new Map(store.getMathDefaults(props.mathRef)) : new Map()
   let renames = new Map()
-  if (staged) {
+  if (isRegenerated) {
     // A diagram saved under its module's name overwrites it, as asked while staging. The template's, a renamed one's, or
     // one saved as a new component, was named as it converted, so is a new module.
     target = {
@@ -2249,7 +2277,7 @@ async function saveInstance(options) {
     renameCelldlRows(renames)
     session.applyGeneratedModel(staged.math, { previousDefaults: renameValues(previousDefaults, renames) })
   }
-  if (isCelldlModule.value) applyCelldlValues({ isStaged: !!staged })
+  if (isCelldlModule.value) applyCelldlValues({ isStaged: isRegenerated })
 
   // Values typed into the text belong in the rows, so an edit to values alone leaves the math unchanged.
   session.separateTypedValues()
@@ -2260,7 +2288,7 @@ async function saveInstance(options) {
 
   // 3. Check the math's new reference. A diagram's math is saved with its values, the math's defaults, even when
   // only they changed.
-  const isMathChanged = !!staged || session.isDirty()
+  const isMathChanged = isRegenerated || session.isDirty()
   if (isMathChanged && !target) {
     target = await resolveMathTarget(currentModel.value, currentLayout.value)
     if (!target) return
@@ -2293,7 +2321,7 @@ async function saveInstance(options) {
       isSourceChanged: !!staged,
       units: staged?.units ?? null,
       // The module's defaults before the diagram regenerated its math, which its variables keep.
-      previousDefaults: staged ? [...previousDefaults] : null,
+      previousDefaults: isRegenerated ? [...previousDefaults] : null,
       // Variables the diagram edit renamed, whose values every instance's rows on the saved math move to the new names.
       renames: [...renames],
       // Only rows that were already global edit the shared value; a row just switched to global joins it as is.
