@@ -626,4 +626,12 @@ describe('EDITOR_CHROME', () => {
     expect(EDITOR_CHROME.values).toBe('readonly')
     expect(EDITOR_CHROME.valuesHint).toBe('Set values in the Parameters tab')
   })
+
+  it('places elements from the chemical palette, keeping the toolbar for Undo and Redo only', () => {
+    expect(EDITOR_CHROME.palette).toBe('top')
+    expect(EDITOR_CHROME.paletteDomain).toBe('chemical')
+    // An empty list, not false: false would hide the Undo and Redo buttons with the toolbar.
+    expect(EDITOR_CHROME.tools).toEqual([])
+    expect(EDITOR_CHROME.undo).not.toBe(false)
+  })
 })

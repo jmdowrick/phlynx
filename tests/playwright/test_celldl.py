@@ -162,16 +162,13 @@ def show_diagram_tab(page, dialog):
     expect(page.locator(".celldl-pane-pending")).to_have_count(0, timeout=DIAGRAM_TIMEOUT)
 
 
-def add_component(page, component):
-    """Drags a component from the bond graph palette onto the diagram, clear of the palette."""
-    page.locator("#editor-bondgraph-tool").click()
-    palette_item = page.locator(f'[id="bondgraph-components/{component}"]')
-    palette_item.wait_for()
+def add_component(page, entry):
+    """Places an element from the editor's palette, by its tile's entry id, e.g. `chemical/species`: a click arms
+    the tile, a click on the canvas places it there, clear of the palette, and Escape disarms it."""
+    page.locator(f'.celldl-pane .palette-tile[data-entry-id="{entry}"]').click()
     box = page.locator(DIAGRAM_SVG).bounding_box()
-    palette_item.drag_to(
-        page.locator(DIAGRAM_SVG), target_position={"x": box["width"] * 0.65, "y": box["height"] * 0.5}
-    )
-    page.locator("#editor-select-tool").click()
+    page.mouse.click(box["x"] + box["width"] * 0.65, box["y"] + box["height"] * 0.5)
+    page.keyboard.press("Escape")
 
 
 def choose_template(page, template):
@@ -464,21 +461,22 @@ class TestCelldl(unittest.TestCase):
             place(page, "TEMPLATE MODULES", "new_module")
             dialog = open_editor(page, "new_module")
             show_diagram_tab(page, dialog)
-            add_component(page, "ZeroStorageNode_q")
+            add_component(page, "chemical/species")
             storage = page.locator(f"{DIAGRAM_SVG} #celldl-diagram-layer > g.celldl-Component")
             expect(storage).to_have_count(1)
 
-            # Making it chemical storage makes it a composite node, which the editor lists as a junction too.
+            # The palette's Species is chemical storage, a composite node the editor lists as a junction too. It's
+            # named S1, in the default location c.
             click_element(page, storage.get_attribute("id"))
             choose_template(page, "Chemical storage with Zero Node")
 
             # Live conversion takes it as a storage node: the template stores 1 for its K, which the math has, and
             # no junction type is asked for. The live status lists its issues in its tooltip.
             status = dialog.locator(".celldl-live-status")
-            expect(status).to_have_attribute("title", re.compile("q_i_j"), timeout=DIAGRAM_TIMEOUT)
+            expect(status).to_have_attribute("title", re.compile("q_S1_c"), timeout=DIAGRAM_TIMEOUT)
             self.assertNotIn("must be one, zero or transform nodes", status.get_attribute("title"))
             self.assertNotIn("Missing value for parameter K", status.get_attribute("title"))
-            expect(cellml_text(dialog)).to_contain_text("K_q_i_j", timeout=DIAGRAM_TIMEOUT)
+            expect(cellml_text(dialog)).to_contain_text("K_q_S1_c", timeout=DIAGRAM_TIMEOUT)
             # ----------- END ------------
 
             browser.close()
@@ -606,7 +604,7 @@ class TestCelldl(unittest.TestCase):
             # ---------- START -----------
             dialog = import_and_open(page)
             components = page.locator(f"{DIAGRAM_SVG} #celldl-diagram-layer > g.celldl-Component")
-            add_component(page, "ZeroStorageNode_q")
+            add_component(page, "chemical/species")
             expect(components).to_have_count(4)
 
             # Undo in the Parameters tab leaves the diagram alone.
@@ -615,7 +613,9 @@ class TestCelldl(unittest.TestCase):
             page.wait_for_timeout(500)
             expect(components).to_have_count(4)
 
-            # Back in the diagram, the keys undo and redo it, as do its toolbar's buttons.
+            # Back in the diagram, the keys undo and redo it, as do its toolbar's buttons, the only ones it shows:
+            # the palette replaced its tools.
+            expect(page.locator("#editor-select-tool, #editor-bondgraph-tool")).to_have_count(0)
             box = page.locator(DIAGRAM_SVG).bounding_box()
             page.mouse.click(box["x"] + box["width"] * 0.1, box["y"] + box["height"] * 0.1)
             page.keyboard.press("ControlOrMeta+z")
@@ -656,7 +656,7 @@ class TestCelldl(unittest.TestCase):
             # r1's location, and r2's type there and back.
             set_element_field(dialog, REACTION_R1, "Location", "cyt")
             expect(element_row(dialog, REACTION_R1).locator(".element-names")).to_contain_text("kappa_Rx_r1_cyt", timeout=DIAGRAM_TIMEOUT)
-            choose_element_type(page, dialog, REACTION_R2, "NKETransporter")
+            choose_element_type(page, dialog, REACTION_R2, "NKE transporter")
             expect(dialog.locator(f'.celldl-parameters tr.element-row--values[data-element-id="{REACTION_R2}"]')).to_contain_text("k_NKE")
             choose_element_type(page, dialog, REACTION_R2, "Chemical reaction")
             expect(element_row(dialog, REACTION_R2).locator(".element-names")).to_contain_text("kappa_Rx_r2_c", timeout=DIAGRAM_TIMEOUT)
@@ -1069,11 +1069,13 @@ class TestCelldl(unittest.TestCase):
     def test_keeps_a_bonded_store_where_it_was_after_editing_it_from_its_parameters_tab(self):
         # Safari measured an element before its new picture loaded, and lost its transform attribute, so a store
         # edited from the table jumped away, couldn't be clicked or dragged, and its bonds broke. WebKit runs where
-        # it's installed; CI installs Chromium only.
+        # it's installed, and always in CI, which installs it.
         for engine in ("chromium", "webkit"):
             with self.subTest(engine=engine), sync_playwright() as playwright:
-                # Only a missing browser skips: one that fails to open the app fails the test.
+                # Only a missing browser skips, and never in CI: one that fails to open the app fails the test.
                 if engine != "chromium" and not os.path.exists(getattr(playwright, engine).executable_path):
+                    if os.environ.get("CI"):
+                        self.fail(f"{engine} isn't installed")
                     self.skipTest(f"{engine} isn't installed")
                 browser, page = open_app(playwright, engine)
 
