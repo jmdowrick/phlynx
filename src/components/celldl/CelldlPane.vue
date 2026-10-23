@@ -325,11 +325,12 @@ onBeforeUnmount(() => host.release(slotRef.value))
   color: var(--p-orange-600);
 }
 
-:global(.p-dark) .celldl-issue-list [data-severity='error'] .pi {
+/* Not :global(.p-dark) …, which compiles to a bare .p-dark rule, colouring the whole page. */
+.p-dark .celldl-issue-list [data-severity='error'] .pi {
   color: var(--p-red-400);
 }
 
-:global(.p-dark) .celldl-issue-list [data-severity='warning'] .pi {
+.p-dark .celldl-issue-list [data-severity='warning'] .pi {
   color: var(--p-orange-400);
 }
 
