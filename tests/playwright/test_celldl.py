@@ -412,6 +412,52 @@ class TestCelldl(unittest.TestCase):
 
             browser.close()
 
+    def test_saves_a_moved_element_without_asking_to_overwrite_and_undoes_it_in_one_step(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+
+            # ---------- START -----------
+            dialog = import_and_open(page)
+            name, file = component_of(dialog)
+            math_ref = f"{file}:{name}"
+            original = stored_document(page, math_ref)
+            glyph = page.locator(f'{DIAGRAM_SVG} [id="{CAPACITOR}"]')
+            transform = glyph.get_attribute("transform")
+
+            # Moving the capacitor changes only the diagram, so it saves without the overwrite prompt.
+            click_element(page, CAPACITOR)
+            x, y = element_centre(page, CAPACITOR)
+            page.mouse.down()
+            page.mouse.move(x + 60, y + 40, steps=8)
+            page.mouse.up()
+            moved = glyph.get_attribute("transform")
+            self.assertNotEqual(moved, transform)
+            dialog.get_by_role("button", name="Save").click()
+            expect(dialog).to_be_hidden(timeout=DIAGRAM_TIMEOUT)
+            expect(page.locator(".confirm-container").filter(has_text="Overwrite Math?")).to_have_count(0)
+            self.assertNotEqual(stored_document(page, math_ref), original)
+            self.assertEqual(component_of(open_editor(page, MODULE)), (name, file))
+            wait_for_diagram(page)
+            self.assertEqual(glyph.get_attribute("transform"), moved)
+            dialog.get_by_role("button", name="Cancel").click()
+            expect(dialog).to_be_hidden()
+
+            # One undo puts the diagram back where it was.
+            expect(page.locator("button:has(.pi-undo)")).to_be_enabled()
+            page.keyboard.press("ControlOrMeta+z")
+            page.wait_for_function(
+                """([mathRef, original]) => document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
+                    .get('library').getMathSource(mathRef)?.document === original""",
+                arg=[math_ref, original],
+                timeout=DIAGRAM_TIMEOUT,
+            )
+            open_editor(page, MODULE)
+            wait_for_diagram(page)
+            self.assertEqual(glyph.get_attribute("transform"), transform)
+            # ----------- END ------------
+
+            browser.close()
+
     def test_shows_the_diagram_math_live_until_cancelled(self):
         with sync_playwright() as playwright:
             browser, page = open_app(playwright)

@@ -147,6 +147,19 @@ function readPrefix(el) {
 }
 
 /**
+ * Checks whether two units models define the same units, in any order and however they're written.
+ *
+ * @param {string|null} model
+ * @param {string|null} otherModel
+ * @returns {boolean} True when both define none.
+ */
+export function areUnitsModelsEquivalent(model, otherModel) {
+  if ((model ?? null) === (otherModel ?? null)) return true
+  const serialise = (xml) => JSON.stringify([...extractUnitDefinitions(xml)].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+  return serialise(model) === serialise(otherModel)
+}
+
+/**
  * Reads each `<units>` definition in a model. An empty parts list means the units is a base unit of its own.
  *
  * @param {string} modelXml

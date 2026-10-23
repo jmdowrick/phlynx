@@ -1729,6 +1729,13 @@ export function mergeModelComponents(targetModelString, sourceModelString, newCo
   return mergedModelString
 }
 
+/**
+ * Checks whether two CellML models are the same, whatever their order or whitespace between tags.
+ *
+ * @param {string} modelAString
+ * @param {string} modelBString
+ * @returns {boolean} False when either is blank.
+ */
 export function areModelsEquivalent(modelAString, modelBString) {
   if (!modelAString || !modelBString) {
     return false
@@ -1737,6 +1744,11 @@ export function areModelsEquivalent(modelAString, modelBString) {
   if (modelAString.trim() === '' || modelBString.trim() === '') {
     return false
   }
+  // libcellml compares math as text, which the browser's build parses with or without its indentation from one parse
+  // to the next, so indentation is dropped first.
+  const collapse = (xml) => xml.replace(/>\s+</g, '><')
+  modelAString = collapse(modelAString)
+  modelBString = collapse(modelBString)
 
   const garbageCollector = new Set() // To track created objects for cleanup
   try {

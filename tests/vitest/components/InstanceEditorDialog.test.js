@@ -1464,6 +1464,69 @@ describe('InstanceEditorDialog locked math', () => {
       expect(save).not.toHaveProperty('keptValues')
     })
 
+    describe('when only the diagram changed', () => {
+      const UNITS_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="units">
+  <units name="per_second"><unit units="second" exponent="-1"/></units>
+  <units name="per_metre"><unit units="metre" exponent="-1"/></units>
+</model>`
+      // The stored units, written in another order and spacing.
+      const REORDERED_UNITS = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="units"><units name="per_metre"><unit exponent="-1" units="metre"/></units><units name="per_second"><unit units="second" exponent="-1"/></units></model>`
+
+      beforeEach(() => {
+        useLibraryStore().addUnitsFile({ componentFile: 'file', model: UNITS_XML })
+        // The stored math, regenerated with its variables in another order and other values.
+        const reordered = XML.replace('<variable name="t" units="second" interface="public_and_private"/>', '')
+          .replace('<variable name="k" units="per_second" initial_value="0.5"/>', '<variable name="k" units="per_second" initial_value="0.9"/>\n    <variable name="t" units="second" interface="public_and_private"/>')
+        convertCelldl.mockResolvedValue(converted({ components: [{ name: 'decay', math: reordered }], unitsModel: REORDERED_UNITS }))
+      })
+
+      it("saves the diagram without asking, keeping the module's math, units and the instance's values", async () => {
+        const mathBefore = useLibraryStore().availableMath.get(MATH_REF)
+        await saveEdited()
+
+        expect(choose).not.toHaveBeenCalled()
+        const [save] = wrapper.emitted('confirm')[0]
+        expect(save).toMatchObject({
+          mathRef: MATH_REF,
+          previousMathRef: MATH_REF,
+          math: null,
+          isSourceChanged: true,
+          source: { ...SOURCE, document: EDITED_DOCUMENT, elements: { R: { primary: 'v_R' } }, frameworkVersion: '1.0' },
+          units: null,
+          previousDefaults: null,
+          renames: [],
+        })
+        expect(save.variables.find((row) => row.name === 'k').value).toBe('0.5')
+        expect(useLibraryStore().availableMath.get(MATH_REF)).toBe(mathBefore)
+        expect(host.markSaved).toHaveBeenCalledWith(save.source)
+      })
+
+      it('still asks to overwrite when the units change', async () => {
+        convertCelldl.mockResolvedValue(
+          converted({ components: [{ name: 'decay', math: XML }], unitsModel: UNITS_XML.replace('exponent="-1"/></units>\n</model>', 'exponent="-2"/></units>\n</model>') })
+        )
+        await saveEdited()
+
+        expect(choose).toHaveBeenCalledWith(expect.objectContaining({ header: 'Overwrite Math?' }))
+        expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ math: XML, units: { componentFile: 'file' } })
+      })
+
+      it('still follows the rename rules when the component is renamed', async () => {
+        const NEW_URI = 'https://bg-rdf.org/models/local/phlynx/file_fast.celldl'
+        convertCelldl.mockResolvedValue(converted({ components: [{ name: 'fast', math: XML.replaceAll('decay', 'fast') }], documentUri: NEW_URI }))
+        mountDialog()
+        await wrapper.setProps({ modelValue: true })
+        await vi.waitFor(() => expect(wrapper.findComponent(CelldlPaneStub).exists()).toBe(true))
+        host.isDirty.value = true
+        await wrapper.find('.header-group--secondary input').setValue('fast')
+        await clickSave()
+
+        const [save] = wrapper.emitted('confirm')[0]
+        expect(save).toMatchObject({ mathRef: 'file:fast', isSourceChanged: true })
+        expect(save.math).not.toBeNull()
+      })
+    })
+
     it('applies the overwrite to every instance when ticked', async () => {
       mountDialog()
       await wrapper.setProps({ modelValue: true })
