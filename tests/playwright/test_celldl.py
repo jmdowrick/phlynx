@@ -39,6 +39,8 @@ PRODUCT, PRODUCT_JUNCTION = "ID-00000014", "ID-00000013"
 # straight to stores, a bondCount of 2, and a copy of the ATP chemostat beside each reaction.
 REACTIONS_PANEL = os.path.join(RESOURCE_PATH, "celldl", "reactions_panel.celldl")
 REACTIONS_MODULE = "reactions_panel"
+# Its A store (ID-00000003), bonded straight to r1's node (ID-00000002).
+STORE_A, BOND_A = "ID-00000003", "ID-00000004"
 
 DIAGRAM_SVG = ".celldl-pane .celldl-host #svg-container > svg"
 # The marker a bond is drawn with: its arrowhead style's display marker, whatever the document saved.
@@ -52,9 +54,9 @@ SHORT_SIMULATION = (
 )
 
 
-def open_app(playwright):
-    """Opens an empty workspace, isolated so it can simulate."""
-    browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+def open_app(playwright, engine="chromium"):
+    """Opens an empty workspace, isolated so it can simulate, in Chromium unless another engine is asked for."""
+    browser = getattr(playwright, engine).launch(headless=HEADLESS_MODE)
     context = browser.new_context(viewport={"width": 1600, "height": 1000})
     context.add_init_script(OPT_IN_TO_ISOLATION)
     page = context.new_page()
@@ -103,6 +105,12 @@ def wait_for_diagram(page):
     """Waits for the CellDL tab to show its diagram's elements."""
     page.locator(f"{DIAGRAM_SVG} #celldl-diagram-layer > g.celldl-Component").first.wait_for(timeout=DIAGRAM_TIMEOUT)
     expect(page.locator(".celldl-pane-pending")).to_have_count(0, timeout=DIAGRAM_TIMEOUT)
+
+
+def path_points(page, path_id):
+    """A bond's points, as its path draws them."""
+    d = page.locator(f'{DIAGRAM_SVG} path[id="{path_id}"]').get_attribute("d")
+    return [(float(x), float(y)) for x, y in re.findall(r"[ML]\s*(-?[\d.]+)[ ,](-?[\d.]+)", d)]
 
 
 def element_centre(page, element_id):
@@ -1057,6 +1065,74 @@ class TestCelldl(unittest.TestCase):
 
             browser.close()
 
+
+    def test_keeps_a_bonded_store_where_it_was_after_editing_it_from_its_parameters_tab(self):
+        # Safari measured an element before its new picture loaded, and lost its transform attribute, so a store
+        # edited from the table jumped away, couldn't be clicked or dragged, and its bonds broke. WebKit runs where
+        # it's installed; CI installs Chromium only.
+        for engine in ("chromium", "webkit"):
+            with self.subTest(engine=engine), sync_playwright() as playwright:
+                try:
+                    browser, page = open_app(playwright, engine)
+                except Exception as error:
+                    if engine == "chromium":
+                        raise
+                    self.skipTest(f"{engine} isn't installed: {error}")
+
+                # ---------- START -----------
+                import_diagram(page, REACTIONS_PANEL)
+                expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+                place(page, CELLDL_GROUP, REACTIONS_MODULE)
+                dialog = open_editor(page, REACTIONS_MODULE)
+                wait_for_diagram(page)
+                glyph = page.locator(f'{DIAGRAM_SVG} [id="{STORE_A}"]')
+                transform = glyph.get_attribute("transform")
+                (from_x, from_y), reaction_end = path_points(page, BOND_A)
+
+                # Its species, location and type there and back, from its row.
+                set_element_field(dialog, STORE_A, "Species", "m")
+                expect(element_row(dialog, STORE_A).locator(".element-names")).to_contain_text("q_m_c", timeout=DIAGRAM_TIMEOUT)
+                set_element_field(dialog, STORE_A, "Location", "i")
+                expect(element_row(dialog, STORE_A).locator(".element-names")).to_contain_text("q_m_i", timeout=DIAGRAM_TIMEOUT)
+                type_select = element_row(dialog, STORE_A).locator(".p-select")
+                type_select.click()
+                page.locator(".p-select-option").filter(has_text=re.compile(r"^\s*Zero storage node\s*$")).click()
+                expect(type_select).to_contain_text("Choose a type")
+                choose_element_type(page, dialog, STORE_A, "Chemical storage with Zero Node")
+
+                # It stays put, and its bond keeps its route, its end moving only to the store's new edge.
+                self.assertIsNotNone(glyph.get_attribute("transform"))
+                self.assertAlmostEqual(
+                    float(glyph.get_attribute("transform").split(",")[5].rstrip(")")),
+                    float(transform.split(",")[5].rstrip(")")),
+                    delta=2,
+                )
+                points = path_points(page, BOND_A)
+                self.assertEqual(len(points), 2)
+                self.assertAlmostEqual(points[1][0], reaction_end[0], delta=0.5)
+                self.assertAlmostEqual(points[1][1], reaction_end[1], delta=0.5)
+                self.assertAlmostEqual(points[0][0], from_x, delta=3)
+                self.assertAlmostEqual(points[0][1], from_y, delta=1)
+
+                # It can be clicked, and dragged with its bond.
+                click_element(page, STORE_A)
+                expect(glyph.locator("rect.selection-element")).to_have_class(re.compile(r"\bselected\b"))
+                box = glyph.bounding_box()
+                x, y = element_centre(page, STORE_A)
+                page.mouse.down()
+                page.mouse.move(x + 60, y + 40, steps=8)
+                page.mouse.up()
+                moved = glyph.bounding_box()
+                self.assertAlmostEqual(moved["x"] - box["x"], 60, delta=12)
+                self.assertAlmostEqual(moved["y"] - box["y"], 40, delta=12)
+                # Its end at r1 slides round r1's edge as the bond turns.
+                dragged = path_points(page, BOND_A)
+                self.assertEqual(len(dragged), 2)
+                self.assertAlmostEqual(dragged[1][0], reaction_end[0], delta=0.5)
+                self.assertGreater(dragged[0][1], from_y + 20)
+                # ----------- END ------------
+
+                browser.close()
 
     def test_draws_bonds_with_the_chosen_arrowheads_and_shows_the_reactions_panel(self):
         with sync_playwright() as playwright:
