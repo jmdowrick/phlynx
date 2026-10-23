@@ -1072,12 +1072,10 @@ class TestCelldl(unittest.TestCase):
         # it's installed; CI installs Chromium only.
         for engine in ("chromium", "webkit"):
             with self.subTest(engine=engine), sync_playwright() as playwright:
-                try:
-                    browser, page = open_app(playwright, engine)
-                except Exception as error:
-                    if engine == "chromium":
-                        raise
-                    self.skipTest(f"{engine} isn't installed: {error}")
+                # Only a missing browser skips: one that fails to open the app fails the test.
+                if engine != "chromium" and not os.path.exists(getattr(playwright, engine).executable_path):
+                    self.skipTest(f"{engine} isn't installed")
+                browser, page = open_app(playwright, engine)
 
                 # ---------- START -----------
                 import_diagram(page, REACTIONS_PANEL)
