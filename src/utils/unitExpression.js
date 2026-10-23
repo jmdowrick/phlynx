@@ -175,6 +175,33 @@ export function resolveSymbol(text, names) {
   return found ? { ...found, label: split[1], exponent: Number(split[2]) } : null
 }
 
+/** Where a name in the library's style divides: a leading `per_`, or `_per_` within it. */
+const PER = /(?:^|_)per_/
+
+/**
+ * Reads a name in the library's style as the symbols it divides: `per_months` is months⁻¹ and
+ * `number_of_sharks_per_month` is number_of_sharks·month⁻¹.
+ *
+ * @param {string} text - The symbol as written.
+ * @param {Set<string>} names - Every library and built-in units name.
+ * @returns {{ symbols: Array<Object> } | { unknown: string } | null} The resolved symbols, as resolveSymbol gives them
+ *   but with signed exponents; the first piece that isn't a units; or null when the text isn't in that style.
+ */
+export function resolveLibraryStyle(text, names) {
+  if (!PER.test(text)) return null
+  const [above, ...below] = text.split(PER)
+  const pieces = [...(above ? [{ text: above, sign: 1 }] : []), ...below.map((piece) => ({ text: piece, sign: -1 }))]
+  if (pieces.some((piece) => !piece.text)) return null
+
+  const symbols = []
+  for (const piece of pieces) {
+    const symbol = resolveSymbol(piece.text, names)
+    if (!symbol) return { unknown: piece.text }
+    symbols.push({ ...symbol, exponent: symbol.exponent * piece.sign })
+  }
+  return { symbols }
+}
+
 // ── Conversion ──────────────────────────────────────────────────────────────
 
 const builtInPart = (units, prefix, exponent) => ({ units, prefix, exponent })
@@ -297,8 +324,14 @@ export function interpretUnitExpression(text, { names, definitions, expansions, 
   const symbols = []
   for (const { text: written, sign } of parsed.symbols) {
     const symbol = resolveSymbol(written, names)
-    if (!symbol) return { error: `Unknown units "${written}"` }
-    symbols.push({ ...symbol, exponent: symbol.exponent * sign })
+    if (symbol) {
+      symbols.push({ ...symbol, exponent: symbol.exponent * sign })
+      continue
+    }
+    // Not a units itself, so perhaps named in the library's style, e.g. `per_months`.
+    const styled = resolveLibraryStyle(written, names)
+    if (!styled?.symbols) return { error: `Unknown units "${styled?.unknown ?? written}"` }
+    symbols.push(...styled.symbols.map((piece) => ({ ...piece, exponent: piece.exponent * sign })))
   }
 
   const [only] = symbols
@@ -340,13 +373,15 @@ export function interpretUnitExpression(text, { names, definitions, expansions, 
 
 /**
  * Gets the base units a name not in the library could become, e.g. `number_of_sharks`: a dimension of its own.
+ * A name in the library's style, e.g. `per_months`, never is: it divides other units, so it can't be a dimension.
  *
  * @param {string} text - As typed.
  * @param {Set<string>} names - Every library and built-in units name.
- * @returns {string} The name, or '' when the text isn't a valid name or is already taken.
+ * @returns {string} The name, or '' when the text isn't a valid name, is already taken, or is in the library's style.
  */
 export function newBaseUnitsName(text, names) {
-  return text && sanitiseName(text) === text && !names.has(text) ? text : ''
+  if (!text || sanitiseName(text) !== text || names.has(text)) return ''
+  return resolveLibraryStyle(text, names) ? '' : text
 }
 
 /**

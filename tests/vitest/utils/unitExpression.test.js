@@ -279,6 +279,36 @@ describe('base units in the generated file', () => {
     expect(create.detail).toBe('new · 1.15741×10⁻⁵ s⁻¹·number_of_sharks')
   })
 
+  it('reads names in the library style, so per_months is a new units of months⁻¹', () => {
+    const library2 = libraryOf([model('<units name="months"/><units name="number_of_sharks"/>')])
+    const withBase = { ...library2, baseUnits: new Set(['months', 'number_of_sharks']) }
+    expect(interpret('per_months', withBase)).toMatchObject({
+      name: 'per_months',
+      parts: [{ units: 'months', prefix: 0, exponent: -1, multiplier: 1 }],
+      expansion: 'months⁻¹',
+    })
+    expect(interpret('number_of_sharks_per_months', withBase)).toMatchObject({
+      name: 'number_of_sharks_per_months',
+      parts: [
+        { units: 'number_of_sharks', exponent: 1 },
+        { units: 'months', exponent: -1 },
+      ],
+    })
+    expect(interpret('per_number_of_sharks_per_months', withBase).parts.map((part) => part.exponent)).toEqual([-1, -1])
+    expect(interpret('per_m2', withBase).parts).toEqual([{ units: 'metre', prefix: 0, exponent: -2, multiplier: 1 }])
+    expect(interpret('per_shark', library)).toEqual({ name: 'per_shark', existing: true })
+  })
+
+  it('never offers a library-style name as a base units', () => {
+    const items = suggestUnits('per_months', library)
+    expect(items.some((item) => item.create?.parts.length === 0)).toBe(false)
+    expect(interpret('per_months', library).error).toMatch(/Unknown units "months"/)
+    expect(suggestUnits('per_number_of_sharks', library).find((item) => item.create)).toMatchObject({
+      value: 'per_number_of_sharks',
+      detail: 'new · number_of_sharks⁻¹',
+    })
+  })
+
   it('refuses base units from other files, which the generated file cannot import', () => {
     expect(interpret('number_of_sharks/s', { ...library, baseUnits: new Set() }).error).toMatch(/built-in/)
   })
