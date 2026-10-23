@@ -160,9 +160,9 @@ function initialValueRow(name, rowsByName) {
 }
 
 /**
- * Gets an element's value cells: its initial value, then its parameters and variables, each with the CellML name
- * it is generated as, the instance's row (none until the diagram is saved with it), and the diagram's value, the
- * instance's default.
+ * Gets an element's value cells: its initial value, or a source's fixed value, then its parameters and variables, each
+ * with the CellML name it is generated as, the instance's row (none until the diagram is saved with it), and the
+ * diagram's value, the instance's default.
  *
  * @param {Object} element - A DiagramElement.
  * @param {Object|undefined} entry - Its ManifestElement.
@@ -181,8 +181,14 @@ export function elementValues(element, entry, rowsByName) {
   })
   if (element.value) {
     const quantity = variablesOf(entry, 'quantity')[0]
-    const row = quantity ? initialValueRow(quantity.name, rowsByName) : null
-    cells.push(cellFor('value', 'initial', row?.name ?? (quantity ? `${quantity.name}_init` : null), row, element.value))
+    if (quantity || !entry?.primary) {
+      const row = quantity ? initialValueRow(quantity.name, rowsByName) : null
+      cells.push(cellFor('value', 'initial', row?.name ?? (quantity ? `${quantity.name}_init` : null), row, element.value))
+    } else {
+      // A source has no quantity: its value is its fixed potential or flow, its primary variable.
+      const row = rowsByName.get(entry.primary) ?? null
+      cells.push(cellFor('value', 'value', entry.primary, row, element.value))
+    }
   }
   const symbol = entry?.symbol
   const groups = [

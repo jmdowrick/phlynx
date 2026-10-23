@@ -135,6 +135,49 @@ describe('the CellDL Parameters table', () => {
       expect(elementValues(byId(JUNCTION_S), MANIFEST[JUNCTION_S], rows)).toEqual([])
     })
 
+    it("maps a chemostat's value to its potential's row, as a source has no initial value", () => {
+      const chemostat = {
+        ...byId(STORE_S),
+        kind: `${BGF}PotentialSource`,
+        template: `${BGF}ChemicalPotential`,
+        species: 'ATP',
+        parameters: [],
+        value: { value: '1', units: 'J/mol', stored: true },
+      }
+      const entry = {
+        kind: 'element',
+        symbol: 'u_S_ATP_c',
+        primary: 'u_S_ATP_c',
+        variables: [
+          { name: 'v_S_ATP_c', role: 'flow', units: 'mol_per_s' },
+          { name: 'u_S_ATP_c', role: 'potential', units: 'J_per_mol' },
+        ],
+      }
+      const row = { name: 'u_S_ATP_c', value: '1', units: 'J_per_mol', type: 'constant' }
+      expect(elementValues(chemostat, entry, new Map([[row.name, row]]))).toEqual([
+        { key: 'value', label: 'value', name: 'u_S_ATP_c', row, defaultValue: '1', units: 'J_per_mol' },
+      ])
+      // Before the diagram is saved with it, the cell is named for the variable, with no row yet.
+      expect(elementValues(chemostat, entry, new Map())[0]).toMatchObject({ name: 'u_S_ATP_c', row: null })
+    })
+
+    it("names a new store's defaults before the diagram is saved with it", () => {
+      const store = { ...byId(STORE_S), species: 'X', value: { value: '0', units: 'mol', stored: true } }
+      const entry = {
+        kind: 'element',
+        symbol: 'q_X_c',
+        primary: 'q_X_c',
+        variables: [
+          { name: 'q_X_c', role: 'quantity', units: 'mol' },
+          { name: 'K_q_X_c', role: 'parameter', units: 'mol-1' },
+        ],
+      }
+      expect(elementValues(store, entry, new Map())).toMatchObject([
+        { key: 'value', name: 'q_X_c_init', row: null, defaultValue: '0', units: 'mol' },
+        { key: 'parameter:K', name: 'K_q_X_c', row: null, defaultValue: '1', units: 'mol-1' },
+      ])
+    })
+
     it("names a renamed element's variables from the manifest, with no row until the diagram is saved", () => {
       const [, K] = elementValues({ ...byId(STORE_S), species: 'Glc' }, renamedManifest()[STORE_S], rowsByName())
       expect(K).toMatchObject({ name: 'K_q_Glc_c', row: null, defaultValue: '1', units: 'mol-1' })

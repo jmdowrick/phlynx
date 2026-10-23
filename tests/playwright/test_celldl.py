@@ -1205,5 +1205,61 @@ class TestCelldl(unittest.TestCase):
             browser.close()
 
 
+    def test_values_a_term_added_in_the_reactions_panel_and_a_chemostat_from_the_parameters_tab(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+
+            # ---------- START -----------
+            import_diagram(page, REACTIONS_PANEL)
+            expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            place(page, CELLDL_GROUP, REACTIONS_MODULE)
+            dialog = open_editor(page, REACTIONS_MODULE)
+            wait_for_diagram(page)
+
+            # A new species in r1's equation gets a new store, with the palette's defaults: K of 1 and an initial
+            # value of 0, so the diagram still converts and the store's values are named and editable.
+            host = page.locator(".celldl-pane .celldl-host")
+            host.locator("#reactions-panel").click()
+            equation = host.get_by_label("Equation of r1")
+            equation.fill("A[c] + 2 B[c] + ATP[c] + X[c] ⇌ C[c]")
+            equation.press("Enter")
+            initial = parameter_value(dialog, "q_X_c_init")
+            expect(initial).to_be_enabled(timeout=DIAGRAM_TIMEOUT)
+            expect(initial).to_have_attribute("placeholder", "0")
+            K = parameter_value(dialog, "K_q_X_c")
+            expect(K).to_be_enabled()
+            expect(K).to_have_attribute("placeholder", "1")
+
+            # This instance's values, set before the store is saved, and a chemostat's fixed potential.
+            initial.fill("5")
+            initial.press("Enter")
+            potential = parameter_value(dialog, "u_S_ATP_c")
+            expect(potential).to_be_enabled()
+            expect(potential).to_have_attribute("placeholder", "1")
+            potential.fill("2")
+            potential.press("Enter")
+
+            # An unnamed new reaction is R1, with a store for its new species and a copy of the chemostat, each
+            # valued as the palette's would be (the copy keeps its chemostat's potential).
+            new_equation = host.get_by_label("New reaction's equation")
+            new_equation.fill("D[c] + ATP[c] <=> Y[c]")
+            new_equation.press("Enter")
+            for name, default in [("kappa_Rx_R1_c", "1"), ("q_Y_c_init", "0"), ("K_q_Y_c", "1"), ("u_S_ATP_c_3", "1")]:
+                cell = parameter_value(dialog, name)
+                expect(cell).to_be_enabled(timeout=DIAGRAM_TIMEOUT)
+                expect(cell).to_have_attribute("placeholder", default)
+            dialog.get_by_role("button", name="Apply").click()
+            accept_overwrite(page)
+            expect(page.get_by_text("CellML Updated")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            wait_for_diagram(page)
+            self.assertTrue(saved_math_has(page, "q_X_c"))
+            self.assertTrue(saved_math_has(page, "kappa_Rx_R1_c"))
+            expect(parameter_value(dialog, "q_X_c_init")).to_have_value("5")
+            expect(parameter_value(dialog, "K_q_X_c")).to_have_value("")
+            expect(parameter_value(dialog, "u_S_ATP_c")).to_have_value("2")
+            # ----------- END ------------
+
+            browser.close()
+
 if __name__ == '__main__':
     unittest.main()
