@@ -309,6 +309,45 @@ describe('base units in the generated file', () => {
     })
   })
 
+  it('reads prefixes on them, as CellML or UCUM writes them', () => {
+    const fish = { ...libraryOf([model('<units name="fish"/>')]), baseUnits: new Set(['fish']) }
+    expect(interpret('kilofish', fish)).toMatchObject({
+      name: 'kilofish',
+      parts: [{ units: 'fish', prefix: 3, exponent: 1, multiplier: 1 }],
+      expansion: '10³ fish',
+    })
+    expect(interpret('kfish', fish).parts).toEqual([{ units: 'fish', prefix: 3, exponent: 1, multiplier: 1 }])
+    expect(interpret('per_kilofish', fish).parts).toEqual([{ units: 'fish', prefix: 3, exponent: -1, multiplier: 1 }])
+    expect(interpret('millifish2', fish).parts).toEqual([{ units: 'fish', prefix: -3, exponent: 2, multiplier: 1 }])
+    expect(interpret('kilofish/fish', fish).expansion).toBe('10³')
+    expect(interpret('fish', fish)).toEqual({ name: 'fish', existing: true })
+    expect(unitsModelXml(new Map([['kilofish', interpret('kilofish', fish).parts]]))).toContain(
+      '<unit units="fish" prefix="kilo"/>'
+    )
+  })
+
+  it('folds a prefix into the multiplier when the units has several parts', () => {
+    expect(interpret('kiloper_shark', library).parts).toEqual([
+      { units: 'number_of_sharks', prefix: 0, exponent: -1, multiplier: 1000 },
+    ])
+  })
+
+  it('never offers units that read as other units as a base units', () => {
+    const fish = { ...libraryOf([model('<units name="fish"/>')]), baseUnits: new Set(['fish']) }
+    for (const text of ['kilofish', 'kfish', 'fish2', 'per_fish']) {
+      expect(suggestUnits(text, fish).some((item) => item.detail === 'new base units'), text).toBe(false)
+    }
+    expect(suggestUnits('kilofish', fish)[0]).toMatchObject({ value: 'kilofish', detail: 'new · 10³ fish' })
+    expect(suggestUnits('kilofish', { ...fish, baseUnits: new Set() }).some((item) => item.create)).toBe(false)
+  })
+
+  it('leaves UCUM symbols and library names as they were', () => {
+    expect(resolveSymbol('mm', SMALL.names)).toMatchObject({ atom: { units: 'metre' }, prefix: -3 })
+    expect(resolveSymbol('kilocelsius', SMALL.names)).toBeNull()
+    expect(resolveSymbol('kilometre', SMALL.names)).toMatchObject({ library: 'metre', prefix: 3 })
+    expect(resolveSymbol('kHz2', SMALL.names)).toMatchObject({ atom: { units: 'hertz' }, prefix: 3, exponent: 2 })
+  })
+
   it('refuses base units from other files, which the generated file cannot import', () => {
     expect(interpret('number_of_sharks/s', { ...library, baseUnits: new Set() }).error).toMatch(/built-in/)
   })
