@@ -127,6 +127,15 @@ def wait_for_level_bond(page, path_id, end_x):
     )
 
 
+def view_box(page):
+    """The diagram's view: its x, y, width and height, in SVG coordinates."""
+    return [float(n) for n in page.locator(DIAGRAM_SVG).get_attribute("viewBox").split()]
+
+
+def is_selected(page, element_id):
+    return page.locator(f'{DIAGRAM_SVG} [id="{element_id}"].selected, {DIAGRAM_SVG} [id="{element_id}"] .selected')
+
+
 def element_centre(page, element_id):
     """The centre of a diagram element, on the page."""
     box = page.locator(f'{DIAGRAM_SVG} #celldl-diagram-layer [id="{element_id}"]').bounding_box()
@@ -467,6 +476,67 @@ class TestCelldl(unittest.TestCase):
 
             browser.close()
 
+    def test_takes_an_issue_to_its_element_at_the_same_zoom(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+
+            # ---------- START -----------
+            import_diagram(page, ENZYME)
+            expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            place(page, CELLDL_GROUP, ENZYME_MODULE)
+            dialog = open_editor(page, ENZYME_MODULE)
+            wait_for_diagram(page)
+
+            # Naming the product's store as the substrate's makes a second pool named q_S_c, which live conversion
+            # warns of, on the product's store.
+            set_element_field(dialog, PRODUCT, "Species", "S")
+            issues = dialog.locator(".celldl-live-issues")
+            expect(issues).to_have_text(re.compile(r"^\s*Converts, with 1 warning"), timeout=DIAGRAM_TIMEOUT)
+
+            # Enter opens the list of issues, whose first link takes focus.
+            before = view_box(page)
+            issues.focus()
+            page.keyboard.press("Enter")
+            listed = page.locator(".p-popover .celldl-issue-list li")
+            expect(listed).to_have_count(1)
+            expect(listed.first).to_contain_text("is named q_S_c by its symbol, species and location")
+            link = listed.first.locator(f'.celldl-issue-element[data-element-id="{PRODUCT}"]')
+            expect(link).to_be_focused()
+
+            # Following it selects the store and centres it, at the same zoom, flashing it for a moment.
+            page.keyboard.press("Enter")
+            expect(is_selected(page, PRODUCT)).not_to_have_count(0)
+            expect(page.locator(f'{DIAGRAM_SVG} [id="{PRODUCT}"].phlynx-celldl-flash')).to_have_count(1)
+            after = view_box(page)
+            self.assertEqual(before[2:], after[2:])
+            self.assertNotEqual(before[:2], after[:2])
+            box = page.locator(DIAGRAM_SVG).bounding_box()
+            x, y = element_centre(page, PRODUCT)
+            self.assertAlmostEqual(x, box["x"] + box["width"] / 2, delta=2)
+            self.assertAlmostEqual(y, box["y"] + box["height"] / 2, delta=2)
+            # Escape closes the list, and leaves the editor open.
+            page.keyboard.press("Escape")
+            expect(page.locator(".p-popover")).to_have_count(0)
+            expect(dialog).to_be_visible()
+
+            # Saved from another tab, the warning links to the store too: following it cancels the save and shows the
+            # store in the CellDL tab.
+            click_element(page, PRODUCT_JUNCTION)
+            expect(is_selected(page, PRODUCT)).to_have_count(0)
+            cellml_text(dialog)
+            dialog.get_by_role("button", name="Apply").click()
+            warning = page.locator(".confirm-container").filter(has_text="Diagram Warnings")
+            expect(warning).to_contain_text("is named q_S_c", timeout=DIAGRAM_TIMEOUT)
+            warning.locator(f'.confirm-issue-link[data-element-id="{PRODUCT}"]').click()
+            expect(warning).to_have_count(0)
+            expect(editor_tab(dialog, "CellDL")).to_have_attribute("aria-selected", "true")
+            expect(is_selected(page, PRODUCT)).not_to_have_count(0, timeout=DIAGRAM_TIMEOUT)
+            self.assertEqual(view_box(page)[2:], after[2:])
+            self.assertFalse(saved_math_has(page, "q_S_c_2"))
+            # ----------- END ------------
+
+            browser.close()
+
     def test_converts_a_composite_storage_node_drawn_in_the_template(self):
         with sync_playwright() as playwright:
             browser, page = open_app(playwright)
@@ -485,11 +555,13 @@ class TestCelldl(unittest.TestCase):
             choose_template(page, "Chemical storage with Zero Node")
 
             # Live conversion takes it as a storage node: the template stores 1 for its K, which the math has, and
-            # no junction type is asked for. The live status lists its issues in its tooltip.
-            status = dialog.locator(".celldl-live-status")
-            expect(status).to_have_attribute("title", re.compile("q_S1_c"), timeout=DIAGRAM_TIMEOUT)
-            self.assertNotIn("must be one, zero or transform nodes", status.get_attribute("title"))
-            self.assertNotIn("Missing value for parameter K", status.get_attribute("title"))
+            # no junction type is asked for. The live status lists its issues a click away.
+            dialog.locator(".celldl-live-issues").click(timeout=DIAGRAM_TIMEOUT)
+            listed = page.locator(".p-popover .celldl-issue-list")
+            expect(listed).to_contain_text("q_S1_c", timeout=DIAGRAM_TIMEOUT)
+            self.assertNotIn("must be one, zero or transform nodes", listed.inner_text())
+            self.assertNotIn("Missing value for parameter K", listed.inner_text())
+            page.keyboard.press("Escape")
             expect(cellml_text(dialog)).to_contain_text("K_q_S1_c", timeout=DIAGRAM_TIMEOUT)
             # ----------- END ------------
 

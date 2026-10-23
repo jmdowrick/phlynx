@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { computed, nextTick, ref, shallowRef } from 'vue'
 import PrimeVue from 'primevue/config'
 
@@ -28,9 +28,9 @@ function resetLive() {
   })
 }
 
-const converted = (pass, { errors = [], warnings = [], runnable, cellml = '<model name="rc"/>' } = {}) => ({
+const converted = (pass, { errors = [], warnings = [], runnable, cellml = '<model name="rc"/>', elements = {} } = {}) => ({
   pass,
-  result: { cellml, errors, warnings, runnable },
+  result: { cellml, errors, warnings, runnable, elements },
 })
 
 describe('CelldlPane', () => {
@@ -158,11 +158,10 @@ describe('CelldlPane live conversion', () => {
     expect(status().attributes('title')).toBe('no wasm')
   })
 
-  it('lists the issues in its tooltip, and shows no CellML, which the math editors show', async () => {
+  it('shows no CellML, which the math editors show', async () => {
     mountPane()
     live.latest.value = converted('cheap', { errors: [{ message: 'no template', elementId: 'X' }] })
     await nextTick()
-    expect(status().attributes('title')).toContain('X: no template')
     expect(wrapper.text()).not.toContain('Live CellML')
     expect(wrapper.text()).not.toContain('<model')
   })
@@ -181,5 +180,86 @@ describe('CelldlPane live conversion', () => {
     mountPane()
     expect(wrapper.find('.celldl-live').exists()).toBe(false)
     expect(live.start).toHaveBeenCalled()
+  })
+})
+
+describe('CelldlPane issue list', () => {
+  let wrapper
+  let host
+
+  beforeEach(() => {
+    resetLive()
+    host = useCelldlEditorHost()
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+    vi.restoreAllMocks()
+    document.body.innerHTML = ''
+  })
+
+  const ISSUES = {
+    warnings: [{ message: 'unused', elementId: 'ID-2' }],
+    errors: [{ message: 'no template', elementId: 'ID-1' }, ...Array.from({ length: 6 }, (_, index) => ({ message: `e${index}` }))],
+    elements: { 'ID-1': { symbol: 'q_A' } },
+  }
+
+  async function openList(issues = ISSUES) {
+    wrapper = mount(CelldlPane, { props: { rows: ROWS }, global: { plugins: [PrimeVue] }, attachTo: document.body })
+    live.latest.value = converted('cheap', issues)
+    await nextTick()
+    await wrapper.find('.celldl-live-issues').trigger('click')
+    await flushPromises()
+    return [...document.body.querySelectorAll('.celldl-issue-list li')]
+  }
+
+  it('opens from the issue count, listing every issue, errors first, by the element each names', async () => {
+    const items = await openList()
+    expect(wrapper.find('.celldl-live-issues').text()).toBe('8 issues, checked again on save')
+    expect(wrapper.find('.celldl-live-issues').attributes('aria-expanded')).toBe('true')
+    expect(items).toHaveLength(8)
+    expect(items[0].dataset.severity).toBe('error')
+    expect(items[0].querySelector('.celldl-issue-element').textContent.trim()).toBe('q_A')
+    // The first link takes focus as the list opens.
+    expect(items[0].querySelector('.celldl-issue-element').hasAttribute('autofocus')).toBe(true)
+    // Issues naming no element are plain text.
+    expect(items[1].querySelector('button')).toBeNull()
+    expect(items.at(-1).dataset.severity).toBe('warning')
+    // Labelled from the diagram's ids, when the conversion has no manifest entry.
+    expect(items.at(-1).querySelector('.celldl-issue-element').textContent.trim()).toBe('ID-2')
+  })
+
+  it('closes the list once no issues are left', async () => {
+    await openList()
+    live.latest.value = converted('cheap')
+    await nextTick()
+    await flushPromises()
+    expect(wrapper.find('.celldl-live-issues').exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'Popover' }).vm.visible).toBe(false)
+  })
+
+  it('shows no list for a diagram that converts cleanly', async () => {
+    wrapper = mount(CelldlPane, { props: { rows: ROWS }, global: { plugins: [PrimeVue] } })
+    live.latest.value = converted('cheap')
+    await nextTick()
+    expect(wrapper.find('.celldl-live-issues').exists()).toBe(false)
+  })
+
+  it("reveals an issue's element when clicked", async () => {
+    const reveal = vi.spyOn(host, 'revealElement').mockResolvedValue({ ok: true })
+    const items = await openList()
+    items[0].querySelector('.celldl-issue-element').click()
+    await flushPromises()
+    expect(reveal).toHaveBeenCalledWith('ID-1')
+    expect(document.body.querySelector('.celldl-issue-missing')).toBeNull()
+  })
+
+  it('notes quietly an element deleted since the conversion', async () => {
+    vi.spyOn(host, 'revealElement').mockResolvedValue({ ok: false })
+    const items = await openList()
+    items[0].querySelector('.celldl-issue-element').click()
+    await flushPromises()
+    expect(items[0].querySelector('.celldl-issue-missing').textContent).toBe('No longer in the diagram')
   })
 })

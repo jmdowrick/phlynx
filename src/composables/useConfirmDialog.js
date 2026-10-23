@@ -7,6 +7,8 @@ import { useConfirm } from 'primevue/useconfirm'
 //   acceptLabel?: string
 //   rejectLabel?: string
 //   isRejectDefault?: boolean // the reject button is the primary one, and focused
+//   issues?: { key: string, message: string, elementId?: string, label?: string }[] // listed below the message
+//   onIssue?: (issue) => void // following an issue's element link, which then closes the dialog
 // }
 
 export function useConfirmDialog() {
@@ -24,6 +26,8 @@ export function useConfirmDialog() {
         acceptLabel: options.acceptLabel ?? 'OK',
         rejectLabel: options.rejectLabel,
         isRejectDefault: !!options.isRejectDefault && !!options.rejectLabel,
+        issues: options.issues,
+        onIssue: options.onIssue,
 
         // Escape closes only this dialog, as its reject button would.
         closeOnEscape: true,

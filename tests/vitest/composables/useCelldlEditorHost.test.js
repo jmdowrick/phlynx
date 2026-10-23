@@ -5,6 +5,7 @@ import {
   createCelldlEditorHost,
   EDITOR_CHROME,
   ERROR_CLASS,
+  FLASH_CLASS,
   isEditorKey,
   LIVE_ISSUE_CLASS,
 } from '../../../src/composables/useCelldlEditorHost.js'
@@ -427,6 +428,8 @@ describe("the CellDL editor's element command", () => {
           host.onElements({ revision, elements })
           host.onElementResult(bad.length ? { kind, ok: false, errors: bad.map((e) => ({ ...e, message: 'bad' })) } : { kind, ok: true })
         } else if (action === 'select') {
+          // The editor has no object 'gone', e.g. one deleted since a conversion named it.
+          if (id === 'gone') return host.onElementResult({ kind, ok: false, errors: [{ id, field: '', message: 'none' }] })
           host.onViewerEvent({ type: 'unselect', component: { id: 'ID-0' } })
           host.onViewerEvent({ type: 'select', component: { id } })
           host.onElementResult({ kind, ok: true })
@@ -492,6 +495,36 @@ describe("the CellDL editor's element command", () => {
     expect(host.selection.value).toEqual({ id: 'ID-1', isHostSelection: false })
     host.onViewerEvent({ type: 'unselect', component: { id: 'ID-1' } })
     expect(host.selection.value.id).toBe(null)
+  })
+
+  it('reveals an element: selects it, centres it, and flashes it for a moment', async () => {
+    editor = mountElementEditor()
+    await host.whenReady()
+    const svg = editor.root.querySelector('svg')
+    svg.innerHTML = '<g id="ID-1"></g><g id="ID-2" class="phlynx-celldl-error"></g>'
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await expect(host.revealElement('ID-1')).resolves.toEqual({ ok: true })
+      expect(editor.commands.at(-1).options).toMatchObject({ action: 'select', id: 'ID-1', centre: true })
+      expect(host.selection.value).toEqual({ id: 'ID-1', isHostSelection: true })
+      expect(svg.querySelector('#ID-1').classList.contains(FLASH_CLASS)).toBe(true)
+
+      // A second reveal ends the first's flash, and leaves an error's mark alone.
+      await host.revealElement('ID-2')
+      expect(svg.querySelector('#ID-1').classList.contains(FLASH_CLASS)).toBe(false)
+      expect(svg.querySelector('#ID-2').classList.contains(FLASH_CLASS)).toBe(true)
+      vi.advanceTimersByTime(2000)
+      expect(svg.querySelector('#ID-2').getAttribute('class')).toBe('phlynx-celldl-error')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("says an element the diagram no longer has can't be revealed, flashing nothing", async () => {
+    editor = mountElementEditor()
+    await host.whenReady()
+    await expect(host.revealElement('gone')).resolves.toMatchObject({ ok: false })
+    expect(editor.root.querySelector(`.${FLASH_CLASS}`)).toBeNull()
   })
 
   it("drops the elements as another source opens, and lists the new one's", async () => {

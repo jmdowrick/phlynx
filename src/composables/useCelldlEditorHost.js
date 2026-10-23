@@ -39,6 +39,9 @@ export const EDITOR_CHROME = Object.freeze({
 export const ERROR_CLASS = 'phlynx-celldl-error'
 /** The softer class marking an element the live conversion has an issue with, as diagrams mid-edit often do. */
 export const LIVE_ISSUE_CLASS = 'phlynx-celldl-issue'
+/** The class briefly flashing an element the user is taken to (revealElement), and how long it stays. */
+export const FLASH_CLASS = 'phlynx-celldl-flash'
+const FLASH_MS = 1500
 
 /** The editor's message for a document it can't open: its name, which is the module's minted IRI, then why. */
 const OPEN_ERROR = /^Cannot open \S+ -- invalid CellDL file\?\s*([\s\S]*)$/
@@ -138,6 +141,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   let serialising = 0
   // Who hears the diagram as it changes or opens (onChange).
   const changeListeners = new Set()
+  let flashTimer = null
 
   const svgOf = () => root?.querySelector('#svg-container > svg') ?? null
 
@@ -344,6 +348,32 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   }
 
   /**
+   * Takes the user to an element: selects it, pans to centre it without zooming, and briefly flashes it.
+   *
+   * @param {string} id - Its SVG id.
+   * @returns {Promise<{ok: boolean}>} Not ok when the diagram no longer has it.
+   */
+  async function revealElement(id) {
+    const result = await selectElement(id, true)
+    if (result.ok) flash(id)
+    return result
+  }
+
+  /**
+   * Flashes an element for a moment, ending any flash before.
+   *
+   * @param {string} id
+   */
+  function flash(id) {
+    clearTimeout(flashTimer)
+    clearHighlights([FLASH_CLASS])
+    const element = svgOf()?.getElementById(id)
+    if (!element) return
+    element.classList.add(FLASH_CLASS)
+    flashTimer = setTimeout(() => element.classList.remove(FLASH_CLASS), FLASH_MS)
+  }
+
+  /**
    * Takes the editor's `elements` emit: a reply to a list, or the list after a diagram change. A list made while a
    * source opens is the old diagram's, so is dropped.
    *
@@ -409,18 +439,18 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
    */
   function highlight(ids, { isLive = false } = {}) {
     if (isLive && serialising) return
-    clearHighlights(isLive ? [LIVE_ISSUE_CLASS] : undefined)
+    clearHighlights(isLive ? [LIVE_ISSUE_CLASS] : [ERROR_CLASS, LIVE_ISSUE_CLASS])
     const svg = svgOf()
     const className = isLive ? LIVE_ISSUE_CLASS : ERROR_CLASS
     ids.forEach((id) => svg?.getElementById(id)?.classList.add(className))
   }
 
   /**
-   * Clears highlight's marks, which must never be saved with the diagram.
+   * Clears highlight's marks, and a flash, which must never be saved with the diagram.
    *
    * @param {string[]} [classNames] - The marks to clear; all by default.
    */
-  function clearHighlights(classNames = [ERROR_CLASS, LIVE_ISSUE_CLASS]) {
+  function clearHighlights(classNames = [ERROR_CLASS, LIVE_ISSUE_CLASS, FLASH_CLASS]) {
     for (const className of classNames) {
       root?.querySelectorAll(`.${className}`).forEach((element) => element.classList.remove(className))
     }
@@ -740,6 +770,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     listElements,
     setElement,
     selectElement,
+    revealElement,
     listen,
     unlisten,
   }

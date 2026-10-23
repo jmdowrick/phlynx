@@ -103,6 +103,24 @@ onUnmounted(() => {
 .celldl-host .phlynx-celldl-issue {
   filter: drop-shadow(0 0 2px color-mix(in srgb, var(--p-orange-500) 70%, transparent));
 }
+
+/* An element the user was taken to, e.g. from an issue: pulsed in the primary colour, then left as it was. */
+.celldl-host .phlynx-celldl-flash {
+  animation: phlynx-celldl-flash 0.5s ease-in-out 3;
+}
+
+@keyframes phlynx-celldl-flash {
+  50% {
+    filter: drop-shadow(0 0 3px var(--p-primary-color)) drop-shadow(0 0 6px var(--p-primary-color));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .celldl-host .phlynx-celldl-flash {
+    animation: none;
+    filter: drop-shadow(0 0 3px var(--p-primary-color));
+  }
+}
 </style>
 
 <style scoped>
