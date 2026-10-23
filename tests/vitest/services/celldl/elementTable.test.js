@@ -10,7 +10,6 @@ import {
   elementValues,
   findClashes,
   hasOwnNaming,
-  isChemicalDomain,
   isDefaultValue,
   linkJunctions,
   sectionOf,
@@ -96,29 +95,50 @@ describe('the CellDL Parameters table', () => {
   })
 
   describe('types', () => {
-    it("offers chemistry's templates only, and all with the filter off, without IRIs", () => {
+    it("offers the templates the Properties panel offers, of every domain, without the base kind or IRIs", () => {
       const reaction = byId(REACTION_R1)
-      const unfiltered = { ...reaction, templates: [...reaction.templates, { type: `${BGF}Resistor`, name: 'Resistor', domain: `${BGF}Electrical` }] }
+      const unbonded = { ...reaction, templates: [...reaction.templates, { type: `${BGF}Resistor`, name: 'Resistor', domain: `${BGF}Electrical` }] }
 
-      const chemistry = typeOptions(unfiltered)
-      expect(chemistry.options.map((option) => option.label)).toEqual(['Reaction element', 'NKETransporter', 'Chemical reaction'])
-      expect(chemistry.value).toBe(`${BGF}ChemicalReaction`)
-      expect(chemistry.isHidingSome).toBe(true)
-
-      const all = typeOptions(unfiltered, { chemistryOnly: false })
-      expect(all.options.map((option) => option.label)).toContain('Resistor')
-      expect(all.isHidingSome).toBe(false)
-      expect(isChemicalDomain(CHEMICAL)).toBe(true)
-      expect(isChemicalDomain(`${BGF}Electrical`)).toBe(false)
+      const { options, value } = typeOptions(unbonded)
+      expect(options.map((option) => option.label)).toEqual(['NKETransporter', 'Chemical reaction', 'Resistor'])
+      expect(options.map((option) => option.value)).not.toContain(reaction.kind)
+      expect(value).toBe(`${BGF}ChemicalReaction`)
       expect(templateLabel({ type: `${BGF}X`, name: `${BGF}NKETransporter` })).toBe('NKETransporter')
     })
 
-    it('asks for a type while an element has none', () => {
-      const untyped = { ...byId(STORE_S), template: undefined, templateName: undefined }
-      const { options, value } = typeOptions(untyped)
-      expect(options[0]).toEqual({ value: untyped.kind, label: 'Choose a type' })
-      expect(value).toBe(untyped.kind)
-      expect(unsetReasons(untyped, [])).toContain('No type chosen')
+    it("offers a zero storage node every domain's storage node, and still names it while it has no type", () => {
+      const storageNode = {
+        ...byId(STORE_S),
+        kind: `${BGF}ZeroStorageNode`,
+        kindName: 'Zero storage node',
+        template: undefined,
+        templateName: undefined,
+        templates: [
+          { type: `${BGF}ZeroStorageNode`, name: 'Zero storage node' },
+          { type: `${BGF}ChemicalStorageNode`, name: 'Chemical storage with Zero Node', domain: CHEMICAL },
+          { type: `${BGF}ElectricalCapacitiveNode`, name: 'Electrical storage with Zero Node', domain: `${BGF}Electrical` },
+          { type: `${BGF}MechanicalCapacitiveNode`, name: 'Mechanical storage with Zero Node', domain: `${BGF}Mechanical` },
+        ],
+      }
+      const { options, value, placeholder } = typeOptions(storageNode)
+      expect(options.map((option) => option.value)).toEqual([
+        `${BGF}ChemicalStorageNode`,
+        `${BGF}ElectricalCapacitiveNode`,
+        `${BGF}MechanicalCapacitiveNode`,
+      ])
+      expect(value).toBeNull()
+      expect(placeholder).toBe('Zero storage node')
+      expect(unsetReasons(storageNode, [])).toContain('No type chosen')
+      expect(sectionOf({ ...storageNode, value: undefined })).toBe('stores')
+      // As the editor gives it once its type is cleared.
+      expect(typeOptions({ ...storageNode, template: null }).value).toBeNull()
+    })
+
+    it("keeps an element's template when the editor's list lacks it", () => {
+      const store = byId(STORE_S)
+      const { options, value } = typeOptions({ ...store, templates: store.templates.slice(0, 1) })
+      expect(options).toEqual([{ value: store.template, label: store.templateName }])
+      expect(value).toBe(store.template)
     })
   })
 

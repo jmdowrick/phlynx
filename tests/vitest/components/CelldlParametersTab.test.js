@@ -114,22 +114,40 @@ describe('CelldlParametersTab', () => {
     ])
   })
 
-  it('turns the chemistry filter off from the type list, without changing the type', async () => {
-    const reaction = ELEMENTS.find((element) => element.id === 'ID-00000006')
-    const electrical = { type: 'urn:Resistor', name: 'Resistor', domain: 'urn:x#Electrical' }
-    mountTab({ elements: ELEMENTS.map((element) => (element === reaction ? { ...element, templates: [...element.templates, electrical] } : element)) })
-    const { typeChoices, onTypeChange } = wrapper.vm.$.setupState
-    const element = { ...reaction, templates: [...reaction.templates, electrical] }
-    expect(typeChoices(element).options.map((option) => option.label)).toEqual([
-      'Reaction element',
-      'NKETransporter',
-      'Chemical reaction',
-      'All domains…',
-    ])
-    onTypeChange(element, '__all-domains__')
+  it("offers a store every domain's template but not its base kind, and names the kind until one is chosen", async () => {
+    const BGF = 'https://bg-rdf.org/ontologies/bondgraph-framework#'
+    const store = ELEMENTS.find((element) => element.id === STORE_S)
+    const untyped = {
+      ...store,
+      kind: `${BGF}ZeroStorageNode`,
+      kindName: 'Zero storage node',
+      template: null,
+      templateName: undefined,
+      templates: [
+        { type: `${BGF}ZeroStorageNode`, name: 'Zero storage node' },
+        { type: `${BGF}ChemicalStorageNode`, name: 'Chemical storage with Zero Node', domain: `${BGF}Chemical` },
+        { type: `${BGF}ElectricalCapacitiveNode`, name: 'Electrical storage with Zero Node', domain: `${BGF}Electrical` },
+      ],
+    }
+    mountTab({ elements: ELEMENTS.map((element) => (element === store ? untyped : element)) })
+    const select = mainRow(STORE_S).find('.type-select')
+    expect(select.text()).toContain('Zero storage node')
+    expect(select.classes()).toContain('p-invalid')
+    await select.find('.p-select-label').trigger('click')
     await nextTick()
-    expect(typeChoices(element).options.map((option) => option.label)).toContain('Resistor')
-    expect(host.setElement).not.toHaveBeenCalled()
+    const offered = [...document.body.querySelectorAll('.p-select-option')].map((option) => option.textContent.trim())
+    expect(offered).toEqual(['Chemical storage with Zero Node', 'Electrical storage with Zero Node'])
+
+    wrapper.vm.$.setupState.onTypeChange(untyped, `${BGF}ElectricalCapacitiveNode`)
+    expect(host.setElement).toHaveBeenCalledWith([{ id: STORE_S, field: 'type', value: `${BGF}ElectricalCapacitiveNode` }])
+  })
+
+  it('shows the kind as text when it has no templates to choose from', () => {
+    const store = ELEMENTS.find((element) => element.id === STORE_S)
+    const bare = { ...store, template: undefined, templateName: undefined, templates: store.templates.slice(0, 1) }
+    mountTab({ elements: ELEMENTS.map((element) => (element === store ? bare : element)) })
+    expect(mainRow(STORE_S).find('.type-select').exists()).toBe(false)
+    expect(mainRow(STORE_S).find('.cell-type').text()).toBe(store.kindName)
   })
 
   it("edits this instance's values only, showing the diagram's as greyed defaults", async () => {
