@@ -41,8 +41,8 @@ describe('CelldlParametersTab', () => {
 
   afterEach(() => wrapper?.unmount())
 
-  function mountTab({ elements = ELEMENTS, rows = ROWS.map((row) => ({ ...row })), manifest = MANIFEST, ...props } = {}) {
-    const table = buildElementTable({ elements, manifest, rows, savedDefaults: new Map(DEFAULTS) })
+  function mountTab({ elements = ELEMENTS, rows = ROWS.map((row) => ({ ...row })), manifest = MANIFEST, supplied, ...props } = {}) {
+    const table = buildElementTable({ elements, manifest, rows, savedDefaults: new Map(DEFAULTS), supplied })
     wrapper = mount(CelldlParametersTab, {
       props: { table, savedDefaults: new Map(DEFAULTS), isDiagramShown: true, ...props },
       global: { plugins: [PrimeVue], directives: { tooltip: {} } },
@@ -189,6 +189,25 @@ describe('CelldlParametersTab', () => {
     expect(input.attributes('title')).toBe('q_S_c_init: Set by other_1.X: this value is ignored on export')
     // The other values stay editable.
     expect(valuesRow(STORE_S).find('[data-variable="K_q_S_c"] input').element.disabled).toBe(false)
+  })
+
+  it('needs no value for a cell a connection supplies, and leaves an ignored value it does not supply editable', () => {
+    const rows = ROWS.map((row) => (row.name === 'q_S_c_init' ? { ...row, value: '' } : { ...row, value: row.value }))
+    const elements = ELEMENTS.map((element) => (element.id === STORE_S ? { ...element, value: { ...element.value, value: '' } } : element))
+    mountTab({
+      elements,
+      rows,
+      supplied: new Set(['q_S_c_init']),
+      connectionStatus: new Map([['q_S_c_init', { state: 'connected', from: ['other_1.X'] }]]),
+      ignoredNotices: new Map([['K_q_S_c', 'Sums its connections, and none are connected: it is 0, and this value is ignored on export']]),
+    })
+    const initial = valuesRow(STORE_S).find('[data-variable="q_S_c_init"] input')
+    expect(initial.classes()).not.toContain('p-invalid')
+    expect(initial.attributes('aria-invalid')).not.toBe('true')
+    const sum = valuesRow(STORE_S).find('[data-variable="K_q_S_c"]')
+    expect(sum.find('input').element.disabled).toBe(false)
+    expect(sum.find('input').classes()).toContain('value-input--ignored')
+    expect(sum.find('.supplied-hint').exists()).toBe(false)
   })
 
   it('flags unset and clashing rows, and shows only them on asking', async () => {

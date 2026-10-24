@@ -1242,10 +1242,10 @@ const connection = computed(() => {
 /** Each row name to where its value comes from (see resolveBoundaryValues' `status`). */
 const connectionStatus = computed(() => connection.value.status)
 
-/** The rows a connection supplies, or whose values export ignores, so need no value of their own. */
+/** The rows a connection supplies, or Sums nothing is connected to (so 0), which need no value of their own. */
 const connectionSuppliedNames = computed(() => {
-  const { status, ignored } = connection.value
-  return new Set([...[...status].filter(([, { state }]) => state === 'connected').map(([name]) => name), ...ignored])
+  const { status, emptySums } = connection.value
+  return new Set([...[...status].filter(([, { state }]) => state === 'connected').map(([name]) => name), ...emptySums])
 })
 
 /** Each row whose value export ignores, as something else supplies its variable, with why. */

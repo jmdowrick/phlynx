@@ -335,7 +335,7 @@ const isEmptyValue = isEmpty
 const isDefault = (cell) => isDefaultValue(cell, props.savedDefaults)
 /** A value still on the diagram's shows blank, so the diagram's greyed placeholder reads as its default. */
 const shownValue = (cell) => (isDefault(cell) ? '' : String(cell.row?.value ?? ''))
-const isMissing = (cell) => !suppliedBy(cell) && isEmpty(cell.row?.value) && isEmpty(cell.defaultValue)
+const isMissing = (cell) => !cell.supplied && isEmpty(cell.row?.value) && isEmpty(cell.defaultValue)
 
 /**
  * Says where a connection supplies a cell's value from, e.g. `Set by other_1.X`; null when it doesn't.
@@ -344,10 +344,8 @@ const isMissing = (cell) => !suppliedBy(cell) && isEmpty(cell.row?.value) && isE
  * @returns {string|null}
  */
 function suppliedBy(cell) {
-  if (!cell.name) return null
-  const status = props.connectionStatus.get(cell.name)
-  if (status?.state === 'connected') return `Set by ${status.from.join(', ') || 'a connection'}`
-  return props.ignoredNotices.has(cell.name) ? 'Set by a connection' : null
+  const status = cell.name ? props.connectionStatus.get(cell.name) : null
+  return status?.state === 'connected' ? `Set by ${status.from.join(', ') || 'a connection'}` : null
 }
 
 function valueTitle(cell) {

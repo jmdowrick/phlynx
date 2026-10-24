@@ -295,7 +295,8 @@ export function isDefaultValue(cell, savedDefaults = new Map()) {
  *   element leaves until the diagram is saved; they aren't the model's constants.
  * @param {Map<string, string>} [options.renames] - The variables unsaved diagram edits renamed (variableRenames),
  *   whose values the instance's rows hold under their old names until the save.
- * @param {Set<string>} [options.supplied] - Names a connection supplies, which need no value.
+ * @param {Set<string>} [options.supplied] - Names a connection supplies, which need no value; their cells are marked
+ *   `supplied`.
  * @returns {{sections: Object[], rowsById: Map<string, Object>, clashCount: number, unsetCount: number}}
  */
 export function buildElementTable({
@@ -321,6 +322,7 @@ export function buildElementTable({
     const entry = naming[element.id]
     const values = elementValues(element, entry, rowsByName)
     values.forEach((cell) => cell.name && usedNames.add(cell.name))
+    values.forEach((cell) => supplied.has(cell.name) && (cell.supplied = true))
     ;(entry?.variables ?? []).forEach((variable) => usedNames.add(variable.name))
     const quantity = variablesOf(entry, 'quantity')[0]
     if (quantity) usedNames.add(rowsByName.get(quantity.name)?.initialiser ?? `${quantity.name}_init`)
@@ -357,7 +359,17 @@ export function buildElementTable({
       id: `constant:${row.name}`,
       element: null,
       names: [row.name],
-      values: [{ key: 'constant', label: row.name, name: row.name, row, defaultValue, units: row.units ?? '' }],
+      values: [
+        {
+          key: 'constant',
+          label: row.name,
+          name: row.name,
+          row,
+          defaultValue,
+          units: row.units ?? '',
+          ...(supplied.has(row.name) && { supplied: true }),
+        },
+      ],
       unset: !supplied.has(row.name) && isEmpty(row.value) && isEmpty(defaultValue) ? [`No value for ${row.name}`] : [],
       clash: null,
       depth: 0,

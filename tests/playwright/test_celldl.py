@@ -366,8 +366,8 @@ def add_port(page, dialog, label, variable):
     option = overlay.locator(".p-multiselect-option").filter(has_text=re.compile(rf"^\s*{re.escape(variable)}\s*$"))
     option.click()
     expect(option).to_have_attribute("aria-selected", "true")
-    # Closes the list without Esc, which would close the editor.
-    dialog.get_by_role("tab", name=re.compile(r"Ports \(")).click()
+    # Closes the list with a click outside it, as Esc would close the editor.
+    row.get_by_placeholder("Enter label").click()
     expect(overlay).to_be_hidden(timeout=10000)
     expect(row.locator(".p-multiselect")).to_contain_text(variable)
 
@@ -1520,6 +1520,7 @@ class TestCelldl(unittest.TestCase):
             # ----------- END ------------
 
             browser.close()
+
     def test_shows_a_value_a_connection_supplies_as_set_by_it_and_runs_with_it(self):
         with sync_playwright() as playwright:
             browser, page = open_app(playwright)
