@@ -24,6 +24,9 @@
         </button>
         <template v-else>{{ liveStatus }}</template>
       </span>
+      <span v-if="host.message.value" class="celldl-editor-message" :data-level="host.message.value.level">
+        {{ host.message.value.text }}
+      </span>
     </div>
     <Popover ref="issuePopover">
       <ul class="celldl-issue-list" aria-label="Conversion issues">
@@ -243,6 +246,22 @@ onBeforeUnmount(() => host.release(slotRef.value))
   border-top: 1px solid var(--p-content-border-color);
   font-size: 0.8rem;
   color: var(--p-text-muted-color);
+}
+
+.celldl-editor-message {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.celldl-editor-message[data-level='error'] {
+  color: var(--p-red-500);
+}
+
+.celldl-editor-message[data-level='warn'] {
+  color: var(--p-orange-500);
 }
 
 .celldl-live-status {

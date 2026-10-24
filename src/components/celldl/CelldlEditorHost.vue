@@ -10,6 +10,7 @@
         :theme="isDarkMode ? 'dark' : 'light'"
         @editor-data="host.onEditorData"
         @editor-state="host.onEditorState"
+        @message="host.onMessage"
         @event="host.onViewerEvent"
         @diagram-changed="host.onDiagramChanged"
         @elements="host.onElements"

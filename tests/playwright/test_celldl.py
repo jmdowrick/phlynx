@@ -923,20 +923,15 @@ class TestCelldl(unittest.TestCase):
             page.wait_for_timeout(500)
             expect(components).to_have_count(4)
 
-            # Back in the diagram, the keys undo and redo it, as do its toolbar's buttons, the only ones it shows:
-            # the palette replaced its tools.
-            expect(page.locator("#editor-undo")).to_be_visible()
-            expect(page.locator("#editor-redo")).to_be_visible()
-            expect(page.locator("#editor-select-tool, #editor-bondgraph-tool")).to_have_count(0)
+            # Back in the diagram, the keys undo and redo it. It shows no toolbar or status bar: the palette replaced
+            # the tools, and the keys the Undo and Redo buttons.
+            expect(page.locator("#editor-undo, #editor-redo, #editor-select-tool, #editor-bondgraph-tool")).to_have_count(0)
+            expect(page.locator(".celldl-host #status-msg")).to_be_hidden()
             box = page.locator(DIAGRAM_SVG).bounding_box()
             page.mouse.click(box["x"] + box["width"] * 0.1, box["y"] + box["height"] * 0.1)
             page.keyboard.press("ControlOrMeta+z")
             expect(components).to_have_count(3)
             page.keyboard.press("ControlOrMeta+Shift+z")
-            expect(components).to_have_count(4)
-            page.locator("#editor-undo").click()
-            expect(components).to_have_count(3)
-            page.locator("#editor-redo").click()
             expect(components).to_have_count(4)
             # ----------- END ------------
 
