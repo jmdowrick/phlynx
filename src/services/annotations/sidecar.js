@@ -7,7 +7,7 @@ import { buildVariableIdMap } from '../../utils/cellml.js'
 import { CELLML_NS } from '../../utils/constants.js'
 import { parseRdf } from './rdf.js'
 import { createGraph, termKey } from './graph.js'
-import { BQBIOL, GO, GO_LOCATIONS, SBO, canonicalCurie, hasPrefix } from './iris.js'
+import { BQBIOL, GO, GO_LOCATIONS, SBO, canonicalCurie, hasPrefix, splitSubject } from './iris.js'
 
 export const SIDECAR_BASE_IRI = 'https://phlynx.invalid/modules/'
 
@@ -47,22 +47,6 @@ export async function parseSidecars(entries) {
 
 function emptySidecar(mathRef = null) {
   return { mathRef, file: null, componentName: null, component: null, variables: [], warnings: [] }
-}
-
-/**
- * Splits a subject IRI into its file name and fragment.
- *
- * @param {string} iri
- * @returns {{ file: string, fragment: string }|null}
- */
-export function splitSubject(iri) {
-  const hash = iri.indexOf('#')
-  if (hash < 0) return null
-  const path = iri.slice(0, hash)
-  return {
-    file: decodeURIComponent(path.slice(path.lastIndexOf('/') + 1)),
-    fragment: decodeURIComponent(iri.slice(hash + 1)),
-  }
 }
 
 function listComponentVariables(cellml, componentName) {

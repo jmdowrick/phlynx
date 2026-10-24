@@ -1,12 +1,8 @@
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
 import { describe, expect, it } from 'vitest'
-import {
-  componentKind,
-  parseSidecar,
-  parseSidecars,
-  splitSubject,
-} from '../../../../src/services/annotations/sidecar.js'
+import { componentKind, parseSidecar, parseSidecars } from '../../../../src/services/annotations/sidecar.js'
+import { splitSubject } from '../../../../src/services/annotations/iris.js'
 
 const TOY = resolve(__dirname, '../../fixtures/annotations/toy')
 const read = (name) => readFileSync(resolve(TOY, name), 'utf8')

@@ -10,7 +10,7 @@ const MODULES = ['compartment', 'membrane', 'SGLT1', 'GLUT2', 'NKA', 'Kir']
 const read = (...path) => readFileSync(resolve(PRIVATE, ...path), 'utf8')
 
 describe.skipIf(!existsSync(PRIVATE))('enterocyte fixtures (private)', () => {
-  it("parses Bernard's ApiCoords: nine instances, no warnings", async () => {
+  it('parses the enterocyte ApiCoords: nine instances, no warnings', async () => {
     const { instances, warnings } = await parseApiCoords(read('apicoords_Modular_Enterocyte_20261021T200342Z.ttl'))
     expect(warnings).toEqual([])
     expect(instances.map((instance) => instance.name).sort()).toEqual(

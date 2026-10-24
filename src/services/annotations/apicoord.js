@@ -5,8 +5,7 @@
 
 import { parseRdf } from './rdf.js'
 import { createGraph } from './graph.js'
-import { BQBIOL, NS, RDF_TYPE, canonicalCurie } from './iris.js'
-import { splitSubject } from './sidecar.js'
+import { BQBIOL, NS, RDF_TYPE, canonicalCurie, splitSubject } from './iris.js'
 
 export const APICOORD_BASE_IRI = 'https://phlynx.invalid/apicoords/'
 

@@ -109,6 +109,22 @@ export function hasPrefix(curie, prefix) {
   return splitCurie(curie)[0] === prefix
 }
 
+/**
+ * Splits a subject IRI into its file name and fragment.
+ *
+ * @param {string} iri
+ * @returns {{ file: string, fragment: string }|null}
+ */
+export function splitSubject(iri) {
+  const hash = iri.indexOf('#')
+  if (hash < 0) return null
+  const path = iri.slice(0, hash)
+  return {
+    file: decodeURIComponent(path.slice(path.lastIndexOf('/') + 1)),
+    fragment: decodeURIComponent(iri.slice(hash + 1)),
+  }
+}
+
 // TO-VERIFY: none of these OPB ids has been confirmed against the OPB release yet.
 export const OPB = {
   concentration: 'OPB:00340',
