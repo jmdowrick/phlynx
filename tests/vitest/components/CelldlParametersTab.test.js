@@ -173,6 +173,24 @@ describe('CelldlParametersTab', () => {
     expect(cell.find('.default-hint').exists()).toBe(false)
   })
 
+  it('shows a value a connection supplies as set by it, read-only, and its own value as ignored', () => {
+    const rows = ROWS.map((row) => (row.name === 'q_S_c_init' ? { ...row, value: '7' } : { ...row }))
+    mountTab({
+      rows,
+      connectionStatus: new Map([['q_S_c_init', { state: 'connected', from: ['other_1.X'] }]]),
+      ignoredNotices: new Map([['q_S_c_init', 'Set by other_1.X: this value is ignored on export']]),
+    })
+    const cell = valuesRow(STORE_S).find('[data-variable="q_S_c_init"]')
+    expect(cell.find('.supplied-hint').text()).toBe('Set by other_1.X')
+    expect(cell.find('.default-hint').exists()).toBe(false)
+    const input = cell.find('input')
+    expect(input.element.disabled).toBe(true)
+    expect(input.classes()).toContain('value-input--ignored')
+    expect(input.attributes('title')).toBe('q_S_c_init: Set by other_1.X: this value is ignored on export')
+    // The other values stay editable.
+    expect(valuesRow(STORE_S).find('[data-variable="K_q_S_c"] input').element.disabled).toBe(false)
+  })
+
   it('flags unset and clashing rows, and shows only them on asking', async () => {
     const elements = ELEMENTS.map((element) => (element.id === 'ID-00000014' ? { ...element, location: 'j' } : element))
     mountTab({ elements, manifest: null })
