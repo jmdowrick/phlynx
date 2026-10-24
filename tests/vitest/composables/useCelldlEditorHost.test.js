@@ -755,17 +755,28 @@ describe('EDITOR_CHROME panels', () => {
   })
 })
 
+describe('editor messages', () => {
+  it('keeps the latest alert, and clears it on an empty one', () => {
+    const host = createCelldlEditorHost()
+    host.onMessage({ text: 'Bonds point into a resistance or reaction', level: 'warn' })
+    expect(host.message.value).toEqual({ text: 'Bonds point into a resistance or reaction', level: 'warn' })
+    host.onMessage({ text: '', level: '' })
+    expect(host.message.value).toBeNull()
+  })
+})
+
 describe('EDITOR_CHROME', () => {
   it('shows values read-only in the Properties panel, pointing to the Parameters tab', () => {
     expect(EDITOR_CHROME.values).toBe('readonly')
     expect(EDITOR_CHROME.valuesHint).toBe('Set values in the Parameters tab')
   })
 
-  it('places elements from the chemical palette, keeping the toolbar for Undo and Redo only', () => {
+  it('places elements from the chemical palette, with no toolbar column or status bar', () => {
     expect(EDITOR_CHROME.palette).toBe('top')
     expect(EDITOR_CHROME.paletteDomain).toBe('chemical')
-    // An empty list, not false: false would hide the Undo and Redo buttons with the toolbar.
+    // No tools and no Undo/Redo buttons leave no left column; the keys still undo and redo.
     expect(EDITOR_CHROME.tools).toEqual([])
-    expect(EDITOR_CHROME.undo).not.toBe(false)
+    expect(EDITOR_CHROME.undo).toBe(false)
+    expect(EDITOR_CHROME.statusBar).toBe(false)
   })
 })

@@ -654,7 +654,9 @@ class TestCelldl(unittest.TestCase):
             expect(is_selected(page, PRODUCT)).not_to_have_count(0)
             expect(page.locator(f'{DIAGRAM_SVG} [id="{PRODUCT}"].phlynx-celldl-flash')).to_have_count(1)
             after = view_box(page)
-            self.assertEqual(before[2:], after[2:])
+            # The same zoom: the view's size may shift by a fraction of a unit as the canvas settles.
+            for was, now in zip(before[2:], after[2:]):
+                self.assertAlmostEqual(now, was, delta=was * 1e-3)
             self.assertNotEqual(before[:2], after[:2])
             box = page.locator(DIAGRAM_SVG).bounding_box()
             x, y = element_centre(page, PRODUCT)
@@ -677,7 +679,8 @@ class TestCelldl(unittest.TestCase):
             expect(warning).to_have_count(0)
             expect(editor_tab(dialog, "CellDL")).to_have_attribute("aria-selected", "true")
             expect(is_selected(page, PRODUCT)).not_to_have_count(0, timeout=DIAGRAM_TIMEOUT)
-            self.assertEqual(view_box(page)[2:], after[2:])
+            for was, now in zip(after[2:], view_box(page)[2:]):
+                self.assertAlmostEqual(now, was, delta=was * 1e-3)
             self.assertFalse(saved_math_has(page, "q_S_c_2"))
             # ----------- END ------------
 
@@ -923,20 +926,15 @@ class TestCelldl(unittest.TestCase):
             page.wait_for_timeout(500)
             expect(components).to_have_count(4)
 
-            # Back in the diagram, the keys undo and redo it, as do its toolbar's buttons, the only ones it shows:
-            # the palette replaced its tools.
-            expect(page.locator("#editor-undo")).to_be_visible()
-            expect(page.locator("#editor-redo")).to_be_visible()
-            expect(page.locator("#editor-select-tool, #editor-bondgraph-tool")).to_have_count(0)
+            # Back in the diagram, the keys undo and redo it. It shows no toolbar or status bar: the palette replaced
+            # the tools, and the keys the Undo and Redo buttons.
+            expect(page.locator("#editor-undo, #editor-redo, #editor-select-tool, #editor-bondgraph-tool")).to_have_count(0)
+            expect(page.locator(".celldl-host #status-msg")).to_be_hidden()
             box = page.locator(DIAGRAM_SVG).bounding_box()
             page.mouse.click(box["x"] + box["width"] * 0.1, box["y"] + box["height"] * 0.1)
             page.keyboard.press("ControlOrMeta+z")
             expect(components).to_have_count(3)
             page.keyboard.press("ControlOrMeta+Shift+z")
-            expect(components).to_have_count(4)
-            page.locator("#editor-undo").click()
-            expect(components).to_have_count(3)
-            page.locator("#editor-redo").click()
             expect(components).to_have_count(4)
             # ----------- END ------------
 

@@ -29,6 +29,9 @@ export const EDITOR_OPTIONS = Object.freeze({ tooltip: 'tooltip', elementList: t
  */
 export const EDITOR_CHROME = Object.freeze({
   tools: Object.freeze([]),
+  // No Undo/Redo column (the keys still work) and no status bar; the editor's alerts come as `message` events.
+  undo: false,
+  statusBar: false,
   palette: 'top',
   paletteDomain: 'chemical',
   statusPosition: false,
@@ -118,6 +121,8 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   const elementsRevision = ref(-1)
   /** The element selected in the diagram, as its viewer events tell, and whether the host selected it. */
   const selection = shallowRef({ id: null, isHostSelection: false })
+  /** The editor's current alert, such as why a bond was refused, or null. */
+  const message = shallowRef(null)
 
   let root = null
   let readyWaiters = []
@@ -538,6 +543,15 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   }
 
   /**
+   * Keeps the editor's latest alert, from its `message` event; an empty text clears it.
+   *
+   * @param {{text: string, level: string}} event
+   */
+  function onMessage(event) {
+    message.value = event?.text ? { text: event.text, level: event.level || 'info' } : null
+  }
+
+  /**
    * Shows a source in the editor: its document, read under its documentUri, or a blank diagram for none. Rejects
    * with the editor's error for a document it can't open.
    *
@@ -550,6 +564,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     isViewDue = false
     viewKey = null
     error.value = ''
+    message.value = null
     try {
       const previous = svgOf()
       send(
@@ -799,6 +814,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     elements,
     elementsRevision,
     selection,
+    message,
     attach,
     whenReady,
     open,
@@ -816,6 +832,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     release,
     onEditorData,
     onEditorState,
+    onMessage,
     onViewerEvent,
     onDiagramChanged,
     onElements,
