@@ -164,7 +164,16 @@
                 <div class="value-list">
                   <label v-for="cell in row.values" :key="cell.key" class="value-item" :data-variable="cell.name">
                     <span class="value-label">{{ cell.label }}</span>
+                    <!-- One the math computes, e.g. an inductor's acceleration, takes no value -->
+                    <span
+                      v-if="cell.isComputed"
+                      class="computed-value"
+                      :title="`${cell.name}: computed by the math, so it takes no value`"
+                    >
+                      computed
+                    </span>
                     <CommitInput
+                      v-else
                       numeric
                       :model-value="shownValue(cell)"
                       :placeholder="cell.defaultValue"
@@ -180,7 +189,12 @@
                     <span v-if="suppliedBy(cell)" class="supplied-hint" :title="valueTitle(cell)">
                       <i class="pi pi-link"></i> {{ suppliedBy(cell) }}
                     </span>
-                    <span v-else-if="isDefault(cell) && !isEmptyValue(cell.defaultValue)" class="default-hint">default</span>
+                    <span
+                      v-else-if="!cell.isComputed && isDefault(cell) && !isEmptyValue(cell.defaultValue)"
+                      class="default-hint"
+                    >
+                      default
+                    </span>
                   </label>
                 </div>
               </td>
@@ -724,6 +738,13 @@ watch(
 .value-label {
   white-space: nowrap;
   font-size: var(--dlg-fs-small);
+  color: var(--p-text-muted-color);
+}
+
+.computed-value {
+  width: 5.5rem;
+  font-size: var(--dlg-fs-tiny);
+  font-style: italic;
   color: var(--p-text-muted-color);
 }
 

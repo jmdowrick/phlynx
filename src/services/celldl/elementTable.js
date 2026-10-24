@@ -154,14 +154,24 @@ function initialValueRow(name, rowsByName) {
 }
 
 /**
+ * Checks whether the math computes a row, e.g. a mechanical inductor's acceleration `a`, so it takes no value. A
+ * state is set through its initial value, so isn't counted.
+ *
+ * @param {Object|null|undefined} row
+ * @returns {boolean}
+ */
+export const isComputedRow = (row) => row?.type === 'variable' && row.stateRole !== 'state'
+
+/**
  * Gets an element's value cells: its initial value, or a source's fixed value, then its parameters and variables, each
- * with the CellML name it is generated as, the instance's row (none until the diagram is saved with it), and the
- * diagram's value, the instance's default.
+ * with the CellML name it is generated as, the instance's row (none until the diagram is saved with it), the
+ * diagram's value, the instance's default, and whether the math computes it, so it takes no value.
  *
  * @param {Object} element - A DiagramElement.
  * @param {Object|undefined} entry - Its ManifestElement.
  * @param {Map<string, Object>} rowsByName - The instance's rows.
- * @returns {{key: string, label: string, name: string|null, row: Object|null, defaultValue: string, units: string}[]}
+ * @returns {{key: string, label: string, name: string|null, row: Object|null, defaultValue: string, units: string,
+ *   isComputed: boolean}[]}
  */
 export function elementValues(element, entry, rowsByName) {
   const cells = []
@@ -172,6 +182,7 @@ export function elementValues(element, entry, rowsByName) {
     row: row ?? null,
     defaultValue: item?.stored === false ? '' : String(item?.value ?? ''),
     units: row?.units || item?.units || '',
+    isComputed: isComputedRow(row),
   })
   if (element.value) {
     const quantity = variablesOf(entry, 'quantity')[0]
@@ -246,8 +257,8 @@ export function findClashes(elements, manifest) {
 }
 
 /**
- * Says what an element still needs: a type, its own species and location, and a value for each value cell a
- * connection doesn't supply.
+ * Says what an element still needs: a type, its own species and location, and a value for each value cell that
+ * neither a connection supplies nor the math computes.
  *
  * @param {Object} element - A DiagramElement.
  * @param {Object[]} values - Its value cells (elementValues).
@@ -260,7 +271,9 @@ export function unsetReasons(element, values, supplied = new Set()) {
   if (element.species === DEFAULT_SPECIES) reasons.push(`Species is still the default, ${DEFAULT_SPECIES}`)
   if (element.location === DEFAULT_LOCATION) reasons.push(`Location is still the default, ${DEFAULT_LOCATION}`)
   values
-    .filter((cell) => !supplied.has(cell.name) && isEmpty(cell.row?.value) && isEmpty(cell.defaultValue))
+    .filter(
+      (cell) => !cell.isComputed && !supplied.has(cell.name) && isEmpty(cell.row?.value) && isEmpty(cell.defaultValue),
+    )
     .forEach((cell) => reasons.push(`No value for ${cell.label}`))
   return reasons
 }
@@ -367,6 +380,7 @@ export function buildElementTable({
           row,
           defaultValue,
           units: row.units ?? '',
+          isComputed: false,
           ...(supplied.has(row.name) && { supplied: true }),
         },
       ],
