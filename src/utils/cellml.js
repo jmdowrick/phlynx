@@ -1176,6 +1176,10 @@ export function generateFlattenedModel(
     if (boundaryValues.conflicts.length) {
       throw new Error(`Conflicting boundary values: ${boundaryValues.conflicts.join('; ')}.`)
     }
+    // libCellML would reject a variable set more than once, or accept it as a DAE and drop an equation.
+    if (boundaryValues.overdetermined.length) {
+      throw new Error(boundaryValues.overdetermined.map(({ message }) => message).join(' '))
+    }
     // A value something else supplies is dropped (see resolveBoundaryValues).
     const isIgnored = (nodeId, v) => !!boundaryValues.ignored.get(nodeId)?.has(v.name)
     // A supplied boundary condition is set like a constant.
