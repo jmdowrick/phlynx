@@ -196,6 +196,46 @@ local:coord_vessel2 a api:ApiCoord ; api:kind "lyph" ; api:origin <https://examp
     expect(outside.ambiguous).toBeUndefined()
   })
 
+  it('keeps membranes on disjoint facets apart and flags overlapping ones', async () => {
+    const split = (wallFacets) =>
+      loadToy(
+        `${readToy('toy-apicoords.ttl').replace('api:facet "basolateral" , "apical" , "lateral"', `api:facet ${wallFacets}`)}
+model:wall_bas bqbiol:is local:coord_wall_bas .
+local:coord_wall_bas a api:ApiCoord ; api:kind "facet-layer" ; api:within local:coord_cell ;
+    api:facet "basolateral" ; api:layerIndex 1 ; api:material <http://purl.obolibrary.org/obo/GO_0005886> .
+`
+      ).then((model) => ({
+        ...model,
+        instances: model.instances.map((instance) =>
+          instance.name === 'wall_bas' ? { ...instance, sidecar: model.sidecars.get('wall') } : instance
+        ),
+      }))
+    const run = (model) =>
+      suggestCouplings(model.instances, { coords: model.coords, scopes: model.scopes, heldConstant: HELD })
+
+    const disjoint = run(await split('"apical"'))
+    expect(disjoint.conflicts).toEqual([])
+    const voltage = tuples(disjoint.suggestions).filter((tuple) => tuple.includes('.u '))
+    expect(voltage).toEqual(['porter_in.u -> wall.u', 'wall_bas.u -> porter_out.u'])
+
+    const overlapping = run(await split('"apical" , "basolateral"'))
+    expect(overlapping.conflicts.map((c) => `${c.a.instance} ${c.b.instance} ${c.a.variable}`).sort()).toEqual([
+      'wall wall_bas i_tot',
+      'wall wall_bas u',
+    ])
+    const ambiguous = overlapping.suggestions
+      .flatMap((s) => s.couplings)
+      .filter((c) => c.ambiguous)
+      .map((c) => c.key)
+      .sort()
+    expect(ambiguous).toEqual([
+      'wall->porter_out:i_tot->j_A',
+      'wall->porter_out:u->u',
+      'wall_bas->porter_out:i_tot->j_A',
+      'wall_bas->porter_out:u->u',
+    ])
+  })
+
   it('skips existing couplings and dismissed suggestions', () => {
     const existingEdges = [
       {

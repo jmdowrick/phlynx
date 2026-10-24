@@ -80,9 +80,8 @@ describe.skipIf(!existsSync(EXPECTED))('enterocyte regeneration (private)', () =
     for (const edge of edges) {
       for (const { sourcePort, targetPort } of edge.data.couplings) {
         expect(sourcePort.annotation.property).toBe(targetPort.annotation.property)
-        expect([sourcePort.multiportType, targetPort.multiportType].sort()).toSatisfy(
-          ([a, b]) => (a === 'None' && (b === 'True' || b === 'Sum')) || a === b
-        )
+        const roles = [sourcePort.annotation.role, targetPort.annotation.role].sort().join('+')
+        expect(['owner+reader', 'aggregator+contributor']).toContain(roles)
       }
     }
   })

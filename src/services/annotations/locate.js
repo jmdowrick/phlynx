@@ -41,7 +41,7 @@ export function scopeKey(scopeIri, scopes) {
 /**
  * The cell key and path of a cell coordinate.
  *
- * @returns {{ key: string, path: string[] }|null}
+ * @returns {{ key: string, scope: string, path: string[] }|null}
  */
 function cellOf(cell, scopes) {
   if (!cell || cell.kind !== 'cell') return null

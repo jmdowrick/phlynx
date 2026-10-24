@@ -159,7 +159,14 @@ export function rankOf(coord) {
   }
 }
 
-const side = ({ locations, ...quantity }) => quantity
+const withoutLocations = ({ locations, ...quantity }) => quantity
+
+// Whether two self-located places overlap: the same key and, on a plasma membrane, a shared facet.
+function overlaps(a, b) {
+  if (a.unresolved || b.unresolved || a.key !== b.key) return false
+  if (!a.key.startsWith('pm:')) return true
+  return (a.facets ?? []).some((facet) => (b.facets ?? []).includes(facet))
+}
 
 /**
  * Key of a suggested edge, and of one of its couplings.
@@ -233,10 +240,8 @@ export function suggestCouplings(instances, options = {}) {
         qa.property === qb.property &&
         sameSpecies(qa.species, qb.species)
       ) {
-        const shared = qa.locations.find(
-          (a) => !a.unresolved && qb.locations.some((b) => !b.unresolved && b.key === a.key)
-        )
-        if (shared) conflicts.push({ key: shared.key, a: side(qa), b: side(qb) })
+        const shared = qa.locations.find((a) => qb.locations.some((b) => overlaps(a, b)))
+        if (shared) conflicts.push({ key: shared.key, a: withoutLocations(qa), b: withoutLocations(qb) })
       }
     }
   }
@@ -266,8 +271,8 @@ export function suggestCouplings(instances, options = {}) {
     }
     groups.get(edgeKey).couplings.push({
       key: couplingKey,
-      source: side(source),
-      target: side(target),
+      source: withoutLocations(source),
+      target: withoutLocations(target),
       kind: pair.kind,
       confidence: pair.confidence,
       place: {
