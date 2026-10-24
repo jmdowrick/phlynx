@@ -1,5 +1,9 @@
+import { nextTick } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 import { useFlowHistoryStore } from '../stores/historyStore'
+import { useLibraryStore } from '../stores/libraryStore'
+import { annotatedCouplingsBetween } from '../services/annotations/couple'
+import { useCouplingContext } from './useCouplingContext'
 import { FLOW_IDS } from '../utils/constants'
 import { resolvePortCouplings } from '../utils/edges'
 import { getHandleUidFromHandleId } from '../utils/handles'
@@ -8,7 +12,8 @@ import { detachReactivity } from '../utils/reactivity'
 /**
  * Registers the Vue Flow connect handler: validates a new connection, activates its handles,
  * asks before replacing an existing connection between the same instances, and adds the edge
- * with its resolved port couplings.
+ * with its resolved port couplings. Between two nodes bound to ApiCoords with annotated math, the
+ * matcher's suggested couplings are added too, with any ports they need, in the same undo step.
  *
  * @param {Object} options
  * @param {Set<string>} options.suppressedEdgeIds - Edge ids whose add/remove changes are not recorded.
@@ -19,6 +24,7 @@ import { detachReactivity } from '../utils/reactivity'
  * @param {Function} options.revertHandleIfUnused - From useHandleManagement.
  * @param {Function} options.revertHandlesForEdge - From useHandleManagement.
  * @param {Function} options.reactivateEdgeHandles - From useHandleManagement.
+ * @param {Function} [options.recordEdit] - From useNodeDataHistory, to record the ports annotated couplings add.
  * @param {string} [options.flowId=FLOW_IDS.MAIN]
  */
 export function useConnect({
@@ -30,10 +36,44 @@ export function useConnect({
   revertHandleIfUnused,
   revertHandlesForEdge,
   reactivateEdgeHandles,
+  recordEdit,
   flowId = FLOW_IDS.MAIN,
 }) {
-  const { addEdges, edges, findNode, onConnect, removeEdges } = useVueFlow(flowId)
+  const { addEdges, edges, findNode, nodes, onConnect, removeEdges } = useVueFlow(flowId)
   const historyStore = useFlowHistoryStore()
+  const libraryStore = useLibraryStore()
+  const { ensureContext } = useCouplingContext()
+
+  /**
+   * The matcher's couplings between two bound nodes whose maths have sidecars, and the ports they add.
+   *
+   * @returns {Promise<ReturnType<typeof annotatedCouplingsBetween>|null>} Null when either node isn't annotated.
+   */
+  async function annotatedCouplings(sourceNode, targetNode) {
+    const isAnnotated = (node) => !!node.data?.apiCoord && !!libraryStore.getModuleAnnotations(node.data?.mathRef)
+    if (!isAnnotated(sourceNode) || !isAnnotated(targetNode)) return null
+    const allNodes = nodes?.value ?? [sourceNode, targetNode]
+    const context = await ensureContext(allNodes)
+    const result = annotatedCouplingsBetween(sourceNode, targetNode, allNodes, context)
+    return result.couplings.length ? result : null
+  }
+
+  /**
+   * Adds ports to nodes, as one recorded edit when recordEdit is given.
+   *
+   * @param {Map<string, Array<Object>>} addedPorts
+   */
+  async function addPorts(addedPorts) {
+    const nodeIds = [...addedPorts.keys()].filter((id) => addedPorts.get(id).length)
+    if (!nodeIds.length) return
+    const apply = () =>
+      nodeIds.forEach((id) => {
+        const node = findNode(id)
+        if (node) node.data = { ...node.data, ports: [...(node.data.ports ?? []), ...addedPorts.get(id)] }
+      })
+    if (recordEdit) await recordEdit({ type: 'add-annotated-ports', nodeIds, keys: ['ports'], apply })
+    else apply()
+  }
 
   onConnect(async (connection) => {
     const sourceNode = findNode(connection.source)
@@ -128,6 +168,16 @@ export function useConnect({
       targetIndex,
     )
 
+    // Annotated ports never couple by label: the matcher couples them, adding the ports it needs in one step
+    // with the edge.
+    const annotated = await annotatedCouplings(sourceNode, targetNode)
+    const isBatched = !!annotated?.addedPorts.size
+    if (isBatched) {
+      historyStore.startBatch()
+      await addPorts(annotated.addedPorts)
+    }
+    if (annotated) couplings.push(...annotated.couplings)
+
     const newEdge = {
       ...connection,
       ...edgeLineOptions,
@@ -164,6 +214,10 @@ export function useConnect({
       })
     } else {
       addEdges(newEdge)
+    }
+    if (isBatched) {
+      await nextTick()
+      historyStore.endBatch()
     }
   })
 }

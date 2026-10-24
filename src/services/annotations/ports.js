@@ -5,6 +5,16 @@
 const MULTIPORT_BY_ROLE = { owner: 'True', reader: 'None', aggregator: 'Sum', contributor: 'None' }
 
 /**
+ * The multiport type a port with this role gets: an owner shares, an aggregator sums, the others link once.
+ *
+ * @param {string} role
+ * @returns {'True'|'Sum'|'None'}
+ */
+export function multiportTypeFor(role) {
+  return MULTIPORT_BY_ROLE[role] ?? 'None'
+}
+
+/**
  * The port carrying one annotated quantity. The label stays empty: the annotation identifies the port.
  *
  * @param {{ instance?: string, variable: string, subject: string, property: string, species: string[],
@@ -17,7 +27,7 @@ export function portFor(quantity) {
     portType: 'general_ports',
     label: '',
     variables: [quantity.variable],
-    multiportType: MULTIPORT_BY_ROLE[quantity.role] ?? 'None',
+    multiportType: multiportTypeFor(quantity.role),
     annotation: {
       subject: quantity.subject,
       variable: quantity.variable,
