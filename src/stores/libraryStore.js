@@ -622,10 +622,12 @@ export const useLibraryStore = defineStore('library', () => {
       }
     }
 
-    if (state.moduleAnnotations) {
-      // Only text is kept: anything else can't be a sidecar.
-      for (const [mathRef, text] of state.moduleAnnotations) {
-        if (typeof text === 'string') setModuleAnnotations(mathRef, text)
+    if (Array.isArray(state.moduleAnnotations)) {
+      // Only [mathRef, text] entries are kept: anything else can't be a sidecar.
+      for (const entry of state.moduleAnnotations) {
+        if (Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'string') {
+          setModuleAnnotations(entry[0], entry[1])
+        }
       }
     }
 

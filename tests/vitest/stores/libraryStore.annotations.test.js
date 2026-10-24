@@ -58,6 +58,15 @@ describe('libraryStore module annotations', () => {
     expect([...library.moduleAnnotations.keys()]).toEqual([MATH_REF])
   })
 
+  it('loads the rest of a library whose moduleAnnotations field is malformed', () => {
+    library.loadState({ availableMath: [[MATH_REF, MATH]], moduleAnnotations: { [MATH_REF]: SIDECAR } })
+    expect(library.availableMath.has(MATH_REF)).toBe(true)
+    expect(library.moduleAnnotations.size).toBe(0)
+
+    library.loadState({ moduleAnnotations: [null, 'text', [MATH_REF, SIDECAR]] })
+    expect([...library.moduleAnnotations.keys()]).toEqual([MATH_REF])
+  })
+
   it('parses on ensure, caches the parse, and serves it from the sync accessor', async () => {
     library.setModuleAnnotations(MATH_REF, SIDECAR)
     const parsed = computed(() => library.getParsedModuleAnnotations(MATH_REF))
