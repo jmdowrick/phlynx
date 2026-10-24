@@ -194,7 +194,7 @@ export function checkScope(scope, libraryStore, { suppliedKeys = new Set() } = {
   if (!scope.nodes.length) errors.push('Select at least one instance to simulate.')
 
   try {
-    const scoped = resolveBoundaryValues(scope.nodes, scope.internalEdges)
+    const scoped = resolveBoundaryValues(scope.nodes, scope.internalEdges, libraryStore.getMathAnalysis)
     conflicts = [
       ...scoped.conflicts,
       ...scoped.overdetermined.map(({ message }) => message),

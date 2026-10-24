@@ -305,6 +305,13 @@ describe('resolveBoundaryValues', () => {
       ])
     })
 
+    it('reports a computed variable coupled to a Sum variable nothing sums into, which is 0', () => {
+      const nodes = [node('hub', [row('s', 'boundary_condition')], [port(['s'], 'Sum'), port(['s'])]), node('leaf', [row('q', 'variable')])]
+      expect(messages(nodes, [edge('hub', 'leaf', port(['s']), port(['q']))])).toEqual([
+        'hub.s (a sum with nothing connected, so 0) and leaf.q are both computed; only one module can set a connected variable.',
+      ])
+    })
+
     it('reports constants given different values, naming each', () => {
       const nodes = [node('a', [row('k', 'constant', '1')]), node('b', [row('k', 'constant', '2')])]
       const result = resolveBoundaryValues(nodes, [edge('a', 'b', port(['k']), port(['k']))])
@@ -359,6 +366,17 @@ describe('resolveBoundaryValues', () => {
           edge('hub', 'tank', port(['total']), port(['v_in'])),
         ]
         expect(resolveBoundaryValues(nodes, edges).overdetermined).toEqual([])
+      })
+
+      it('a saved variable row its math only reads, or uses as the VoI', () => {
+        // As an older workspace's SN_axon.V_in: typed `variable`, though its math only reads it.
+        const withMath = (id, rows, mathRef) => ({ ...node(id, rows), data: { ...node(id, rows).data, mathRef } })
+        const analyses = { soma: { stateVariables: ['V'], assigned: [] }, axon: { stateVariables: ['V'], assigned: ['I'] } }
+        const nodes = [withMath('soma', [state('V'), row('t', 'variable')], 'soma'), withMath('axon', [row('V_in', 'variable'), row('t', 'variable')], 'axon')]
+        const edges = [edge('soma', 'axon', port(['V', 't']), port(['V_in', 't']))]
+        expect(resolveBoundaryValues(nodes, edges, (mathRef) => analyses[mathRef]).overdetermined).toEqual([])
+        // Math it can't analyse falls back to the rows' types.
+        expect(resolveBoundaryValues(nodes, edges, () => null).overdetermined).toHaveLength(2)
       })
 
       it('a Multiply term feeding a Sum', () => {

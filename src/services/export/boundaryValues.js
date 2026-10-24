@@ -50,6 +50,9 @@ function affineOutputKey(source, target) {
  *
  * @param {Array} nodes - Workspace nodes with `data.name` and `data.variables` rows.
  * @param {Array} edges - Workspace edges with `data.couplings`.
+ * @param {(mathRef: string) => (Object|null)} [getMathAnalysis] - libraryStore.getMathAnalysis. With it, a `variable`
+ *   row counts towards `overdetermined` only when its math computes it, since a saved row may still call an input
+ *   `variable` (see reconcileRows). Without it, or for math it can't analyse, every `variable` row counts.
  * @returns {{supplied: Map<string, Set<string>>, missing: Map<string, Set<string>>, conflicts: string[],
  *   emptySums: Map<string, Set<string>>, unsupplied: Set<string>, ignored: Map<string, Set<string>>,
  *   bcOnly: Array<{keys: string[], label: string}>, overdetermined: Array<{keys: string[], message: string}>,
@@ -71,7 +74,7 @@ function affineOutputKey(source, target) {
  *     else sets it. Rows coupled to nothing, other than boundary conditions, and empty
  *     sums have no status.
  */
-export function resolveBoundaryValues(nodes, edges) {
+export function resolveBoundaryValues(nodes, edges, getMathAnalysis = null) {
   const rows = new Map()
   for (const node of nodes) {
     for (const row of node.data?.variables ?? []) {
@@ -92,7 +95,8 @@ export function resolveBoundaryValues(nodes, edges) {
   // Each variable a generated component computes, to the variables it computes it from, and how.
   const computedFrom = new Map()
   const computedBy = new Map()
-  // The equations generated components give each variable: one summation, but one per Multiply or conversion.
+  // The equations generated components give each variable: one summation, even over nothing, but one per Multiply or
+  // conversion.
   const equations = new Map()
   const rejected = new Set()
   const compute = (key, fromKey, kind) => {
@@ -156,6 +160,7 @@ export function resolveBoundaryValues(nodes, edges) {
         // A computed row's own math already sets it.
         if (type !== 'Sum' || computed.has(key) || !member || member.row.type === 'variable') return
         computed.add(key)
+        equations.set(key, new Set(['sum']))
         addTo(emptySums, member)
       })
     }
@@ -189,15 +194,28 @@ export function resolveBoundaryValues(nodes, edges) {
     if (!status.has(nodeId)) status.set(nodeId, new Map())
     status.get(nodeId).set(row.name, { state, from })
   }
+  // What each node's math computes as a state or by assignment, or null when that isn't known.
+  const mathComputed = new Map(
+    nodes.map((node) => {
+      const analysis = getMathAnalysis && node.data?.mathRef ? getMathAnalysis(node.data.mathRef) : null
+      return [node.id, analysis ? new Set([...(analysis.stateVariables ?? []), ...(analysis.assigned ?? [])]) : null]
+    })
+  )
+  /** Whether a member's own math sets it. */
+  const ownMath = ({ nodeId, row }) => row.type === 'variable' && (mathComputed.get(nodeId)?.has(row.name) ?? true)
+  /** How many equations set a member: its own math's, and each generated component's. */
+  const equationsOf = (member) => (equations.get(member.key)?.size ?? 0) + ownMath(member)
   const listed = (items) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0])
   /** Describes how a computed member is set: by its own math, a generated component, or both. */
   const describeComputed = (member) => {
     const ways = []
-    if (member.row.type === 'variable') ways.push('its own math')
+    if (ownMath(member)) ways.push('its own math')
     if (computedBy.has(member.key)) {
       ways.push(`${GENERATED[computedBy.get(member.key)]} ${[...computedFrom.get(member.key)].map(labelOf).join(', ')}`)
+    } else if (emptySums.get(member.nodeId)?.has(member.row.name)) {
+      ways.push('a sum with nothing connected, so 0')
     }
-    return ways.length > 1 || computedBy.has(member.key) ? `${label(member)} (${ways.join(' and ')})` : label(member)
+    return ways.length > 1 || !ownMath(member) ? `${label(member)} (${ways.join(' and ')})` : label(member)
   }
 
   for (const keys of groups.values()) {
@@ -218,12 +236,13 @@ export function resolveBoundaryValues(nodes, edges) {
     if (suppliers.length) {
       ignoreValues(members)
       // A member its own math and generated components compute counts once for each.
-      const equationCount = suppliers.reduce((count, { key, row }) => count + (equations.get(key)?.size ?? 0) + (row.type === 'variable'), 0)
+      const setters = suppliers.filter((member) => equationsOf(member) > 0)
+      const equationCount = setters.reduce((count, member) => count + equationsOf(member), 0)
       if (equationCount > 1 && !suppliers.some(({ key }) => rejected.has(key))) {
-        const described = suppliers.map(describeComputed)
+        const described = setters.map(describeComputed)
         const times = equationCount > 2 ? 'more than once' : 'twice'
         const verb = described.length === 1 ? `is computed ${times}` : `are ${described.length > 2 ? 'all' : 'both'} computed`
-        overdetermine(suppliers, `${listed(described)} ${verb}; only one module can set a connected variable.`)
+        overdetermine(setters, `${listed(described)} ${verb}; only one module can set a connected variable.`)
         continue
       }
       for (const member of members) {

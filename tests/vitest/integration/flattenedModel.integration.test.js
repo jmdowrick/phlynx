@@ -462,6 +462,16 @@ describe('generateFlattenedModel multiport couplings', () => {
     ])
   })
 
+  it('builds an input a saved row still types as a variable, which its math only reads', async () => {
+    const pressure = (portType) => ({ portType, label: 'pressure', variables: ['u'], multiportType: 'None' })
+    const hub = buildNode('hub', 'file:hub', [pressure('exit_ports')], { v_sum: '0' })
+    const leaf = buildNode('leaf', 'file:leaf', [pressure('entrance_ports')])
+    leaf.data.variables = leaf.data.variables.map((row) => (row.name === 'u' ? { ...row, type: 'variable' } : row))
+    const edges = [connect(hub, leaf)]
+    await expect(flatten([hub, leaf], edges)).resolves.toContain('<component name="leaf">')
+    expect(checkScope(resolveScope(null, [hub, leaf], edges), store).conflicts).toEqual([])
+  })
+
   /** A leaf whose rate k is a constant coupled through a port. */
   function rateLeaf(id, portType, k) {
     const leaf = buildNode(id, 'file:leaf', [{ portType, label: 'rate', variables: ['k'], multiportType: 'None' }], { u: '1', k })

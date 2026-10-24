@@ -1166,7 +1166,7 @@ export function generateFlattenedModel(
     model.addComponent(parameterComponent)
 
     // A boundary condition's value is used only when nothing in its coupled group supplies one.
-    const boundaryValues = resolveBoundaryValues(nodes, edges)
+    const boundaryValues = resolveBoundaryValues(nodes, edges, libraryStore.getMathAnalysis)
     // As in circulatory_autogen, nothing gives such a group a value. A scope that cuts it off from what computes it
     // falls back to their own values (see checkScope).
     if (boundaryValues.bcOnly.length && !allowBcOnly) {
