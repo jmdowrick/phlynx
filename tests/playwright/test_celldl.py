@@ -654,7 +654,9 @@ class TestCelldl(unittest.TestCase):
             expect(is_selected(page, PRODUCT)).not_to_have_count(0)
             expect(page.locator(f'{DIAGRAM_SVG} [id="{PRODUCT}"].phlynx-celldl-flash')).to_have_count(1)
             after = view_box(page)
-            self.assertEqual(before[2:], after[2:])
+            # The same zoom: the view's size may shift by a fraction of a unit as the canvas settles.
+            for was, now in zip(before[2:], after[2:]):
+                self.assertAlmostEqual(now, was, delta=was * 1e-3)
             self.assertNotEqual(before[:2], after[:2])
             box = page.locator(DIAGRAM_SVG).bounding_box()
             x, y = element_centre(page, PRODUCT)
@@ -677,7 +679,8 @@ class TestCelldl(unittest.TestCase):
             expect(warning).to_have_count(0)
             expect(editor_tab(dialog, "CellDL")).to_have_attribute("aria-selected", "true")
             expect(is_selected(page, PRODUCT)).not_to_have_count(0, timeout=DIAGRAM_TIMEOUT)
-            self.assertEqual(view_box(page)[2:], after[2:])
+            for was, now in zip(after[2:], view_box(page)[2:]):
+                self.assertAlmostEqual(now, was, delta=was * 1e-3)
             self.assertFalse(saved_math_has(page, "q_S_c_2"))
             # ----------- END ------------
 
