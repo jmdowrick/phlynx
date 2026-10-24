@@ -11,6 +11,7 @@ import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 const MATH_FILE = 'no_interfaces.cellml'
 const MATH = `<?xml version="1.0" encoding="UTF-8"?>
 <model xmlns="http://www.cellml.org/cellml/2.0#" name="no_interfaces">
+  <units name="celsius"><unit units="kelvin"/></units>
   <component name="decay">
     <variable name="t" units="second"/>
     <variable name="x" units="dimensionless" initial_value="1"/>
@@ -27,6 +28,27 @@ const MATH = `<?xml version="1.0" encoding="UTF-8"?>
     <variable name="z" units="dimensionless"/>
     <math xmlns="http://www.w3.org/1998/Math/MathML" xmlns:cellml="http://www.cellml.org/cellml/2.0#">
       <apply><eq/><ci>z</ci><apply><times/><cn cellml:units="dimensionless">2</cn><ci>y</ci></apply></apply>
+    </math>
+  </component>
+  <component name="celsius_source">
+    <variable name="T0" units="celsius" initial_value="37"/>
+    <variable name="T" units="celsius"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><ci>T</ci><ci>T0</ci></apply>
+    </math>
+  </component>
+  <component name="celsius_readout">
+    <variable name="y" units="celsius"/>
+    <variable name="z" units="celsius"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><ci>z</ci><ci>y</ci></apply>
+    </math>
+  </component>
+  <component name="kelvin_source">
+    <variable name="T0" units="kelvin" initial_value="310"/>
+    <variable name="T" units="kelvin"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><ci>T</ci><ci>T0</ci></apply>
     </math>
   </component>
 </model>
@@ -97,5 +119,17 @@ describe('connections between math with no interfaces', () => {
     const source = makeNode('source', 'decay', [port('x', 'Multiply', 2)])
     const target = makeNode('target', 'readout', [port('y', 'None')])
     await expect(flatten([source, target], [edge(source, target)])).resolves.toContain('generated_multiplications')
+  })
+
+  it('connects through an affine conversion', async () => {
+    const source = makeNode('source', 'kelvin_source', [port('T', 'None')])
+    const target = makeNode('target', 'celsius_readout', [port('y', 'None')])
+    await expect(flatten([source, target], [edge(source, target)])).resolves.toContain('<component name="target">')
+  })
+
+  it('connects one affine unit to itself', async () => {
+    const source = makeNode('source', 'celsius_source', [port('T', 'None')])
+    const target = makeNode('target', 'celsius_readout', [port('y', 'None')])
+    await expect(flatten([source, target], [edge(source, target)])).resolves.toContain('<component name="target">')
   })
 })
