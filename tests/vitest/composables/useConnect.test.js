@@ -423,6 +423,22 @@ describe('useConnect', () => {
       expect(nodes.value.map((node) => node.data.ports.length)).toEqual([1, 0])
     })
 
+    it('couples by label only, and still adds the edge, when the annotations fail to parse', async () => {
+      vi.spyOn(useAnnotationStore(), 'ensureApiCoords').mockRejectedValue(new Error('Bad Turtle'))
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const recordEdit = vi.fn(async ({ apply }) => apply())
+      try {
+        useConnect({ ...deps, recordEdit })
+        await connect(connection)
+        expect(warn).toHaveBeenCalled()
+      } finally {
+        warn.mockRestore()
+      }
+      expect(edges.value).toHaveLength(1)
+      expect(edges.value[0].data.couplings).toEqual([])
+      expect(recordEdit).not.toHaveBeenCalled()
+    })
+
     it('couples by label only when a node is unbound', async () => {
       nodes.value[1].data = { ...nodes.value[1].data, apiCoord: undefined }
       await connect(connection)

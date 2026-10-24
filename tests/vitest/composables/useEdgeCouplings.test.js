@@ -1,4 +1,6 @@
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
+
+vi.mock('../../../src/utils/notify', () => ({ notify: { warning: vi.fn() } }))
 
 import { useEdgeCouplings } from '../../../src/composables/useEdgeCouplings.js'
 import { loadToyNodes } from '../services/annotations/toyNodes.js'
@@ -78,6 +80,12 @@ describe('useEdgeCouplings with annotated ports', () => {
       annotation: { role: 'owner', location: 'self', source: { kind: 'copied' } },
     })
     expect(state.connectPorts(partner._uid, copy._uid, [])).toEqual([{ srcUid: partner._uid, tgtUid: copy._uid }])
+  })
+
+  it('makes no copy of an annotated port before the context locates it', () => {
+    const state = open({ sourcePorts: [toy.port('porter_in', 'c_A_i')], targetPorts: [], withContext: false })
+    state.activateGhost('target', state.localSrcPorts.value[0])
+    expect(state.localTgtPorts.value).toEqual([])
   })
 
   it('marks only the annotated port another edge uses as taken, though all labels are empty', () => {

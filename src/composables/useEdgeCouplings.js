@@ -2,7 +2,8 @@ import { ref, computed } from 'vue'
 import { TARGET_COMPATIBLE } from '../utils/constants'
 import { detachReactivity } from '../utils/reactivity'
 import { isSingleConnection } from '../utils/edges'
-import { canCouple, findPort, isAnnotatedPort, isCompatible, portRef, samePort } from '../utils/ports'
+import { canCouple, findPort, isAnnotatedPort, isCompatible, portDisplayName, portRef, samePort } from '../utils/ports'
+import { notify } from '../utils/notify'
 import { isMultiport } from '../utils/multiport'
 import { mirrorAnnotation, mirroredPort } from '../services/annotations/couple'
 
@@ -303,6 +304,12 @@ export function useEdgeCouplings(props, askSwapIntent, { getContext = () => unde
     const annotation = isAnnotatedPort(inferFrom)
       ? mirrorAnnotation(inferFrom, partnerNode, node, getContext(), ports)
       : null
+    // Before the partner is located (its files still parsing, or it is unbound) a copy would have no place to
+    // couple at, ever, so none is made.
+    if (isAnnotatedPort(inferFrom) && !annotation?.location && !annotation?.absoluteLocation) {
+      notify.warning({ message: `"${portDisplayName(inferFrom)}" isn't located yet, so it can't be copied.` })
+      return
+    }
     const entry = annotation
       ? { _uid: uid, ...mirroredPort(annotation, portType) }
       : {

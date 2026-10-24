@@ -8,6 +8,7 @@ import { FLOW_IDS } from '../utils/constants'
 import { resolvePortCouplings } from '../utils/edges'
 import { getHandleUidFromHandleId } from '../utils/handles'
 import { detachReactivity } from '../utils/reactivity'
+import { notify } from '../utils/notify'
 
 /**
  * Registers the Vue Flow connect handler: validates a new connection, activates its handles,
@@ -44,18 +45,26 @@ export function useConnect({
   const libraryStore = useLibraryStore()
   const { ensureContext } = useCouplingContext()
 
+  /** Whether a node is bound to an ApiCoord and its math has a sidecar. */
+  const isAnnotatedNode = (node) => !!node.data?.apiCoord && !!libraryStore.getModuleAnnotations(node.data?.mathRef)
+
   /**
-   * The matcher's couplings between two bound nodes whose maths have sidecars, and the ports they add.
+   * The matcher's couplings between two annotated nodes (see isAnnotatedNode), and the ports they add. A file
+   * that fails to parse leaves the edge to its label couplings.
    *
-   * @returns {Promise<ReturnType<typeof annotatedCouplingsBetween>|null>} Null when either node isn't annotated.
+   * @returns {Promise<ReturnType<typeof annotatedCouplingsBetween>|null>} Null when there are none.
    */
   async function annotatedCouplings(sourceNode, targetNode) {
-    const isAnnotated = (node) => !!node.data?.apiCoord && !!libraryStore.getModuleAnnotations(node.data?.mathRef)
-    if (!isAnnotated(sourceNode) || !isAnnotated(targetNode)) return null
     const allNodes = nodes?.value ?? [sourceNode, targetNode]
-    const context = await ensureContext(allNodes)
-    const result = annotatedCouplingsBetween(sourceNode, targetNode, allNodes, context)
-    return result.couplings.length ? result : null
+    try {
+      const context = await ensureContext(allNodes)
+      const result = annotatedCouplingsBetween(sourceNode, targetNode, allNodes, context)
+      return result.couplings.length ? result : null
+    } catch (error) {
+      console.warn('Annotated couplings unavailable:', error)
+      notify.warning({ message: `Couldn't read the annotations, so only labels coupled this edge: ${error.message}` })
+      return null
+    }
   }
 
   /**
@@ -169,13 +178,11 @@ export function useConnect({
     )
 
     // Annotated ports never couple by label: the matcher couples them, adding the ports it needs in one step
-    // with the edge.
-    const annotated = await annotatedCouplings(sourceNode, targetNode)
-    const isBatched = !!annotated?.addedPorts.size
-    if (isBatched) {
-      historyStore.startBatch()
-      await addPorts(annotated.addedPorts)
-    }
+    // with the edge. Other pairs stay synchronous, as before annotations.
+    const annotated =
+      isAnnotatedNode(sourceNode) && isAnnotatedNode(targetNode)
+        ? await annotatedCouplings(sourceNode, targetNode)
+        : null
     if (annotated) couplings.push(...annotated.couplings)
 
     const newEdge = {
@@ -187,37 +194,44 @@ export function useConnect({
       },
     }
 
-    if (duplicate) {
-      suppressedEdgeIds.add(newEdge.id)
-      addEdges(newEdge)
-      suppressedEdgeIds.delete(duplicateSnapshot.id)
-      suppressedEdgeIds.delete(newEdge.id)
+    const isBatched = !!annotated?.addedPorts.size
+    if (isBatched) historyStore.startBatch()
+    try {
+      if (isBatched) await addPorts(annotated.addedPorts)
+      if (duplicate) {
+        suppressedEdgeIds.add(newEdge.id)
+        addEdges(newEdge)
+        suppressedEdgeIds.delete(duplicateSnapshot.id)
+        suppressedEdgeIds.delete(newEdge.id)
 
-      historyStore.addCommand({
-        type: 'replace-edge',
-        async undo() {
-          await revertHandlesForEdge(newEdge, [newEdge.id], {
-            trackHistory: false,
-          })
-          removeEdges(newEdge.id)
-          addEdges(duplicateSnapshot)
-          await reactivateEdgeHandles(duplicateSnapshot, {
-            trackHistory: false,
-          })
-        },
-        async redo() {
-          await revertHandlesForEdge(duplicateSnapshot, [duplicateSnapshot.id], { trackHistory: false })
-          removeEdges(duplicateSnapshot.id)
-          addEdges(newEdge)
-          await reactivateEdgeHandles(newEdge, { trackHistory: false })
-        },
-      })
-    } else {
-      addEdges(newEdge)
-    }
-    if (isBatched) {
-      await nextTick()
-      historyStore.endBatch()
+        historyStore.addCommand({
+          type: 'replace-edge',
+          async undo() {
+            await revertHandlesForEdge(newEdge, [newEdge.id], {
+              trackHistory: false,
+            })
+            removeEdges(newEdge.id)
+            addEdges(duplicateSnapshot)
+            await reactivateEdgeHandles(duplicateSnapshot, {
+              trackHistory: false,
+            })
+          },
+          async redo() {
+            await revertHandlesForEdge(duplicateSnapshot, [duplicateSnapshot.id], { trackHistory: false })
+            removeEdges(duplicateSnapshot.id)
+            addEdges(newEdge)
+            await reactivateEdgeHandles(newEdge, { trackHistory: false })
+          },
+        })
+      } else {
+        addEdges(newEdge)
+      }
+    } finally {
+      // A failed edit still closes the batch, so later edits aren't swallowed into it.
+      if (isBatched) {
+        await nextTick()
+        historyStore.endBatch()
+      }
     }
   })
 }
