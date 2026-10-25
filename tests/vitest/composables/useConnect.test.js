@@ -439,6 +439,25 @@ describe('useConnect', () => {
       expect(recordEdit).not.toHaveBeenCalled()
     })
 
+    it('picks label slots from the edges as they are once the annotations are read', async () => {
+      const slots = [port('general_ports', 'flow', ['q0']), port('general_ports', 'flow', ['q1'])]
+      nodes.value[0].data = { ...nodes.value[0].data, ports: [...slots] }
+      nodes.value[1].data = { ...nodes.value[1].data, ports: [port('general_ports', 'flow', ['r'])] }
+      const store = useAnnotationStore()
+      const ensure = store.ensureApiCoords.bind(store)
+      // Another edge leaves porter_in while the annotations are being read.
+      vi.spyOn(store, 'ensureApiCoords').mockImplementation(async () => {
+        edges.value.push({ id: 'other', source: 'node_porter_in', target: 'elsewhere', data: { couplings: [] } })
+        return ensure()
+      })
+      useConnect({ ...deps, recordEdit: vi.fn(async ({ apply }) => apply()) })
+      await connect(connection)
+
+      const edge = edges.value.find((e) => e.id === 'node_porter_in--node_cell')
+      const label = edge.data.couplings.find(({ sourcePort }) => sourcePort.label === 'flow')
+      expect(label.sourcePort.variables).toEqual(['q1'])
+    })
+
     it('couples by label only when a node is unbound', async () => {
       nodes.value[1].data = { ...nodes.value[1].data, apiCoord: undefined }
       await connect(connection)

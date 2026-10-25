@@ -159,6 +159,16 @@ export function useConnect({
       suppressedEdgeIds.delete(pendingEdge.id)
     }
 
+    // Annotated ports never couple by label: the matcher couples them, adding the ports it needs in one step
+    // with the edge. It is awaited first, so the slot indices and ports below are read as they are once it
+    // settles; other pairs stay synchronous, as before annotations.
+    const annotated =
+      isAnnotatedNode(sourceNode) && isAnnotatedNode(targetNode)
+        ? await annotatedCouplings(sourceNode, targetNode)
+        : null
+    const source = findNode(connection.source) ?? sourceNode
+    const target = findNode(connection.target) ?? targetNode
+
     // Derive ordinal indices from the existing edge graph:
     //   sourceIndex = how many edges already leave from this source node
     //                 (i.e. this is the Nth output being connected)
@@ -170,19 +180,7 @@ export function useConnect({
 
     // Resolve which port labels are coupled across this conduit, using ordinal
     // indices to select the correct slot when a label appears multiple times.
-    const couplings = resolvePortCouplings(
-      sourceNode.data.ports ?? [],
-      targetNode.data.ports ?? [],
-      sourceIndex,
-      targetIndex,
-    )
-
-    // Annotated ports never couple by label: the matcher couples them, adding the ports it needs in one step
-    // with the edge. Other pairs stay synchronous, as before annotations.
-    const annotated =
-      isAnnotatedNode(sourceNode) && isAnnotatedNode(targetNode)
-        ? await annotatedCouplings(sourceNode, targetNode)
-        : null
+    const couplings = resolvePortCouplings(source.data.ports ?? [], target.data.ports ?? [], sourceIndex, targetIndex)
     if (annotated) couplings.push(...annotated.couplings)
 
     const newEdge = {

@@ -175,6 +175,31 @@ describe('annotatedCouplingsBetween', () => {
     expect(result.addedPorts.get('node_cell')).toHaveLength(2)
   })
 
+  it('reuses a port only where its type may sit at its end of the edge', () => {
+    const couplingOf = (result, variable) =>
+      result.couplings.find(({ sourcePort }) => sourcePort.variables[0] === variable)
+    const between = (sourcePorts, targetPorts) => {
+      const porterIn = toy.node('porter_in', sourcePorts)
+      const cell = toy.node('cell', targetPorts)
+      return annotatedCouplingsBetween(porterIn, cell, [porterIn, cell], toy.context([porterIn, cell]))
+    }
+    const entrance = { ...toy.port('porter_in', 'c_A_i'), portType: 'entrance_ports' }
+    const exitIn = { ...toy.port('porter_in', 'c_A_i'), portType: 'exit_ports' }
+    const exitCell = { ...toy.port('cell', 'c_A'), portType: 'exit_ports' }
+
+    // An entrance port can't start a coupling, so the source gets a new general port, which may feed an exit port.
+    const fromGeneral = couplingOf(between([entrance], [exitCell]), 'c_A_i')
+    expect(fromGeneral.sourcePort).not.toBe(entrance)
+    expect(fromGeneral.sourcePort.portType).toBe('general_ports')
+    expect(fromGeneral.targetPort).toBe(exitCell)
+
+    // An exit port starts one, but can't feed another exit port.
+    const fromExit = couplingOf(between([exitIn], [exitCell]), 'c_A_i')
+    expect(fromExit.sourcePort).toBe(exitIn)
+    expect(fromExit.targetPort).not.toBe(exitCell)
+    expect(fromExit.targetPort.portType).toBe('general_ports')
+  })
+
   it('drops a held-constant node’s aggregators', () => {
     const outside = toy.node('outside', [], { annotationOverlay: { heldConstant: true } })
     const porterIn = toy.node('porter_in')

@@ -210,6 +210,7 @@ export function annotatedCouplingsBetween(sourceNode, targetNode, nodes, context
   const located = nodes.filter((node) => isLocatedNode(node, context))
   const instances = located.map((node) => ({
     name: node.id,
+    label: node.data?.name ?? node.id,
     coord: coordOf(node, context),
     sidecar: context.sidecarFor(node.data.mathRef),
   }))
@@ -224,21 +225,50 @@ export function annotatedCouplingsBetween(sourceNode, targetNode, nodes, context
   )
   if (!suggestion) return empty
 
+  const reversed = suggestion.sourceName !== sourceNode.id
+  const couplings = suggestion.couplings.map((coupling) =>
+    reversed ? { source: coupling.target, target: coupling.source } : coupling
+  )
+  return portsForCouplings(sourceNode, targetNode, couplings)
+}
+
+// Port types that can carry a coupling out of the edge's source, and into its target from a general port.
+const SOURCE_SIDE_TYPES = new Set(['exit_ports', 'general_ports'])
+const TARGET_SIDE_TYPES = new Set(['entrance_ports', 'general_ports', 'exit_ports'])
+
+/**
+ * The ports for annotated couplings on an edge: an annotated port already on a node with the same subject (first
+ * contribution), and of a type that may sit at its end of the edge, is reused; otherwise a new general port is
+ * made. A reused exit port at the target only pairs with a general port at the source (see edges.js).
+ *
+ * @param {Object} sourceNode - The edge's source.
+ * @param {Object} targetNode - The edge's target.
+ * @param {Array<{ source: Object, target: Object }>} couplings - Quantities in the edge's direction, as in a
+ *   suggestion's couplings.
+ * @returns {{ couplings: Array<{ sourcePort: Object, targetPort: Object }>, addedPorts: Map<string, Array<Object>> }}
+ *   addedPorts holds each node's new ports, to add to its data.
+ */
+export function portsForCouplings(sourceNode, targetNode, couplings) {
   const addedPorts = new Map()
-  const portOn = (node, quantity) => {
+  const portOn = (node, quantity, isUsable) => {
     const added = addedPorts.get(node.id) ?? []
     const existing = [...(node.data.ports ?? []), ...added].find(
-      (port) => port.annotation?.subject === quantity.subject && !contributionOf(port)
+      (port) => port.annotation?.subject === quantity.subject && !contributionOf(port) && isUsable(port)
     )
     if (existing) return existing
     const port = portFor(quantity)
-    addedPorts.set(node.id, [...added, port])
+    addedPorts.set(node.id, [...(addedPorts.get(node.id) ?? []), port])
     return port
   }
-  const reversed = suggestion.sourceName !== sourceNode.id
-  const couplings = suggestion.couplings.map((coupling) => {
-    const [source, target] = reversed ? [coupling.target, coupling.source] : [coupling.source, coupling.target]
-    return { sourcePort: portOn(sourceNode, source), targetPort: portOn(targetNode, target) }
+  const result = couplings.map((coupling) => {
+    const sourcePort = portOn(sourceNode, coupling.source, (port) => SOURCE_SIDE_TYPES.has(port.portType))
+    const targetPort = portOn(
+      targetNode,
+      coupling.target,
+      (port) =>
+        TARGET_SIDE_TYPES.has(port.portType) && (port.portType !== 'exit_ports' || sourcePort.portType === 'general_ports')
+    )
+    return { sourcePort, targetPort }
   })
-  return { couplings, addedPorts }
+  return { couplings: result, addedPorts }
 }
