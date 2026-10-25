@@ -197,55 +197,55 @@ function existingCouplingKeys(existingEdges) {
 }
 
 /**
- * Suggests couplings between located instances.
+ * Pairs located quantities: every compatible pair, and the owner or aggregator clashes where two instances claim
+ * one place. With `involving`, only pairs with at least one quantity of those instances are tried, so a new or
+ * changed instance is paired against the rest without repeating the others' pairs.
  *
- * @param {Array<{ name: string, coord: object, sidecar: object }>} instances
- * @param {{ coords?: Map, scopes?: Map, heldConstant?: Set<string>, existingEdges?: Array, dismissed?: Set<string> }}
- *   [options] - heldConstant names instances whose aggregators are dropped; existingEdges ({source, target} by
- *   instance name, couplings as sourcePort/targetPort variables) and dismissed (edge or coupling keys) are left out.
- * @returns {{ suggestions: Array<{ key: string, sourceName: string, targetName: string, couplings: Array<object>,
- *   confidence: 'high'|'low', why?: string }>, conflicts: Array<object>, unresolved: Array<object> }}
+ * @param {Array<object>} quantities - Located quantities, their facing resolved (see resolveFacing).
+ * @param {{ involving?: Set<string> }} [options] - Instance names.
+ * @returns {{ pairs: Array<object>, conflicts: Array<object> }} pairs from pairing.
  */
-export function suggestCouplings(instances, options = {}) {
-  const { heldConstant = new Set(), existingEdges = [], dismissed = new Set() } = options
-  const context = { coords: options.coords, scopes: options.scopes }
-  const located = instances.filter((instance) => instance?.coord && instance.sidecar)
-  const byName = new Map(located.map((instance) => [instance.name, instance]))
-
-  let quantities = located.flatMap((instance) =>
-    quantitiesFor(instance, instance.sidecar, context).filter(
-      (quantity) => !(heldConstant.has(instance.name) && quantity.role === 'aggregator')
-    )
-  )
-  quantities = resolveFacing(quantities, located)
-
-  const unresolved = quantities
-    .filter((quantity) => !quantity.locations.some((location) => !location.unresolved))
-    .map(({ instance, variable, location }) => ({ instance, variable, location }))
-
+export function pairQuantities(quantities, { involving } = {}) {
   const pairs = []
   const conflicts = []
-  for (let i = 0; i < quantities.length; i++) {
-    for (let j = i + 1; j < quantities.length; j++) {
-      const [qa, qb] = [quantities[i], quantities[j]]
-      const pair = pairing(qa, qb)
-      if (pair) {
-        pairs.push(pair)
-        continue
-      }
-      if (
-        qa.instance !== qb.instance &&
-        qa.role === qb.role &&
-        (qa.role === 'owner' || qa.role === 'aggregator') &&
-        qa.property === qb.property &&
-        sameSpecies(qa.species, qb.species)
-      ) {
-        const shared = qa.locations.find((a) => qb.locations.some((b) => overlaps(a, b)))
-        if (shared) conflicts.push({ key: shared.key, a: withoutLocations(qa), b: withoutLocations(qb) })
-      }
+  const visit = (qa, qb) => {
+    const pair = pairing(qa, qb)
+    if (pair) {
+      pairs.push(pair)
+      return
+    }
+    if (
+      qa.instance !== qb.instance &&
+      qa.role === qb.role &&
+      (qa.role === 'owner' || qa.role === 'aggregator') &&
+      qa.property === qb.property &&
+      sameSpecies(qa.species, qb.species)
+    ) {
+      const shared = qa.locations.find((a) => qb.locations.some((b) => overlaps(a, b)))
+      if (shared) conflicts.push({ key: shared.key, a: withoutLocations(qa), b: withoutLocations(qb) })
     }
   }
+  const [changed, rest] = involving
+    ? [quantities.filter((q) => involving.has(q.instance)), quantities.filter((q) => !involving.has(q.instance))]
+    : [quantities, []]
+  for (let i = 0; i < changed.length; i++) {
+    for (let j = i + 1; j < changed.length; j++) visit(changed[i], changed[j])
+    for (const other of rest) visit(changed[i], other)
+  }
+  return { pairs, conflicts }
+}
 
+/**
+ * Groups pairs into suggested edges, one per pair of instances, directed by rank (see rankOf). Couplings already on
+ * an edge, and dismissed edges or couplings, are left out.
+ *
+ * @param {Array<object>} pairs - From pairQuantities.
+ * @param {Map<string, { coord: object }>} byName - The located instances by name.
+ * @param {{ existingEdges?: Array, dismissed?: Set<string> }} [options] - As for suggestCouplings.
+ * @returns {Array<{ key: string, sourceName: string, targetName: string, couplings: Array<object>,
+ *   confidence: 'high'|'low', why?: string }>}
+ */
+export function groupPairs(pairs, byName, { existingEdges = [], dismissed = new Set() } = {}) {
   // A reader or contributor with more than one counterpart is ambiguous.
   const counts = new Map()
   for (const pair of pairs) {
@@ -299,6 +299,59 @@ export function suggestCouplings(instances, options = {}) {
     (x, y) =>
       rankOf(byName.get(x.sourceName).coord) - rankOf(byName.get(y.sourceName).coord) || x.key.localeCompare(y.key)
   )
+  return suggestions
+}
 
-  return { suggestions, conflicts, unresolved }
+/**
+ * The located quantities of instances, less the aggregators of held-constant ones; facing not yet resolved.
+ *
+ * @param {{ name: string, coord: object, sidecar: object }} instance
+ * @param {{ coords?: Map, scopes?: Map }} context
+ * @param {boolean} [isHeldConstant=false]
+ * @returns {Array<object>} From quantitiesFor.
+ */
+export function instanceQuantities(instance, context, isHeldConstant = false) {
+  return quantitiesFor(instance, instance.sidecar, context).filter(
+    (quantity) => !(isHeldConstant && quantity.role === 'aggregator')
+  )
+}
+
+/**
+ * Suggests couplings between located instances.
+ *
+ * @param {Array<{ name: string, label?: string, coord: object, sidecar: object }>} instances
+ * @param {{ coords?: Map, scopes?: Map, heldConstant?: Set<string>, existingEdges?: Array, dismissed?: Set<string> }}
+ *   [options] - heldConstant names instances whose aggregators are dropped; existingEdges ({source, target} by
+ *   instance name, couplings as sourcePort/targetPort variables) and dismissed (edge or coupling keys) are left out.
+ * @returns {{ suggestions: Array<{ key: string, sourceName: string, targetName: string, couplings: Array<object>,
+ *   confidence: 'high'|'low', why?: string }>, conflicts: Array<object>, unresolved: Array<object> }}
+ */
+export function suggestCouplings(instances, options = {}) {
+  const { heldConstant = new Set(), existingEdges = [], dismissed = new Set() } = options
+  const context = { coords: options.coords, scopes: options.scopes }
+  const located = instances.filter((instance) => instance?.coord && instance.sidecar)
+  const byName = new Map(located.map((instance) => [instance.name, instance]))
+
+  const quantities = resolveFacing(
+    located.flatMap((instance) => instanceQuantities(instance, context, heldConstant.has(instance.name))),
+    located
+  )
+  const { pairs, conflicts } = pairQuantities(quantities)
+  return {
+    suggestions: groupPairs(pairs, byName, { existingEdges, dismissed }),
+    conflicts,
+    unresolved: unresolvedOf(quantities),
+  }
+}
+
+/**
+ * The quantities no location resolved for.
+ *
+ * @param {Array<object>} quantities - Located quantities.
+ * @returns {Array<{ instance: string, variable: string, location: string }>}
+ */
+export function unresolvedOf(quantities) {
+  return quantities
+    .filter((quantity) => !quantity.locations.some((location) => !location.unresolved))
+    .map(({ instance, variable, location }) => ({ instance, variable, location }))
 }

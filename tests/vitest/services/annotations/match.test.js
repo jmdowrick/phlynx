@@ -1,6 +1,9 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import {
   compatible,
+  groupPairs,
+  instanceQuantities,
+  pairQuantities,
   pairing,
   quantitiesFor,
   rankOf,
@@ -266,6 +269,20 @@ local:coord_wall_bas a api:ApiCoord ; api:kind "facet-layer" ; api:within local:
       heldConstant: HELD,
     })
     expect(tuples(suggestions)).toEqual(TOY_COUPLINGS)
+  })
+
+  it('pairs a changed instance against the rest as a full pairing does', () => {
+    const quantities = resolveFacing(
+      toy.instances.flatMap((instance) => instanceQuantities(instance, context, HELD.has(instance.name))),
+      toy.instances
+    )
+    const full = pairQuantities(quantities)
+    const others = pairQuantities(quantities.filter((q) => q.instance !== 'wall'))
+    const wall = pairQuantities(quantities, { involving: new Set(['wall']) })
+    expect(wall.pairs.every((pair) => pair.outer.instance === 'wall' || pair.inner.instance === 'wall')).toBe(true)
+    expect(wall.pairs.length + others.pairs.length).toBe(full.pairs.length)
+    const grouped = groupPairs([...others.pairs, ...wall.pairs], byName)
+    expect(tuples(grouped)).toEqual(tuples(suggestCouplings(toy.instances, { ...context, heldConstant: HELD }).suggestions))
   })
 
   it('ranks coordinates', () => {
