@@ -1282,26 +1282,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@physiomelinks/bg2cellml@npm:0.4.0":
-  version: 0.4.0
-  resolution: "@physiomelinks/bg2cellml@npm:0.4.0"
+"@physiomelinks/bg2cellml@npm:0.5.0":
+  version: 0.5.0
+  resolution: "@physiomelinks/bg2cellml@npm:0.5.0"
   dependencies:
-    "@physiomelinks/cellml-units": "npm:^0.4.0"
-    "@physiomelinks/math-ast": "npm:^0.4.0"
+    "@physiomelinks/cellml-units": "npm:^0.5.0"
+    "@physiomelinks/math-ast": "npm:^0.5.0"
     "@xmldom/xmldom": "npm:^0.9.8"
   peerDependencies:
     libcellml.js: ">=0.7.1"
     oxigraph: ">=0.5.9 <0.6"
-  checksum: 10c0/acc7f990f70c9014c18774f26f73108f97761936652f55c02b595315ebb24b63fa1435c657048f382d8da9dfae690a4befa46287fc2317b28770c032725a0036
-  languageName: node
-  linkType: hard
-
-"@physiomelinks/cellml-units@npm:^0.4.0":
-  version: 0.4.0
-  resolution: "@physiomelinks/cellml-units@npm:0.4.0"
-  peerDependencies:
-    libcellml.js: ">=0.7.1"
-  checksum: 10c0/b6c29a2c6b30ac9123b67fd41b10c20a0d77d4302bd7fb543255e0c9187ec6e8bd64499f6e8f6465a06443670c5d8ceea54bcd02d641ae64a35b42bbd8ff6c58
+  checksum: 10c0/35653991dffec279b4e19787e93f45c98d7c76a77ded7dcbea5dc784a09cad1c343cf12bb2181ed40c5db563f29580900b056f6beb4c44370d00a6120ed5bf95
   languageName: node
   linkType: hard
 
@@ -1314,10 +1305,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@physiomelinks/math-ast@npm:^0.4.0":
-  version: 0.4.0
-  resolution: "@physiomelinks/math-ast@npm:0.4.0"
-  checksum: 10c0/a7fd6a1ff59620c00d32ef3e4bb3d8934a21c9ba5f6728ec10c61d5546c7eadde4cefbbab11d0ffff7189a5f2f46ce89e887af66b1a6206a3a68bed6e44bea6f
+"@physiomelinks/math-ast@npm:^0.5.0":
+  version: 0.5.0
+  resolution: "@physiomelinks/math-ast@npm:0.5.0"
+  checksum: 10c0/6365a13962633145197f420f0ad29252a24d0117de1f0f89903b82d89d4b797b1a946c014a975f5a6db076c3bc07c3dc1df0a49b339a07ac108271a333a64f71
   languageName: node
   linkType: hard
 
@@ -6263,7 +6254,7 @@ __metadata:
     "@lezer/highlight": "npm:^1.2.3"
     "@lezer/lr": "npm:^1.4.8"
     "@opencor/libopencor": "npm:^1.20261006.1"
-    "@physiomelinks/bg2cellml": "npm:0.4.0"
+    "@physiomelinks/bg2cellml": "npm:0.5.0"
     "@physiomelinks/protocol-kit": "npm:^0.5.0"
     "@primeuix/utils": "npm:^0.6.2"
     "@primevue/themes": "npm:4"
