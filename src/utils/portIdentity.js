@@ -14,6 +14,15 @@
 export const isAnnotatedPort = (port) => typeof port?.annotation?.subject === 'string' && !!port.annotation.subject
 
 /**
+ * Whether an annotated port carries a copy mirrored from a partner, whose variable the user picks, rather than a
+ * sidecar's annotation of one of its own variables.
+ *
+ * @param {Object} port
+ * @returns {boolean}
+ */
+export const isMirroredPort = (port) => isAnnotatedPort(port) && port.annotation.source?.kind === 'copied'
+
+/**
  * A port's identity: 'rdf:<subject>' (with '#<n>' for a contribution index above 0) when annotated, else
  * 'label:<label>'.
  *

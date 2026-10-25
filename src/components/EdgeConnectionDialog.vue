@@ -111,6 +111,8 @@
                     :is-connected="data.isConnected"
                     :is-taken-elsewhere="data.isTakenElsewhere"
                     :is-valid-target="validConnectUids.has(data.port._uid)"
+                    :quantity="quantityFor(data.port, sourceNode)"
+                    :is-bound="isBound(sourceNode)"
                     :style="rowStyle(data.port._uid, 'source')"
                     @change="onPortConfigChange"
                     @start-drag="startDrag($event, data.port._uid, 'source')"
@@ -127,6 +129,8 @@
                     :is-connected="data.isConnected"
                     :is-taken-elsewhere="data.isTakenElsewhere"
                     :is-valid-target="validConnectUids.has(data.port._uid)"
+                    :quantity="quantityFor(data.port, targetNode)"
+                    :is-bound="isBound(targetNode)"
                     :style="rowStyle(data.port._uid, 'target')"
                     @change="onPortConfigChange"
                     @start-drag="startDrag($event, data.port._uid, 'target')"
@@ -229,7 +233,8 @@ import Dialog from 'primevue/dialog'
 import Chip from 'primevue/chip'
 import { FLOW_IDS, ROW_H, NODE_W, PAD } from '../utils/constants'
 import { isSingleConnection } from '../utils/edges'
-import { portRef } from '../utils/ports'
+import { isAnnotatedPort, portRef } from '../utils/ports'
+import { coordOf, quantityOfPort } from '../services/annotations/couple'
 import { couplingConflicts } from '../utils/multiport'
 import { couplingUnitConflicts } from '../utils/couplingUnits'
 import { useLibraryStore } from '../stores/libraryStore'
@@ -273,6 +278,11 @@ const { nodes: canvasNodes } = useVueFlow(FLOW_IDS.MAIN)
 const { getContext, ensureContext } = useCouplingContext()
 // Annotated ports couple by their annotations, located on the canvas nodes' ApiCoords.
 const couplingContext = computed(() => getContext(canvasNodes.value))
+
+/** An annotated port's located quantity, for its chips' detail. */
+const quantityFor = (port, node) =>
+  isAnnotatedPort(port) ? quantityOfPort(port, node, couplingContext.value) : null
+const isBound = (node) => !!coordOf(node, couplingContext.value)
 
 const swapDialog = ref({ visible: false, resolve: null })
 

@@ -5,6 +5,7 @@ import { isAnnotatedPort } from './portIdentity'
 export {
   findPort,
   isAnnotatedPort,
+  isMirroredPort,
   isNamedPort,
   portDisplayName,
   portIdentity,
