@@ -136,20 +136,28 @@ describe('ApplyAnnotationsDialog', () => {
     expect(lastApply(wrapper).rows.find((row) => row.name === 'wall').mathRef).toBeNull()
   })
 
-  it('reports a sidecar without math, and lets the user pick one', async () => {
-    const prepared = await prepare({ mathRefs: ['pool.cellml:pool', 'porter.cellml:porter', 'Lib.cellml:membrane'] })
-    const wrapper = mountDialog(prepared)
+  it('reports a sidecar without math, and lets the user pick one of the same component', async () => {
+    const mathRefs = ['pool.cellml:pool', 'porter.cellml:porter', 'Lib.cellml:wall', 'Old.cellml:wall', 'Lib.cellml:x']
+    const wrapper = mountDialog(await prepare({ mathRefs }))
     const sidecarRows = wrapper.find('[data-test="sidecars"]').findAll('tbody tr')
     expect(sidecarRows[0].find('[data-test="sidecar-exact"]').exists()).toBe(true)
-    expect(sidecarRows[2].find('[data-test="sidecar-unmatched"]').text()).toContain('No matching math')
+    expect(sidecarRows[2].find('[data-test="sidecar-unmatched"]').text()).toContain('Not stored until a math is picked')
     expect(instanceRows(wrapper)[2].find('[data-test="unresolved"]').exists()).toBe(true)
 
+    // Only maths of the sidecar's component: its subjects would annotate nothing in another.
     const select = sidecarRows[2].findComponent(Select)
-    expect(select.props('options')).toEqual(['pool.cellml:pool', 'porter.cellml:porter', 'Lib.cellml:membrane'])
-    select.vm.$emit('update:modelValue', 'Lib.cellml:membrane')
+    expect(select.props('options')).toEqual(['Lib.cellml:wall', 'Old.cellml:wall'])
+    select.vm.$emit('update:modelValue', 'Lib.cellml:wall')
     await flushPromises()
     expect(wrapper.find('[data-test="sidecars"]').findAll('[data-test="sidecar-unmatched"]')).toHaveLength(0)
-    expect(instanceRows(wrapper)[2].text()).toContain('Lib.cellml:membrane')
+    expect(instanceRows(wrapper)[2].text()).toContain('Lib.cellml:wall')
+  })
+
+  it('offers no math for a sidecar whose component no math has', async () => {
+    const wrapper = mountDialog(await prepare({ mathRefs: ['pool.cellml:pool', 'porter.cellml:porter'] }))
+    const wall = wrapper.find('[data-test="sidecars"]').findAll('tbody tr')[2]
+    expect(wall.findComponent(Select).exists()).toBe(false)
+    expect(wall.find('[data-test="sidecar-unmatched"]').text()).toContain('No math has a wall component: not stored')
   })
 
   it('shows the existing node an instance binds to, with held constant pre-ticked', async () => {

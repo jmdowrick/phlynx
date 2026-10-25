@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import {
   aggregatorVariables,
+  asBoundaryConditions,
   findBindingNode,
   holdAtZero,
   isHeldAtZero,
@@ -11,6 +12,7 @@ import {
   rdfFormatOf,
   readSidecarComponent,
   suitsCoord,
+  suppliedVariables,
 } from '../../../../src/services/annotations/generate.js'
 import { parseApiCoords } from '../../../../src/services/annotations/apicoord.js'
 import { loadToy, readToy } from './toyModel.js'
@@ -64,11 +66,33 @@ describe('generate', () => {
       candidates: ['Lib.cellml:porter'],
       isExact: false,
     })
+    // A math of another component would annotate nothing, so none is offered.
     expect(matchSidecarToMath({ mathRef: 'x.cellml:x', componentName: 'x' }, MATHS)).toEqual({
       mathRef: null,
-      candidates: MATHS,
+      candidates: [],
       isExact: false,
     })
+  })
+
+  it('makes the readers and sums of a sidecar boundary conditions, keeping their values', () => {
+    const pool = toy.sidecars.get('pool')
+    const porter = toy.sidecars.get('porter')
+    expect(suppliedVariables(pool)).toEqual(['v_A'])
+    expect(suppliedVariables(porter).sort()).toEqual(['area', 'c_A_i', 'c_A_o', 'u'])
+    const rows = [
+      { name: 'c_A_i', type: 'constant', value: '' },
+      { name: 'area', type: 'constant', value: '1e-3' },
+      { name: 'u', type: 'global_constant' },
+      { name: 'j_A', type: 'variable' },
+      { name: 'k', type: 'constant', value: '2' },
+    ]
+    expect(asBoundaryConditions(rows, suppliedVariables(porter)).map(({ type, value }) => [type, value])).toEqual([
+      ['boundary_condition', ''],
+      ['boundary_condition', '1e-3'],
+      ['global_constant', undefined],
+      ['variable', undefined],
+      ['constant', '2'],
+    ])
   })
 
   it('chooses a module per coordinate kind', () => {

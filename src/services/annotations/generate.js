@@ -47,7 +47,8 @@ const componentOf = (mathRef) => mathRef.slice(mathRef.indexOf(':') + 1)
 
 /**
  * Matches a sidecar to library math by its subject's file#component. Without that math, the maths with the same
- * component name are offered (one is preselected), else every math, for the user to pick.
+ * component name in another file are offered (one is preselected). A math with another component name is never
+ * offered: the sidecar's subjects name its component, so they would annotate nothing there.
  *
  * @param {{ mathRef: string, componentName: string }|null} component - From readSidecarComponent.
  * @param {Array<string>} mathRefs - The library's maths.
@@ -59,11 +60,7 @@ export function matchSidecarToMath(component, mathRefs) {
     return { mathRef: component.mathRef, candidates: [component.mathRef], isExact: true }
   }
   const sameComponent = mathRefs.filter((mathRef) => componentOf(mathRef) === component.componentName)
-  return {
-    mathRef: sameComponent.length === 1 ? sameComponent[0] : null,
-    candidates: sameComponent.length ? sameComponent : [...mathRefs],
-    isExact: false,
-  }
+  return { mathRef: sameComponent.length === 1 ? sameComponent[0] : null, candidates: sameComponent, isExact: false }
 }
 
 /**
@@ -129,6 +126,33 @@ export function aggregatorVariables(sidecar) {
   return (sidecar?.variables ?? [])
     .filter((entry) => entry.property && entry.location && roleOf(entry) === 'aggregator')
     .map((entry) => entry.variable)
+}
+
+/**
+ * The variables of a sidecar that another instance supplies through a port: readers, and aggregators (Sums).
+ *
+ * @param {{ variables: Array<{ variable: string, property: string, location: string }> }|null} sidecar
+ * @returns {Array<string>}
+ */
+export function suppliedVariables(sidecar) {
+  return (sidecar?.variables ?? [])
+    .filter((entry) => entry.property && entry.location && ['reader', 'aggregator'].includes(roleOf(entry)))
+    .map((entry) => entry.variable)
+}
+
+/**
+ * Makes the named constant rows boundary conditions, keeping their values as the fallback used when nothing is
+ * connected. Rows the math computes, and globals, are kept as they are.
+ *
+ * @param {Array<Object>} rows
+ * @param {Array<string>} names
+ * @returns {Array<Object>} New rows.
+ */
+export function asBoundaryConditions(rows, names) {
+  const supplied = new Set(names)
+  return (rows ?? []).map((row) =>
+    supplied.has(row.name) && row.type === 'constant' ? { ...row, type: 'boundary_condition' } : row
+  )
 }
 
 const isZero = (value) => value !== null && value !== undefined && String(value).trim() !== '' && Number(value) === 0

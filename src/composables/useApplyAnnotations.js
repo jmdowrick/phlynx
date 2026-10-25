@@ -9,6 +9,7 @@ import { parseApiCoords } from '../services/annotations/apicoord'
 import { parseSidecar } from '../services/annotations/sidecar'
 import {
   aggregatorVariables,
+  asBoundaryConditions,
   attachedModules,
   holdAtZero,
   layoutByRank,
@@ -16,6 +17,7 @@ import {
   planInstances,
   rdfFormatOf,
   readSidecarComponent,
+  suppliedVariables,
 } from '../services/annotations/generate'
 import { buildInstance } from '../services/import/buildWorkflow'
 import { FLOW_IDS, MAIN_NODE_TYPE, NUM_GHOST_HANDLES_LEFT_RIGHT, NUM_GHOST_HANDLES_TOP_BOT } from '../utils/constants'
@@ -112,7 +114,8 @@ export function useApplyAnnotations({ fitViewParams, flowId = FLOW_IDS.MAIN } = 
   /**
    * Applies a plan as one undo step: stores the sidecars and the instance file, adds the new instances in rank
    * columns (existing nodes stay put), and binds new and existing nodes to their ApiCoords, holding the ticked
-   * ones constant. Undo removes the instances and bindings; the stored files stay.
+   * ones constant. A new instance's annotated readers and sums become boundary conditions, since ports supply
+   * them. Undo removes the instances and bindings; the stored files stay.
    *
    * @param {Awaited<ReturnType<typeof readAnnotationFiles>>} prepared
    * @param {Object} choices
@@ -166,6 +169,8 @@ export function useApplyAnnotations({ fitViewParams, flowId = FLOW_IDS.MAIN } = 
         libraryStore.getMathDefaults(row.mathRef)
       )
       node.data.apiCoord = { subject: row.subject, coordIri: row.coordIri, name: row.name }
+      // What other instances supply through ports: their values are only fallbacks, so none is required.
+      node.data.variables = asBoundaryConditions(node.data.variables, suppliedVariables(parsed.get(row.mathRef)))
       if (row.heldConstant) {
         node.data.annotationOverlay = { heldConstant: true }
         node.data.variables = holdAtZero(node.data.variables, heldVariables(row.mathRef))
@@ -195,15 +200,18 @@ export function useApplyAnnotations({ fitViewParams, flowId = FLOW_IDS.MAIN } = 
               const node = findNode(row.nodeId)
               const { annotationOverlay, ...data } = node.data
               const overlay = { ...annotationOverlay }
+              const wasHeld = !!overlay.heldConstant
               if (row.heldConstant) overlay.heldConstant = true
               else delete overlay.heldConstant
+              // Held: the sums are constant 0. Released: they are summed again, with 0 as the fallback.
+              let variables = data.variables
+              if (row.heldConstant) variables = holdAtZero(variables, heldVariables(data.mathRef))
+              else if (wasHeld) variables = asBoundaryConditions(variables, heldVariables(data.mathRef))
               node.data = {
                 ...data,
                 apiCoord: { subject: row.subject, coordIri: row.coordIri, name: row.name },
                 ...(Object.keys(overlay).length ? { annotationOverlay: overlay } : {}),
-                variables: row.heldConstant
-                  ? holdAtZero(data.variables, heldVariables(node.data.mathRef))
-                  : data.variables,
+                variables,
               }
             }
           },

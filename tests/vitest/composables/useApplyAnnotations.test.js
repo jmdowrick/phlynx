@@ -181,6 +181,13 @@ describe('useApplyAnnotations', () => {
     }
     expect(byName.get('cell').data.annotationOverlay).toBeUndefined()
     expect(byName.get('cell').data.variables.find((row) => row.name === 'v_A').value).not.toBe('0')
+    // What ports supply needs no value: the cell's sum and the porter's readers are boundary conditions.
+    const typeOf = (name, variable) => byName.get(name).data.variables.find((row) => row.name === variable)?.type
+    expect(typeOf('cell', 'v_A')).toBe('boundary_condition')
+    expect(['c_A_i', 'c_A_o', 'area'].map((variable) => typeOf('porter_in', variable))).toEqual(
+      Array(3).fill('boundary_condition')
+    )
+    expect(typeOf('cell', 'volume')).toBe('constant')
 
     expect(annotationStore.instanceSources.map((source) => source.location)).toEqual(['toy-apicoords.ttl'])
     expect(fitView).toHaveBeenCalledTimes(1)
@@ -209,6 +216,16 @@ describe('useApplyAnnotations', () => {
     expect(JSON.stringify(nodes.value)).toBe(before)
     expect(history.pointerIndex).toBe(steps)
     expect(annotationStore.instanceSources).toBe(sources)
+  })
+
+  it('unticking a held instance on a second apply sums its fluxes again, from 0 when nothing is connected', async () => {
+    await applyFiles(toyFiles())
+    await applyFiles(toyFiles(), (rows) => rows.map((row) => ({ ...row, heldConstant: row.name === 'vessel' })))
+    const data = (name) => nodes.value.find((node) => node.data.name === name).data
+    expect(data('outside').annotationOverlay).toBeUndefined()
+    expect(data('outside').variables.find((row) => row.name === 'v_A')).toMatchObject({ type: 'boundary_condition', value: '0' })
+    expect(data('vessel').annotationOverlay).toEqual({ heldConstant: true })
+    expect(data('vessel').variables.find((row) => row.name === 'v_A')).toMatchObject({ type: 'constant', value: '0' })
   })
 
   it('binds onto an existing node by name, keeping its values, and by subject after a rename', async () => {

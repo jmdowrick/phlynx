@@ -21,24 +21,26 @@
           </Column>
           <Column header="Attaches to math">
             <template #body="{ data }">
-              <span v-if="data.match.isExact" class="apply-exact" data-test="sidecar-exact">
-                <i class="pi pi-check" aria-hidden="true"></i> {{ data.match.mathRef }}
-              </span>
-              <Select
-                v-else-if="data.component && data.match.candidates.length"
-                v-model="targets[data.filename]"
-                :options="data.match.candidates"
-                placeholder="Pick a math"
-                showClear
-                size="small"
-                class="apply-select"
-                :aria-label="`Math for ${data.filename}`"
-                data-test="sidecar-select"
-              />
-              <span v-if="!targets[data.filename]" class="apply-warn" data-test="sidecar-unmatched">
-                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                {{ data.error ?? 'No matching math: not stored' }}
-              </span>
+              <div class="apply-attach">
+                <span v-if="data.match.isExact" class="apply-exact" data-test="sidecar-exact">
+                  <i class="pi pi-check" aria-hidden="true"></i> {{ data.match.mathRef }}
+                </span>
+                <Select
+                  v-else-if="data.component && data.match.candidates.length"
+                  v-model="targets[data.filename]"
+                  :options="data.match.candidates"
+                  placeholder="Pick a math"
+                  showClear
+                  size="small"
+                  class="apply-select"
+                  :aria-label="`Math for ${data.filename}`"
+                  data-test="sidecar-select"
+                />
+                <span v-if="!targets[data.filename]" class="apply-warn" data-test="sidecar-unmatched">
+                  <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                  {{ unmatchedText(data) }}
+                </span>
+              </div>
             </template>
           </Column>
         </DataTable>
@@ -165,6 +167,13 @@ watch(() => props.prepared, resetChoices, { immediate: true })
 
 const sidecarRows = computed(() => props.prepared?.sidecars ?? [])
 
+/** Why a sidecar isn't stored yet. */
+function unmatchedText(entry) {
+  if (entry.error) return entry.error
+  if (entry.match.candidates.length) return 'Not stored until a math is picked'
+  return `No math has a ${entry.component.componentName} component: not stored`
+}
+
 /**
  * Records a choice for one instance.
  *
@@ -214,6 +223,13 @@ function onApply() {
 .apply-tag {
   margin-left: 6px;
   font-size: 11px;
+}
+
+.apply-attach {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
 }
 
 .apply-select {
