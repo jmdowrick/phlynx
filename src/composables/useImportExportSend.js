@@ -85,6 +85,12 @@ export function useImportExportSend({
       disabled: false,
     },
     {
+      key: IMPORT_KEYS.TURTLE,
+      label: 'Annotations',
+      icon: 'pi pi-tags',
+      disabled: false,
+    },
+    {
       key: IMPORT_KEYS.OMEX,
       label: 'COMBINE Archive',
       icon: CombineIcon,

@@ -553,6 +553,13 @@
     @confirm="onImportConfirm"
   />
 
+  <ApplyAnnotationsDialog
+    v-model="applyAnnotationsVisible"
+    :prepared="preparedAnnotations"
+    :plan-rows="planAnnotationRows"
+    @apply="onApplyAnnotations"
+  />
+
   <PaneContextMenu ref="contextMenuRef" :items="contextMenuItems" />
 
   <EdgeConnectionDialog
@@ -598,6 +605,7 @@ import { useFlowHistoryStore } from '../stores/historyStore'
 import { getUndoRedoAction, useFlowHistory } from '../composables/useFlowHistory'
 import { useConnect } from '../composables/useConnect'
 import { useCouplingSuggestions } from '../composables/useCouplingSuggestions'
+import { useApplyAnnotations } from '../composables/useApplyAnnotations'
 import { useCellmlDrop } from '../composables/useCellmlDrop'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
@@ -630,6 +638,7 @@ import SuggestionLayer from '../components/SuggestionLayer.vue'
 import SuggestionPanel from '../components/SuggestionPanel.vue'
 import InstanceNode from '../components/InstanceNode.vue'
 import ImportDialog from '../components/ImportDialog.vue'
+import ApplyAnnotationsDialog from '../components/ApplyAnnotationsDialog.vue'
 import ModuleReplacementDialog from '../components/ModuleReplacementDialog.vue'
 import SaveDialog from '../components/SaveDialog.vue'
 import MacroBuilderDialog from '../components/MacroBuilderDialog.vue'
@@ -829,6 +838,32 @@ function miniMapNodeColour(node) {
 }
 const { loadFromInstanceArray } = useLoadFromInstanceArray({ fitViewParams })
 const { loadFromCellML } = useLoadFromCellML({ fitViewParams })
+const {
+  readAnnotationFiles,
+  planRows: planAnnotationRows,
+  applyAnnotations,
+} = useApplyAnnotations({ fitViewParams })
+const applyAnnotationsVisible = ref(false)
+const preparedAnnotations = ref(null)
+
+/**
+ * Applies the choices made in the Apply Annotations dialog and reports what was done.
+ *
+ * @param {{ targets: Object, rows: Array<Object> }} choices
+ */
+async function onApplyAnnotations(choices) {
+  try {
+    const { added, bound, skipped, unmatchedSidecars } = await applyAnnotations(preparedAnnotations.value, choices)
+    const lines = [`Added ${added.length} and bound ${bound.length} instance${added.length + bound.length === 1 ? '' : 's'}.`]
+    if (skipped.length) lines.push(`Skipped (no module): ${skipped.join(', ')}.`)
+    if (unmatchedSidecars.length) lines.push(`Sidecars not stored (no math): ${unmatchedSidecars.join(', ')}.`)
+    const notice = { title: 'Annotations Applied', message: lines.join('\n') }
+    if (skipped.length || unmatchedSidecars.length) notify.warning(notice)
+    else notify.success(notice)
+  } catch (error) {
+    notify.error({ title: 'Applying Annotations Failed', message: error.message })
+  }
+}
 const { capture, error: captureError } = useScreenshot()
 const { trackEvent } = useGtm()
 const { clearWorkspace } = useClearWorkspace()
@@ -1583,6 +1618,19 @@ async function onImportConfirm(importPayload, updateProgress) {
     )
     if (multiFile) {
       notifyMultiFileResults(results, { successTitle: 'Parameters Loaded' })
+    }
+  } else if (currentImportMode.value.key === IMPORT_KEYS.TURTLE) {
+    const filesOf = (key) =>
+      [...(importPayload.get(key) ?? [])].map(([name, data]) => ({ name, text: data?.payload?.text ?? '' }))
+    try {
+      const [instanceFile] = filesOf(IMPORT_KEYS.API_COORDS)
+      preparedAnnotations.value = await readAnnotationFiles({
+        sidecarFiles: filesOf(IMPORT_KEYS.TURTLE),
+        instanceFile,
+      })
+      applyAnnotationsVisible.value = true
+    } catch (error) {
+      notify.error({ title: 'Annotations Import Failed', message: error.message })
     }
   } else if (currentImportMode.value.key === IMPORT_KEYS.OMEX) {
     try {
