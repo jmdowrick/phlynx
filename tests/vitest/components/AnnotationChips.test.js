@@ -133,4 +133,14 @@ describe('AnnotationChips', () => {
     expect(host.hold).toHaveBeenCalledTimes(1)
     expect(host.release).toHaveBeenCalledTimes(1)
   })
+
+  it('puts a self-located term and its own-place note on separate lines', async () => {
+    const annotation = { subject: 'x', variable: 'area', property: 'OPB:00295', location: 'self+GO:0005886', role: 'owner' }
+    mountChips({ annotation })
+    await wrapper.find('.annotation-chips').trigger('click')
+    await flushPromises()
+    const location = [...detail().querySelectorAll('dt')].find((dt) => dt.textContent === 'Location').nextElementSibling
+    expect(location.querySelector('.annotation-detail__iri').textContent).toBe('GO:0005886')
+    expect(location.querySelector('div').textContent).toBe('Of this instance’s own place')
+  })
 })

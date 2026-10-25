@@ -62,7 +62,7 @@
         <dt>Location</dt>
         <dd>
           <TermLine v-if="locationTerm" :term="termDetail(locationTerm)" />
-          <span v-if="isSelfLocation">{{ selfText }}</span>
+          <div v-if="isSelfLocation" :class="{ 'annotation-detail__muted': locationTerm }">{{ selfText }}</div>
           <span v-else-if="!location">Stored with the copy, as the instance has no ApiCoord</span>
         </dd>
         <dt>Place</dt>
