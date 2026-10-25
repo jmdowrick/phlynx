@@ -16,3 +16,15 @@ export function withoutApiCoord(data) {
   const { apiCoord, ...rest } = data ?? {}
   return rest
 }
+
+/**
+ * Copies the annotation fields of one node's data onto another's, e.g. when a node is rebuilt from a snapshot.
+ *
+ * @param {Object} data - The node data to fill.
+ * @param {Object} from - The node data to copy them from.
+ * @returns {Object} data, with the fields from has.
+ */
+export function withAnnotationData(data, from) {
+  for (const key of ANNOTATION_NODE_KEYS) if (from?.[key] !== undefined) data[key] = from[key]
+  return data
+}

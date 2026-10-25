@@ -615,6 +615,7 @@ import { useAnnotationStore } from '../stores/annotationStore'
 
 import { importOmexFile, extractOmexArchive, readArchiveEntries } from '../services/import/omex'
 import { restoreOmexAnnotations } from '../services/import/omexAnnotations'
+import { withAnnotationData } from '../services/annotations/nodeData'
 import { findParamsForIdExtra, parseParamsForId, resolveParamsForIdRows } from '../services/simulation/paramsForId'
 import { putSlider } from '../services/simulation/parameterSliders'
 
@@ -1360,7 +1361,10 @@ async function loadFlowSnapshot(fileName, flowSnapshot, parameterData = {}, { no
         ...buildGhostHandles(NUM_GHOST_HANDLES_TOP_BOT, NUM_GHOST_HANDLES_LEFT_RIGHT, node.data.handles),
       ])
 
-      return buildInstance(node.id, node.data.name, node.type, node.data, allHandles, node.position)
+      const instance = buildInstance(node.id, node.data.name, node.type, node.data, allHandles, node.position)
+      // Its ApiCoord binding and reservoir state, which buildInstance doesn't know about.
+      withAnnotationData(instance.data, node.data)
+      return instance
     })
 
     addNodes(newNodes)
