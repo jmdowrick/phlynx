@@ -611,8 +611,10 @@ import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
+import { useAnnotationStore } from '../stores/annotationStore'
 
-import { importOmexFile, extractOmexArchive } from '../services/import/omex'
+import { importOmexFile, extractOmexArchive, readArchiveEntries } from '../services/import/omex'
+import { restoreOmexAnnotations } from '../services/import/omexAnnotations'
 import { findParamsForIdExtra, parseParamsForId, resolveParamsForIdRows } from '../services/simulation/paramsForId'
 import { putSlider } from '../services/simulation/parameterSliders'
 
@@ -825,6 +827,7 @@ const inspectionModuleStore = useInspectionModuleStore()
 const historyStore = useFlowHistoryStore()
 const simulationSettingsStore = useSimulationSettingsStore()
 const omexStore = useOmexStore()
+const annotationStore = useAnnotationStore()
 const nodeThemeStore = useNodeThemeStore()
 const { isDarkMode } = useColorScheme()
 const { settings: appSettings } = useAppSettings()
@@ -1395,22 +1398,7 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
   const manifestFile = archive.file('manifest.xml')
   const manifestXml = manifestFile ? await manifestFile.async('string') : ''
 
-  const archiveLocations = new Set([
-    ...Object.values(result.files || {}).filter(Boolean),
-    ...(result.extras || []).map((entry) => entry.location),
-  ])
-
-  const archiveEntries = []
-  for (const location of archiveLocations) {
-    const fileObject = archive.file(location)
-    if (!fileObject) continue
-
-    archiveEntries.push({
-      location,
-      format: 'application/octet-stream',
-      payload: await fileObject.async('arraybuffer'),
-    })
-  }
+  const archiveEntries = await readArchiveEntries(archive, result)
 
   const criticalLocations = [
     result.files?.cellml,
@@ -1514,6 +1502,9 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
       })
     }
   }
+
+  // The sidecars and instance files; the nodes' bindings came back with the flow snapshot.
+  restoreOmexAnnotations(result.annotations, { libraryStore, annotationStore })
 
   // Rebuild the edge index so the EdgeConnectionDialog subgraph is correct.
   rebuildNodeEdgeIndex()
