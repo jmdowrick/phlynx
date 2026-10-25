@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { flushPromises, mount } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import AnnotationChips from '../../../src/components/AnnotationChips.vue'
 import { mirrorAnnotation, quantityOfPort } from '../../../src/services/annotations/couple.js'
@@ -16,11 +16,12 @@ let toy
  * @param {Object} props
  * @returns {import('@vue/test-utils').VueWrapper}
  */
-function mountChips(props) {
+function mountChips(props, { provide = {}, attrs = {} } = {}) {
   wrapper = mount(AnnotationChips, {
     props,
+    attrs,
     attachTo: document.body,
-    global: { plugins: [PrimeVue], directives: { tooltip: {} } },
+    global: { plugins: [PrimeVue], directives: { tooltip: {} }, provide },
   })
   return wrapper
 }
@@ -103,5 +104,33 @@ describe('AnnotationChips', () => {
     await flushPromises()
     expect(detail().textContent).toContain('Assumed: the only lyph')
     expect(detail().textContent).toContain('low confidence')
+  })
+
+  it('puts attributes on the chips and reports whether the detail is open', async () => {
+    mountChips({ annotation: toy.port('porter_in', 'c_A_i').annotation }, { attrs: { 'data-test': 'chips' } })
+    const chips = wrapper.find('[data-test="chips"]')
+    expect(chips.classes()).toContain('annotation-chips')
+    expect(chips.attributes('aria-expanded')).toBe('false')
+    await chips.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(detail()).not.toBeNull()
+    expect(chips.attributes('aria-expanded')).toBe('true')
+  })
+
+  it('holds a host popover open while its detail is open', async () => {
+    const host = { hold: vi.fn(), release: vi.fn() }
+    mountChips({ annotation: toy.port('porter_in', 'c_A_i').annotation }, { provide: { annotationPopoverHost: host } })
+    const chips = wrapper.find('.annotation-chips')
+    await chips.trigger('click')
+    await flushPromises()
+    expect(host.hold).toHaveBeenCalledTimes(1)
+    expect(host.release).not.toHaveBeenCalled()
+    // Moving onto the detail and back keeps the hold balanced.
+    detail().dispatchEvent(new MouseEvent('mouseenter'))
+    detail().dispatchEvent(new MouseEvent('mouseleave'))
+    await chips.trigger('click')
+    await flushPromises()
+    expect(host.hold).toHaveBeenCalledTimes(1)
+    expect(host.release).toHaveBeenCalledTimes(1)
   })
 })

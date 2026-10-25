@@ -1,9 +1,12 @@
 <template>
   <!-- An annotated port's meaning as read-only chips; hovering or clicking shows the full annotation -->
   <span
+    v-bind="$attrs"
     :class="['annotation-chips', { 'annotation-chips--muted': muted, 'annotation-chips--wrap': limit === Infinity }]"
     role="button"
     tabindex="0"
+    aria-haspopup="dialog"
+    :aria-expanded="isOpen"
     :aria-label="ariaLabel"
     @mouseenter="onEnter"
     @mouseleave="scheduleHide"
@@ -30,7 +33,7 @@
     />
   </span>
 
-  <Popover ref="popover" @hide="pinned = false">
+  <Popover ref="popover" @hide="close">
     <div class="annotation-detail" @mouseenter="cancelHide" @mouseleave="scheduleHide">
       <div class="annotation-detail__head">
         <span :class="['annotation-detail__variable', { 'annotation-detail__variable--none': !hasVariable }]">
@@ -98,7 +101,7 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, onBeforeUnmount, ref } from 'vue'
+import { computed, defineComponent, h, inject, onBeforeUnmount, ref } from 'vue'
 import Chip from 'primevue/chip'
 import Popover from 'primevue/popover'
 import {
@@ -108,6 +111,9 @@ import {
   subjectText,
   termDetail,
 } from '../services/annotations/display'
+
+// Two roots (the chips and their detail): attributes go on the chips.
+defineOptions({ inheritAttrs: false })
 
 const props = defineProps({
   // port.annotation, or a sidecar entry for a variable without a port.
@@ -187,16 +193,36 @@ const ariaLabel = computed(
 
 const popover = ref(null)
 const pinned = ref(false)
+const isOpen = ref(false)
 let hideTimer = null
+
+// A popover these chips sit in (e.g. a suggestion's detail) stays open while this detail is open.
+const host = inject('annotationPopoverHost', null)
 
 function cancelHide() {
   clearTimeout(hideTimer)
   hideTimer = null
 }
 
+function open(event) {
+  popover.value?.show(event, event.currentTarget)
+  if (isOpen.value) return
+  isOpen.value = true
+  host?.hold()
+}
+
+/** Also runs when the Popover closes itself, on Escape or a click elsewhere. */
+function close() {
+  pinned.value = false
+  popover.value?.hide()
+  if (!isOpen.value) return
+  isOpen.value = false
+  host?.release()
+}
+
 function onEnter(event) {
   cancelHide()
-  popover.value?.show(event, event.currentTarget)
+  open(event)
 }
 
 /** Hides the hover detail shortly after the pointer leaves, unless a click pinned it. */
@@ -204,23 +230,22 @@ function scheduleHide() {
   if (pinned.value) return
   cancelHide()
   hideTimer = setTimeout(() => {
-    if (!pinned.value) popover.value?.hide()
+    if (!pinned.value) close()
   }, 150)
 }
 
 /** A click keeps the detail open until clicked again or elsewhere. */
 function togglePinned(event) {
   cancelHide()
-  if (pinned.value) {
-    pinned.value = false
-    popover.value?.hide()
-    return
-  }
+  if (pinned.value) return close()
   pinned.value = true
-  popover.value?.show(event, event.currentTarget)
+  open(event)
 }
 
-onBeforeUnmount(cancelHide)
+onBeforeUnmount(() => {
+  cancelHide()
+  if (isOpen.value) host?.release()
+})
 </script>
 
 <style scoped>
@@ -364,7 +389,8 @@ onBeforeUnmount(cancelHide)
   overflow-wrap: anywhere;
 }
 
-.annotation-detail__iri,
+/* TermLine renders the IRIs, outside this template's scope */
+.annotation-detail :deep(.annotation-detail__iri),
 .annotation-detail__code,
 .annotation-detail__path {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -372,8 +398,16 @@ onBeforeUnmount(cancelHide)
   color: var(--p-text-muted-color);
 }
 
-.annotation-detail__iri {
+.annotation-detail :deep(.annotation-detail__iri) {
   color: var(--p-primary-color);
+}
+
+.annotation-detail :deep(a.annotation-detail__iri) {
+  text-decoration: none;
+}
+
+.annotation-detail :deep(a.annotation-detail__iri:hover) {
+  text-decoration: underline;
 }
 
 .annotation-detail__low {
