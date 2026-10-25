@@ -27,7 +27,8 @@ const RELATIVE_LOCATIONS = [
  * @param {(mathRef: string) => Object|null} [options.sidecarFor] - A math's parsed sidecar.
  * @param {Array<Object>} [options.nodes] - Workspace nodes; their bound coords decide what a basolateral facet
  *   faces. Without them the instance files' instances do.
- * @returns {{ coords: Map, scopes: Map, sidecarFor: Function, instances: Array<{ name: string, coord: Object }> }}
+ * @returns {{ coords: Map, scopes: Map, sidecarFor: Function, instances: Array<{ name: string, label?: string,
+ *   coord: Object }> }}
  */
 export function buildCouplingContext({ apiCoords = null, sidecarFor = () => null, nodes } = {}) {
   const coords = apiCoords?.coords ?? new Map()
@@ -35,7 +36,8 @@ export function buildCouplingContext({ apiCoords = null, sidecarFor = () => null
   context.instances = nodes
     ? nodes.flatMap((node) => {
         const coord = coordOf(node, context)
-        return coord ? [{ name: node.id, coord }] : []
+        // Matched by node id; named in messages by the instance's name.
+        return coord ? [{ name: node.id, label: node.data?.name ?? node.id, coord }] : []
       })
     : (apiCoords?.instances ?? []).map(({ name, coord }) => ({ name, coord }))
   return context

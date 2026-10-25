@@ -57,7 +57,7 @@ export function quantitiesFor(instance, sidecar, context = {}) {
  * Without exactly one such lyph the location stays unresolved.
  *
  * @param {Array<object>} quantities - From quantitiesFor; not changed.
- * @param {Array<{ name: string, coord: object }>} instances
+ * @param {Array<{ name: string, label?: string, coord: object }>} instances - label names the lyph in the reason.
  * @returns {Array<object>} The quantities with their locations resolved where possible.
  */
 export function resolveFacing(quantities, instances) {
@@ -65,7 +65,7 @@ export function resolveFacing(quantities, instances) {
   if (lyphs.length !== 1) return quantities
   const [lyph] = lyphs
   const why =
-    `Assumed: ${lyph.name} is the only lyph with api:coalescedWith, so the basolateral facet is taken to face it. ` +
+    `Assumed: ${lyph.label ?? lyph.name} is the only lyph with api:coalescedWith, so the basolateral facet is taken to face it. ` +
     'ApiCoord v0.2 has no adjacency predicate for this.'
   return quantities.map((quantity) => {
     if (!quantity.locations.some((location) => location.unresolved)) return quantity

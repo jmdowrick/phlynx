@@ -34,6 +34,14 @@ describe('annotated ports on workspace nodes', () => {
     ).toBeNull()
   })
 
+  it('names the assumed lyph by its instance name, not its node id', () => {
+    const nodes = ['outside', 'cell', 'wall', 'porter_in', 'porter_out', 'vessel'].map((name) => toy.node(name))
+    const porter = nodes.find((node) => node.data.name === 'porter_out')
+    const [place] = quantityOfPort(toy.port('porter_out', 'c_A_o'), porter, toy.context(nodes)).locations
+    expect(place).toMatchObject({ confidence: 'low' })
+    expect(place.why).toContain('Assumed: vessel is the only lyph')
+  })
+
   it('reads the sidecar as it is now rather than the port’s copy', () => {
     const stale = toy.port('porter_in', 'c_A_i')
     stale.annotation.property = 'OPB:00154'
