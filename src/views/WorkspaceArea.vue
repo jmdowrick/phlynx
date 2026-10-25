@@ -466,7 +466,11 @@
             <template #zoom-pane>
               <SuggestionLayer @accept="couplingSuggestions.accept" @dismiss="couplingSuggestions.dismiss" />
             </template>
-            <SuggestionPanel @accept-all="couplingSuggestions.acceptAll" @dismiss-all="couplingSuggestions.dismissAll" />
+            <SuggestionPanel
+              @accept-all="couplingSuggestions.acceptAll"
+              @dismiss-all="couplingSuggestions.dismissAll"
+              @restore-dismissed="couplingSuggestions.restoreDismissed"
+            />
             <template #node-instanceNode="props">
               <InstanceNode
                 :id="props.id"
@@ -2764,8 +2768,10 @@ watch(
   cursor: pointer;
 }
 
-/* While exporting an image: never the edit controls, and warnings only when Settings asks. */
+/* While exporting an image: never the edit controls or coupling suggestions, and warnings only when Settings asks. */
 .image-export .instance-button,
+.image-export .suggestion-layer,
+.image-export .suggestion-panel,
 .image-export .delete-handle-popover-btn,
 .image-export .vue-flow__resize-control,
 .image-export--no-warnings .status-indicator,

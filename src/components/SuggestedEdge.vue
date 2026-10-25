@@ -7,11 +7,23 @@
   </svg>
   <div
     :class="['suggested-edge__badge', 'nodrag', 'nopan', { 'suggested-edge__badge--low': isLow }]"
-    :style="{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }"
+    :style="{ transform: `translate(${labelX}px, ${labelY}px) scale(${badgeScale}) translate(-50%, -50%)` }"
     :data-suggestion="suggestion.key"
+    role="group"
+    :aria-label="`Suggested connection ${connectionText}`"
   >
     <i v-if="isLow" class="pi pi-exclamation-triangle suggested-edge__why" v-tooltip.top="whyText" data-test="why"></i>
-    <span class="suggested-edge__label" data-test="couplings" @mouseenter="onEnter" @mouseleave="scheduleHide">
+    <span
+      class="suggested-edge__label"
+      data-test="couplings"
+      tabindex="0"
+      aria-haspopup="dialog"
+      @mouseenter="onEnter"
+      @mouseleave="scheduleHide"
+      @focus="onEnter"
+      @blur="scheduleHide"
+      @keydown.escape="hideNow"
+    >
       {{ countText }}
     </span>
     <Button
@@ -20,7 +32,7 @@
       size="small"
       rounded
       text
-      aria-label="Accept"
+      :aria-label="`Accept ${connectionText}`"
       v-tooltip.top="'Accept'"
       class="suggested-edge__action"
       data-test="accept"
@@ -33,7 +45,7 @@
       size="small"
       rounded
       text
-      aria-label="Dismiss"
+      :aria-label="`Dismiss ${connectionText}`"
       v-tooltip.top="'Dismiss'"
       class="suggested-edge__action"
       data-test="dismiss"
@@ -43,7 +55,7 @@
   </div>
 
   <Popover ref="popover">
-    <div class="suggestion-detail" @mouseenter="cancelHide" @mouseleave="scheduleHide">
+    <div class="suggestion-detail" @mouseenter="onDetailEnter" @mouseleave="onDetailLeave">
       <div class="suggestion-detail__head">
         <span class="suggestion-detail__nodes">{{ sourceLabel }} → {{ targetLabel }}</span>
         <span :class="['suggestion-detail__confidence', { 'suggestion-detail__confidence--low': isLow }]">
@@ -89,7 +101,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, provide, ref } from 'vue'
 import Button from 'primevue/button'
 import Popover from 'primevue/popover'
 import AnnotationChips from './AnnotationChips.vue'
@@ -106,12 +118,17 @@ const props = defineProps({
   // The instances' names, for the detail.
   sourceLabel: { type: String, default: '' },
   targetLabel: { type: String, default: '' },
+  // The canvas zoom; the badge is scaled up when zoomed out, so it stays legible.
+  zoom: { type: Number, default: 1 },
 })
 
 defineEmits(['accept', 'dismiss'])
 
 const isLow = computed(() => props.suggestion.confidence === 'low')
 const whyText = computed(() => props.suggestion.why || 'Low confidence: a place was assumed.')
+const connectionText = computed(() => `${props.sourceLabel} to ${props.targetLabel}`)
+// Never smaller than at zoom 1, nor more than half as big again when zoomed far out.
+const badgeScale = computed(() => Math.min(Math.max(1 / (props.zoom || 1), 1), 1.5))
 const countText = computed(() => {
   const n = props.suggestion.couplings.length
   return `${n} coupling${n === 1 ? '' : 's'}`
@@ -138,6 +155,8 @@ function placed(coupling, end) {
 
 const popover = ref(null)
 let hideTimer = null
+let isPointerInDetail = false
+let held = 0
 
 function cancelHide() {
   clearTimeout(hideTimer)
@@ -152,8 +171,36 @@ function onEnter(event) {
 /** Hides the detail shortly after the pointer leaves, so it can be moved onto the detail. */
 function scheduleHide() {
   cancelHide()
+  if (held) return
   hideTimer = setTimeout(() => popover.value?.hide(), 200)
 }
+
+function hideNow() {
+  cancelHide()
+  popover.value?.hide()
+}
+
+function onDetailEnter() {
+  isPointerInDetail = true
+  cancelHide()
+}
+
+function onDetailLeave() {
+  isPointerInDetail = false
+  scheduleHide()
+}
+
+// A coupling's chips open their own detail over this one; this one stays while that is open.
+provide('annotationPopoverHost', {
+  hold() {
+    held += 1
+    cancelHide()
+  },
+  release() {
+    held = Math.max(held - 1, 0)
+    if (!isPointerInDetail) scheduleHide()
+  },
+})
 
 onBeforeUnmount(cancelHide)
 </script>
@@ -202,6 +249,7 @@ onBeforeUnmount(cancelHide)
   position: absolute;
   left: 0;
   top: 0;
+  transform-origin: 0 0;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -230,8 +278,14 @@ onBeforeUnmount(cancelHide)
 
 .suggested-edge__label {
   margin-right: 2px;
+  border-radius: 4px;
   color: var(--p-text-muted-color);
   cursor: help;
+}
+
+.suggested-edge__label:focus-visible {
+  outline: 2px solid var(--p-primary-color);
+  outline-offset: 1px;
 }
 
 .suggested-edge__action.p-button {

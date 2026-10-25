@@ -6,6 +6,7 @@
       v-for="item in items"
       :key="item.suggestion.key"
       v-bind="item"
+      :zoom="zoom"
       @accept="$emit('accept', $event)"
       @dismiss="$emit('dismiss', $event)"
     />
@@ -22,8 +23,10 @@ import { facingSides, nodeRect, sideAnchor } from '../utils/suggestionGeometry'
 
 defineEmits(['accept', 'dismiss'])
 
-const { findNode } = useVueFlow()
+const { findNode, viewport } = useVueFlow()
 const suggestionStore = useSuggestionStore()
+
+const zoom = computed(() => viewport?.value?.zoom ?? 1)
 
 const items = computed(() =>
   suggestionStore.suggestions.flatMap((suggestion) => {

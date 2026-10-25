@@ -10,11 +10,12 @@ import { useSuggestionStore } from '../../../src/stores/suggestionStore.js'
 import { loadToy } from '../services/annotations/toyModel.js'
 
 const nodes = ref([])
+const viewport = ref({ x: 0, y: 0, zoom: 1 })
 
 vi.mock('@vue-flow/core', async (importOriginal) => ({
   ...(await importOriginal()),
   Panel: { name: 'Panel', props: ['position'], template: '<div class="panel-stub"><slot /></div>' },
-  useVueFlow: () => ({ findNode: (id) => nodes.value.find((node) => node.id === id) }),
+  useVueFlow: () => ({ findNode: (id) => nodes.value.find((node) => node.id === id), viewport }),
 }))
 
 const { default: SuggestionLayer } = await import('../../../src/components/SuggestionLayer.vue')
@@ -51,6 +52,7 @@ describe('suggestions on the canvas', () => {
       heldConstant: HELD,
     })
     store.setSuggestions(suggestions)
+    viewport.value = { x: 0, y: 0, zoom: 1 }
     nodes.value = ['outside', 'porter_in', 'cell', 'wall', 'porter_out', 'vessel'].map((name, i) =>
       flowNode(name, i * 100),
     )
@@ -100,6 +102,53 @@ describe('suggestions on the canvas', () => {
       expect(wrapper.emitted('dismiss')[0][0].key).toBe('porter_in->cell')
     })
 
+    it('keeps the badges legible when zoomed out', async () => {
+      mountLayer()
+      const badge = () => wrapper.find('[data-suggestion="outside->porter_in"]').attributes('style')
+      expect(badge()).toContain('scale(1)')
+      viewport.value = { x: 0, y: 0, zoom: 0.5 }
+      await nextTick()
+      expect(badge()).toContain('scale(1.5)')
+      viewport.value = { x: 0, y: 0, zoom: 0.25 }
+      await nextTick()
+      expect(badge()).toContain('scale(1.5)')
+      viewport.value = { x: 0, y: 0, zoom: 1.5 }
+      await nextTick()
+      expect(badge()).toContain('scale(1)')
+    })
+
+    it('names the connection on its buttons, and opens the couplings from the keyboard', async () => {
+      mountLayer()
+      const badge = wrapper.find('[data-suggestion="porter_in->cell"]')
+      expect(badge.find('[data-test="accept"]').attributes('aria-label')).toBe('Accept porter_in_instance to cell_instance')
+      expect(badge.find('[data-test="dismiss"]').attributes('aria-label')).toBe(
+        'Dismiss porter_in_instance to cell_instance',
+      )
+      const count = badge.find('[data-test="couplings"]')
+      expect(count.attributes('tabindex')).toBe('0')
+      await count.trigger('focus')
+      await flushPromises()
+      expect(document.body.querySelector('.suggestion-detail')).not.toBeNull()
+    })
+
+    it('stays open while a coupling’s chip detail is open', async () => {
+      vi.useFakeTimers()
+      try {
+        mountLayer()
+        await wrapper.find('[data-suggestion="porter_in->cell"] [data-test="couplings"]').trigger('mouseenter')
+        await flushPromises()
+        const detail = document.body.querySelector('.suggestion-detail')
+        detail.querySelector('.annotation-chips').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        detail.dispatchEvent(new MouseEvent('mouseleave'))
+        vi.advanceTimersByTime(500)
+        await flushPromises()
+        expect(document.body.querySelector('.suggestion-detail')).not.toBeNull()
+        expect(document.body.querySelector('.annotation-detail')).not.toBeNull()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
     it('lists the couplings as annotation chip pairs on hover', async () => {
       mountLayer()
       await wrapper.find('[data-suggestion="porter_in->cell"] [data-test="couplings"]').trigger('mouseenter')
@@ -125,6 +174,18 @@ describe('suggestions on the canvas', () => {
       await wrapper.find('[data-test="dismiss-all"]').trigger('click')
       expect(wrapper.emitted('accept-all')).toHaveLength(1)
       expect(wrapper.emitted('dismiss-all')).toHaveLength(1)
+    })
+
+    it('offers the dismissed suggestions back', async () => {
+      wrapper = mount(SuggestionPanel, { global })
+      store.setSuggestions([], [], [store.suggestions[0]])
+      await nextTick()
+      expect(wrapper.find('[data-test="count"]').exists()).toBe(false)
+      expect(wrapper.find('[data-test="accept-all"]').exists()).toBe(false)
+      const restore = wrapper.find('[data-test="restore-dismissed"]')
+      expect(restore.text()).toBe('Show 1 dismissed')
+      await restore.trigger('click')
+      expect(wrapper.emitted('restore-dismissed')).toHaveLength(1)
     })
 
     it('is hidden without suggestions', async () => {

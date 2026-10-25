@@ -341,5 +341,16 @@ describe('useCouplingSuggestions', () => {
       expect(store.suggestions).toEqual([])
       expect(annotationStore.dismissedSuggestions.size).toBe(6)
     })
+
+    it('brings dismissed suggestions back', async () => {
+      suggestions.dismissAll()
+      await settle()
+      expect(store.dismissed).toHaveLength(6)
+      suggestions.restoreDismissed()
+      await settle()
+      expect(keys()).toHaveLength(6)
+      expect(store.dismissed).toEqual([])
+      expect(annotationStore.dismissedSuggestions.size).toBe(0)
+    })
   })
 })

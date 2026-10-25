@@ -1,14 +1,15 @@
 <template>
-  <!-- How many connections the annotations suggest, with Accept all and Dismiss all -->
-  <Panel v-if="count" position="bottom-center" class="suggestion-panel nodrag nopan">
+  <!-- How many connections the annotations suggest, with Accept all and Dismiss all, and a way back for dismissed ones -->
+  <Panel v-if="count || dismissedCount" position="bottom-center" class="suggestion-panel nodrag nopan">
     <i class="pi pi-sparkles suggestion-panel__icon" aria-hidden="true"></i>
-    <span class="suggestion-panel__text" data-test="count">
+    <span v-if="count" class="suggestion-panel__text" data-test="count">
       {{ count }} suggested connection{{ count === 1 ? '' : 's' }}
       <span v-if="lowCount" class="suggestion-panel__low" v-tooltip.top="lowTooltip"
         >({{ lowCount }} low confidence)</span
       >
     </span>
     <Button
+      v-if="count"
       label="Accept all"
       icon="pi pi-check"
       size="small"
@@ -19,6 +20,7 @@
       @click="$emit('accept-all')"
     />
     <Button
+      v-if="count"
       label="Dismiss all"
       icon="pi pi-times"
       size="small"
@@ -26,6 +28,16 @@
       text
       data-test="dismiss-all"
       @click="$emit('dismiss-all')"
+    />
+    <Button
+      v-if="dismissedCount"
+      :label="`Show ${dismissedCount} dismissed`"
+      icon="pi pi-replay"
+      size="small"
+      severity="secondary"
+      text
+      data-test="restore-dismissed"
+      @click="$emit('restore-dismissed')"
     />
   </Panel>
 </template>
@@ -36,11 +48,12 @@ import { Panel } from '@vue-flow/core'
 import Button from 'primevue/button'
 import { useSuggestionStore } from '../stores/suggestionStore'
 
-defineEmits(['accept-all', 'dismiss-all'])
+defineEmits(['accept-all', 'dismiss-all', 'restore-dismissed'])
 
 const suggestionStore = useSuggestionStore()
 
 const count = computed(() => suggestionStore.suggestions.length)
+const dismissedCount = computed(() => suggestionStore.dismissed.length)
 const lowCount = computed(() => suggestionStore.suggestions.filter((s) => s.confidence === 'low').length)
 const ambiguousCount = computed(
   () => suggestionStore.suggestions.flatMap((s) => s.couplings).filter((coupling) => coupling.ambiguous).length,

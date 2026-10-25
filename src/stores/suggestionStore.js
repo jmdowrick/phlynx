@@ -10,16 +10,20 @@ export const useSuggestionStore = defineStore('couplingSuggestions', () => {
   const suggestions = shallowRef([])
   /** Owner or aggregator clashes the matcher found, for a later warning. */
   const conflicts = shallowRef([])
+  /** Suggestions the user dismissed that would otherwise show, so they can be brought back. */
+  const dismissed = shallowRef([])
 
   const count = computed(() => suggestions.value.length)
 
   /**
    * @param {Array<Object>} next
    * @param {Array<Object>} [nextConflicts]
+   * @param {Array<Object>} [nextDismissed]
    */
-  function setSuggestions(next, nextConflicts = []) {
+  function setSuggestions(next, nextConflicts = [], nextDismissed = []) {
     suggestions.value = next
     conflicts.value = nextConflicts
+    dismissed.value = nextDismissed
   }
 
   /**
@@ -35,7 +39,8 @@ export const useSuggestionStore = defineStore('couplingSuggestions', () => {
   function resetState() {
     suggestions.value = []
     conflicts.value = []
+    dismissed.value = []
   }
 
-  return { suggestions, conflicts, count, setSuggestions, remove, resetState }
+  return { suggestions, conflicts, dismissed, count, setSuggestions, remove, resetState }
 })

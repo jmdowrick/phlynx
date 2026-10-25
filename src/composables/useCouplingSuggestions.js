@@ -49,6 +49,7 @@ export function dismissKeyOf(suggestion, findNode) {
  * @param {string} [options.flowId=FLOW_IDS.MAIN]
  * @returns {{ refresh: () => Promise<void>, accept: (suggestion: Object) => Promise<boolean>,
  *   acceptAll: () => Promise<number>, dismiss: (suggestion: Object) => void, dismissAll: () => void,
+ *   restoreDismissed: () => void,
  *   lastRun: { full: boolean, paired: Array<string> }|null }}
  */
 export function useCouplingSuggestions({
@@ -116,7 +117,9 @@ export function useCouplingSuggestions({
   function clear() {
     cache = null
     state.lastRun = null
-    if (suggestionStore.suggestions.length || suggestionStore.conflicts.length) suggestionStore.setSuggestions([])
+    if (suggestionStore.suggestions.length || suggestionStore.conflicts.length || suggestionStore.dismissed.length) {
+      suggestionStore.setSuggestions([])
+    }
   }
 
   /** Recomputes the suggestions now, unless an undo or redo is running (then once it ends). */
@@ -209,11 +212,16 @@ export function useCouplingSuggestions({
     cache = { entries, pairs, conflicts, facing, sources: annotationStore.instanceSources }
     state.lastRun = { full, paired: [...changed] }
 
-    const dismissed = annotationStore.dismissedSuggestions
-    const suggestions = groupPairs(pairs, byName, { existingEdges: edges.value })
-      .map((suggestion) => ({ ...suggestion, dismissKey: dismissKeyOf(suggestion, findNode) }))
-      .filter((suggestion) => !dismissed.has(suggestion.dismissKey))
-    suggestionStore.setSuggestions(suggestions, conflicts)
+    const dismissedKeys = annotationStore.dismissedSuggestions
+    const all = groupPairs(pairs, byName, { existingEdges: edges.value }).map((suggestion) => ({
+      ...suggestion,
+      dismissKey: dismissKeyOf(suggestion, findNode),
+    }))
+    suggestionStore.setSuggestions(
+      all.filter((suggestion) => !dismissedKeys.has(suggestion.dismissKey)),
+      conflicts,
+      all.filter((suggestion) => dismissedKeys.has(suggestion.dismissKey)),
+    )
   }
 
   function schedule() {
@@ -380,12 +388,18 @@ export function useCouplingSuggestions({
     )
   }
 
+  /** Brings back the dismissed suggestions that apply to the workspace. Not undoable, as dismissing is not. */
+  function restoreDismissed() {
+    suggestionStore.dismissed.forEach((suggestion) => annotationStore.restoreSuggestion(suggestion.dismissKey))
+  }
+
   return {
     refresh,
     accept,
     acceptAll,
     dismiss,
     dismissAll,
+    restoreDismissed,
     get lastRun() {
       return state.lastRun
     },
