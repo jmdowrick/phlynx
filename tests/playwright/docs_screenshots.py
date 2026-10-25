@@ -444,8 +444,10 @@ def annotations_suggestions(page):
     apply_toy(page)
     page.mouse.move(VIEWPORT["width"] - 5, VIEWPORT["height"] - 5)
     page.wait_for_timeout(300)
-    canvas = page.locator(".vue-flow").first
-    save(page, "annotations-suggestions", clip=canvas.bounding_box())
+    # The nodes and the suggestion panel, without the library sidebar.
+    nodes = page.locator(".vue-flow__node")
+    parts = [nodes.nth(i) for i in range(nodes.count())] + [page.locator(".suggestion-panel")]
+    save(page, "annotations-suggestions", clip=clip_around(parts, margin=40))
 
 
 def annotations_port_chips(page):

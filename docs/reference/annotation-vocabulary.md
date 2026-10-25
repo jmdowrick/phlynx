@@ -14,7 +14,7 @@ The terms PhLynx reads in module sidecars and instance ApiCoord files. Sidecars 
 | `uniprot` | `http://identifiers.org/uniprot/` | Transporters and channels |
 | `api` | `https://apinatomy.org/uris/elements/` | ApiCoord files only |
 
-Other common IRI forms are read as the same term: `http://identifiers.org/CHEBI:29101`, `http://identifiers.org/chebi/CHEBI:29101`, `https://identifiers.org/OPB:00340`, `http://identifiers.org/GO:0005737`, `https://purl.uniprot.org/uniprot/P11168`. PhLynx shows and compares them as CURIEs (`CHEBI:29101`, `OPB:00340`, `GO:0005737`, `SBO:0000290`, `uniprot:P11168`).
+Other common IRI forms are read as the same term: `http://identifiers.org/CHEBI:29101`, `http://identifiers.org/chebi/CHEBI:29101`, `https://identifiers.org/OPB:00340`, `http://identifiers.org/GO:0005737`, `https://purl.uniprot.org/uniprot/Q0TOY1`. PhLynx shows and compares them as CURIEs (`CHEBI:29101`, `OPB:00340`, `GO:0005737`, `SBO:0000290`, `uniprot:Q0TOY1`).
 
 ## Sidecar Subjects {#subjects}
 
@@ -45,7 +45,7 @@ Each annotated variable has two triples:
 - `bqbiol:isVersionOf` an OPB **property**;
 - `bqbiol:isPropertyOf` the **entity** it is a property of: either the component itself, or a node with `bqbiol:is` terms and an optional `bqbiol:isPartOf` the component.
 
-The entity's CHEBI terms are its **species**. A GO cellular-component term among its `bqbiol:is` terms is its **location**, not a species.
+The entity's CHEBI terms are its **species**. One of the three GO cellular components below (cytoplasm, extracellular region, plasma membrane) among its `bqbiol:is` terms, or as its `bqbiol:isPartOf`, is its **location**, not a species. Other terms are reported as warnings.
 
 ### Properties {#properties}
 
@@ -86,10 +86,10 @@ PhLynx derives a variable's role from its location and property. Roles are never
 
 | | Not a flow | A flow |
 | :--- | :--- | :--- |
-| **Self-located** | **Owner** (port type True) | **Aggregator**: the sum of the flows into it (multiport Sum) |
-| **Relatively located** | **Reader** (port None) | **Contributor** to an aggregator (port None) |
+| **Self-located** | **Owner** (multiport True) | **Aggregator**: the sum of the flows into it (multiport Sum) |
+| **Relatively located** | **Reader** (multiport None) | **Contributor** to an aggregator (multiport None) |
 
-Quantities couple when their property is equal, their species are equal, their locations resolve to the same place, and their roles complement each other: owner with reader is a plain link, aggregator with contributor a Sum term. Readers never couple with readers, nor contributors with contributors. Two owners of one quantity at one place are a conflict. A reader with more than one possible owner is ambiguous.
+Quantities couple when their property is equal, their species are equal, their locations resolve to the same place, and their roles complement each other: owner with reader is a plain link, aggregator with contributor a Sum term. Readers never couple with readers, nor contributors with contributors. Two owners, or two aggregators, of one quantity at one place are a conflict. A reader with more than one possible owner is ambiguous.
 
 A [held-constant](../guides/annotation-coupling.md#reservoirs) instance has no aggregators: its summed flows are constant 0.
 
@@ -127,7 +127,7 @@ The subject's fragment (`porter_in`) is the instance's name, and on export the n
 | `cell` | A cell type housed in a scope | `api:within` (an `api:Scope`), `api:cell`, `api:chainShape` | A compartment, standing for the cytoplasm |
 | `facet-layer` | A layer of one or more facets of a cell | `api:within` (a cell), `api:facet`, `api:layerIndex`, `api:material` | The module that `bqbiol:is` its `api:material` (`GO:0005886`) |
 | `deployment` | A membrane protein on a facet of a cell | `api:within` (a cell), `api:facet`, `api:protein`, `api:regions`, `api:label` | The module that `bqbiol:is` its `api:protein` |
-| `lyph` | A conduit, such as a capillary | `api:origin`, `api:template`, `api:anatomy`, `api:conveys`, `api:coalescedWith` | A compartment, standing for what it conveys |
+| `lyph` | A conduit, such as a blood vessel | `api:origin`, `api:template`, `api:anatomy`, `api:conveys`, `api:coalescedWith` | A compartment, standing for what it conveys |
 
 An `api:Scope` gives its region as `api:anatomy` terms (several are alternatives) and `api:closure`. Facets are `apical`, `lateral` and `basolateral`. The kinds `material`, `chain` and `coalescence` are read, but no module is chosen for them, so Apply skips their instances. Problems in the file, such as a deployment not `api:within` a cell, are listed as warnings in the Apply dialog.
 
@@ -139,7 +139,7 @@ Each location resolves on an instance's ApiCoord to a **place**. Two quantities 
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `layer` | That layer of the scope | | | | |
 | `cell` | The cell's cytoplasm | The cell's membrane, all facets | | | |
-| `facet-layer` (index 1) | The cell's membrane, its facets | | The cell's cytoplasm | | |
+| `facet-layer` (index 1, or material `GO:0005886`) | The cell's membrane, its facets | | The cell's cytoplasm | | |
 | `deployment` | | | The cytoplasm of the cell it is `within` | The cell's membrane, its facets | Apical: layer 0 of the cell's scope. Basolateral: see below. Lateral: none |
 | `lyph` | The lyph | | | | |
 
@@ -149,4 +149,4 @@ A location with no meaning on a kind, such as a pool's area on a `layer`, is lef
 
 ### Coalescence Fallback {#coalescence-fallback}
 
-ApiCoord v0.2 has no predicate for what a basolateral facet's extracellular side faces (for an epithelial cell, typically a capillary across the basement membrane). PhLynx falls back on coalescence: when exactly one `lyph` instance in the file has `api:coalescedWith`, the basolateral side is taken to face that lyph, at **low confidence**, with the reason given on the suggestion. With no such lyph, or more than one, the basolateral side stays unresolved.
+ApiCoord v0.2 has no predicate for what a basolateral facet's extracellular side faces (for an epithelial cell, typically a blood vessel beyond the basement membrane). PhLynx falls back on coalescence: when exactly one `lyph` instance on the canvas, bound to its ApiCoord, has `api:coalescedWith`, the basolateral side is taken to face that lyph, at **low confidence**, with the reason given on the suggestion. With no such lyph, or more than one, the basolateral side stays unresolved.

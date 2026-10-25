@@ -54,12 +54,12 @@ PhLynx derives each variable's role from this, and never reads it from the file:
 
 ![The Apply Annotations dialog for the toy model, with the outside and the vessel held constant](../assets/images/annotations-apply-dialog.png){.align-center width="700px"}
 
-- **Module sidecars** shows which math each sidecar attaches to. A sidecar attaches to the math its subjects name (`pool.cellml:pool`). If that math is not loaded but one with the same component name is, pick it; a sidecar whose component is in no loaded math is not stored.
+- **Module sidecars** shows which math each sidecar attaches to. A sidecar attaches to the math its subjects name (`pool.cellml:pool`). If that math is not loaded, maths with the same component name are offered, and picked for you when there is only one; a sidecar whose component is in no loaded math is not stored.
 - **Instances** lists each ApiCoord. Its **Instance** name is the subject's fragment (`model:porter_in` names `porter_in`), so after export the ApiCoord file points at the right CellML component. **Module** is chosen from the sidecars: a deployment runs the module whose component `bqbiol:is` its `api:protein`, a layer, cell or lyph runs a compartment, a facet-layer runs the module that `bqbiol:is` its `api:material`. If several fit, pick one; with none, the instance is skipped.
 - **Binds to** is **New**, or an existing instance of the same subject, or else of the same name. Applying a second time binds instead of adding again.
 - **Held constant (reservoir)**: see [Reservoirs](#reservoirs).
 
-4. Tick **Held constant** for `outside` and `vessel`, then click **Apply (add 6)**. The six instances are placed in columns from lumen to vessel. Undo removes them; the sidecars and the ApiCoord file stay stored with the workspace.
+4. Tick **Held constant** for `outside` and `vessel`, then click **Apply (add 6)**. The six instances are placed in columns from lumen to vessel. Variables that ports will supply (readers and sums) become boundary conditions, so their values are only fallbacks. Undo removes them; the sidecars and the ApiCoord file stay stored with the workspace.
 
 ### Reservoirs {#reservoirs}
 
