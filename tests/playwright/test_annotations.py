@@ -49,6 +49,10 @@ PRIVATE = os.environ.get(
 )
 PRIVATE_EXPECTED = os.path.join(PRIVATE, "expected.json")
 
+
+def private_files(*parts):
+    return sorted(glob.glob(os.path.join(PRIVATE, *parts)))
+
 # Downloads go to the browser's save, not the File System Access picker, which Playwright can't answer.
 USE_DOWNLOADS = "delete window.showSaveFilePicker"
 
@@ -224,7 +228,6 @@ class TestAnnotationCoupling(unittest.TestCase):
         expect(ports_tab).to_be_visible(timeout=30000)
         ports_tab.click()
         expect(editor.locator(".annotation-chips").first).to_be_visible()
-        self.assertGreater(editor.locator(".annotation-chips").count(), 0)
         expect(editor.get_by_placeholder("Enter label")).to_have_count(0)
         editor.get_by_role("button", name="Cancel").click()
         expect(editor).to_be_hidden()
@@ -280,13 +283,18 @@ class TestPrivateAnnotationCoupling(unittest.TestCase):
     def test_regenerates_the_expected_edges_and_couplings(self):
         page = self.page
         expected = self.expected
-        maths = sorted(glob.glob(os.path.join(PRIVATE, "maths", "*.cellml")))
-        units = sorted(glob.glob(os.path.join(PRIVATE, "units", "*.cellml")))
-        sidecars = sorted(glob.glob(os.path.join(PRIVATE, "sidecars", "*.ttl")))
+        maths = private_files("maths", "*.cellml")
+        units = private_files("units", "*.cellml")
+        sidecars = private_files("sidecars", "*.ttl")
+        # The instance file is the one RDF file at the top of the folder.
+        instance_files = private_files("*.ttl") + private_files("*.rdf")
+        if not units:
+            self.skipTest("the private maths' units files are not in units/")
+        self.assertEqual(len(instance_files), 1, "expected one instance file in the private folder")
         held = [i["name"] for i in expected["instances"] if i.get("kind") in ("layer", "lyph")]
 
         open_app(page)
-        apply_annotations(page, maths + units, sidecars, os.path.join(PRIVATE, "apicoords.ttl"), held)
+        apply_annotations(page, maths + units, sidecars, instance_files[0], held)
         expect(page.locator(NODE)).to_have_count(len(expected["instances"]))
         expect(page.locator(BADGE)).to_have_count(len(expected["edges"]), timeout=30000)
         expect(page.locator(".suggestion-panel [data-test=count]")).to_contain_text(
