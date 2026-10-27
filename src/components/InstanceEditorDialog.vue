@@ -104,7 +104,7 @@
             ref="mathEditorRef"
             :model-value="shownModel"
             :layout="currentLayout"
-            :simple="isManaged"
+            :simple="isMathLocked ? isLockedSimple : isManaged"
             @update:simple="onSimpleToggle"
             :component-name="componentNameForEditor"
             :variable-definitions="editorDefinitions"
@@ -1048,6 +1048,9 @@ async function switchEditor(kind) {
 // One app-wide choice, the last one the user made; it is never saved with the workspace.
 const MANAGED_STORAGE_KEY = 'instanceEditorDialog.simpleMode'
 
+/** Whether locked math, which is never managed, is shown in Simple Mode: only how it reads, as it can't be edited. */
+const isLockedSimple = ref(loadStoredManaged())
+
 function loadStoredManaged() {
   try {
     return window.localStorage.getItem(MANAGED_STORAGE_KEY) !== 'false'
@@ -1062,8 +1065,8 @@ function loadStoredManaged() {
  * @param {boolean} simple
  */
 function onSimpleToggle(simple) {
-  if (isMathLocked.value) return
-  isManaged.value = simple
+  if (isMathLocked.value) isLockedSimple.value = simple
+  else isManaged.value = simple
   try {
     window.localStorage.setItem(MANAGED_STORAGE_KEY, String(simple))
   } catch (e) {
@@ -1625,6 +1628,7 @@ async function loadEditor({ keepTab = false } = {}) {
       // Locked math is shown as stored, never rebuilt from the table.
       managed: !isMathLocked.value && (loadStoredManaged() || editorKind.value === 'math'),
     })
+    isLockedSimple.value = loadStoredManaged()
   } catch (e) {
     console.error('Failed to load CellML source', e)
   }

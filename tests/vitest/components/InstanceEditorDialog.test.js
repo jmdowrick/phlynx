@@ -1025,6 +1025,23 @@ describe('InstanceEditorDialog locked math', () => {
 
   const editorTab = (label) => wrapper.findAll('.editor-tabs [role="tab"]').find((tab) => tab.text() === label)
 
+  it('shows read-only math from a source in Simple Mode, and lets the user switch it, without managing it', async () => {
+    useLibraryStore().setMathSource(MATH_REF, SOURCE)
+    mountDialog()
+    const editor = await openAsText()
+    await report(editor, 'init', XML)
+
+    expect(stubProps(FakeEditor).simple).toBe(true)
+    editor.vm.$emit('update:simple', false)
+    await flushPromises()
+    expect(stubProps(FakeEditor).simple).toBe(false)
+    expect(wrapper.vm.isManaged).toBe(false)
+    editor.vm.$emit('update:simple', true)
+    await flushPromises()
+    expect(stubProps(FakeEditor).simple).toBe(true)
+    expect(stubProps(FakeEditor).readonly).toBe(true)
+  })
+
   it('shows math generated from a source read-only, with only its values editable', async () => {
     useLibraryStore().setMathSource(MATH_REF, SOURCE)
     mountDialog()
