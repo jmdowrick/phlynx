@@ -9,6 +9,7 @@
         :options="EDITOR_OPTIONS"
         :theme="isDarkMode ? 'dark' : 'light'"
         :unit-system="settings.celldlUnitSystem"
+        :wheel-mode="settings.celldlWheelMode"
         @editor-data="host.onEditorData"
         @editor-state="host.onEditorState"
         @message="host.onMessage"

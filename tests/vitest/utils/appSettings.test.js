@@ -68,3 +68,19 @@ describe('unit system for new CellDL modules', () => {
     expect(isValidAppSetting('celldlUnitSystem', 'fmol')).toBe(false)
   })
 })
+
+describe('scrolling in CellDL diagrams', () => {
+  it('defaults to Automatic, offering Pan and Zoom, matching the editor wheel modes', () => {
+    const setting = APP_SETTINGS.get('celldlWheelMode')
+    expect(defaultAppSettings().celldlWheelMode).toBe('auto')
+    expect(setting.label).toBe('Scrolling in CellDL diagrams')
+    expect(setting.options.map((option) => [option.value, option.label])).toEqual([
+      ['auto', 'Automatic'],
+      ['pan', 'Pan'],
+      ['zoom', 'Zoom'],
+    ])
+    expect(SETTING_SECTIONS.find((section) => section.title === 'CellDL diagrams').settings).toContain(setting)
+    expect(isValidAppSetting('celldlWheelMode', 'zoom')).toBe(true)
+    expect(isValidAppSetting('celldlWheelMode', 'scroll')).toBe(false)
+  })
+})
