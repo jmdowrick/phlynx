@@ -9,19 +9,23 @@ import { CELLML_NS, MATHML_NS } from '../../utils/constants'
 const childElements = (element) => [...element.childNodes].filter((node) => node.nodeType === 1)
 
 /**
- * Gets the state an equation's left side differentiates, as in `<apply><eq/><apply><diff/><bvar>…</bvar><ci>q</ci>
- * </apply>…</apply>`.
+ * Gets the state an equation differentiates on either side, as in `<apply><eq/><apply><diff/><bvar>…</bvar><ci>q</ci>
+ * </apply>…</apply>`, or the same with the derivative on the right.
  *
  * @param {Element} apply - A top-level `<apply>` of a `<math>` block.
  * @returns {string|null}
  */
 function differentiatedState(apply) {
-  const [operator, left] = childElements(apply)
-  if (operator?.localName !== 'eq' || left?.localName !== 'apply') return null
-  const [diff, ...rest] = childElements(left)
-  if (diff?.localName !== 'diff') return null
-  const ci = rest.find((element) => element.localName === 'ci')
-  return ci?.textContent.trim() ?? null
+  const [operator, ...sides] = childElements(apply)
+  if (operator?.localName !== 'eq' || sides.length !== 2) return null
+  for (const side of sides) {
+    if (side.localName !== 'apply') continue
+    const [diff, ...rest] = childElements(side)
+    if (diff?.localName !== 'diff') continue
+    const ci = rest.find((element) => element.localName === 'ci')
+    if (ci) return ci.textContent.trim()
+  }
+  return null
 }
 
 /**

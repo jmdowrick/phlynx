@@ -2299,7 +2299,8 @@ async function resolveMathTarget(math, layout) {
  * connection should drive it (see confirmDrivenStores). Only edges whose couplings the ports change are asked about.
  *
  * @param {Array} ports - The ports to save.
- * @returns {Promise<Map<string, Array>|null>} Each edge's couplings set to drive a store; null when one was declined.
+ * @returns {Promise<Map<string, Array>|null>} Each edge's couplings as they will be, marked where they drive a store,
+ *   under the variable names before any rename; null when one was declined.
  */
 async function confirmPortDrives(ports) {
   const canvasNodes = (nodes.value ?? []).map((node) =>
@@ -2313,11 +2314,12 @@ async function confirmPortDrives(ports) {
       .filter(([edgeId, next]) => unmarked(canvasEdges.find((edge) => edge.id === edgeId)?.data?.couplings) !== unmarked(next))
       .map(([edgeId]) => edgeId)
   )
-  if (!changed.size) return new Map()
+  if (!changed.size) return couplings
   const edited = canvasEdges.map((edge) =>
     couplings.has(edge.id) ? { ...edge, data: { ...edge.data, couplings: couplings.get(edge.id) } } : edge
   )
-  return confirmDrivenStores({ nodes: canvasNodes, edges: edited, edgeIds: changed, libraryStore: store, confirm })
+  const marked = await confirmDrivenStores({ nodes: canvasNodes, edges: edited, edgeIds: changed, libraryStore: store, confirm })
+  return marked && new Map([...couplings, ...marked])
 }
 
 /**

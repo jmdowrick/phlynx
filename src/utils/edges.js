@@ -282,25 +282,39 @@ export function previewCouplings(nodeId, ports, nodes, edges) {
   return couplings
 }
 
-/** Whether two couplings join the same ports, by type and label, so their variables may have been renamed. */
-export function isSameCoupling(a, b) {
-  const same = (x, y) => x?.portType === y?.portType && x?.label === y?.label
+/**
+ * Whether two couplings join the same ports, by type and label, and, unless `byLabel`, the same variables.
+ *
+ * @param {Object} a
+ * @param {Object} b
+ * @param {boolean} [byLabel] - Ignore the variables, as a save may have renamed them.
+ * @returns {boolean}
+ */
+export function isSameCoupling(a, b, byLabel = false) {
+  const same = (x, y) =>
+    x?.portType === y?.portType &&
+    x?.label === y?.label &&
+    (byLabel || JSON.stringify(x?.variables ?? []) === JSON.stringify(y?.variables ?? []))
   return same(a.sourcePort, b.sourcePort) && same(a.targetPort, b.targetPort)
 }
 
 /**
  * Keeps the `drivesState` mark of couplings that recomputing them from the ports left in place (see
- * resolveBoundaryValues).
+ * resolveBoundaryValues). A coupling whose variables changed loses it, so driving what it now joins is asked again.
  *
  * @param {Array} previous - The couplings before.
  * @param {Array} next - The recomputed couplings.
+ * @param {Object} [options]
+ * @param {boolean} [options.byLabel] - Match by port alone, for `previous` already confirmed under the old names.
  * @returns {Array} `next`, its couplings marked as before; the same array when none was.
  */
-export function carryDrivesState(previous, next) {
+export function carryDrivesState(previous, next, { byLabel = false } = {}) {
   const marked = previous.filter((coupling) => coupling.drivesState)
   if (!marked.length) return next
   return next.map((coupling) =>
-    !coupling.drivesState && marked.some((old) => isSameCoupling(old, coupling)) ? { ...coupling, drivesState: true } : coupling
+    !coupling.drivesState && marked.some((old) => isSameCoupling(old, coupling, byLabel))
+      ? { ...coupling, drivesState: true }
+      : coupling
   )
 }
 

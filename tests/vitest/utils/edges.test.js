@@ -116,8 +116,16 @@ describe('carryDrivesState', () => {
     ...(drivesState && { drivesState }),
   })
 
-  it('keeps the mark on a recomputed coupling between the same ports, renamed or not', () => {
-    const next = carryDrivesState([coupling('X', 'q', true)], [coupling('X', 'q_renamed')])
+  it('keeps the mark on a recomputed coupling between the same ports and variables', () => {
+    expect(carryDrivesState([coupling('X', 'q', true)], [coupling('X', 'q')])).toEqual([coupling('X', 'q', true)])
+  })
+
+  it('drops the mark when a port now joins other variables, so driving them is asked again', () => {
+    expect(carryDrivesState([coupling('X', 'q', true)], [coupling('X', 'q_P')])).toEqual([coupling('X', 'q_P')])
+  })
+
+  it('keeps the mark by port alone for couplings confirmed before a rename', () => {
+    const next = carryDrivesState([coupling('X', 'q', true)], [coupling('X', 'q_renamed')], { byLabel: true })
     expect(next).toEqual([coupling('X', 'q_renamed', true)])
   })
 

@@ -95,7 +95,8 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    * after changing ports on one or more nodes.
    *
    * @param {string} nodeId
-   * @param {Map<string, Array>} [marked] - Edges' couplings the save set to drive a store (confirmDrivenStores).
+   * @param {Map<string, Array>} [marked] - Edges' couplings as the save confirmed them, under the old variable names, whose
+   *   `drivesState` marks they keep (InstanceEditorDialog's confirmPortDrives).
    */
   function recomputeEdgeCouplings(nodeId, marked = new Map()) {
     const node = findNode(nodeId)
@@ -103,7 +104,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     const couplings = previewCouplings(nodeId, node.data.ports ?? [], nodes.value, edges.value)
     edges.value.forEach((edge) => {
       if (!couplings.has(edge.id)) return
-      edge.data = { ...edge.data, couplings: carryDrivesState(marked.get(edge.id) ?? [], couplings.get(edge.id)) }
+      edge.data = { ...edge.data, couplings: carryDrivesState(marked.get(edge.id) ?? [], couplings.get(edge.id), { byLabel: true }) }
     })
   }
 

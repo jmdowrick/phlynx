@@ -34,6 +34,33 @@ describe('dropDrivenStates', () => {
     expect(variable(doc, 'u')).toBeDefined()
   })
 
+  it('finds the derivative on either side, with its bvar in any order, across math blocks', () => {
+    const model = MODEL.replace(
+      '<apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>q</ci></apply><ci>v</ci></apply>',
+      '<apply><eq/><ci>v</ci><apply><diff/><ci>q</ci><bvar><ci>t</ci></bvar></apply></apply>'
+    ).replace(
+      '<apply><eq/><ci>u</ci><ci>q</ci></apply>',
+      '</math><math xmlns="http://www.w3.org/1998/Math/MathML"><apply><eq/><ci>u</ci><ci>q</ci></apply>'
+    )
+    const doc = parse(dropDrivenStates(model, ['q']))
+    expect(doc.getElementsByTagName('diff')).toHaveLength(1)
+    expect(odeStates(doc)).toEqual(['p'])
+    expect(doc.getElementsByTagName('math')).toHaveLength(2)
+    expect(variable(doc, 'q').hasAttribute('initial_value')).toBe(false)
+  })
+
+  it('removes a math block the dropped ODE leaves empty', () => {
+    const ode = '<apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>q</ci></apply><ci>v</ci></apply>'
+    const model = MODEL.replace(ode, '').replace(
+      '<apply><eq/><ci>u</ci><ci>q</ci></apply>',
+      `<apply><eq/><ci>u</ci><ci>q</ci></apply></math><math xmlns="http://www.w3.org/1998/Math/MathML">${ode}`
+    )
+    expect(parse(model).getElementsByTagName('math')).toHaveLength(2)
+    const doc = parse(dropDrivenStates(model, ['q']))
+    expect(doc.getElementsByTagName('math')).toHaveLength(1)
+    expect(odeStates(doc)).toEqual(['p'])
+  })
+
   it('leaves the model as it is when nothing is driven', () => {
     expect(dropDrivenStates(MODEL, [])).toBe(MODEL)
   })
