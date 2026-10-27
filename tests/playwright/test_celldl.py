@@ -1,3 +1,4 @@
+import math
 import os
 import re
 import unittest
@@ -45,6 +46,9 @@ STORE_A, BOND_A = "ID-00000003", "ID-00000004"
 # A CellML module computing an amount X = 2 X0 from its constant X0 of 0.75 mole.
 INITIAL_AMOUNT = os.path.join(RESOURCE_PATH, "celldl", "initial_amount.cellml")
 INITIAL_AMOUNT_MODULE = "initial_amount"
+# A CellML module computing an amount that varies in time, X = X0 (1 + sin t), with X0 = 0.5 mole.
+DRIVEN_AMOUNT = os.path.join(RESOURCE_PATH, "celldl", "driven_amount.cellml")
+DRIVEN_AMOUNT_MODULE = "driven_amount"
 
 # A mechanical potential source driving an inductor L (ID-00000003) and a resistor through a 1-junction. The
 # inductor's acceleration a_L_S2_c is a BG-RDF variable its math computes (dv/dt = a, u = L a).
@@ -377,8 +381,8 @@ def add_port(page, dialog, label, variable):
     expect(row.locator(".p-multiselect")).to_contain_text(variable)
 
 
-def connect(page, source, target):
-    """Draws an edge from a free handle on one instance to one on another."""
+def drag_edge(page, source, target):
+    """Drags from a free handle on one instance to one on another, which may ask before making the edge."""
     def handle(name, side):
         handles = page.locator(".vue-flow__node").filter(has_text=name).first.locator(
             f".vue-flow__handle.handle--ghost.vue-flow__handle-{side}"
@@ -386,12 +390,17 @@ def connect(page, source, target):
         box = handles.nth(handles.count() // 2).bounding_box()
         return box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
 
-    edges = page.locator(".vue-flow__edge").count()
     start, end = handle(source, "right"), handle(target, "left")
     page.mouse.move(*start)
     page.mouse.down()
     page.mouse.move(*end, steps=15)
     page.mouse.up()
+
+
+def connect(page, source, target):
+    """Draws an edge from a free handle on one instance to one on another."""
+    edges = page.locator(".vue-flow__edge").count()
+    drag_edge(page, source, target)
     expect(page.locator(".vue-flow__edge")).to_have_count(edges + 1)
 
 
@@ -1596,6 +1605,78 @@ class TestCelldl(unittest.TestCase):
             dialog.get_by_role("button", name="Simulate the whole model").click()
             expect(dialog.get_by_text("Simulated the whole model")).to_be_visible(timeout=SIMULATION_TIMEOUT)
             self.assertAlmostEqual(first_value(page, "q_S_c"), 1.5)
+            # ----------- END ------------
+
+            browser.close()
+
+    def test_drives_a_store_from_a_connection_after_asking_and_restores_it_when_the_edge_goes(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+            page.evaluate(SHORT_SIMULATION)
+
+            # ---------- START -----------
+            import_diagram(page, ENZYME)
+            expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            place(page, CELLDL_GROUP, ENZYME_MODULE, x=950)
+            import_cellml(page, DRIVEN_AMOUNT)
+            place(page, "driven amount", DRIVEN_AMOUNT_MODULE, x=450)
+
+            # A port on each instance, one carrying the computed amount X, the other the store S's amount.
+            dialog = open_editor(page, DRIVEN_AMOUNT_MODULE)
+            add_port(page, dialog, "amount", "X")
+            dialog.get_by_role("button", name="Save", exact=True).click()
+            expect(dialog).to_have_count(0)
+            dialog = open_editor(page, ENZYME_MODULE)
+            wait_for_diagram(page)
+            add_port(page, dialog, "amount", "q_S_c")
+            dialog.get_by_role("button", name="Save", exact=True).click()
+            expect(dialog).to_have_count(0)
+
+            # Both compute their variable, so the connection asks before it sets the store; cancelled, it isn't made.
+            prompt = page.locator(".confirm-container").filter(has_text="Set a store from a connection")
+            drag_edge(page, DRIVEN_AMOUNT_MODULE, ENZYME_MODULE)
+            expect(prompt).to_contain_text(re.compile(r"Set q_S_c of enzyme\w* from driven_amount\w*\.X\?"))
+            prompt.get_by_role("button", name="Cancel", exact=True).click()
+            expect(prompt).to_have_count(0)
+            expect(page.locator(".vue-flow__edge")).to_have_count(0)
+
+            drag_edge(page, DRIVEN_AMOUNT_MODULE, ENZYME_MODULE)
+            prompt.get_by_role("button", name="Set from connection", exact=True).click()
+            expect(page.locator(".vue-flow__edge")).to_have_count(1)
+
+            # The store's initial value is set by the connection, so it is read-only and not to set.
+            dialog = open_editor(page, ENZYME_MODULE)
+            wait_for_diagram(page)
+            expect(parameter_value(dialog, "q_S_c_init")).to_be_disabled()
+            cell = dialog.locator('.celldl-parameters [data-variable="q_S_c_init"]')
+            expect(cell.locator(".supplied-hint")).to_have_text(re.compile(r"Set by driven_amount\w*\.X"))
+            expect(cell.locator("xpath=ancestor::tr[1]")).not_to_have_class(re.compile(r"element-row--unset"))
+
+            # A whole-model run has S follow X = 0.5 (1 + sin t), from 0.5 rather than the diagram's 1.
+            dialog.get_by_role("tab", name=re.compile(r"Plot \(")).click()
+            dialog.get_by_role("switch", name="Simulate the whole model, not this instance").check()
+            dialog.get_by_role("button", name="Simulate the whole model").click()
+            expect(dialog.get_by_text("Simulated the whole model")).to_be_visible(timeout=SIMULATION_TIMEOUT)
+            self.assertAlmostEqual(first_value(page, "X"), 0.5, places=5)
+            self.assertAlmostEqual(final_value(page, "X"), 0.5 * (1 + math.sin(1)), places=4)
+            # The store's potential rises with it, where on its own S would fall as the enzyme binds it.
+            self.assertGreater(final_value(page, "u_q_S_c"), first_value(page, "u_q_S_c"))
+            page.keyboard.press("Escape")
+            expect(dialog).to_have_count(0)
+
+            # With the edge gone, S runs on its own dynamics again, from 1.
+            page.locator(".vue-flow__edge").first.click(force=True)
+            page.keyboard.press("Delete")
+            expect(page.locator(".vue-flow__edge")).to_have_count(0)
+            dialog = open_editor(page, ENZYME_MODULE)
+            wait_for_diagram(page)
+            expect(parameter_value(dialog, "q_S_c_init")).to_be_enabled()
+            dialog.get_by_role("tab", name=re.compile(r"Plot \(")).click()
+            dialog.get_by_role("switch", name="Simulate the whole model, not this instance").check()
+            dialog.get_by_role("button", name="Simulate the whole model").click()
+            expect(dialog.get_by_text("Simulated the whole model")).to_be_visible(timeout=SIMULATION_TIMEOUT)
+            self.assertAlmostEqual(first_value(page, "q_S_c"), 1, places=5)
+            self.assertLess(final_value(page, "q_S_c"), 1)
             # ----------- END ------------
 
             browser.close()

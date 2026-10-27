@@ -1,6 +1,7 @@
 import { findImplicitVariables, findVoiNames, inferType, isEmpty, isNumericLiteral } from './variables.js'
 import { analyzeMathXml } from '../services/math/analyzeMath.js'
-import { resolveBoundaryValues } from '../services/export/boundaryValues.js'
+import { resolveBoundaryValues, storeOptions } from '../services/export/boundaryValues.js'
+import { dropDrivenStates } from '../services/math/dropDrivenStates.js'
 import { couplingConflicts, multiplyFactor, variableTypes } from './multiport.js'
 import { couplingUnitConflicts } from './couplingUnits.js'
 import {
@@ -1166,7 +1167,7 @@ export function generateFlattenedModel(
     model.addComponent(parameterComponent)
 
     // A boundary condition's value is used only when nothing in its coupled group supplies one.
-    const boundaryValues = resolveBoundaryValues(nodes, edges, libraryStore.getMathAnalysis)
+    const boundaryValues = resolveBoundaryValues(nodes, edges, libraryStore.getMathAnalysis, storeOptions(libraryStore))
     // As in circulatory_autogen, nothing gives such a group a value. A scope that cuts it off from what computes it
     // falls back to their own values (see checkScope).
     if (boundaryValues.bcOnly.length && !allowBcOnly) {
@@ -1213,8 +1214,11 @@ export function generateFlattenedModel(
       const modelString = libraryStore.availableMath.get(mathRef)
       if (!modelString) throw new Error(`Missing math definition for '${mathRef}'`)
 
+      // A state a connection drives loses its own equation and initial value, in this instance only.
+      const drivenStates = boundaryValues.driven.get(node.id)
+      const instanceString = drivenStates ? dropDrivenStates(modelString, drivenStates.keys()) : modelString
       // Ids, such as bg2cellml writes, would repeat in each instance of the same math.
-      const modelFromInstance = parser.parseModel(prefixIdAttributes(modelString, node.data.name))
+      const modelFromInstance = parser.parseModel(prefixIdAttributes(instanceString, node.data.name))
 
       const originalComponent = modelFromInstance.componentByIndex(0)
       originalComponent.setName(node.data.name)
@@ -1252,7 +1256,9 @@ export function generateFlattenedModel(
             nodeVariable.type === 'global_constant' ? libraryStore.getGlobalConstant(variable.name())?.value : nodeVariable.value
           // A connected boundary condition's value is a fallback, and an empty Sum warns below.
           const isEmptySum = !!boundaryValues.emptySums.get(node.id)?.has(nodeVariable.name)
-          if (nodeVariable.type !== 'boundary_condition' && !isEmptySum) {
+          // A driven state's unused initial value says so in the Parameters tab.
+          const isDrivenInitial = [...(drivenStates?.values() ?? [])].some(({ initialiser }) => initialiser === nodeVariable.name)
+          if (nodeVariable.type !== 'boundary_condition' && !isEmptySum && !isDrivenInitial) {
             console.warn(`"${node.data.name}" variable "${variable.name()}" is set by a connection; ignoring its parameter value ${value}.`)
           }
         } else if (nodeVariable) {

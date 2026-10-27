@@ -235,6 +235,20 @@ describe('generateExportZip', () => {
     expect(files['modules/BG_modules.cellml']).toContain('<component name="vp_simple_type">')
   })
 
+  it('refuses a CellDL store a connection drives, as CA would run its own equation', async () => {
+    library.setMathSource(BG_MATH_REF, { format: 'celldl', document: null, documentUri: 'https://example.org/vp.celldl' })
+    const store = nodeWith('s', [{ name: 'q', type: 'variable', stateRole: 'state', units: 'm3' }])
+    const source = nodeWith('src', [{ name: 'X', type: 'variable', units: 'm3' }])
+    source.data.mathRef = 'other.cellml:x'
+    const coupling = { sourcePort: { label: 'p', variables: ['X'] }, targetPort: { label: 'p', variables: ['q'] }, drivesState: true }
+    const edge = { id: 'e', source: 'src', target: 's', data: { couplings: [coupling] } }
+
+    await expect(generateExportZip('heart', [source, store], [edge], library)).rejects.toThrow(
+      "Driving a CellDL store from a connection isn't supported in the CA export yet: s.q"
+    )
+    expect(notified.error).toHaveBeenCalled()
+  })
+
   it('writes each boundary condition row, as CA needs one for every boundary condition', async () => {
     const node = nodeWith('out', [
       { name: 'u_out', type: 'boundary_condition', units: 'J_per_m3', value: '1000' },

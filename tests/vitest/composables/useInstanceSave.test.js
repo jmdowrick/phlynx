@@ -497,6 +497,39 @@ describe('useInstanceSave', () => {
     expect(preview.get('e')).toHaveLength(1)
   })
 
+  describe('a coupling that drives a store', () => {
+    const ports = (name) => [{ label: 'p', portType: 'general_ports', variables: [name] }]
+    const drive = (couplings) => couplings.map((coupling) => ({ ...coupling, drivesState: true }))
+
+    beforeEach(() => {
+      // One variable a side, as a coupling pairs ports with the same number of variables. The variable must be one
+      // b has, or the save's port clean-up drops the port.
+      findNode('b').data.ports = ports('x')
+      edges.value = [{ id: 'e', source: 'a', target: 'b', data: { couplings: [] } }]
+      edges.value[0].data.couplings = drive(previewCouplings('a', ports('x'), nodes.value, edges.value).get('e'))
+    })
+
+    it('keeps its mark while it joins the same variables', async () => {
+      await saveInstanceEdit(buildSave({ ports: ports('x') }))
+      expect(edges.value[0].data.couplings[0].drivesState).toBe(true)
+    })
+
+    it('loses its mark when the port now joins another variable', async () => {
+      await saveInstanceEdit(buildSave({ ports: ports('k') }))
+      expect(edges.value[0].data.couplings[0].drivesState).toBeUndefined()
+      expect(edges.value[0].data.couplings[0].sourcePort.variables).toEqual(['k'])
+
+      await history.undo()
+      expect(edges.value[0].data.couplings[0].drivesState).toBe(true)
+    })
+
+    it('keeps the mark the save confirmed, under the names before a rename', async () => {
+      const confirmed = detachReactivity(edges.value[0].data.couplings)
+      await saveInstanceEdit(buildSave({ ports: ports('k'), drivenCouplings: [['e', confirmed]] }))
+      expect(edges.value[0].data.couplings[0]).toMatchObject({ drivesState: true, sourcePort: { variables: ['k'] } })
+    })
+  })
+
   it('undoes a save on an instance that was deleted and restored', async () => {
     const before = snapshot()
     await saveInstanceEdit(fork())
