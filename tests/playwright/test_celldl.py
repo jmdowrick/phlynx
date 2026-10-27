@@ -7,8 +7,10 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, expect, 
 
 try:
     from .config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
+    from .test_simulator import IS_DEV_SERVER
 except ImportError:
     from config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
+    from test_simulator import IS_DEV_SERVER
 
 
 # Automated browsers skip the isolation service worker unless they opt in (see index.html).
@@ -87,6 +89,12 @@ def open_app(playwright, engine="chromium"):
     page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
     page.locator(".file-io-buttons .p-splitbutton").first.wait_for(timeout=APP_MOUNT_TIMEOUT)
     return browser, page
+
+
+def skip_unless_dev_server(test, page):
+    """Skips a test that imports the app's source modules, which only the dev server serves."""
+    if not page.evaluate(IS_DEV_SERVER):
+        test.skipTest("The app's source modules aren't served here; run against the dev server.")
 
 
 def import_diagram(page, files):
@@ -372,6 +380,9 @@ def add_port(page, dialog, label, variable):
     row.get_by_placeholder("Enter label").fill(label)
     row.locator(".p-multiselect").click()
     overlay = page.locator(".ports-variable-overlay")
+    # PrimeVue only listens for an outside click once the list's opening transition ends, so a click before then
+    # leaves it open.
+    expect(overlay).not_to_have_class(re.compile(r"-enter-"))
     option = overlay.locator(".p-multiselect-option").filter(has_text=re.compile(rf"^\s*{re.escape(variable)}\s*$"))
     option.click()
     expect(option).to_have_attribute("aria-selected", "true")
@@ -728,6 +739,7 @@ class TestCelldl(unittest.TestCase):
     def test_offers_a_store_the_types_its_properties_panel_does_from_its_parameters_tab(self):
         with sync_playwright() as playwright:
             browser, page = open_app(playwright)
+            skip_unless_dev_server(self, page)
 
             # ---------- START -----------
             place(page, "TEMPLATE MODULES", "new_module")
@@ -776,6 +788,7 @@ class TestCelldl(unittest.TestCase):
     def test_saves_every_generated_constant_from_the_template_so_the_whole_model_runs(self):
         with sync_playwright() as playwright:
             browser, page = open_app(playwright)
+            skip_unless_dev_server(self, page)
             page.evaluate(SHORT_SIMULATION)
 
             # ---------- START -----------
@@ -803,6 +816,7 @@ class TestCelldl(unittest.TestCase):
     def test_shows_a_variable_the_math_computes_as_computed_not_as_a_value_to_enter(self):
         with sync_playwright() as playwright:
             browser, page = open_app(playwright)
+            skip_unless_dev_server(self, page)
             page.evaluate(SHORT_SIMULATION)
 
             # ---------- START -----------
@@ -1397,6 +1411,7 @@ class TestCelldl(unittest.TestCase):
                         self.fail(f"{engine} isn't installed")
                     self.skipTest(f"{engine} isn't installed")
                 browser, page = open_app(playwright, engine)
+                skip_unless_dev_server(self, page)
 
                 # ---------- START -----------
                 import_diagram(page, REACTIONS_PANEL)
@@ -1462,6 +1477,7 @@ class TestCelldl(unittest.TestCase):
     def test_draws_bonds_with_the_chosen_arrowheads_and_shows_the_reactions_panel(self):
         with sync_playwright() as playwright:
             browser, page = open_app(playwright)
+            skip_unless_dev_server(self, page)
 
             # ---------- START -----------
             import_diagram(page, REACTIONS_PANEL)

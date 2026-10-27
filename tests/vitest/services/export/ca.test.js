@@ -9,7 +9,7 @@ import { ensureLibCellmlReady } from '../../helpers/libcellml-bootstrap.js'
 const notified = vi.hoisted(() => ({ error: vi.fn(), warning: vi.fn() }))
 vi.mock('../../../../src/utils/notify', () => ({ notify: notified }))
 
-const { generateExportZip } = await import('../../../../src/services/export/ca.js')
+const { findCaExportBlocker, generateExportZip } = await import('../../../../src/services/export/ca.js')
 const { caModuleFileName, groupingTag, renameClashingComponents } = await import('../../../../src/services/export/caCellml.js')
 const { combineComponentModels, processCellMLData } = await import('../../../../src/utils/cellml.js')
 const { useLibraryStore } = await import('../../../../src/stores/libraryStore.js')
@@ -243,10 +243,12 @@ describe('generateExportZip', () => {
     const coupling = { sourcePort: { label: 'p', variables: ['X'] }, targetPort: { label: 'p', variables: ['q'] }, drivesState: true }
     const edge = { id: 'e', source: 'src', target: 's', data: { couplings: [coupling] } }
 
-    await expect(generateExportZip('heart', [source, store], [edge], library)).rejects.toThrow(
-      "Driving a CellDL store from a connection isn't supported in the CA export yet: s.q"
-    )
-    expect(notified.error).toHaveBeenCalled()
+    const message = "Driving a CellDL store from a connection isn't supported in the CA export yet: s.q"
+    expect(findCaExportBlocker([source, store], [edge], library)).toBe(message)
+    await expect(generateExportZip('heart', [source, store], [edge], library)).rejects.toThrow(message)
+    // The caller reports it, so it shows once.
+    expect(notified.error).not.toHaveBeenCalled()
+    expect(findCaExportBlocker([source, store], [], library)).toBeNull()
   })
 
   it('writes each boundary condition row, as CA needs one for every boundary condition', async () => {
