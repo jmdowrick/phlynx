@@ -502,6 +502,9 @@ describe('useInstanceSave', () => {
     const drive = (couplings) => couplings.map((coupling) => ({ ...coupling, drivesState: true }))
 
     beforeEach(() => {
+      // One variable a side, as a coupling pairs ports with the same number of variables. The variable must be one
+      // b has, or the save's port clean-up drops the port.
+      findNode('b').data.ports = ports('x')
       edges.value = [{ id: 'e', source: 'a', target: 'b', data: { couplings: [] } }]
       edges.value[0].data.couplings = drive(previewCouplings('a', ports('x'), nodes.value, edges.value).get('e'))
     })
