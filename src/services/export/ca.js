@@ -29,11 +29,8 @@ const PULMONARY_MODULE_REF = 'arterial_simple:vp'
  */
 export async function generateExportZip(fileName, nodes, edges, libraryStore, obsData = null) {
   try {
-    // CA would run the module's own equation for the store, so the export would hold the wrong math.
-    const driven = drivenStoreLabels(nodes, edges, libraryStore)
-    if (driven.length) {
-      throw new Error(`Driving a CellDL store from a connection isn't supported in the CA export yet: ${driven.join(', ')}`)
-    }
+    const blocker = findCaExportBlocker(nodes, edges, libraryStore)
+    if (blocker) throw new Error(blocker)
 
     const zip = new JSZip()
 
@@ -162,10 +159,24 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
 
     return zipBlob
   } catch (error) {
+    // The caller reports it.
     console.error('Export Error:', error)
-    notify.error({ message: `Failed to export config files: ${error.message}` })
     throw error
   }
+}
+
+/**
+ * Finds what stops the workspace being exported to CA, so it can be checked before asking where to save.
+ *
+ * @param {Array} nodes - The array of nodes from Vue Flow.
+ * @param {Array} edges - The array of edges from Vue Flow.
+ * @param {Object} libraryStore - The Pinia builder store.
+ * @returns {string|null} Why it can't be exported, or null when it can.
+ */
+export function findCaExportBlocker(nodes, edges, libraryStore) {
+  // CA would run the module's own equation for the store, so the export would hold the wrong math.
+  const driven = drivenStoreLabels(nodes, edges, libraryStore)
+  return driven.length ? `Driving a CellDL store from a connection isn't supported in the CA export yet: ${driven.join(', ')}` : null
 }
 
 /**
