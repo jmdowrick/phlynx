@@ -6,7 +6,7 @@ import { getModuleFormat } from '../moduleFormats'
 import { parseMathRef, parseModuleRef, restorePorts, restoreVariables } from '../../utils/config'
 import { PORT_TYPE_OPTIONS } from '../../utils/constants'
 import { isBlank } from '../../utils/variables'
-import { resolveBoundaryValues } from './boundaryValues'
+import { resolveBoundaryValues, storeOptions } from './boundaryValues'
 import { buildCaCellmlFiles, isHeart, listNamed } from './caCellml'
 
 // CA's placeholder for a value still to be given; it reads an empty cell as NaN.
@@ -29,6 +29,12 @@ const PULMONARY_MODULE_REF = 'arterial_simple:vp'
  */
 export async function generateExportZip(fileName, nodes, edges, libraryStore, obsData = null) {
   try {
+    // CA would run the module's own equation for the store, so the export would hold the wrong math.
+    const driven = drivenStoreLabels(nodes, edges, libraryStore)
+    if (driven.length) {
+      throw new Error(`Driving a CellDL store from a connection isn't supported in the CA export yet: ${driven.join(', ')}`)
+    }
+
     const zip = new JSZip()
 
     // Create maps for quick lookup of node names and objects
@@ -160,6 +166,21 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
     notify.error({ message: `Failed to export config files: ${error.message}` })
     throw error
   }
+}
+
+/**
+ * Lists the CellDL stores a connection drives (see resolveBoundaryValues' `driven`), as `instance.variable`.
+ *
+ * @param {Array} nodes
+ * @param {Array} edges
+ * @param {Object} libraryStore
+ * @returns {string[]}
+ */
+function drivenStoreLabels(nodes, edges, libraryStore) {
+  if (!edges.some((edge) => edge.data?.couplings?.some((coupling) => coupling.drivesState))) return []
+  const nodeNames = new Map(nodes.map((node) => [node.id, node.data.name]))
+  const { driven } = resolveBoundaryValues(nodes, edges, libraryStore.getMathAnalysis, storeOptions(libraryStore))
+  return [...driven].flatMap(([nodeId, states]) => [...states.keys()].map((name) => `${nodeNames.get(nodeId)}.${name}`))
 }
 
 /**

@@ -373,14 +373,16 @@ const shownValue = (cell) => (isDefault(cell) ? '' : String(cell.row?.value ?? '
 const isMissing = (cell) => !cell.supplied && isEmpty(cell.row?.value) && isEmpty(cell.defaultValue)
 
 /**
- * Says where a connection supplies a cell's value from, e.g. `Set by other_1.X`; null when it doesn't.
+ * Says where a connection supplies a cell's value from, e.g. `Set by other_1.X`, or, for a store's initial value,
+ * what drives the store; null when it doesn't.
  *
  * @param {Object} cell - A value cell.
  * @returns {string|null}
  */
 function suppliedBy(cell) {
   const status = cell.name ? props.connectionStatus.get(cell.name) : null
-  return status?.state === 'connected' ? `Set by ${status.from.join(', ') || 'a connection'}` : null
+  const isSupplied = status?.state === 'connected' || status?.state === 'drivenInitial'
+  return isSupplied ? `Set by ${status.from.join(', ') || 'a connection'}` : null
 }
 
 function valueTitle(cell) {

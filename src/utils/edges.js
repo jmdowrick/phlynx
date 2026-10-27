@@ -276,9 +276,32 @@ export function previewCouplings(nodeId, ports, nodes, edges) {
     const { sourceIndex, targetIndex } = edgeOrdinals(edge, edges)
     const held = new Set([...heldPorts(edge.source, sourcePorts, edges, edge.id), ...heldPorts(edge.target, targetPorts, edges, edge.id)])
     const stored = edge.data?.couplings ?? []
-    couplings.set(edge.id, resolvePortCouplings(sourcePorts, targetPorts, sourceIndex, targetIndex, { stored, held }))
+    const resolved = resolvePortCouplings(sourcePorts, targetPorts, sourceIndex, targetIndex, { stored, held })
+    couplings.set(edge.id, carryDrivesState(stored, resolved))
   }
   return couplings
+}
+
+/** Whether two couplings join the same ports, by type and label, so their variables may have been renamed. */
+export function isSameCoupling(a, b) {
+  const same = (x, y) => x?.portType === y?.portType && x?.label === y?.label
+  return same(a.sourcePort, b.sourcePort) && same(a.targetPort, b.targetPort)
+}
+
+/**
+ * Keeps the `drivesState` mark of couplings that recomputing them from the ports left in place (see
+ * resolveBoundaryValues).
+ *
+ * @param {Array} previous - The couplings before.
+ * @param {Array} next - The recomputed couplings.
+ * @returns {Array} `next`, its couplings marked as before; the same array when none was.
+ */
+export function carryDrivesState(previous, next) {
+  const marked = previous.filter((coupling) => coupling.drivesState)
+  if (!marked.length) return next
+  return next.map((coupling) =>
+    !coupling.drivesState && marked.some((old) => isSameCoupling(old, coupling)) ? { ...coupling, drivesState: true } : coupling
+  )
 }
 
 /**

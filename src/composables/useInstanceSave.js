@@ -15,7 +15,7 @@ import { rescaleRows } from '../services/math/unitRescale'
 import { getModuleFormat } from '../services/moduleFormats'
 import { getNodeSelections, replaceNodeSelections, setNodePlotVariables } from '../services/simulation/plotSelections'
 import { FLOW_IDS, PROTECTED_MATH_REFS } from '../utils/constants'
-import { previewCouplings } from '../utils/edges'
+import { carryDrivesState, previewCouplings } from '../utils/edges'
 import { detachReactivity } from '../utils/reactivity'
 import { useNodeDataHistory } from './useNodeDataHistory'
 
@@ -91,17 +91,19 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
-   * Recomputes couplings on every edge touching a node from the current ports. Call it after
-   * changing ports on one or more nodes.
+   * Recomputes couplings on every edge touching a node from the current ports, keeping which drive a store. Call it
+   * after changing ports on one or more nodes.
    *
    * @param {string} nodeId
+   * @param {Map<string, Array>} [marked] - Edges' couplings the save set to drive a store (confirmDrivenStores).
    */
-  function recomputeEdgeCouplings(nodeId) {
+  function recomputeEdgeCouplings(nodeId, marked = new Map()) {
     const node = findNode(nodeId)
     if (!node) return
     const couplings = previewCouplings(nodeId, node.data.ports ?? [], nodes.value, edges.value)
     edges.value.forEach((edge) => {
-      if (couplings.has(edge.id)) edge.data = { ...edge.data, couplings: couplings.get(edge.id) }
+      if (!couplings.has(edge.id)) return
+      edge.data = { ...edge.data, couplings: carryDrivesState(marked.get(edge.id) ?? [], couplings.get(edge.id)) }
     })
   }
 
@@ -184,7 +186,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
       cleanPorts(node)
     })
 
-    recomputeEdgeCouplings(id)
+    recomputeEdgeCouplings(id, new Map(save.drivenCouplings ?? []))
     otherNodes.forEach((node) => recomputeEdgeCouplings(node.id))
     return moduleRef
   }

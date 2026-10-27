@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { edgeOrdinals, previewCouplings, resolvePortCouplings } from '../../../src/utils/edges.js'
+import { carryDrivesState, edgeOrdinals, previewCouplings, resolvePortCouplings } from '../../../src/utils/edges.js'
 
 const port = (label, portType, variables) => ({ label, portType, variables, multiportType: 'None' })
 const node = (id, ports) => ({ id, data: { name: id, ports } })
@@ -106,5 +106,23 @@ describe('edgeOrdinals', () => {
   it("gives an edge's position among the edges sharing its source and its target", () => {
     const edges = [edge('a', 'hub', 'x'), edge('b', 'y', 'leaf'), edge('c', 'hub', 'leaf')]
     expect(edgeOrdinals(edges[2], edges)).toEqual({ sourceIndex: 1, targetIndex: 1 })
+  })
+})
+
+describe('carryDrivesState', () => {
+  const coupling = (source, target, drivesState) => ({
+    sourcePort: port('p', 'general_ports', [source]),
+    targetPort: port('p', 'general_ports', [target]),
+    ...(drivesState && { drivesState }),
+  })
+
+  it('keeps the mark on a recomputed coupling between the same ports, renamed or not', () => {
+    const next = carryDrivesState([coupling('X', 'q', true)], [coupling('X', 'q_renamed')])
+    expect(next).toEqual([coupling('X', 'q_renamed', true)])
+  })
+
+  it('returns the same couplings when none was marked', () => {
+    const next = [coupling('X', 'q')]
+    expect(carryDrivesState([coupling('X', 'q')], next)).toBe(next)
   })
 })

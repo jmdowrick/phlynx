@@ -536,7 +536,8 @@ import { useEditorCloseGuard } from '../composables/useEditorCloseGuard'
 import { useLiveCelldlConvert } from '../composables/useLiveCelldlConvert'
 
 import { isInitialisable } from '../services/math/variableKinds'
-import { resolveBoundaryValues } from '../services/export/boundaryValues'
+import { resolveBoundaryValues, storeOptions } from '../services/export/boundaryValues'
+import { confirmDrivenStores } from '../services/export/drivenStores'
 import {
   createSinglePlotConfig,
   getNodePlotEntries,
@@ -1240,7 +1241,7 @@ const connection = computed(() => {
   try {
     // The store analyses the saved math, while this instance's rows already follow the math as edited.
     const savedAnalysis = (mathRef) => (mathRef === props.mathRef ? null : (store.getMathAnalysis?.(mathRef) ?? null))
-    resolved = resolveBoundaryValues(canvasNodes, canvasEdges, savedAnalysis)
+    resolved = resolveBoundaryValues(canvasNodes, canvasEdges, savedAnalysis, storeOptions(store))
   } catch {
     return { status: new Map(), ignored: new Set(), emptySums: new Set() } // a malformed multiport, which export reports
   }
@@ -1254,19 +1255,28 @@ const connection = computed(() => {
 /** Each row name to where its value comes from (see resolveBoundaryValues' `status`). */
 const connectionStatus = computed(() => connection.value.status)
 
-/** The rows a connection supplies, or Sums nothing is connected to (so 0), which need no value of their own. */
+/**
+ * The rows a connection supplies, the initial values of stores it drives, or Sums nothing is connected to (so 0), which
+ * need no value of their own.
+ */
 const connectionSuppliedNames = computed(() => {
   const { status, emptySums } = connection.value
-  return new Set([...[...status].filter(([, { state }]) => state === 'connected').map(([name]) => name), ...emptySums])
+  const supplied = [...status].filter(([, { state }]) => state === 'connected' || state === 'drivenInitial')
+  return new Set([...supplied.map(([name]) => name), ...emptySums])
 })
 
 /** Each row whose value export ignores, as something else supplies its variable, with why. */
 const ignoredNotices = computed(() => {
   const { ignored, emptySums, status } = connection.value
+  // A driven store's initial value is unused, blank or not.
+  const drivenInitials = [...status].filter(([, { state }]) => state === 'drivenInitial').map(([name]) => name)
   return new Map(
-    [...ignored].map((name) => {
+    [...new Set([...ignored, ...drivenInitials])].map((name) => {
       if (emptySums.has(name)) return [name, 'Sums its connections, and none are connected: it is 0, and this value is ignored on export']
       const from = status.get(name)?.from ?? []
+      if (status.get(name)?.state === 'drivenInitial') {
+        return [name, `Its store is set by ${from.join(', ') || 'a connection'}, so this initial value is ignored`]
+      }
       return [name, `Set by ${from.length ? from.join(', ') : 'a connection'}: this value is ignored on export`]
     })
   )
@@ -2285,6 +2295,32 @@ async function resolveMathTarget(math, layout) {
 }
 
 /**
+ * Asks, for each CellDL store the edited ports would newly couple to what another instance computes, whether the
+ * connection should drive it (see confirmDrivenStores). Only edges whose couplings the ports change are asked about.
+ *
+ * @param {Array} ports - The ports to save.
+ * @returns {Promise<Map<string, Array>|null>} Each edge's couplings set to drive a store; null when one was declined.
+ */
+async function confirmPortDrives(ports) {
+  const canvasNodes = (nodes.value ?? []).map((node) =>
+    node.id === props.id ? { ...node, data: { ...node.data, variables: parameterRows.value, ports } } : node
+  )
+  const canvasEdges = edges.value ?? []
+  const couplings = previewCouplings(props.id, ports, canvasNodes, canvasEdges)
+  const unmarked = (list) => JSON.stringify((list ?? []).map(({ drivesState, ...coupling }) => coupling))
+  const changed = new Set(
+    [...couplings]
+      .filter(([edgeId, next]) => unmarked(canvasEdges.find((edge) => edge.id === edgeId)?.data?.couplings) !== unmarked(next))
+      .map(([edgeId]) => edgeId)
+  )
+  if (!changed.size) return new Map()
+  const edited = canvasEdges.map((edge) =>
+    couplings.has(edge.id) ? { ...edge, data: { ...edge.data, couplings: couplings.get(edge.id) } } : edge
+  )
+  return confirmDrivenStores({ nodes: canvasNodes, edges: edited, edgeIds: changed, libraryStore: store, confirm })
+}
+
+/**
  * Validates and saves the instance, then closes the editor, or keeps it open on the saved instance.
  *
  * @param {{keepOpen?: boolean}|Event} [options] - A button's click event passes as no options.
@@ -2368,6 +2404,10 @@ async function saveInstance(options) {
     showTab('parameters')
     return
   }
+
+  // 2c. A port change that couples a CellDL store to what another instance computes asks first.
+  const drivenCouplings = await confirmPortDrives(finalPorts)
+  if (!drivenCouplings) return
 
   const textErrors = getEditorErrors()
   if (textErrors.length > 0) {
@@ -2473,6 +2513,8 @@ async function saveInstance(options) {
         })),
       variables: parameterRows.value,
       ports: renamePortVariables(finalPorts, renames),
+      // Edges' couplings set to drive a CellDL store, which they keep once recomputed from the ports.
+      drivenCouplings: [...drivenCouplings],
       // The instance's plotted variables, under the names this save gives them.
       plotVariables: renamedPlotEntries(),
       updateAll,
