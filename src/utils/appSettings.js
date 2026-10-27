@@ -55,6 +55,19 @@ export const SETTING_SECTIONS = [
         default: 'classic',
       },
       {
+        key: 'celldlWheelMode',
+        type: 'select',
+        label: 'Scrolling in CellDL diagrams',
+        description:
+          'What the mouse wheel and two-finger trackpad scrolling do over a diagram. Pinching, or scrolling with Ctrl or Cmd held, always zooms.',
+        options: [
+          { value: 'auto', label: 'Automatic', hint: 'A mouse wheel zooms; a trackpad pans' },
+          { value: 'pan', label: 'Pan', hint: 'Scrolling moves the diagram; hold Shift to move it sideways' },
+          { value: 'zoom', label: 'Zoom', hint: 'Scrolling zooms around the pointer' },
+        ],
+        default: 'auto',
+      },
+      {
         key: 'celldlUnitSystem',
         type: 'select',
         label: 'New CellDL modules: unit system',
