@@ -249,6 +249,8 @@ const props = defineProps({
   targetNode: { type: Object, required: true },
   activeEdge: { type: Object, required: true },
   subgraph: { type: Map, required: true },
+  /** The active edge's ordinal indices (see edgeOrdinals), which pick its single-connection slots. */
+  ordinals: { type: Object, default: () => ({ sourceIndex: 0, targetIndex: 0 }) },
 })
 
 const CANVAS_PAD_X = 14
@@ -318,6 +320,7 @@ const {
   connectedSrcUids,
   connectedTgtUids,
   initLocalState,
+  deriveCouplings,
   evictHandle,
   swapConnections,
   connectPorts,
@@ -506,6 +509,7 @@ async function onConnect(connection) {
   if (nextCouplings === null) return
 
   localCouplings.value = connectPorts(srcUid, tgtUid, nextCouplings)
+  deriveCouplings()
 }
 
 async function onEdgeUpdate({ edge, connection }) {
@@ -569,6 +573,7 @@ async function onEdgeUpdate({ edge, connection }) {
 
   nextCouplings = connectPorts(newSrcUid, newTgtUid, nextCouplings)
   localCouplings.value = nextCouplings
+  deriveCouplings()
 }
 
 const validConnectUids = computed(() => {
@@ -619,6 +624,7 @@ function buildPayload() {
       const tp = tgtByUid(c.tgtUid)
       return {
         sourcePort: {
+          _uid: sp._uid,
           portType: sp.portType,
           label: sp.label,
           variables: sp.variables,
@@ -626,6 +632,7 @@ function buildPayload() {
           multiplyFactor: sp.multiplyFactor,
         },
         targetPort: {
+          _uid: tp._uid,
           portType: tp.portType,
           label: tp.label,
           variables: tp.variables,
