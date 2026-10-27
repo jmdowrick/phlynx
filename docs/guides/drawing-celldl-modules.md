@@ -125,7 +125,8 @@ In **Settings** (cog icon), under **CellDL diagrams**:
 
 ## Saving and Exporting {#exporting}
 
-- The [workspace file](../reference/file-types.md#workspace-file) and OMEX archives ([COMBINE archive](../reference/file-types.md#combine-archive)) keep each module's diagram, so it opens in the CellDL tab again.
+- The [workspace file](../reference/file-types.md#workspace-file) keeps every CellDL module's diagram, including modules in the library that have no instance on the canvas, so each opens in the CellDL tab again.
+- OMEX archives ([COMBINE archive](../reference/file-types.md#combine-archive)) keep the diagrams of the modules placed on the canvas.
 - **Export ▸ CellML** and **Circulatory Autogen** write the generated CellML; the diagram isn't included.
 
 ## Known Limitations (Beta) {#limitations}
