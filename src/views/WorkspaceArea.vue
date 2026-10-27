@@ -554,6 +554,7 @@
     :target-node="edgeDialogTargetNode"
     :active-edge="edgeDialogActiveEdge"
     :subgraph="edgeDialogSubgraph"
+    :ordinals="edgeDialogOrdinals"
     @confirm="onEdgeConnectionConfirm"
   />
 </template>
@@ -687,7 +688,7 @@ import {
   NUM_GHOST_HANDLES_LEFT_RIGHT,
   PHLYNX_PROJECT_VERSION,
 } from '../utils/constants'
-import { resolvePortCouplings } from '../utils/edges'
+import { edgeOrdinals, resolvePortCouplings } from '../utils/edges'
 import { parseParametersFile } from '../utils/import'
 import { applyParameterValues, applyParametersToNodes, skippedParametersMessage } from '../utils/parameters'
 import { detachReactivity } from '../utils/reactivity'
@@ -856,6 +857,7 @@ const edgeDialogSourceNode = ref({})
 const edgeDialogTargetNode = ref({})
 const edgeDialogActiveEdge = ref({})
 const edgeDialogSubgraph = ref(new Map())
+const edgeDialogOrdinals = ref({ sourceIndex: 0, targetIndex: 0 })
 const importDialogRef = ref(null)
 
 const currentEditingNode = ref({
@@ -1731,6 +1733,7 @@ function onEdgeDoubleClick({ edge }) {
   if (!sourceNode || !targetNode) return
 
   edgeDialogSubgraph.value = buildEdgeSubgraph(edge)
+  edgeDialogOrdinals.value = edgeOrdinals(edge, edges.value)
   edgeDialogSourceNode.value = detachReactivity(sourceNode)
   edgeDialogTargetNode.value = detachReactivity(targetNode)
   edgeDialogActiveEdge.value = detachReactivity(edge)

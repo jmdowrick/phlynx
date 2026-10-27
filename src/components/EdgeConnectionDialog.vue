@@ -185,9 +185,9 @@
           <MultiportKey />
         </div>
       </div>
-      <!-- The orange lines' pairs, which export and simulation reject -->
-      <ul v-if="unitConflicts.length" class="units-conflicts">
-        <li v-for="message in unitConflicts" :key="message">
+      <!-- The orange lines' pairs, and variables the couplings set more than once, which export and simulation reject -->
+      <ul v-if="couplingIssues.length" class="units-conflicts">
+        <li v-for="message in couplingIssues" :key="message">
           <i class="pi pi-exclamation-triangle"></i>{{ message }}
         </li>
       </ul>
@@ -232,6 +232,7 @@ import { isSingleConnection } from '../utils/edges'
 import { isCompatible } from '../utils/ports'
 import { couplingConflicts } from '../utils/multiport'
 import { couplingUnitConflicts } from '../utils/couplingUnits'
+import { resolveBoundaryValues } from '../services/export/boundaryValues'
 import { useLibraryStore } from '../stores/libraryStore'
 import { detachReactivity } from '../utils/reactivity'
 import { waitUntilStable } from '../utils/layout'
@@ -248,6 +249,8 @@ const props = defineProps({
   targetNode: { type: Object, required: true },
   activeEdge: { type: Object, required: true },
   subgraph: { type: Map, required: true },
+  /** The active edge's ordinal indices (see edgeOrdinals), which pick its single-connection slots. */
+  ordinals: { type: Object, default: () => ({ sourceIndex: 0, targetIndex: 0 }) },
 })
 
 const CANVAS_PAD_X = 14
@@ -317,6 +320,7 @@ const {
   connectedSrcUids,
   connectedTgtUids,
   initLocalState,
+  deriveCouplings,
   evictHandle,
   swapConnections,
   connectPorts,
@@ -380,6 +384,41 @@ const drawnCouplings = computed(() => {
 })
 
 const unitConflicts = computed(() => [...new Set(drawnCouplings.value.flatMap((coupling) => coupling.unitConflicts))])
+
+const { nodes: canvasNodes, edges: canvasEdges } = useVueFlow(FLOW_IDS.MAIN)
+
+/**
+ * Variables this edge's couplings set more than once, as edited here against the rest of the canvas (see
+ * resolveBoundaryValues' `overdetermined`).
+ */
+const overdetermined = computed(() => {
+  const couplings = drawnCouplings.value.map(({ srcUid, tgtUid }) => ({ sourcePort: srcByUid(srcUid), targetPort: tgtByUid(tgtUid) }))
+  if (!couplings.length) return []
+  const ports = new Map([
+    [props.sourceNode.id, localSrcPorts.value],
+    [props.targetNode.id, localTgtPorts.value],
+  ])
+  const nodes = (canvasNodes.value ?? []).map((node) => (ports.has(node.id) ? { ...node, data: { ...node.data, ports: ports.get(node.id) } } : node))
+  const edges = (canvasEdges.value ?? []).map((edge) => {
+    if (edge.id === props.activeEdge?.id) return { ...edge, data: { ...edge.data, couplings } }
+    return localSubgraph.value.get(edge.id) ?? edge
+  })
+  const ownKeys = new Set(
+    couplings.flatMap(({ sourcePort, targetPort }) => [
+      ...(sourcePort.variables ?? []).map((name) => `${props.sourceNode.id}::${name}`),
+      ...(targetPort.variables ?? []).map((name) => `${props.targetNode.id}::${name}`),
+    ])
+  )
+  try {
+    return resolveBoundaryValues(nodes, edges, libraryStore.getMathAnalysis)
+      .overdetermined.filter(({ keys }) => keys.some((key) => ownKeys.has(key)))
+      .map(({ message }) => message)
+  } catch {
+    return [] // a malformed multiport, which export reports
+  }
+})
+
+const couplingIssues = computed(() => [...unitConflicts.value, ...overdetermined.value])
 
 const flowEdges = computed(() =>
   drawnCouplings.value.map(({ srcUid, tgtUid, unitConflicts }) => ({
@@ -470,6 +509,7 @@ async function onConnect(connection) {
   if (nextCouplings === null) return
 
   localCouplings.value = connectPorts(srcUid, tgtUid, nextCouplings)
+  deriveCouplings()
 }
 
 async function onEdgeUpdate({ edge, connection }) {
@@ -533,6 +573,7 @@ async function onEdgeUpdate({ edge, connection }) {
 
   nextCouplings = connectPorts(newSrcUid, newTgtUid, nextCouplings)
   localCouplings.value = nextCouplings
+  deriveCouplings()
 }
 
 const validConnectUids = computed(() => {
@@ -583,6 +624,7 @@ function buildPayload() {
       const tp = tgtByUid(c.tgtUid)
       return {
         sourcePort: {
+          _uid: sp._uid,
           portType: sp.portType,
           label: sp.label,
           variables: sp.variables,
@@ -590,6 +632,7 @@ function buildPayload() {
           multiplyFactor: sp.multiplyFactor,
         },
         targetPort: {
+          _uid: tp._uid,
           portType: tp.portType,
           label: tp.label,
           variables: tp.variables,
