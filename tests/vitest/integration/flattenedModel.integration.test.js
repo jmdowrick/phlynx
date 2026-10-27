@@ -453,7 +453,9 @@ describe('generateFlattenedModel multiport couplings', () => {
   it('rejects a sum between ports with different numbers of variables', () => {
     const hub = buildNode('hub', 'file:hub', [vesselPort('exit_ports', ['v_sum', 'u'], ['sum', 'True'])])
     const leaf = buildNode('leaf', 'file:leaf', [vesselPort('entrance_ports', ['v'], 'None')], { u: '1' })
-    expect(() => generateFlattenedModel([hub, leaf], [connect(hub, leaf)], store)).toThrow(/same number of variables/)
+    // Couplings no longer pair them, so only a coupling stored before that reaches the export.
+    const stored = { id: 'hub_leaf', source: hub.id, target: leaf.id, data: { couplings: [{ sourcePort: hub.data.ports[0], targetPort: leaf.data.ports[0] }] } }
+    expect(() => generateFlattenedModel([hub, leaf], [stored], store)).toThrow(/same number of variables/)
   })
 
   it('sums a variable through two separate ports of the same instance', async () => {
