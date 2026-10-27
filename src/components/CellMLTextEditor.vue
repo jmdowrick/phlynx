@@ -64,7 +64,7 @@
       <div class="editor-section">
         <div class="panel-header">
           <label class="mode-switch">
-            <ToggleSwitch v-model="isSimple" :disabled="readonly" />
+            <ToggleSwitch v-model="isSimple" />
             <span>Simple Mode</span>
           </label>
           <div class="font-size-control" role="group" aria-label="Editor font size">
