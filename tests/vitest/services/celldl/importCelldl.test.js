@@ -6,6 +6,7 @@ vi.mock('../../../../src/services/celldl/convert.js', async (importActual) => ({
 
 import { celldlImportNames, importCelldl } from '../../../../src/services/celldl/importCelldl.js'
 import { useLibraryStore } from '../../../../src/stores/libraryStore.js'
+import { ensureLibCellmlReady } from '../../helpers/libcellml-bootstrap.js'
 
 const MATH = '<component name="rc"><variable name="x" units="dimensionless"/></component>'
 
@@ -43,4 +44,23 @@ describe('importCelldl', () => {
     expect(store.getMathSource('User_Modules.celldl:rc')).toBeNull()
     expect(store.availableMath.size).toBe(0)
   })
+
+  it("stores the diagram's section layout with its math", async () => {
+    await ensureLibCellmlReady()
+    const layout = { format: 'cellml-text-layout', version: 1, components: [{ name: 'rc' }] }
+    convertCelldl.mockResolvedValueOnce({
+      ok: true,
+      components: [{ name: 'rc', math: `<model xmlns="http://www.cellml.org/cellml/2.0#" name="m">${MATH}</model>` }],
+      layout,
+      unitsModel: null,
+      elements: {},
+      errors: [],
+      warnings: [],
+    })
+
+    const result = await importCelldl('rc.celldl', '<svg/>', store)
+
+    expect(result.ok).toBe(true)
+    expect(store.getMathLayout('User_Modules.celldl:rc')).toEqual(layout)
+  }, 120000)
 })

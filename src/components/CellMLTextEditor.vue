@@ -676,10 +676,12 @@ function renameVariable(from, to) {
  * Shows a model written by another editor, as this editor's text.
  *
  * @param {string} xml
+ * @param {Object|null} [layout] - The model's text layout, replacing the current one; omitted, the current one stays.
  * @returns {Promise<void>}
  */
-function setModel(xml) {
+function setModel(xml, layout) {
   lastXml = xml
+  if (layout !== undefined) lastLayout = layout
   return setText(generateText(xml))
 }
 

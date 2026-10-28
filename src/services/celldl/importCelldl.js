@@ -34,8 +34,8 @@ export function celldlImportNames(filename, libraryStore) {
 
 /**
  * Converts a CellDL diagram and adds it to the library: its source, then its math (which creates
- * its module), then its units. Nothing is added if it doesn't convert, the CellDL editor couldn't
- * open it, or its warnings aren't accepted.
+ * its module) and its text layout, then its units. Nothing is added if it doesn't convert, the CellDL
+ * editor couldn't open it, or its warnings aren't accepted.
  *
  * @param {string} filename
  * @param {string} document - The CellDL SVG.
@@ -79,6 +79,8 @@ export async function importCelldl(filename, document, libraryStore, { confirmWa
   // The grouping's units first, as they are worked out from its other modules' math.
   const units = groupingUnitsAfterSave(libraryStore, mathRef, result.unitsModel)
   libraryStore.addMathFile(CELLDL_USER_MODULES_FILE, components)
+  // Its sections' headings, which the CellML Text tab shows.
+  libraryStore.setMathLayout(mathRef, result.layout ?? null)
   if (units.model) libraryStore.addUnitsFile(units)
   return { ...outcome, ok: true }
 }

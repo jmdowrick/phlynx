@@ -46,6 +46,17 @@ REACTIONS_MODULE = "reactions_panel"
 # Its A store (ID-00000003), bonded straight to r1's node (ID-00000002).
 STORE_A, BOND_A = "ID-00000003", "ID-00000004"
 
+# S1 -> R1 -> S2: two stores and the reaction between them.
+ONE_REACTION = os.path.join(RESOURCE_PATH, "celldl", "one_reaction.celldl")
+ONE_REACTION_MODULE = "one_reaction"
+SECTION_HEADINGS = [
+    "// Chemical potentials",
+    "// Reaction affinities",
+    "// Reaction flux",
+    "// Species flux",
+    "// Mass conservation",
+]
+
 # A CellML module computing an amount X = 2 X0 from its constant X0 of 0.75 mole.
 INITIAL_AMOUNT = os.path.join(RESOURCE_PATH, "celldl", "initial_amount.cellml")
 INITIAL_AMOUNT_MODULE = "initial_amount"
@@ -204,6 +215,20 @@ def cellml_text(dialog):
     content = dialog.locator(".cm-content").first
     content.wait_for()
     return content
+
+
+def text_lines(content):
+    """The CellML Text editor's lines, all of them, not only those it has drawn."""
+    return content.evaluate(
+        """(node) => {
+            // CodeMirror draws only the lines in view, so the text is read from the editor's component.
+            while (node && !node.__vueParentComponent) node = node.parentElement
+            for (let component = node?.__vueParentComponent; component; component = component.parent) {
+                const text = component.setupState?.cellmlText
+                if (typeof text === 'string') return text.split('\\n')
+            }
+        }"""
+    )
 
 
 def show_diagram(page, dialog):
@@ -1957,6 +1982,64 @@ class TestCelldl(unittest.TestCase):
 
             browser.close()
 
+
+    def assert_sections(self, content, simple):
+        """Checks the CellML Text has the one-reaction sections in order, each after a blank line (but the first in
+        Simple Mode), with the ODEs last."""
+        expect(content).to_contain_text(SECTION_HEADINGS[-1])
+        lines = [line.strip() for line in text_lines(content)]
+        self.assertEqual([line for line in lines if line.startswith("//")], SECTION_HEADINGS)
+        for heading in SECTION_HEADINGS[1:] if simple else SECTION_HEADINGS:
+            self.assertEqual(lines[lines.index(heading) - 1], "")
+        last = [line for line in lines[lines.index(SECTION_HEADINGS[-1]) + 1:] if line and line != "enddef;"]
+        self.assertEqual(len(last), 2)
+        self.assertTrue(all(line.startswith("ode(") for line in last))
+
+    def test_heads_each_section_of_a_diagrams_cellml_text_with_a_comment(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+
+            # ---------- START -----------
+            import_diagram(page, ONE_REACTION)
+            expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            place(page, CELLDL_GROUP, ONE_REACTION_MODULE)
+            dialog = open_editor(page, ONE_REACTION_MODULE)
+            wait_for_diagram(page)
+            content = cellml_text(dialog)
+            switch = dialog.locator(".mode-switch input")
+            for simple in (True, False):
+                if switch.is_checked() != simple:
+                    switch.click()
+                self.assert_sections(content, simple)
+
+            # The headings are PhLynx's layout, not an edit: the dialog closes without asking, and the CellML has no
+            # comments.
+            dialog.get_by_role("button", name="Cancel", exact=True).click()
+            expect(dialog).to_be_hidden()
+            math = page.evaluate(
+                """(ref) => document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
+                    .get('library').availableMath.get(ref)""",
+                f"User_Modules.celldl:{ONE_REACTION_MODULE}",
+            )
+            self.assertIn("v_Rx_R1_c", math)
+            self.assertNotIn("<!--", math)
+
+            # A diagram edit keeps them, live and once saved.
+            dialog = open_editor(page, ONE_REACTION_MODULE)
+            wait_for_diagram(page)
+            set_element_field(dialog, "ID-00000009", "Species", "P")
+            content = cellml_text(dialog)
+            expect(content).to_contain_text("q_P_c", timeout=DIAGRAM_TIMEOUT)
+            self.assert_sections(content, switch.is_checked())
+            dialog.get_by_role("button", name="Apply").click()
+            accept_overwrite(page)
+            expect(page.get_by_text("CellML Updated")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            content = cellml_text(dialog)
+            expect(content).to_contain_text("q_P_c")
+            self.assert_sections(content, switch.is_checked())
+            # ----------- END ------------
+
+            browser.close()
 
 if __name__ == '__main__':
     unittest.main()
