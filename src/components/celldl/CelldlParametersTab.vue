@@ -35,10 +35,6 @@
             @update:model-value="onUnitSystemChange"
           />
         </label>
-        <label class="follow-toggle" title="Changing a store's species or location changes its 0-junction's too, unless the junction has its own">
-          <ToggleSwitch v-model="isFollowing" input-id="celldl-follow-store" aria-label="Junctions follow their store" />
-          <span>Junctions follow their store</span>
-        </label>
       </div>
       <p class="toolbar-note">
         Types, species and locations change the diagram. Values are this instance's: a blank one uses the diagram's,
@@ -233,7 +229,6 @@ import { computed, nextTick, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import Select from 'primevue/select'
-import ToggleSwitch from 'primevue/toggleswitch'
 
 import CommitInput from './CommitInput.vue'
 import { useCelldlEditorHost } from '../../composables/useCelldlEditorHost'
@@ -273,25 +268,14 @@ const UNIT_SYSTEM_OPTIONS = [
   { value: 'cellular', label: 'Cellular (fmol, pL)' },
   { value: 'si', label: 'SI (mol, L)' },
 ]
-const FOLLOW_STORAGE_KEY = 'celldlParameters.followStore'
+// The "Junctions follow their store" switch is gone, as junctions always follow: drop the setting it kept.
+try {
+  window.localStorage.removeItem('celldlParameters.followStore')
+} catch {
+  // ignore storage errors
+}
 
 // ── Toolbar ─────────────────────────────────────────────────────────────────
-function loadFollowing() {
-  try {
-    return window.localStorage.getItem(FOLLOW_STORAGE_KEY) !== 'false'
-  } catch {
-    return true
-  }
-}
-const isFollowing = ref(loadFollowing())
-watch(isFollowing, (value) => {
-  try {
-    window.localStorage.setItem(FOLLOW_STORAGE_KEY, String(value))
-  } catch {
-    // ignore storage errors
-  }
-})
-
 const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`
 const chips = computed(() => {
   const list = []
@@ -356,7 +340,7 @@ const isDefaultName = (element, field) => element[field] === (field === 'species
 
 function ownsNaming(row) {
   const store = props.table.rowsById.get(row.storeId)?.element
-  return isFollowing.value && !!store && hasOwnNaming(row.element, store)
+  return !!store && hasOwnNaming(row.element, store)
 }
 
 const validateName = (value) => (NAME_PATTERN.test(value) ? '' : 'A letter or _, then letters, digits or _')
@@ -425,7 +409,7 @@ function onTypeChange(element, value) {
 
 function onNameCommit(row, field, value) {
   const junction = row.junctionId ? props.table.rowsById.get(row.junctionId)?.element : null
-  sendEdits(structureEdits(row.element, field, value, { junction, follow: isFollowing.value }))
+  sendEdits(structureEdits(row.element, field, value, { junction }))
 }
 
 // ── Unit system ─────────────────────────────────────────────────────────────
@@ -527,20 +511,6 @@ watch(
 
 .unit-system-select {
   min-width: 10rem;
-}
-
-.unit-system + .follow-toggle {
-  margin-left: 8px;
-}
-
-.follow-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-  font-size: var(--dlg-fs-tiny);
-  color: var(--p-text-color);
-  cursor: pointer;
 }
 
 .issue-chip {
