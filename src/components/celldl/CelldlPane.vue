@@ -48,8 +48,7 @@
             aria-label="Reorganise"
             :icon="isReorganising ? 'pi pi-spin pi-spinner' : 'pi pi-sitemap'"
             size="small"
-            severity="secondary"
-            text
+            outlined
             :disabled="!canReorganise"
             v-tooltip.top="'Lay the diagram out again by location. Undo puts it back.'"
             @click="reorganise"
