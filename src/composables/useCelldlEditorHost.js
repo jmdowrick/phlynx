@@ -29,7 +29,8 @@ export const EDITOR_OPTIONS = Object.freeze({ tooltip: 'tooltip', elementList: t
  * Properties panel shows values read-only: they're set per instance, in the Parameters tab. The right-hand panels
  * are listed so the Variables panel stays hidden; Annotations takes ontology terms (Rhea, SBO and UniProt on
  * reactions, ChEBI and GO on species), which the diagram keeps. The Reactions panel shows no Reorganise controls: the
- * CellDL tab's status line has them.
+ * CellDL tab's status line has them. The context menu has no Group or Ungroup: groups mean nothing to the model, and
+ * bg2cellml ignores them (diagrams that have them still open and convert).
  */
 export const EDITOR_CHROME = Object.freeze({
   tools: Object.freeze([]),
@@ -43,6 +44,7 @@ export const EDITOR_CHROME = Object.freeze({
   valuesHint: 'Set values in the Parameters tab',
   panels: Object.freeze(['properties', 'metadata', 'style', 'reactions', 'annotations']),
   reorganise: false,
+  grouping: false,
 })
 
 /** What Reorganise can do before the editor says: nothing. */

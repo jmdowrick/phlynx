@@ -1618,6 +1618,33 @@ class TestCelldl(unittest.TestCase):
 
             browser.close()
 
+    def test_offers_no_grouping_in_the_context_menu(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+
+            # ---------- START -----------
+            import_and_open(page)
+            menu = page.locator(".p-contextmenu")
+
+            # Groups mean nothing to the model, so neither an element's menu nor the canvas's offers them.
+            element = page.locator(f"{DIAGRAM_SVG} #celldl-diagram-layer > g.celldl-Component").first
+            x, y = element_centre(page, element.get_attribute("id"))
+            page.mouse.click(x, y, button="right")
+            expect(menu.get_by_text("Delete", exact=True)).to_be_visible()
+            for label in ("Group", "Edit group", "Ungroup"):
+                expect(menu.get_by_text(label, exact=True)).to_have_count(0)
+            page.keyboard.press("Escape")
+            expect(menu).to_be_hidden()
+
+            box = page.locator(DIAGRAM_SVG).bounding_box()
+            page.mouse.click(box["x"] + 30, box["y"] + box["height"] - 30, button="right")
+            expect(menu.get_by_text("Add element…", exact=True)).to_be_visible()
+            for label in ("Group", "Edit group", "Ungroup"):
+                expect(menu.get_by_text(label, exact=True)).to_have_count(0)
+            # ----------- END ------------
+
+            browser.close()
+
     def test_reorganises_from_the_status_line_in_the_chosen_mode_and_undoes_it(self):
         with sync_playwright() as playwright:
             browser, page = open_app(playwright)

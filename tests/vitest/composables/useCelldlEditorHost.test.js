@@ -804,6 +804,10 @@ describe("the CellDL editor's Reorganise", () => {
     expect(EDITOR_CHROME.reorganise).toBe(false)
   })
 
+  it('hides Group and Ungroup, which mean nothing to the model', () => {
+    expect(EDITOR_CHROME.grouping).toBe(false)
+  })
+
   it('can do nothing until the editor says what it can', () => {
     expect(host.reorganiseState.value).toEqual({ modes: [], enabled: false, busy: false })
     host.onReorganiseState({ modes: MODES, enabled: true, busy: false })
