@@ -746,6 +746,18 @@ describe('the CellDL key gate', () => {
     expect(reached).toEqual(['Escape'])
   })
 
+  it('counts an area the pane names, such as its status line, as working in it', () => {
+    const editor = document.createElement('div')
+    pane.appendChild(editor)
+    host.claim(editor, null, pane)
+    pressOn(pane.querySelector('input'))
+    press('z', { metaKey: true })
+    expect(reached).toEqual(['z'])
+    host.release(editor)
+    pressOn(pane)
+    expect(host.isEngaged.value).toBe(false)
+  })
+
   it('disengages as the pane parks the editor', () => {
     host.claim(pane)
     pressOn(pane)
@@ -756,11 +768,83 @@ describe('the CellDL key gate', () => {
   })
 })
 
+describe("the CellDL editor's Reorganise", () => {
+  const MODES = [
+    { id: 'balanced', label: 'Balanced', description: 'b' },
+    { id: 'compact', label: 'Short bonds', description: 'c' },
+  ]
+  let host
+  let commands
+
+  beforeEach(async () => {
+    host = createCelldlEditorHost({ readyTimeout: 500, commandTimeout: 50, reorganiseTimeout: 200 })
+    const root = document.createElement('div')
+    root.innerHTML = '<div id="svg-container"><svg></svg></div>'
+    document.body.appendChild(root)
+    commands = []
+    watch(host.command, (command) => {
+      commands.push(command)
+      const { action, kind, mode } = command.options
+      if (command.command !== 'edit' || action !== 'reorganise' || mode === 'slow') return
+      queueMicrotask(() =>
+        host.onReorganiseResult(
+          mode === 'nope'
+            ? { kind, ok: false, mode, improved: false, status: '', error: 'Unknown reorganise mode: nope' }
+            : { kind, ok: true, mode: mode ?? 'balanced', improved: true, status: 'Complexity 35 → 20' }
+        )
+      )
+    })
+    host.attach(root)
+    await host.whenReady()
+  })
+
+  afterEach(() => document.body.replaceChildren())
+
+  it('hides the Reactions panel\'s own Reorganise controls', () => {
+    expect(EDITOR_CHROME.reorganise).toBe(false)
+  })
+
+  it('hides Group and Ungroup, which mean nothing to the model', () => {
+    expect(EDITOR_CHROME.grouping).toBe(false)
+  })
+
+  it('can do nothing until the editor says what it can', () => {
+    expect(host.reorganiseState.value).toEqual({ modes: [], enabled: false, busy: false })
+    host.onReorganiseState({ modes: MODES, enabled: true, busy: false })
+    expect(host.reorganiseState.value).toEqual({ modes: MODES, enabled: true, busy: false })
+    host.onReorganiseState({})
+    expect(host.reorganiseState.value).toEqual({ modes: [], enabled: false, busy: false })
+  })
+
+  it('sends the mode, and matches the reply to it by kind', async () => {
+    host.onReorganiseResult({ kind: 'someone-else', ok: false })
+    await expect(host.reorganise('compact')).resolves.toEqual({
+      ok: true,
+      mode: 'compact',
+      improved: true,
+      status: 'Complexity 35 → 20',
+    })
+    expect(commands.at(-1)).toEqual({ command: 'edit', options: { action: 'reorganise', kind: expect.any(String), mode: 'compact' } })
+    await host.reorganise()
+    expect(commands.at(-1).options).not.toHaveProperty('mode')
+  })
+
+  it("says why the editor couldn't reorganise", async () => {
+    await expect(host.reorganise('nope')).resolves.toMatchObject({ ok: false, error: 'Unknown reorganise mode: nope' })
+  })
+
+  it('waits longer for a reorganise than for other commands, then gives up', async () => {
+    const started = Date.now()
+    await expect(host.reorganise('slow')).rejects.toThrow("didn't reorganise the diagram in time")
+    expect(Date.now() - started).toBeGreaterThanOrEqual(150)
+  })
+})
+
 describe('EDITOR_CHROME panels', () => {
-  it('shows the Reactions panel and hides Variables and Annotations', () => {
+  it('shows the Reactions and Annotations panels and hides Variables', () => {
     expect(EDITOR_CHROME.panels).toContain('reactions')
+    expect(EDITOR_CHROME.panels).toContain('annotations')
     expect(EDITOR_CHROME.panels).not.toContain('variables')
-    expect(EDITOR_CHROME.panels).not.toContain('annotations')
   })
 })
 

@@ -278,3 +278,118 @@ describe('CelldlPane issue list', () => {
     expect(items[0].querySelector('.celldl-issue-missing').textContent).toBe('No longer in the diagram')
   })
 })
+
+describe('CelldlPane Reorganise', () => {
+  const MODES = [
+    { id: 'balanced', label: 'Balanced', description: 'A balance of everything' },
+    { id: 'compact', label: 'Short bonds', description: 'Keeps bonds short' },
+  ]
+  let wrapper
+  let host
+
+  beforeEach(() => {
+    resetLive()
+    window.localStorage.removeItem('phlynx.celldl.reorganiseMode')
+    host = useCelldlEditorHost()
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+    host.onReorganiseState({})
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
+  const mountPane = () => {
+    wrapper = mount(CelldlPane, { props: { rows: ROWS }, global: { plugins: [PrimeVue], directives: { tooltip: Tooltip } } })
+  }
+  const select = () => wrapper.findComponent({ name: 'Select' })
+  const button = () => wrapper.get('.celldl-reorganise-button')
+
+  it('shows nothing of it until the editor lists its modes, then sits before the Shading switch', async () => {
+    mountPane()
+    expect(wrapper.find('.celldl-reorganise').exists()).toBe(false)
+    host.onReorganiseState({ modes: MODES, enabled: true, busy: false })
+    await nextTick()
+    const actions = wrapper.get('.celldl-live-actions')
+    expect(actions.element.firstElementChild.classList.contains('celldl-reorganise')).toBe(true)
+    expect(actions.element.lastElementChild.classList.contains('celldl-shading-toggle')).toBe(true)
+    expect(select().props('options')).toEqual(MODES)
+    expect(select().props('modelValue')).toBe('balanced')
+  })
+
+  it('reorganises in the mode chosen, remembering it for this viewer, and says what changed', async () => {
+    const reorganise = vi.spyOn(host, 'reorganise').mockResolvedValue({ ok: true, improved: true, status: 'Complexity 35 → 20' })
+    host.onReorganiseState({ modes: MODES, enabled: true, busy: false })
+    mountPane()
+    await nextTick()
+    select().vm.$emit('update:modelValue', 'compact')
+    await nextTick()
+    expect(window.localStorage.getItem('phlynx.celldl.reorganiseMode')).toBe('compact')
+    await button().trigger('click')
+    await flushPromises()
+    expect(reorganise).toHaveBeenCalledWith('compact')
+    expect(wrapper.get('.celldl-reorganise-note').text()).toBe('Complexity 35 → 20')
+
+    // A pane opened later starts at the mode last chosen.
+    wrapper.unmount()
+    mountPane()
+    await nextTick()
+    expect(select().props('modelValue')).toBe('compact')
+  })
+
+  it('falls back to the first mode for a remembered one the editor no longer has', async () => {
+    window.localStorage.setItem('phlynx.celldl.reorganiseMode', 'gone')
+    host.onReorganiseState({ modes: MODES, enabled: true, busy: false })
+    mountPane()
+    await nextTick()
+    expect(select().props('modelValue')).toBe('balanced')
+  })
+
+  it("is disabled while the editor can't reorganise, and while one runs", async () => {
+    let finish
+    vi.spyOn(host, 'reorganise').mockReturnValue(new Promise((resolve) => (finish = resolve)))
+    host.onReorganiseState({ modes: MODES, enabled: false, busy: false })
+    mountPane()
+    await nextTick()
+    expect(button().attributes('disabled')).toBeDefined()
+    expect(select().props('disabled')).toBe(true)
+
+    host.onReorganiseState({ modes: MODES, enabled: true, busy: false })
+    await nextTick()
+    expect(button().attributes('disabled')).toBeUndefined()
+    await button().trigger('click')
+    expect(button().attributes('disabled')).toBeDefined()
+    expect(button().text()).toBe('Reorganising…')
+    finish({ ok: false, error: 'A reorganise is already running' })
+    await flushPromises()
+    expect(button().attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('.celldl-reorganise-note').text()).toBe('A reorganise is already running')
+
+    host.onReorganiseState({ modes: MODES, enabled: false, busy: true })
+    await nextTick()
+    expect(button().attributes('disabled')).toBeDefined()
+  })
+
+  it('still works where the browser keeps nothing', async () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked')
+    })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('blocked')
+    })
+    host.onReorganiseState({ modes: MODES, enabled: true, busy: false })
+    mountPane()
+    await nextTick()
+    select().vm.$emit('update:modelValue', 'compact')
+    await nextTick()
+    expect(select().props('modelValue')).toBe('compact')
+  })
+
+  it('engages the editor across the whole pane, so Undo follows the Reorganise button', () => {
+    const claim = vi.spyOn(host, 'claim')
+    mountPane()
+    expect(claim).toHaveBeenCalledWith(expect.any(HTMLElement), expect.any(Function), wrapper.element)
+  })
+})

@@ -1,3 +1,4 @@
+import json
 import math
 import os
 import re
@@ -76,6 +77,15 @@ BOND_MARKER = """() => {
     const bond = document.querySelector('.celldl-pane .celldl-host #svg-container > svg .celldl-Connection.bondgraph.arrow')
     return bond ? getComputedStyle(bond).markerEnd : null
 }"""
+# Where each of the diagram's components is, by id, rounded to the pixel.
+COMPONENT_CENTRES = """() => Object.fromEntries(
+    [...document.querySelectorAll('.celldl-pane .celldl-host #svg-container > svg #celldl-diagram-layer > g.celldl-Component')]
+        .map((g) => {
+            const box = g.getBBox()
+            const m = g.getCTM()
+            return [g.id, [Math.round(m.a * (box.x + box.width / 2) + m.e), Math.round(m.d * (box.y + box.height / 2) + m.f)]]
+        })
+)"""
 SHORT_SIMULATION = (
     "document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s"
     ".get('simulationSettings').setSimulationSettings({ endingPoint: 1, pointInterval: 0.01 })"
@@ -1493,9 +1503,10 @@ class TestCelldl(unittest.TestCase):
             page.wait_for_function(f"({BOND_MARKER})()?.includes('celldl-display-arrow-classic')")
 
             # The Reactions panel shows each reaction's equation, with B's bondCount as its coefficient; the
-            # editor's Variables and Annotations panels aren't offered.
+            # editor's Annotations panel is offered, its Variables panel isn't.
             host = page.locator(".celldl-pane .celldl-host")
-            expect(host.locator("#variables-panel, #annotations-panel")).to_have_count(0)
+            expect(host.locator("#variables-panel")).to_have_count(0)
+            expect(host.locator("#annotations-panel")).to_have_count(1)
             host.locator("#reactions-panel").click()
             expect(host.get_by_label("Equation of r1")).to_have_value("A[c] + 2 B[c] + ATP[c] ⇌ C[c]")
             expect(host.get_by_label("Equation of r2")).to_have_value("C[c] + ATP[c] ⇌ D[c]")
@@ -1525,6 +1536,49 @@ class TestCelldl(unittest.TestCase):
 
             browser.close()
 
+
+    def test_keeps_a_species_annotation_from_the_annotations_panel_in_the_saved_diagram(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+            skip_unless_dev_server(self, page)
+
+            # ---------- START -----------
+            import_diagram(page, REACTIONS_PANEL)
+            expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            place(page, CELLDL_GROUP, REACTIONS_MODULE)
+            dialog = open_editor(page, REACTIONS_MODULE)
+            wait_for_diagram(page)
+            name, file = component_of(dialog)
+            math_ref = f"{file}:{name}"
+            self.assertNotIn("4167", stored_document(page, math_ref))
+
+            # A ChEBI ID entered on species A and applied is kept in the diagram.
+            host = page.locator(".celldl-pane .celldl-host")
+            host.locator("#annotations-panel").click()
+            # The panel rereads the diagram as it opens, dropping an entry made first, so it's entered again until kept.
+            chebi = host.get_by_label(re.compile(r"^ChEBI ID of A\b"))
+            apply = host.get_by_role("button", name="Apply", exact=True)
+            for _ in range(5):
+                chebi.fill("4167")
+                chebi.press("Tab")
+                try:
+                    expect(apply).to_be_enabled(timeout=1000)
+                    break
+                except AssertionError:
+                    pass
+            apply.click()
+            dialog.get_by_role("button", name="Save").click()
+            expect(dialog).to_be_hidden(timeout=DIAGRAM_TIMEOUT)
+            self.assertIn("4167", stored_document(page, math_ref))
+
+            # Reopened, the panel shows it again.
+            dialog = open_editor(page, REACTIONS_MODULE)
+            wait_for_diagram(page)
+            host.locator("#annotations-panel").click()
+            expect(host.get_by_label(re.compile(r"^ChEBI ID of A\b"))).to_have_value(re.compile("4167"))
+            # ----------- END ------------
+
+            browser.close()
 
     def test_switches_location_shading_from_the_status_bar_and_remembers_it(self):
         with sync_playwright() as playwright:
@@ -1560,6 +1614,74 @@ class TestCelldl(unittest.TestCase):
             shading.click()
             expect(shading).to_be_checked()
             page.wait_for_function(f"document.querySelector('{DIAGRAM_SVG} #{REGION_LAYER}')?.childElementCount > 0")
+            # ----------- END ------------
+
+            browser.close()
+
+    def test_offers_no_grouping_in_the_context_menu(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+
+            # ---------- START -----------
+            import_and_open(page)
+            menu = page.locator(".p-contextmenu")
+
+            # Groups mean nothing to the model, so neither an element's menu nor the canvas's offers them.
+            element = page.locator(f"{DIAGRAM_SVG} #celldl-diagram-layer > g.celldl-Component").first
+            x, y = element_centre(page, element.get_attribute("id"))
+            page.mouse.click(x, y, button="right")
+            expect(menu.get_by_text("Delete", exact=True)).to_be_visible()
+            for label in ("Group", "Edit group", "Ungroup"):
+                expect(menu.get_by_text(label, exact=True)).to_have_count(0)
+            page.keyboard.press("Escape")
+            expect(menu).to_be_hidden()
+
+            box = page.locator(DIAGRAM_SVG).bounding_box()
+            page.mouse.click(box["x"] + 30, box["y"] + box["height"] - 30, button="right")
+            expect(menu.get_by_text("Add element…", exact=True)).to_be_visible()
+            for label in ("Group", "Edit group", "Ungroup"):
+                expect(menu.get_by_text(label, exact=True)).to_have_count(0)
+            # ----------- END ------------
+
+            browser.close()
+
+    def test_reorganises_from_the_status_line_in_the_chosen_mode_and_undoes_it(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+
+            # ---------- START -----------
+            import_diagram(page, ENZYME)
+            expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            place(page, CELLDL_GROUP, ENZYME_MODULE)
+            dialog = open_editor(page, ENZYME_MODULE)
+            wait_for_diagram(page)
+            before = page.evaluate(COMPONENT_CENTRES)
+
+            # The Reactions panel has no Reorganise controls: the status line has them, before the Shading switch.
+            host = page.locator(".celldl-pane .celldl-host")
+            host.locator("#reactions-panel").click()
+            expect(host.get_by_role("button", name=re.compile("Reorganise"))).to_have_count(0)
+            line = dialog.locator(".celldl-live")
+            button = line.get_by_role("button", name="Reorganise", exact=True)
+            expect(button).to_be_enabled(timeout=DIAGRAM_TIMEOUT)
+
+            # A mode is picked from the editor's list, and remembered for this viewer.
+            line.get_by_label("Reorganise mode").click()
+            page.get_by_role("option", name="Short bonds").click()
+            expect(line.get_by_label("Reorganise mode")).to_have_text("Short bonds")
+            self.assertEqual(page.evaluate("localStorage.getItem('phlynx.celldl.reorganiseMode')"), "compact")
+
+            # Reorganised, the diagram's elements move, and the status line says how.
+            button.click()
+            expect(line.locator(".celldl-reorganise-note")).to_contain_text(re.compile("Complexity|No simpler layout"), timeout=SIMULATION_TIMEOUT)
+            expect(button).to_be_enabled()
+            if "No simpler layout" in line.locator(".celldl-reorganise-note").inner_text():
+                self.skipTest("The editor found no simpler layout for this diagram.")
+            page.wait_for_function(f"JSON.stringify(({COMPONENT_CENTRES})()) !== {json.dumps(json.dumps(before, separators=(",", ":")))}")
+
+            # Undo, straight after the button, puts every element back.
+            page.keyboard.press("ControlOrMeta+z")
+            page.wait_for_function(f"JSON.stringify(({COMPONENT_CENTRES})()) === {json.dumps(json.dumps(before, separators=(",", ":")))}")
             # ----------- END ------------
 
             browser.close()

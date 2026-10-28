@@ -332,12 +332,11 @@ describe('the CellDL Parameters table', () => {
       ])
     })
 
-    it('leaves a junction with its own name, or with following off, and sends nothing for no change', () => {
+    it('leaves a junction with its own name, and sends nothing for no change', () => {
       const own = { ...junction, species: 'Sx' }
       expect(structureEdits(store, 'species', 'Glc', { junction: own })).toEqual([{ id: STORE_S, field: 'species', value: 'Glc' }])
       expect(hasOwnNaming(own, store)).toBe(true)
       expect(hasOwnNaming(junction, store)).toBe(false)
-      expect(structureEdits(store, 'species', 'Glc', { junction, follow: false })).toHaveLength(1)
       expect(structureEdits(store, 'species', 'S', { junction })).toEqual([])
     })
   })

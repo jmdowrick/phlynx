@@ -85,17 +85,14 @@ describe('CelldlParametersTab', () => {
     expect(host.setElement).not.toHaveBeenCalled()
   })
 
-  it("renames a store's junction with it, in one edit, unless following is off", async () => {
+  it("renames a store's junction with it, in one edit", async () => {
     mountTab()
     await commit(field(STORE_S, 'Species'), 'Glc')
     expect(host.setElement).toHaveBeenCalledWith([
       { id: STORE_S, field: 'species', value: 'Glc' },
       { id: JUNCTION_S, field: 'species', value: 'Glc' },
     ])
-
-    await wrapper.find('#celldl-follow-store').setValue(false)
-    await commit(field(STORE_S, 'Location'), 'm')
-    expect(host.setElement).toHaveBeenLastCalledWith([{ id: STORE_S, field: 'location', value: 'm' }])
+    expect(wrapper.find('#celldl-follow-store').exists()).toBe(false)
   })
 
   it("refuses a name the diagram can't take, and says why an edit failed", async () => {
