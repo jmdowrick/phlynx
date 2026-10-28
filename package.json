@@ -49,7 +49,7 @@
     }
   },
   "dependencies": {
-    "@celldl/editor": "https://github.com/physiomelinks/CellDLEditorComponent/releases/download/phlynx-v0.20261007.0-phlynx.14/celldl-editor-0.20261007.0-phlynx.14.tgz",
+    "@celldl/editor": "https://github.com/physiomelinks/CellDLEditorComponent/releases/download/phlynx-v0.20261007.0-phlynx.15/celldl-editor-0.20261007.0-phlynx.15.tgz",
     "@codemirror/language": "^6.12.1",
     "@codemirror/theme-one-dark": "^6.1.3",
     "@dagrejs/dagre": "^1.1.8",
