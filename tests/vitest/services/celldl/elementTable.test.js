@@ -155,6 +155,23 @@ describe('the CellDL Parameters table', () => {
       expect(elementValues(byId(JUNCTION_S), MANIFEST[JUNCTION_S], rows)).toEqual([])
     })
 
+    it('maps parameters a naming rule renamed by their bond graph names, whatever order the manifest lists them in', () => {
+      const element = { ...byId(REACTION_R1), value: undefined, parameters: [{ name: 'kappa' }, { name: 'K' }] }
+      const entry = {
+        kind: 'element',
+        symbol: 'Rx_r1_c',
+        primary: 'rate_r1',
+        variables: [
+          { name: 'Keq_r1', bondgraph: 'K_Rx_r1_c', role: 'parameter' },
+          { name: 'k_r1', bondgraph: 'kappa_Rx_r1_c', role: 'parameter' },
+        ],
+      }
+      const rows = new Map(['Keq_r1', 'k_r1'].map((name) => [name, { name }]))
+      const [kappa, K] = elementValues(element, entry, rows)
+      expect(kappa).toMatchObject({ key: 'parameter:kappa', name: 'k_r1', row: { name: 'k_r1' } })
+      expect(K).toMatchObject({ key: 'parameter:K', name: 'Keq_r1', row: { name: 'Keq_r1' } })
+    })
+
     it("maps a chemostat's value to its potential's row, as a source has no initial value", () => {
       const chemostat = {
         ...byId(STORE_S),
