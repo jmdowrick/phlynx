@@ -1493,9 +1493,10 @@ class TestCelldl(unittest.TestCase):
             page.wait_for_function(f"({BOND_MARKER})()?.includes('celldl-display-arrow-classic')")
 
             # The Reactions panel shows each reaction's equation, with B's bondCount as its coefficient; the
-            # editor's Variables and Annotations panels aren't offered.
+            # editor's Annotations panel is offered, its Variables panel isn't.
             host = page.locator(".celldl-pane .celldl-host")
-            expect(host.locator("#variables-panel, #annotations-panel")).to_have_count(0)
+            expect(host.locator("#variables-panel")).to_have_count(0)
+            expect(host.locator("#annotations-panel")).to_have_count(1)
             host.locator("#reactions-panel").click()
             expect(host.get_by_label("Equation of r1")).to_have_value("A[c] + 2 B[c] + ATP[c] ⇌ C[c]")
             expect(host.get_by_label("Equation of r2")).to_have_value("C[c] + ATP[c] ⇌ D[c]")
@@ -1525,6 +1526,49 @@ class TestCelldl(unittest.TestCase):
 
             browser.close()
 
+
+    def test_keeps_a_species_annotation_from_the_annotations_panel_in_the_saved_diagram(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+            skip_unless_dev_server(self, page)
+
+            # ---------- START -----------
+            import_diagram(page, REACTIONS_PANEL)
+            expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            place(page, CELLDL_GROUP, REACTIONS_MODULE)
+            dialog = open_editor(page, REACTIONS_MODULE)
+            wait_for_diagram(page)
+            name, file = component_of(dialog)
+            math_ref = f"{file}:{name}"
+            self.assertNotIn("4167", stored_document(page, math_ref))
+
+            # A ChEBI ID entered on species A and applied is kept in the diagram.
+            host = page.locator(".celldl-pane .celldl-host")
+            host.locator("#annotations-panel").click()
+            # The panel rereads the diagram as it opens, dropping an entry made first, so it's entered again until kept.
+            chebi = host.get_by_label(re.compile(r"^ChEBI ID of A\b"))
+            apply = host.get_by_role("button", name="Apply", exact=True)
+            for _ in range(5):
+                chebi.fill("4167")
+                chebi.press("Tab")
+                try:
+                    expect(apply).to_be_enabled(timeout=1000)
+                    break
+                except AssertionError:
+                    pass
+            apply.click()
+            dialog.get_by_role("button", name="Save").click()
+            expect(dialog).to_be_hidden(timeout=DIAGRAM_TIMEOUT)
+            self.assertIn("4167", stored_document(page, math_ref))
+
+            # Reopened, the panel shows it again.
+            dialog = open_editor(page, REACTIONS_MODULE)
+            wait_for_diagram(page)
+            host.locator("#annotations-panel").click()
+            expect(host.get_by_label(re.compile(r"^ChEBI ID of A\b"))).to_have_value(re.compile("4167"))
+            # ----------- END ------------
+
+            browser.close()
 
     def test_switches_location_shading_from_the_status_bar_and_remembers_it(self):
         with sync_playwright() as playwright:

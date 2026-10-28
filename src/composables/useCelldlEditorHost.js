@@ -25,7 +25,8 @@ export const EDITOR_OPTIONS = Object.freeze({ tooltip: 'tooltip', elementList: t
  * does, and bonds are drawn by dragging from a hovered element, so the left toolbar shows no tools: an empty list
  * (not `false`, which hides the toolbar) keeps its Undo and Redo buttons. No pointer-position readout. The
  * Properties panel shows values read-only: they're set per instance, in the Parameters tab. The right-hand panels
- * are listed so the Variables and Annotations panels stay hidden when the editor adds them.
+ * are listed so the Variables panel stays hidden; Annotations takes ontology terms (Rhea, SBO and UniProt on
+ * reactions, ChEBI and GO on species), which the diagram keeps.
  */
 export const EDITOR_CHROME = Object.freeze({
   tools: Object.freeze([]),
@@ -37,7 +38,7 @@ export const EDITOR_CHROME = Object.freeze({
   statusPosition: false,
   values: 'readonly',
   valuesHint: 'Set values in the Parameters tab',
-  panels: Object.freeze(['properties', 'metadata', 'style', 'reactions']),
+  panels: Object.freeze(['properties', 'metadata', 'style', 'reactions', 'annotations']),
 })
 
 /** The class marking a diagram element a conversion failed on. */
