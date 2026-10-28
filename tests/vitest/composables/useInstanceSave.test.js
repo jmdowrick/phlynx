@@ -213,6 +213,21 @@ describe('useInstanceSave', () => {
       expect(library.getMathFormat(DECAY_REF)).toBe('cellml')
     })
 
+    it("saves a regenerated math's section layout with it, in the same undo step, and drops the last one's", async () => {
+      const old = { format: 'cellml-text-layout', version: 1, components: [{ name: 'old' }] }
+      const sections = { format: 'cellml-text-layout', version: 1, components: [{ name: 'decay' }] }
+      library.setMathLayout(DECAY_REF, old)
+      await saveInstanceEdit(buildSave({ math: GENERATED_XML, layout: sections, source: SOURCE, isSourceChanged: true }))
+      expect(library.getMathLayout(DECAY_REF)).toEqual(sections)
+
+      await history.undo()
+      expect(library.getMathLayout(DECAY_REF)).toEqual(old)
+
+      // Math generated without sections keeps no layout from the last generation.
+      await saveInstanceEdit(buildSave({ math: GENERATED_XML, source: SOURCE, isSourceChanged: true }))
+      expect(library.getMathLayout(DECAY_REF)).toBeNull()
+    })
+
     it('undoes the source, its math and its units together, and redoes them', async () => {
       const UNITS = { componentFile: 'file', model: '<model name="file_units"><units name="per_second"/></model>' }
       library.setMathSource(DECAY_REF, SOURCE)

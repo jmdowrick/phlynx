@@ -83,8 +83,8 @@ export function createLiveCelldlConvert({
   /** The component the CellML is generated as, so it reads as saving would make it. */
   const componentName = ref(undefined)
   /**
-   * The latest diagram's newest CellML, `{ cellml, componentName }`, kept through results that have none, e.g. mid-edit;
-   * null before its first.
+   * The latest diagram's newest CellML, `{ cellml, componentName, sections }` (bg2cellml's sections), kept through
+   * results that have none, e.g. mid-edit; null before its first.
    */
   const cellml = shallowRef(null)
 
@@ -197,7 +197,9 @@ export function createLiveCelldlConvert({
     // The full pass may have overtaken a cheap one that waited behind the worker.
     if (pass === 'cheap' && latest.value?.edit === edit && latest.value.pass === 'full') return
     latest.value = { pass, edit, result: conversion.result }
-    if (conversion.result.cellml) cellml.value = { cellml: conversion.result.cellml, componentName: name }
+    if (conversion.result.cellml) {
+      cellml.value = { cellml: conversion.result.cellml, componentName: name, sections: conversion.result.sections ?? [] }
+    }
     // A full pass answers for a cheap one it superseded.
     isPending.value = false
     if (pass === 'full') isChecking.value = false

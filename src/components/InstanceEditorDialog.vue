@@ -103,7 +103,7 @@
             v-else-if="editorKind === 'text'"
             ref="mathEditorRef"
             :model-value="shownModel"
-            :layout="currentLayout"
+            :layout="shownLayout"
             :simple="isMathLocked ? isLockedSimple : isManaged"
             @update:simple="onSimpleToggle"
             :component-name="componentNameForEditor"
@@ -573,6 +573,7 @@ import { issueItems } from '../services/celldl/issues'
 import { buildElementTable, variableRenames } from '../services/celldl/elementTable'
 import { renamePortVariables, renameRows, renameValues } from '../services/math/reconcileRows'
 import { liveComponentMath } from '../services/celldl/liveMath'
+import { sectionLayout } from '../services/celldl/sectionLayout'
 import { analyzeMathXml } from '../services/math/analyzeMath'
 import {
   declaredUnits,
@@ -993,10 +994,17 @@ const liveMath = computed(() => {
 /** The math the math editors show: the live conversion's, or else the session's. */
 const shownModel = computed(() => liveMath.value || currentModel.value)
 
+/** The text layout of the math shown: the live math's sections, or else the session's. */
+const shownLayout = computed(() => {
+  if (!liveMath.value) return currentLayout.value
+  const conversion = liveConvert.cellml.value
+  return sectionLayout(liveMath.value, conversion.componentName, conversion.sections)
+})
+
 // A mounted editor follows the live math, and goes back to the session's once the diagram is saved.
 watch(liveMath, () => {
   if (!MATH_EDITOR_KINDS.has(editorKind.value)) return
-  mathEditorRef.value?.setModel?.(shownModel.value)
+  mathEditorRef.value?.setModel?.(shownModel.value, shownLayout.value)
 })
 
 /**
@@ -2006,10 +2014,10 @@ function isDiagramOnlyChange(math, units) {
  *
  * @param {{newName?: string|null, isWarned?: boolean}} [options] - A new component's name, chosen instead of
  *   overwriting, and whether its warnings were already accepted.
- * @returns {Promise<{mathRef: string, math: string|null, source: Object, units: Object|null, isEditorDocument: boolean}|null|false>}
- *   Where the generated math goes, the math, its source and its grouping's units (a null model when none), and whether
- *   the editor shows the source's document as it is; null math and units when only the diagram changed; null when the
- *   diagram is unchanged; false when the save stops.
+ * @returns {Promise<{mathRef: string, math: string|null, layout?: Object|null, source: Object, units: Object|null, isEditorDocument: boolean}|null|false>}
+ *   Where the generated math goes, the math and its sections' text layout, its source and its grouping's units (a null
+ *   model when none), and whether the editor shows the source's document as it is; null math and units when only the
+ *   diagram changed; null when the diagram is unchanged; false when the save stops.
  */
 async function stageDiagram({ newName = null, isWarned = false } = {}) {
   let name = newName ?? renamedDiagramComponent() ?? componentName.value
@@ -2133,6 +2141,8 @@ async function stageDiagram({ newName = null, isWarned = false } = {}) {
   return {
     mathRef: `${file}:${name}`,
     math: component.math,
+    // Its sections' headings, for the CellML Text tab.
+    layout: result.layout ?? null,
     source,
     units,
     isEditorDocument,
@@ -2452,7 +2462,7 @@ async function saveInstance(options) {
     target = {
       mathRef: staged.mathRef,
       math: staged.math,
-      layout: staged.mathRef === props.mathRef ? currentLayout.value : null,
+      layout: staged.layout,
     }
     renameCelldlRows(renames)
     rescaleInstanceValues(rescales, renames)

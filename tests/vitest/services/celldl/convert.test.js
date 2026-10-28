@@ -6,6 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom'
+import { CellMLTextGenerator } from 'cellml-text-editor'
 import { Window } from 'happy-dom'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeAll, describe, expect, it } from 'vitest'
@@ -14,6 +15,7 @@ import { convertCelldl, knownUnitsFor } from '../../../../src/services/celldl/co
 import { LOCAL_DOCUMENT_BASE, mintDocumentUri } from '../../../../src/services/celldl/documentUri.js'
 import { variableForElement } from '../../../../src/services/celldl/elements.js'
 import { getConverter } from '../../../../src/services/celldl/runtime.js'
+import { sectionLayout } from '../../../../src/services/celldl/sectionLayout.js'
 import { analyzeMathXml } from '../../../../src/services/math/analyzeMath.js'
 import { reconcileRows } from '../../../../src/services/math/reconcileRows.js'
 import { useLibraryStore } from '../../../../src/stores/libraryStore.js'
@@ -25,6 +27,7 @@ globalThis.XMLSerializer ??= XMLSerializer
 
 const fixture = (name) => fs.readFileSync(path.resolve(__dirname, '../../fixtures/celldl', name), 'utf8')
 const RC = fixture('rc.celldl')
+const ONE_REACTION = fs.readFileSync(path.resolve(__dirname, '../../../resources/celldl/one_reaction.celldl'), 'utf8')
 const DOCUMENT_URI = mintDocumentUri('rc.cellml:rc')
 
 /** Runs `run` with happy-dom's DOMParser, XMLSerializer and Node in place of xmldom's. */
@@ -138,6 +141,36 @@ describe('convertCelldl', () => {
 
     expect(result.ok).toBe(true)
     expect(result.documentUri).toBe(document)
+  }, 120000)
+
+  it("lays a module's math out in its sections, each headed by a comment after a blank line", async () => {
+    const result = await convertCelldl(ONE_REACTION, { documentUri: DOCUMENT_URI, componentName: 'one' })
+    setActivePinia(createPinia())
+    const store = useLibraryStore()
+    store.addMathFile('one.cellml', result.components)
+
+    const math = store.availableMath.get('one.cellml:one')
+    // xmldom's DOM has no `children`, which the text generator needs, so the layout is built here with happy-dom's.
+    const text = await withHappyDom(() => {
+      const layout = sectionLayout(math, 'one', result.sections)
+      return new CellMLTextGenerator({ simplified: true }).generateResult(math, { layout }).text
+    })
+
+    const lines = text.split('\n')
+    const comments = lines.filter((line) => line.startsWith('//'))
+    expect(comments).toEqual([
+      '// Chemical potentials',
+      '// Reaction affinities',
+      '// Reaction flux',
+      '// Species flux',
+      '// Mass conservation',
+    ])
+    // Each but the first follows a blank line; the conservation section, last, holds the ODEs.
+    comments.slice(1).forEach((comment) => expect(lines[lines.indexOf(comment) - 1]).toBe(''))
+    expect(lines[0]).toBe('// Chemical potentials')
+    expect(lines.slice(lines.indexOf('// Mass conservation') + 1).filter(Boolean).every((line) => line.startsWith('ode('))).toBe(true)
+    // The CellML holds no comments: they are PhLynx's layout alone.
+    expect(store.availableMath.get('one.cellml:one')).not.toContain('<!--')
   }, 120000)
 })
 

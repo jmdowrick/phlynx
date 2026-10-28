@@ -1364,15 +1364,18 @@ describe('InstanceEditorDialog locked math', () => {
       expect(wrapper.vm.parameterRows.map((row) => row.name)).not.toContain('k_live')
     })
 
-    it('follows newer conversions, and shows the saved math again once the diagram is saved', async () => {
+    it('follows newer conversions, with their sections, and shows the saved math again once the diagram is saved', async () => {
       await openEdited()
-      useLiveCelldlConvert().cellml.value = { cellml: LIVE_CELLML.replaceAll('k_live', 'k_newer'), componentName: 'decay' }
+      const sections = [{ title: 'Conservation', variables: ['x'] }]
+      useLiveCelldlConvert().cellml.value = { cellml: LIVE_CELLML.replaceAll('k_live', 'k_newer'), componentName: 'decay', sections }
       await flushPromises()
-      expect(setModel).toHaveBeenLastCalledWith(expect.stringContaining('k_newer'))
+      const [shown, layout] = setModel.mock.lastCall
+      expect(shown).toContain('k_newer')
+      expect(layout.components[0].statements.find((statement) => statement.kind === 'eq').leading).toEqual(['', '// Conservation'])
 
       useCelldlEditorHost().isDirty.value = false
       await flushPromises()
-      expect(setModel).toHaveBeenLastCalledWith(savedMath)
+      expect(setModel).toHaveBeenLastCalledWith(savedMath, null)
     })
 
     it('shows the saved math after a cancel, though the last conversion is kept', async () => {
@@ -1395,7 +1398,7 @@ describe('InstanceEditorDialog locked math', () => {
       await openEdited()
       useLiveCelldlConvert().cellml.value = { cellml: LIVE_CELLML, componentName: 'other' }
       await flushPromises()
-      expect(setModel).toHaveBeenLastCalledWith(savedMath)
+      expect(setModel).toHaveBeenLastCalledWith(savedMath, null)
     })
   })
 

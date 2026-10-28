@@ -146,6 +146,8 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     else if (units) libraryStore.removeUnitsFile(units.componentFile)
     if (math !== null) {
       libraryStore.addMath(mathRef, math, true, layout)
+      // A source's math is laid out afresh with each generation, so a layout from its last one is never kept.
+      if (isSourceChanged && !layout) libraryStore.setMathLayout(mathRef, null)
       // Values are each instance's, so a regenerated math keeps the module's defaults; only new variables take the
       // source's values.
       if (previousDefaults) {

@@ -257,7 +257,7 @@ describe('useLiveCelldlConvert', () => {
     await vi.advanceTimersByTimeAsync(150)
     port.answer(port.converts()[0], { cellml: '<model name="1"/>' })
     await flush()
-    expect(live.cellml.value).toEqual({ cellml: '<model name="1"/>', componentName: 'rc' })
+    expect(live.cellml.value).toEqual({ cellml: '<model name="1"/>', componentName: 'rc', sections: [] })
     host.change('rdf 2')
     await vi.advanceTimersByTimeAsync(150)
     port.answer(port.converts()[1], { cellml: null, errors: [{ message: 'mid-edit' }] })

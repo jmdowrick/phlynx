@@ -3,8 +3,10 @@
  * units as a CellML import is. Load it with import(), as it brings in the converter.
  */
 import { processCellMLData } from '../../utils/cellml.js'
+import { separateParameters } from '../math/separateParameters.js'
 import { documentUriFor } from './documentUri.js'
 import { getConverter } from './runtime.js'
+import { sectionLayout } from './sectionLayout.js'
 
 export { knownUnitsFor, knownUnitsForModule } from './knownUnits.js'
 
@@ -30,10 +32,11 @@ function blockingErrors(result) {
  * @param {string} options.documentUri - The IRI to read the document under (mintDocumentUri).
  * @param {string} options.componentName - The CellML component's name.
  * @param {string[]} [options.knownUnits] - The library's other units (knownUnitsFor).
- * @returns {Promise<Object>} `{ ok, components, unitsModel, elements, annotations, documentUri, generator,
- *   frameworkVersion, unitSystem, errors, warnings, renamedUnits }`. The unit system ('si' or 'cellular') is the
+ * @returns {Promise<Object>} `{ ok, components, layout, sections, unitsModel, elements, annotations, documentUri,
+ *   generator, frameworkVersion, unitSystem, errors, warnings, renamedUnits }`. The unit system ('si' or 'cellular') is the
  *   diagram's own, from its triple; a diagram without one is SI. `components` and `unitsModel` are as
- *   processCellMLData gives them, and null unless ok. Issues are bg2cellml's
+ *   processCellMLData gives them, and null unless ok. `layout` is the named component's math's text layout
+ *   (sectionLayout), as the library stores it, or null; `sections` are bg2cellml's. Issues are bg2cellml's
  *   `{ message, severity, stage, subject?, elementId? }`. Rejects if the converter can't start.
  */
 export async function convertCelldl(document, { documentUri, componentName, knownUnits } = {}) {
@@ -55,9 +58,13 @@ export async function convertCelldl(document, { documentUri, componentName, know
       processed = null
     }
   }
+  const component = processed?.components.find((candidate) => candidate.name === componentName)
   return {
     ok: !errors.length,
     components: processed?.components ?? null,
+    // The math as the library stores it, its values moved out.
+    layout: component ? sectionLayout(separateParameters(component.math).math, componentName, result.sections) : null,
+    sections: result.sections ?? [],
     unitsModel: processed?.units.model ?? null,
     elements: result.elements,
     annotations: toViewerAnnotations(result.elements),
