@@ -757,10 +757,10 @@ describe('the CellDL key gate', () => {
 })
 
 describe('EDITOR_CHROME panels', () => {
-  it('shows the Reactions panel and hides Variables and Annotations', () => {
+  it('shows the Reactions and Annotations panels and hides Variables', () => {
     expect(EDITOR_CHROME.panels).toContain('reactions')
+    expect(EDITOR_CHROME.panels).toContain('annotations')
     expect(EDITOR_CHROME.panels).not.toContain('variables')
-    expect(EDITOR_CHROME.panels).not.toContain('annotations')
   })
 })
 
