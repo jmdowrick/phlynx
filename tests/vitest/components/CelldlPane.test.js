@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { computed, nextTick, ref, shallowRef } from 'vue'
 import PrimeVue from 'primevue/config'
+import Tooltip from 'primevue/tooltip'
 
 /** Stands in for the live conversion, which the tests set the state of. */
 const live = vi.hoisted(() => ({}))
@@ -9,6 +10,7 @@ vi.mock('../../../src/composables/useLiveCelldlConvert.js', () => ({ useLiveCell
 
 import CelldlPane from '../../../src/components/celldl/CelldlPane.vue'
 import { useCelldlEditorHost } from '../../../src/composables/useCelldlEditorHost.js'
+import { useAppSettings } from '../../../src/composables/useAppSettings.js'
 
 const ROWS = [{ name: 'v_1' }, { name: 'q_C' }]
 
@@ -43,41 +45,54 @@ describe('CelldlPane', () => {
   })
 
   const mountPane = (props = {}) => {
-    wrapper = mount(CelldlPane, { props: { rows: ROWS, ...props }, global: { plugins: [PrimeVue] } })
+    wrapper = mount(CelldlPane, { props: { rows: ROWS, ...props }, global: { plugins: [PrimeVue], directives: { tooltip: Tooltip } } })
     return useCelldlEditorHost()
   }
 
   it("emits a selected element's primary variable", () => {
     const host = mountPane()
-    host.onViewerEvent({ type: 'select', component: { id: 'J', annotation: { primary: 'v_1', variables: ['v_1'] } } })
+    host.onViewerEvent({ type: 'select', component: { id: 'J', info: { primary: 'v_1', variables: ['v_1'] } } })
     expect(wrapper.emitted('variable-click')).toEqual([['v_1']])
   })
 
   it('falls back to the first of its variables the instance has', () => {
     const host = mountPane()
-    host.onViewerEvent({ type: 'select', component: { id: 'C', annotation: { primary: 'C', variables: ['C', 'q_C'] } } })
+    host.onViewerEvent({ type: 'select', component: { id: 'C', info: { primary: 'C', variables: ['C', 'q_C'] } } })
     expect(wrapper.emitted('variable-click')).toEqual([['q_C']])
   })
 
   it("emits an element's own variable, as unsaved, for an element added since the save", () => {
     const host = mountPane()
-    const annotation = { primary: 'q_X', variables: ['C_X', 'q_X'] }
-    host.onViewerEvent({ type: 'select', component: { id: 'X', annotation } })
+    const info = { primary: 'q_X', variables: ['C_X', 'q_X'] }
+    host.onViewerEvent({ type: 'select', component: { id: 'X', info } })
     expect(wrapper.emitted('variable-click')).toEqual([['q_X', { isUnsaved: true }]])
   })
 
-  it('emits nothing for an element with no annotation, or for other events', () => {
+  it('emits nothing for an element with no info, or for other events', () => {
     const host = mountPane()
     host.onViewerEvent({ type: 'select', component: { id: 'new' } })
-    host.onViewerEvent({ type: 'active', component: { id: 'J', annotation: { primary: 'v_1', variables: ['v_1'] } } })
+    host.onViewerEvent({ type: 'active', component: { id: 'J', info: { primary: 'v_1', variables: ['v_1'] } } })
     host.onViewerEvent({ type: 'unselect' })
     expect(wrapper.emitted('variable-click')).toBeUndefined()
+  })
+
+  it('switches location shading in the status bar, as an app setting', async () => {
+    const { settings, saveAppSettings } = useAppSettings()
+    saveAppSettings({ celldlLocationShading: true })
+    mountPane()
+    const toggle = wrapper.get('.celldl-shading-toggle input')
+    expect(toggle.element.checked).toBe(true)
+    await toggle.setValue(false)
+    expect(settings.celldlLocationShading).toBe(false)
+    saveAppSettings({ celldlLocationShading: true })
+    await nextTick()
+    expect(toggle.element.checked).toBe(true)
   })
 
   it('stops hearing the editor once unmounted', () => {
     const host = mountPane()
     wrapper.unmount()
-    host.onViewerEvent({ type: 'select', component: { id: 'J', annotation: { primary: 'v_1' } } })
+    host.onViewerEvent({ type: 'select', component: { id: 'J', info: { primary: 'v_1' } } })
     expect(wrapper.emitted('variable-click')).toBeUndefined()
     wrapper = null
   })
@@ -94,7 +109,7 @@ describe('CelldlPane live conversion', () => {
   })
 
   const mountPane = (props = {}) => {
-    wrapper = mount(CelldlPane, { props: { rows: ROWS, ...props }, global: { plugins: [PrimeVue] } })
+    wrapper = mount(CelldlPane, { props: { rows: ROWS, ...props }, global: { plugins: [PrimeVue], directives: { tooltip: Tooltip } } })
   }
   const status = () => wrapper.find('.celldl-live-status')
 
@@ -206,7 +221,7 @@ describe('CelldlPane issue list', () => {
   }
 
   async function openList(issues = ISSUES) {
-    wrapper = mount(CelldlPane, { props: { rows: ROWS }, global: { plugins: [PrimeVue] }, attachTo: document.body })
+    wrapper = mount(CelldlPane, { props: { rows: ROWS }, global: { plugins: [PrimeVue], directives: { tooltip: Tooltip } }, attachTo: document.body })
     live.latest.value = converted('cheap', issues)
     await nextTick()
     await wrapper.find('.celldl-live-issues').trigger('click')
@@ -240,7 +255,7 @@ describe('CelldlPane issue list', () => {
   })
 
   it('shows no list for a diagram that converts cleanly', async () => {
-    wrapper = mount(CelldlPane, { props: { rows: ROWS }, global: { plugins: [PrimeVue] } })
+    wrapper = mount(CelldlPane, { props: { rows: ROWS }, global: { plugins: [PrimeVue], directives: { tooltip: Tooltip } } })
     live.latest.value = converted('cheap')
     await nextTick()
     expect(wrapper.find('.celldl-live-issues').exists()).toBe(false)

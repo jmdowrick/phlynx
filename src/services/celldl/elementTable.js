@@ -111,7 +111,8 @@ const variablesOf = (entry, role) => (entry?.variables ?? []).filter((variable) 
 
 /**
  * Finds the CellML variable a template parameter became: named for it and the element (`K_q_S_c` for K of q_S_c),
- * else the one named for it alone, else the one in the same place.
+ * else the one named for it alone, else the one in the same place. A variable a naming rule renamed is matched by
+ * its bond graph name, e.g. `Keq_S` by `K_q_S_c`.
  *
  * @param {Object[]} candidates - The entry's variables of the parameter's role.
  * @param {string} name - The parameter's name in the template.
@@ -120,9 +121,10 @@ const variablesOf = (entry, role) => (entry?.variables ?? []).filter((variable) 
  * @returns {Object|undefined}
  */
 function matchVariable(candidates, name, index, symbol) {
+  const bondgraphName = (variable) => variable.bondgraph ?? variable.name
   return (
-    candidates.find((variable) => symbol && variable.name === `${name}_${symbol}`) ??
-    candidates.find((variable) => variable.name === name || variable.name.startsWith(`${name}_`)) ??
+    candidates.find((variable) => symbol && bondgraphName(variable) === `${name}_${symbol}`) ??
+    candidates.find((variable) => bondgraphName(variable) === name || bondgraphName(variable).startsWith(`${name}_`)) ??
     candidates[index]
   )
 }

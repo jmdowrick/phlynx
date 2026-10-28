@@ -27,6 +27,13 @@
       <span v-if="host.message.value" class="celldl-editor-message" :data-level="host.message.value.level">
         {{ host.message.value.text }}
       </span>
+      <label
+        class="celldl-shading-toggle"
+        v-tooltip.top="'Shade the regions that elements\' locations mark out. Only the display changes.'"
+      >
+        <ToggleSwitch v-model="isShaded" class="celldl-shading-switch" aria-label="Location shading" />
+        <span>Shading</span>
+      </label>
     </div>
     <Popover ref="issuePopover">
       <ul class="celldl-issue-list" aria-label="Conversion issues">
@@ -67,6 +74,9 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Message from 'primevue/message'
 import Popover from 'primevue/popover'
 import ProgressSpinner from 'primevue/progressspinner'
+import ToggleSwitch from 'primevue/toggleswitch'
+
+import { useAppSettings } from '../../composables/useAppSettings'
 
 import { useCelldlEditorHost } from '../../composables/useCelldlEditorHost'
 import { useLiveCelldlConvert } from '../../composables/useLiveCelldlConvert'
@@ -84,6 +94,12 @@ const props = defineProps({
 const emit = defineEmits(['variable-click'])
 
 const host = useCelldlEditorHost()
+const { settings, saveAppSettings } = useAppSettings()
+/** Whether the editor shades the regions elements' locations mark out: an app setting, remembered per viewer. */
+const isShaded = computed({
+  get: () => settings.celldlLocationShading,
+  set: (on) => saveAppSettings({ celldlLocationShading: on }),
+})
 const live = useLiveCelldlConvert()
 const slotRef = ref(null)
 const isPending = computed(() => !host.isReady.value || host.isSyncing.value)
@@ -187,14 +203,14 @@ watch(
  * Emits the variable of a selected element: one the instance has, or else, for an element added since the diagram
  * was saved, its own, which saving makes plottable.
  *
- * @param {{type: string, component?: {id: string, annotation?: Object}}} event - The editor's viewer event.
+ * @param {{type: string, component?: {id: string, info?: Object}}} event - The editor's viewer event.
  */
 function onViewerEvent(event) {
   if (event?.type !== 'select') return
-  const annotation = event.component?.annotation
-  const name = variableForElement(annotation, props.rows)
+  const info = event.component?.info
+  const name = variableForElement(info, props.rows)
   if (name) return emit('variable-click', name)
-  const unsaved = annotation?.primary ?? annotation?.variables?.[0]
+  const unsaved = info?.primary ?? info?.variables?.[0]
   if (unsaved) emit('variable-click', typeof unsaved === 'string' ? unsaved : unsaved.name, { isUnsaved: true })
 }
 
@@ -264,6 +280,21 @@ onBeforeUnmount(() => host.release(slotRef.value))
   color: var(--p-orange-500);
 }
 
+.celldl-shading-toggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--p-text-color);
+  cursor: pointer;
+}
+
+.celldl-shading-switch {
+  --p-toggleswitch-width: 1.75rem;
+  --p-toggleswitch-height: 1rem;
+  --p-toggleswitch-handle-size: 0.625rem;
+}
+
 .celldl-live-status {
   flex: 1;
   min-width: 0;
@@ -273,7 +304,22 @@ onBeforeUnmount(() => host.release(slotRef.value))
 }
 
 .celldl-live[data-state='errors'] .celldl-live-status,
-.celldl-live[data-state='warnings'] .celldl-live-status {
+.celldl-live[data-state='warnings'] .celldl-shading-toggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--p-text-color);
+  cursor: pointer;
+}
+
+.celldl-shading-switch {
+  --p-toggleswitch-width: 1.75rem;
+  --p-toggleswitch-height: 1rem;
+  --p-toggleswitch-handle-size: 0.625rem;
+}
+
+.celldl-live-status {
   color: var(--p-orange-500);
 }
 
