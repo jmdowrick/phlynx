@@ -105,9 +105,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@celldl/editor@https://github.com/physiomelinks/CellDLEditorComponent/releases/download/phlynx-v0.20261007.0-phlynx.15/celldl-editor-0.20261007.0-phlynx.15.tgz":
-  version: 0.20261007.0-phlynx.15
-  resolution: "@celldl/editor@https://github.com/physiomelinks/CellDLEditorComponent/releases/download/phlynx-v0.20261007.0-phlynx.15/celldl-editor-0.20261007.0-phlynx.15.tgz"
+"@celldl/editor@https://github.com/physiomelinks/CellDLEditorComponent/releases/download/phlynx-v0.20261007.0-phlynx.16/celldl-editor-0.20261007.0-phlynx.16.tgz":
+  version: 0.20261007.0-phlynx.16
+  resolution: "@celldl/editor@https://github.com/physiomelinks/CellDLEditorComponent/releases/download/phlynx-v0.20261007.0-phlynx.16/celldl-editor-0.20261007.0-phlynx.16.tgz"
   dependencies:
     "@atomic-ehr/ucum": "npm:^0.2.5"
     "@celldl/metadata": "npm:^1.20260822.0"
@@ -135,7 +135,7 @@ __metadata:
     vue-tippy: "npm:^6.7.1"
   peerDependencies:
     primevue: ^4.5.5
-  checksum: 10c0/107ec7685c946e3e6d70456c4f145a56184c04d6820d759431b66dba0211fff6b95a33163e61c5d9cedac1a789e93080abd251a3cdb4c40d027034d3a62d1939
+  checksum: 10c0/3b260eaed557e492ba125bbab2d500edd8e8c53e2b122f0432bad582fda318a21e93c05ff1dda69351e1a6cb69452af65bb62f953255a90ef51d9699f10dfb11
   languageName: node
   linkType: hard
 
@@ -1282,17 +1282,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@physiomelinks/bg2cellml@npm:0.5.1":
-  version: 0.5.1
-  resolution: "@physiomelinks/bg2cellml@npm:0.5.1"
+"@physiomelinks/bg2cellml@npm:0.6.0":
+  version: 0.6.0
+  resolution: "@physiomelinks/bg2cellml@npm:0.6.0"
   dependencies:
-    "@physiomelinks/cellml-units": "npm:^0.5.1"
-    "@physiomelinks/math-ast": "npm:^0.5.1"
+    "@physiomelinks/cellml-units": "npm:^0.6.0"
+    "@physiomelinks/math-ast": "npm:^0.6.0"
     "@xmldom/xmldom": "npm:^0.9.8"
   peerDependencies:
     libcellml.js: ">=0.7.1"
     oxigraph: ">=0.5.9 <0.6"
-  checksum: 10c0/835f6eb46ab4a7ab7b22b1bbfcedb2f01305900de9640ee63cff7bbeb29f26bfb3892ed2910a22d5813f8a988414bc2dff62056ce86d8e2587ba3d15804ec406
+  checksum: 10c0/db7dbd3d668fb480a3aa592362c80e356aa098d7ccd9f221c2d444a807d20d0f85a856f063e5ee4e058fbbb272504cecc79ddb4c458d9bedc409add8b9d47f31
   languageName: node
   linkType: hard
 
@@ -1305,19 +1305,19 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@physiomelinks/cellml-units@npm:^0.5.1":
-  version: 0.5.1
-  resolution: "@physiomelinks/cellml-units@npm:0.5.1"
+"@physiomelinks/cellml-units@npm:^0.6.0":
+  version: 0.6.0
+  resolution: "@physiomelinks/cellml-units@npm:0.6.0"
   peerDependencies:
     libcellml.js: ">=0.7.1"
-  checksum: 10c0/da6060a6d536d665b0b5ccb25e1a086b27e51eeba2a827ddf79180f5f50dd8bbc8cc50a02cb139a46136f0e9a40ca7cb8e32d6cd0395538b3997eabda56a1939
+  checksum: 10c0/e3f7b87dcf8a8774391721d2d23e849ee849bdc99bdd66a2822ff1f5bc1d80fb604e5550154f00a68331ca39d3b49d58d7145bdab46dcdea4bc4c919f8b35504
   languageName: node
   linkType: hard
 
-"@physiomelinks/math-ast@npm:^0.5.1":
-  version: 0.5.1
-  resolution: "@physiomelinks/math-ast@npm:0.5.1"
-  checksum: 10c0/fbd7947bcdf446b49e3d292e618be0deb1664a85f861ab7c20d4074e8fea48c21da1131d6ab64dedd0bffe004878ba81c75822190b0ca5240d99d201f7bdffa1
+"@physiomelinks/math-ast@npm:^0.6.0":
+  version: 0.6.0
+  resolution: "@physiomelinks/math-ast@npm:0.6.0"
+  checksum: 10c0/3407bb1d6d1eb167ba51f58657f41ea13e1ec7231cd3d951b718f69fd7ae557e78789280744d7c560f92abf47291eb18299317a242dfd4d38ff65b434b92114f
   languageName: node
   linkType: hard
 
@@ -6255,7 +6255,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "phlynx@workspace:."
   dependencies:
-    "@celldl/editor": "https://github.com/physiomelinks/CellDLEditorComponent/releases/download/phlynx-v0.20261007.0-phlynx.15/celldl-editor-0.20261007.0-phlynx.15.tgz"
+    "@celldl/editor": "https://github.com/physiomelinks/CellDLEditorComponent/releases/download/phlynx-v0.20261007.0-phlynx.16/celldl-editor-0.20261007.0-phlynx.16.tgz"
     "@codemirror/language": "npm:^6.12.1"
     "@codemirror/theme-one-dark": "npm:^6.1.3"
     "@dagrejs/dagre": "npm:^1.1.8"
@@ -6263,7 +6263,7 @@ __metadata:
     "@lezer/highlight": "npm:^1.2.3"
     "@lezer/lr": "npm:^1.4.8"
     "@opencor/libopencor": "npm:^1.20261006.1"
-    "@physiomelinks/bg2cellml": "npm:0.5.1"
+    "@physiomelinks/bg2cellml": "npm:0.6.0"
     "@physiomelinks/protocol-kit": "npm:^0.5.0"
     "@primeuix/utils": "npm:^0.6.2"
     "@primevue/themes": "npm:4"
