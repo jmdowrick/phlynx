@@ -1,3 +1,4 @@
+import json
 import math
 import os
 import re
@@ -76,6 +77,15 @@ BOND_MARKER = """() => {
     const bond = document.querySelector('.celldl-pane .celldl-host #svg-container > svg .celldl-Connection.bondgraph.arrow')
     return bond ? getComputedStyle(bond).markerEnd : null
 }"""
+# Where each of the diagram's components is, by id, rounded to the pixel.
+COMPONENT_CENTRES = """() => Object.fromEntries(
+    [...document.querySelectorAll('.celldl-pane .celldl-host #svg-container > svg #celldl-diagram-layer > g.celldl-Component')]
+        .map((g) => {
+            const box = g.getBBox()
+            const m = g.getCTM()
+            return [g.id, [Math.round(m.a * (box.x + box.width / 2) + m.e), Math.round(m.d * (box.y + box.height / 2) + m.f)]]
+        })
+)"""
 SHORT_SIMULATION = (
     "document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s"
     ".get('simulationSettings').setSimulationSettings({ endingPoint: 1, pointInterval: 0.01 })"
@@ -1604,6 +1614,47 @@ class TestCelldl(unittest.TestCase):
             shading.click()
             expect(shading).to_be_checked()
             page.wait_for_function(f"document.querySelector('{DIAGRAM_SVG} #{REGION_LAYER}')?.childElementCount > 0")
+            # ----------- END ------------
+
+            browser.close()
+
+    def test_reorganises_from_the_status_line_in_the_chosen_mode_and_undoes_it(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+
+            # ---------- START -----------
+            import_diagram(page, ENZYME)
+            expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            place(page, CELLDL_GROUP, ENZYME_MODULE)
+            dialog = open_editor(page, ENZYME_MODULE)
+            wait_for_diagram(page)
+            before = page.evaluate(COMPONENT_CENTRES)
+
+            # The Reactions panel has no Reorganise controls: the status line has them, before the Shading switch.
+            host = page.locator(".celldl-pane .celldl-host")
+            host.locator("#reactions-panel").click()
+            expect(host.get_by_role("button", name=re.compile("Reorganise"))).to_have_count(0)
+            line = dialog.locator(".celldl-live")
+            button = line.get_by_role("button", name="Reorganise", exact=True)
+            expect(button).to_be_enabled(timeout=DIAGRAM_TIMEOUT)
+
+            # A mode is picked from the editor's list, and remembered for this viewer.
+            line.get_by_label("Reorganise mode").click()
+            page.get_by_role("option", name="Short bonds").click()
+            expect(line.get_by_label("Reorganise mode")).to_have_text("Short bonds")
+            self.assertEqual(page.evaluate("localStorage.getItem('phlynx.celldl.reorganiseMode')"), "compact")
+
+            # Reorganised, the diagram's elements move, and the status line says how.
+            button.click()
+            expect(line.locator(".celldl-reorganise-note")).to_contain_text(re.compile("Complexity|No simpler layout"), timeout=SIMULATION_TIMEOUT)
+            expect(button).to_be_enabled()
+            if "No simpler layout" in line.locator(".celldl-reorganise-note").inner_text():
+                self.skipTest("The editor found no simpler layout for this diagram.")
+            page.wait_for_function(f"JSON.stringify(({COMPONENT_CENTRES})()) !== {json.dumps(json.dumps(before, separators=(",", ":")))}")
+
+            # Undo, straight after the button, puts every element back.
+            page.keyboard.press("ControlOrMeta+z")
+            page.wait_for_function(f"JSON.stringify(({COMPONENT_CENTRES})()) === {json.dumps(json.dumps(before, separators=(",", ":")))}")
             # ----------- END ------------
 
             browser.close()

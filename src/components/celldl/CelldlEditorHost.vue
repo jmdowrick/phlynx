@@ -18,6 +18,8 @@
         @elements="host.onElements"
         @element-result="host.onElementResult"
         @view-state="host.onViewState"
+        @reorganise-state="host.onReorganiseState"
+        @reorganise-result="host.onReorganiseResult"
       />
     </div>
   </Teleport>

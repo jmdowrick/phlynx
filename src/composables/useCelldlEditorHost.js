@@ -13,6 +13,8 @@ import { chooseOpenView, lastView, rememberView } from '../utils/celldlView.js'
 /** How long to wait for the editor to mount, and to answer a command. */
 const READY_TIMEOUT_MS = 30000
 const COMMAND_TIMEOUT_MS = 10000
+/** How long a reorganise may take, as it searches many layouts. */
+const REORGANISE_TIMEOUT_MS = 120000
 
 /**
  * The editor's options: hovering an element shows its info's tooltip, the variables it has, and its element
@@ -26,7 +28,8 @@ export const EDITOR_OPTIONS = Object.freeze({ tooltip: 'tooltip', elementList: t
  * (not `false`, which hides the toolbar) keeps its Undo and Redo buttons. No pointer-position readout. The
  * Properties panel shows values read-only: they're set per instance, in the Parameters tab. The right-hand panels
  * are listed so the Variables panel stays hidden; Annotations takes ontology terms (Rhea, SBO and UniProt on
- * reactions, ChEBI and GO on species), which the diagram keeps.
+ * reactions, ChEBI and GO on species), which the diagram keeps. The Reactions panel shows no Reorganise controls: the
+ * CellDL tab's status line has them.
  */
 export const EDITOR_CHROME = Object.freeze({
   tools: Object.freeze([]),
@@ -39,7 +42,11 @@ export const EDITOR_CHROME = Object.freeze({
   values: 'readonly',
   valuesHint: 'Set values in the Parameters tab',
   panels: Object.freeze(['properties', 'metadata', 'style', 'reactions', 'annotations']),
+  reorganise: false,
 })
+
+/** What Reorganise can do before the editor says: nothing. */
+const NO_REORGANISE = Object.freeze({ modes: [], enabled: false, busy: false })
 
 /** The class marking a diagram element a conversion failed on. */
 export const ERROR_CLASS = 'phlynx-celldl-error'
@@ -91,8 +98,13 @@ export function isEditorKey(event) {
  * @param {Object} [options]
  * @param {number} [options.readyTimeout]
  * @param {number} [options.commandTimeout]
+ * @param {number} [options.reorganiseTimeout]
  */
-export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, commandTimeout = COMMAND_TIMEOUT_MS } = {}) {
+export function createCelldlEditorHost({
+  readyTimeout = READY_TIMEOUT_MS,
+  commandTimeout = COMMAND_TIMEOUT_MS,
+  reorganiseTimeout = REORGANISE_TIMEOUT_MS,
+} = {}) {
   /** Whether a pane has asked for the editor, which mounts the host. */
   const isRequested = ref(false)
   /** The claiming pane's element, or null while parked. */
@@ -129,6 +141,8 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   const selection = shallowRef({ id: null, isHostSelection: false })
   /** The editor's current alert, such as why a bond was refused, or null. */
   const message = shallowRef(null)
+  /** Whether Reorganise can run, and its modes, as the editor's `reorganise-state` event says. */
+  const reorganiseState = shallowRef(NO_REORGANISE)
 
   let root = null
   let readyWaiters = []
@@ -147,12 +161,16 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   const pendingResults = new Map()
   // `view` commands waiting for their `view-state` reply, by kind.
   const pendingViews = new Map()
+  // `reorganise` commands waiting for their `reorganise-result` reply, by kind.
+  const pendingReorganises = new Map()
   // The documentUri the shown diagram's view is remembered under, once it has opened.
   let viewKey = null
   // Whether a pane next claiming the editor sets the view a diagram opens at, for a source shown already.
   let isViewDue = false
   // The element the host last selected, whose `select` event the pane is told about as the host's own.
   let hostSelection = null
+  // Where the user works in the claiming pane: its editor's element, or an area around it, such as its status line.
+  let engagedArea = null
   // The claiming pane's handler for the editor's viewer events (select, unselect, active, unactive).
   let eventHandler = null
   let annotationCount = 0
@@ -284,15 +302,16 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
    * @param {Map<string, Function>} pending - Where the reply's handler finds the waiter.
    * @param {(kind: string) => Object} make - Makes the command for a kind.
    * @param {string} what - Named in the timeout's error.
+   * @param {number} [timeout]
    * @returns {Promise<any>}
    */
-  function sendAwaiting(pending, make, what) {
+  function sendAwaiting(pending, make, what, timeout = commandTimeout) {
     const kind = `phlynx-${++commandCount}`
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(kind)
         reject(new Error(`The CellDL editor didn't ${what} in time`))
-      }, commandTimeout)
+      }, timeout)
       pending.set(kind, (reply) => {
         clearTimeout(timer)
         resolve(reply)
@@ -410,6 +429,49 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     if (!element) return
     element.classList.add(FLASH_CLASS)
     flashTimer = setTimeout(() => element.classList.remove(FLASH_CLASS), FLASH_MS)
+  }
+
+  /**
+   * Reorganises the diagram by location, as one undoable edit the editor reports as any other.
+   *
+   * @param {string} [mode] - One of `reorganiseState`'s modes; the editor's default without one.
+   * @returns {Promise<{ok: boolean, mode: string, improved: boolean, status: string, error?: string}>} Its
+   *   ReorganiseResult: `status` says what changed, `error` why it couldn't run.
+   */
+  async function reorganise(mode) {
+    await whenReady()
+    const { kind, ...result } = await sendAwaiting(
+      pendingReorganises,
+      (kind) => ({ command: 'edit', options: { action: 'reorganise', kind, ...(mode && { mode }) } }),
+      'reorganise the diagram',
+      reorganiseTimeout
+    )
+    return result
+  }
+
+  /**
+   * Takes the editor's `reorganise-state` event.
+   *
+   * @param {{modes: {id: string, label: string, description: string}[], enabled: boolean, busy: boolean}} state
+   */
+  function onReorganiseState(state) {
+    reorganiseState.value = {
+      modes: Array.isArray(state?.modes) ? state.modes : [],
+      enabled: !!state?.enabled,
+      busy: !!state?.busy,
+    }
+  }
+
+  /**
+   * Passes on the editor's `reorganise-result` event to the command it answers.
+   *
+   * @param {{kind?: string, ok: boolean}} result
+   */
+  function onReorganiseResult(result) {
+    const resolve = result?.kind && pendingReorganises.get(result.kind)
+    if (!resolve) return
+    pendingReorganises.delete(result.kind)
+    resolve(result)
   }
 
   /**
@@ -739,11 +801,14 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
    * @param {HTMLElement} element
    * @param {(event: {type: string, component?: {id: string, info?: Object}}) => void} [onEvent] - Hears
    *   the editor's viewer events while the pane holds it.
+   * @param {HTMLElement} [area] - Where working engages the editor, such as the pane with its status line, so Undo
+   *   after its Reorganise button works; the editor's element by default.
    */
-  function claim(element, onEvent = null) {
+  function claim(element, onEvent = null, area = element) {
     isRequested.value = true
     isEngaged.value = false
     target.value = element
+    engagedArea = area
     eventHandler = onEvent
   }
 
@@ -755,6 +820,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   function release(element) {
     if (target.value !== element) return
     target.value = null
+    engagedArea = null
     isEngaged.value = false
     eventHandler = null
   }
@@ -796,7 +862,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
    */
   function onPointerOrFocus(event) {
     if (event.target?.closest?.('.p-contextmenu')) return
-    isEngaged.value = !!target.value?.contains(event.target)
+    isEngaged.value = !!target.value && !!engagedArea?.contains(event.target)
   }
 
   /**
@@ -844,6 +910,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     unitSystem,
     selection,
     message,
+    reorganiseState,
     attach,
     whenReady,
     open,
@@ -867,6 +934,9 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     onElements,
     onElementResult,
     onViewState,
+    onReorganiseState,
+    onReorganiseResult,
+    reorganise,
     listElements,
     setElement,
     setUnitSystem,
