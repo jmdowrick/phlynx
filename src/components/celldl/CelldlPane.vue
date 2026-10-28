@@ -280,10 +280,12 @@ onBeforeUnmount(() => host.release(slotRef.value))
   color: var(--p-orange-500);
 }
 
+/* Pinned to the line's end, whatever the status before it says. */
 .celldl-shading-toggle {
   display: inline-flex;
   flex: none;
   align-items: center;
+  margin-left: auto;
   gap: 0.375rem;
   color: var(--p-text-color);
   cursor: pointer;
@@ -304,22 +306,7 @@ onBeforeUnmount(() => host.release(slotRef.value))
 }
 
 .celldl-live[data-state='errors'] .celldl-live-status,
-.celldl-live[data-state='warnings'] .celldl-shading-toggle {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 0.375rem;
-  color: var(--p-text-color);
-  cursor: pointer;
-}
-
-.celldl-shading-switch {
-  --p-toggleswitch-width: 1.75rem;
-  --p-toggleswitch-height: 1rem;
-  --p-toggleswitch-handle-size: 0.625rem;
-}
-
-.celldl-live-status {
+.celldl-live[data-state='warnings'] .celldl-live-status {
   color: var(--p-orange-500);
 }
 
@@ -338,6 +325,7 @@ onBeforeUnmount(() => host.release(slotRef.value))
 }
 
 .celldl-live-issues span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
