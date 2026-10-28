@@ -68,6 +68,14 @@ export const SETTING_SECTIONS = [
         default: 'auto',
       },
       {
+        key: 'celldlLocationShading',
+        type: 'toggle',
+        label: 'Location shading',
+        description:
+          "Shade the regions of a diagram that its elements' locations mark out. Only the display changes; the CellDL tab's status bar has the same switch.",
+        default: true,
+      },
+      {
         key: 'celldlUnitSystem',
         type: 'select',
         label: 'New CellDL modules: unit system',

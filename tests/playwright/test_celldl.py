@@ -61,6 +61,7 @@ INDUCTOR = "ID-00000003"
 ZERO_STORAGE_NODE = "https://bg-rdf.org/ontologies/bondgraph-framework#ZeroStorageNode"
 STORAGE_NODES = [
     "Chemical storage with Zero Node",
+    "Chemical storage with saturating activity and Zero Node",
     "Electrical storage with Zero Node",
     "Hydraulic storage with Zero Node",
     "Hydraulic elastic storage with Zero Node",
@@ -68,6 +69,8 @@ STORAGE_NODES = [
 ]
 
 DIAGRAM_SVG = ".celldl-pane .celldl-host #svg-container > svg"
+# The layer the editor draws location shading in.
+REGION_LAYER = "celldl-region-layer"
 # The marker a bond is drawn with: its arrowhead style's display marker, whatever the document saved.
 BOND_MARKER = """() => {
     const bond = document.querySelector('.celldl-pane .celldl-host #svg-container > svg .celldl-Connection.bondgraph.arrow')
@@ -1522,6 +1525,44 @@ class TestCelldl(unittest.TestCase):
 
             browser.close()
 
+
+    def test_switches_location_shading_from_the_status_bar_and_remembers_it(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+
+            # ---------- START -----------
+            import_diagram(page, REACTIONS_PANEL)
+            expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            place(page, CELLDL_GROUP, REACTIONS_MODULE)
+            dialog = open_editor(page, REACTIONS_MODULE)
+            wait_for_diagram(page)
+
+            # On by default: the editor shades the region its elements' location marks out.
+            shading = dialog.locator(".celldl-live").get_by_label("Location shading")
+            expect(shading).to_be_checked()
+            page.wait_for_function(f"document.querySelector('{DIAGRAM_SVG} #{REGION_LAYER}')?.childElementCount > 0")
+
+            # Switched off, the shading goes from the open diagram.
+            shading.click()
+            expect(shading).not_to_be_checked()
+            page.wait_for_function(f"!document.querySelector('{DIAGRAM_SVG} #{REGION_LAYER}')")
+
+            # It's remembered: off when the diagram is next opened, until switched back on.
+            dialog.get_by_role("button", name="Cancel").click()
+            expect(dialog).to_be_hidden()
+            dialog = open_editor(page, REACTIONS_MODULE)
+            wait_for_diagram(page)
+            shading = dialog.locator(".celldl-live").get_by_label("Location shading")
+            expect(shading).not_to_be_checked()
+            self.assertFalse(page.evaluate("JSON.parse(localStorage.getItem('phlynx-settings')).celldlLocationShading"))
+            expect(page.locator(f"{DIAGRAM_SVG} #{REGION_LAYER}")).to_have_count(0)
+
+            shading.click()
+            expect(shading).to_be_checked()
+            page.wait_for_function(f"document.querySelector('{DIAGRAM_SVG} #{REGION_LAYER}')?.childElementCount > 0")
+            # ----------- END ------------
+
+            browser.close()
 
     def test_values_a_term_added_in_the_reactions_panel_and_a_chemostat_from_the_parameters_tab(self):
         with sync_playwright() as playwright:

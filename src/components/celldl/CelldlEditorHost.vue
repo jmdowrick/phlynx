@@ -2,9 +2,9 @@
   <Teleport :to="host.target.value ?? parking">
     <div ref="rootRef" class="celldl-host">
       <CellDLEditor
-        :annotations="host.annotations.value"
+        :element-info="host.annotations.value"
         :arrow-style="settings.arrowStyle"
-        :chrome="EDITOR_CHROME"
+        :chrome="chrome"
         :editor-command="host.command.value"
         :options="EDITOR_OPTIONS"
         :theme="isDarkMode ? 'dark' : 'light'"
@@ -39,6 +39,9 @@ const host = useCelldlEditorHost()
 const { isDarkMode } = useColorScheme()
 const { settings } = useAppSettings()
 const rootRef = ref(null)
+
+// Location shading follows the app setting, which the CellDL tab's status bar also switches.
+const chrome = computed(() => ({ ...EDITOR_CHROME, locationShading: settings.celldlLocationShading }))
 
 // Made before the first render, so the editor can teleport there from the start.
 const parking = document.createElement('div')

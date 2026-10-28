@@ -15,7 +15,7 @@ const READY_TIMEOUT_MS = 30000
 const COMMAND_TIMEOUT_MS = 10000
 
 /**
- * The editor's options: hovering an element shows its annotation's tooltip, the variables it has, and its element
+ * The editor's options: hovering an element shows its info's tooltip, the variables it has, and its element
  * list follows every diagram change, for the Parameters tab.
  */
 export const EDITOR_OPTIONS = Object.freeze({ tooltip: 'tooltip', elementList: true })
@@ -736,7 +736,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
    * Shows the editor in a pane, mounting it on first use.
    *
    * @param {HTMLElement} element
-   * @param {(event: {type: string, component?: {id: string, annotation?: Object}}) => void} [onEvent] - Hears
+   * @param {(event: {type: string, component?: {id: string, info?: Object}}) => void} [onEvent] - Hears
    *   the editor's viewer events while the pane holds it.
    */
   function claim(element, onEvent = null) {
