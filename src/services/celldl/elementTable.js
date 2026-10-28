@@ -402,22 +402,21 @@ export function buildElementTable({
 }
 
 /**
- * Gets the edits a species or location change makes: the element's, and, while junctions follow their store, its
- * linked junction's too, when the junction is on the store's old value or the default.
+ * Gets the edits a species or location change makes: the element's, and its linked junction's too, when the junction
+ * is on the store's old value or the default. A 0-junction shares one potential, so it follows its store.
  *
  * @param {Object} element - The edited DiagramElement.
  * @param {'species'|'location'} field
  * @param {string} value
  * @param {Object} [options]
  * @param {Object|null} [options.junction] - The store's linked junction.
- * @param {boolean} [options.follow] - Whether junctions follow their store.
  * @returns {{id: string, field: string, value: string}[]}
  */
-export function structureEdits(element, field, value, { junction = null, follow = true } = {}) {
+export function structureEdits(element, field, value, { junction = null } = {}) {
   if (element[field] === value) return []
   const edits = [{ id: element.id, field, value }]
   const defaultValue = field === 'species' ? DEFAULT_SPECIES : DEFAULT_LOCATION
-  if (follow && junction && junction[field] !== undefined && [element[field], defaultValue].includes(junction[field])) {
+  if (junction && junction[field] !== undefined && [element[field], defaultValue].includes(junction[field])) {
     if (junction[field] !== value) edits.push({ id: junction.id, field, value })
   }
   return edits
