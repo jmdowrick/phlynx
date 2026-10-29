@@ -473,6 +473,29 @@ def celldl_issues(page):
     save(page, "celldl-issues", clip=clip_around([dialog.locator(".celldl-live"), popover], margin=16))
 
 
+def celldl_annotations(page):
+    dialog = open_celldl_module(page, ENZYME, ENZYME_MODULE)
+    host = page.locator(".celldl-pane .celldl-host")
+    host.locator("#annotations-panel").click()
+    # The panel rereads the diagram as it opens, dropping an entry made first, so it's entered again until kept.
+    chebi = host.get_by_label(re.compile(r"^ChEBI ID of S\b"))
+    apply = host.get_by_role("button", name="Apply", exact=True)
+    for _ in range(5):
+        chebi.fill("17234")
+        chebi.press("Tab")
+        try:
+            expect(apply).to_be_enabled(timeout=1000)
+            break
+        except AssertionError:
+            pass
+    chebi.scroll_into_view_if_needed()
+    page.evaluate("document.activeElement?.blur()")
+    page.mouse.move(5, VIEWPORT["height"] - 5)
+    page.wait_for_timeout(600)
+    dismiss_toasts(page)
+    save(dialog.locator(".left-pane"), "celldl-annotations")
+
+
 SHOTS = {
     "phlynx_ui": phlynx_ui,
     "toolbar": toolbar,
@@ -496,6 +519,7 @@ SHOTS = {
     "celldl-reactions": celldl_reactions,
     "celldl-parameters": celldl_parameters,
     "celldl-issues": celldl_issues,
+    "celldl-annotations": celldl_annotations,
 }
 
 
