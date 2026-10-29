@@ -53,7 +53,7 @@ These work while you are working in the diagram (after clicking it).
 | Bond from an element's body | Ctrl+drag (Cmd+drag on Mac) |
 | Stop placing an armed palette element | Esc |
 | Zoom in / out / to fit | + / - / Shift+1 |
-| Zoom / pan | Pinch or Ctrl/Cmd+scroll / scroll or two-finger swipe (Shift+scroll pans across) |
+| Zoom / pan | Pinch, Ctrl/Cmd+scroll or a mouse wheel / two-finger trackpad scroll (Shift+scroll pans across); see [Settings](../guides/drawing-celldl-modules.md#settings) |
 | Apply an equation in the Reactions panel | Enter (Esc restores it) |
 
 See [Drawing CellDL Modules](../guides/drawing-celldl-modules.md#drawing).

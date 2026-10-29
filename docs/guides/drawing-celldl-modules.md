@@ -3,7 +3,7 @@
 > [!WARNING]
 > **CellDL is in beta.** The editor and its file format may still change. Diagrams you save now should open in later versions of PhLynx, but that isn't guaranteed, so keep copies of work you need.
 
-A **CellDL module** is a <GlossaryLink term="bond-graph">bond graph</GlossaryLink> drawn as a diagram in the Instance Editor's **CellDL (beta)** tab. PhLynx converts the diagram to CellML with bg2cellml as you draw. The generated CellML is shown read-only in the **CellML Text** tab (switch **Simple Mode** on or off to read it either way) and in the **Math Editor**. Once saved, a CellDL module is placed, connected, simulated and exported like any other module.
+A **CellDL module** is a <GlossaryLink term="bond-graph">bond graph</GlossaryLink> drawn as a diagram in the Instance Editor's **CellDL (beta)** tab. PhLynx converts the diagram to CellML with bg2cellml as you draw. The generated CellML is shown read-only in the **CellML Text** tab (switch **Simple Mode** on or off to read it either way) and in the **Math Editor**. CellML Text groups its equations under headings: for a chemical model **Chemical potentials**, **Reaction affinities**, **Reaction flux**, **Species flux** and **Mass conservation** (the ODEs, last); other domains get general titles such as **Potentials** and **Conservation**. The headings are shown only in PhLynx: the CellML has no comments. Once saved, a CellDL module is placed, connected, simulated and exported like any other module.
 
 ![The Instance Editor's CellDL tab, with the palette above the diagram and the Parameters tab beside it](../assets/images/celldl-editor.png){.align-center width="800px"}
 
@@ -22,13 +22,14 @@ The **palette** above the diagram holds the elements. Its dropdown picks the dom
 - **Place an element:** drag a tile onto the canvas, or click the tile and then click the canvas (each click places another; press Esc or click the tile again to stop). Right-click empty canvas and choose **Add element…** to search for one where you clicked.
 - **Bond two elements:** hover an element, then drag from the handle that appears on its edge to the other element; or hold Ctrl (Cmd on Mac) and drag from the element itself. Valid targets are marked and the rest dimmed. A bond's direction matters: drawn the wrong way, it is refused with a message saying which way to drag, such as *Bonds point into a store. Drag from the junction to the store.*
 - **Select:** click an element; hovering one lists its variables. Delete or Backspace removes the selection.
-- **Align and distribute:** select two or more elements and use the buttons at the top right of the canvas (**Align left**, **Align centre**, **Align top**, …; distributing needs three or more). Bonds between the selected elements are straightened.
-- **Zoom and pan:** pinch, or Ctrl/Cmd+scroll wheel, zooms; scroll or a two-finger swipe pans (Shift+wheel pans across). The controls at the bottom right zoom out (-), in (+) and **Fit** (Shift+1). A diagram opens fitted to the view, at no more than 100%, or at the zoom you last left that module at if that was closer.
+- **Align and distribute:** select two or more elements and use the buttons at the top right of the canvas (**Align left**, **Align centre**, **Align top**, …; distributing needs three or more). Aligning centres puts them exactly on one line, and bonds between the selected elements are straightened.
+- **Straighten:** right-click a bent bond, or a selection with bent bonds between its elements, and choose **Straighten** to remove the bends (one undo step). It is offered only when there are bends.
+- **Zoom and pan:** by default a mouse wheel zooms and a trackpad's two-finger scroll pans (Shift+wheel pans across). Pinching, or Ctrl/Cmd+wheel, always zooms. The **Scrolling in CellDL diagrams** [setting](#settings) (**Automatic**, **Pan** or **Zoom**) changes what plain scrolling does. The controls at the bottom right zoom out (-), in (+) and **Fit** (Shift+1). A diagram opens fitted to the view, at no more than 100%, or at the zoom you last left that module at if that was closer.
 - **Undo and redo:** Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y while working in the diagram, including **Style** panel edits. Undo in another tab doesn't touch the diagram.
 
 ### Panels {#panels}
 
-The icons on the right of the canvas open four panels:
+The icons on the right of the canvas open five panels:
 
 | Panel | Icon | Use |
 | :--- | :--- | :--- |
@@ -36,25 +37,36 @@ The icons on the right of the canvas open four panels:
 | **Metadata** | Document | The diagram's metadata. |
 | **Style** | Brush | Colours, lines and text of the selection. |
 | **Reactions** | Flask | Each reaction as an equation; see below. |
+| **Annotations** | Book | Ontology terms for each reaction and species; see [Annotating](#annotations). |
 
 ### Writing Reactions as Equations {#reactions-panel}
 
 ![The Reactions panel listing each reaction's equation](../assets/images/celldl-reactions.png){.align-center width="600px"}
 
-The **Reactions** panel lists each reaction as an equation, such as `A[c] + 2 B[c] + ATP[c] ⇌ C[c]`. Species are written `Name[location]`, joined by ` + `, with a coefficient before a species and a space (`2 B[c]`).
+The **Reactions** panel lists each reaction as an equation, such as `A[c] + 2 B[c] + ATP[c] ⇌ C[c]`. Species are written `Name[location]`, joined by `+`. Spaces around `+` and the arrow are optional. A number before a species is always its coefficient (`2B[c]` or `2 B[c]`), so a species name can't start with a number: such a name is refused with a message. The arrow can be `⇌`, `⇄`, `↔`, `→`, `<=>`, `<->`, `=>`, `->` or `=`.
 
 - **Edit a reaction:** change its equation and press Enter. A new species gets a new store, placed beside the reaction; a removed species loses its bond; a coefficient sets the bond's count. Esc restores the equation.
 - **Add a reaction:** type a name (optional; unnamed reactions are R1, R2, …) and an equation such as `S[c] + E[c] <=> C[c]` under **New reaction**, then press Enter.
 
 New elements start with parameters of 1 and initial values of 0. Set their values in the [Parameters tab](#parameters).
 
+### Annotating {#annotations}
+
+![The Annotations panel, with a ChEBI ID entered for species S](../assets/images/celldl-annotations.png){.align-center width="600px"}
+
+The **Annotations** panel lists every reaction and species in the diagram. Give a reaction its **Rhea** ID (or, ticked **Lumped**, the Rhea IDs of its parts), an SBO **Type** and an optional **UniProt** mediator; give a species its **ChEBI** entity and **GO** compartment (**Fill** sets one GO term for every species in a location). **view** opens a term's entry. **Apply** keeps the terms, which are saved with the diagram.
+
+### Element Styles {#element-styles}
+
+An element whose template has its own constitutive law, rather than its domain's default, is drawn in that law's style, with a small law label (such as *sat*) before its symbol.
+
 ### Compartments and Regions {#compartments}
 
-The palette's **Spatial** tiles draw a **Compartment** (a box with a membrane wall) or a **Region** (a dashed box) round elements: click or drop to place one, or drag on the canvas to draw it. They are decorative only. An element's location comes from its own **Location** field, not from the box it sits in.
+The palette's **Spatial** tiles draw a **Compartment** (a box with a membrane wall) or a **Region** (a dashed box) round elements: click or drop to place one, or drag on the canvas to draw it. They are decorative only. An element's location comes from its own **Location** field, not from the box it sits in. [Location shading](#status-line) draws over the boxes.
 
 ## Live Conversion {#live-conversion}
 
-The line below the diagram says whether it converts:
+The status line below the diagram says whether it converts:
 
 | Status | Means |
 | :--- | :--- |
@@ -68,13 +80,20 @@ When there are issues, click the status (or focus it and press Enter) to list th
 
 ![The list of conversion issues, opened from the status line](../assets/images/celldl-issues.png){.align-center width="600px"}
 
+### Reorganise and Shading {#status-line}
+
+The right end of the status line holds:
+
+- **Reorganise**, with its mode dropdown (**Balanced** by default; hover a mode for what it favours), lays the diagram out again by location and then says what changed. It is one undo step, and Compartment and Region boxes move with their contents.
+- **Shading** switches location shading: a shaded region for each location, drawn behind the elements and over Compartment and Region boxes. Only the display changes. The same switch is in [Settings](#settings).
+
 ## The Parameters Tab {#parameters}
 
 ![The CellDL Parameters tab with the Units dropdown open](../assets/images/celldl-parameters.png){.align-center width="500px"}
 
 For a CellDL module, the **Parameters** tab lists the diagram's elements, grouped as **Stores**, **Reactions**, **Junctions**, **Other elements** and **Constants**.
 
-- **Type, Species, Location** change the diagram (one undo step each). With **Junctions follow their store** on, renaming a store's species or location renames its 0-junction too. These fields need the diagram shown; **Show diagram** switches to it.
+- **Type, Species, Location** change the diagram (one undo step each). A store's 0-junction always follows its species and location. These fields need the diagram shown; **Show diagram** switches to it.
 - **Values** are this instance's own. A blank value uses the diagram's, shown greyed with **default** beside it. Other instances of the module keep their own values. Values typed for a variable that an edit renames move to the new name.
 - **computed** marks a variable the math works out (such as an inductor's acceleration), which takes no value.
 - **Set by** *instance.variable* marks a value a [connection](#connecting) supplies; the field is read-only.
@@ -121,6 +140,8 @@ CellDL modules connect like CellML modules: add ports on the **Ports** tab, then
 In **Settings** (cog icon), under **CellDL diagrams**:
 
 - **Bond arrowheads:** **Classic** (a closed arrowhead, the default) or **Bond graph** (a half arrow). Only the display changes.
+- **Scrolling in CellDL diagrams:** **Automatic** (the default: a mouse wheel zooms, a trackpad pans), **Pan** or **Zoom**. Pinching, or Ctrl/Cmd+wheel, always zooms.
+- **Location shading:** on by default; the same as the status line's **Shading** switch.
 - **New CellDL modules: unit system:** **Cellular (fmol, pL)** (the default) or **SI (mol, L)**. Each module keeps its own after that.
 
 ## Saving and Exporting {#exporting}
