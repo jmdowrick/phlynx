@@ -31,6 +31,9 @@ export const ANNOTATION_FACETS = FACETS
 /** The site path a cell's membrane is offered at, so no facet or process may use it. */
 export const MEMBRANE = 'membrane'
 
+/** A template instance id, as it appears before the slash of a site reference. */
+export const INSTANCE_ID = /^[A-Za-z0-9][A-Za-z0-9_:.-]*$/
+
 export const LIMITS = {
   name: 64,
   description: 280,
@@ -63,7 +66,6 @@ const DEFAULT_MEMBRANE_LABEL = 'Plasma membrane'
 const DEFAULT_TONE = 'sky'
 const OPPOSITE = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' }
 const SITE_PATH = /^[a-z][a-z0-9-]{0,31}(?:\.[a-z][a-z0-9-]{0,31})?$/
-const INSTANCE_ID = /^[A-Za-z0-9][A-Za-z0-9_:.-]*$/
 
 const PIECE_ID_RULE = '"id" must start with a letter and use only lower-case letters, digits and hyphens (1-32 characters).'
 
