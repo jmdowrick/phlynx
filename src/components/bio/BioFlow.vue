@@ -1,6 +1,11 @@
 <template>
   <!-- One root, so the class the workspace gives it (its place over the diagram) lands -->
-  <div class="bio-flow-root" @dragover="onModuleDragOver" @dragleave="onModuleDragLeave" @drop="onModuleDrop">
+  <div
+    :class="['bio-flow-root', { 'bio-flow-root--dragging': draggingId }]"
+    @dragover="onModuleDragOver"
+    @dragleave="onModuleDragLeave"
+    @drop="onModuleDrop"
+  >
     <VueFlow
       :id="FLOW_IDS.BIO"
       :nodes="bioNodes"
@@ -567,6 +572,11 @@ async function onPlaceConfirm({ role, moduleRef, membraneRef, cell, placement })
 .bio-flow {
   width: 100%;
   height: 100%;
+}
+
+/* The selection's coupling lines are hidden while dragging, and so are their ends. */
+.bio-flow-root--dragging :deep(.bio-handle) {
+  visibility: hidden;
 }
 
 .bio-slot-prompts {
