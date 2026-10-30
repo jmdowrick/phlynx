@@ -46,7 +46,6 @@
           <ToggleSwitch v-model="showConstants" aria-label="Show constants" data-test="show-constants" />
           <span>Show constants</span>
         </label>
-        <slot name="header-actions" />
       </div>
 
       <Message v-if="!isBound" severity="secondary" size="small" variant="simple" data-test="unbound-hint">
@@ -93,17 +92,15 @@
                 @click="clearEntry(row)"
               />
             </template>
-            <slot v-else name="row-suggestion" :row="row" :start-editing="() => startEditing(row)">
-              <Button
-                v-if="editingName !== row.name"
-                label="Annotate…"
-                link
-                size="small"
-                class="annotation-row__annotate"
-                data-test="annotate"
-                @click="startEditing(row)"
-              />
-            </slot>
+            <Button
+              v-else-if="editingName !== row.name"
+              label="Annotate…"
+              link
+              size="small"
+              class="annotation-row__annotate"
+              data-test="annotate"
+              @click="startEditing(row)"
+            />
           </span>
         </div>
 
