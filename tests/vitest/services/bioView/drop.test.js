@@ -74,3 +74,47 @@ describe('dropping in the physiological view', () => {
     expect(patchBioView({ facet: 'apical', order: 1 }, { order: undefined, cell: 'x' })).toEqual({ facet: 'apical', cell: 'x' })
   })
 })
+
+describe('dropping without moving untouched lateral proteins', () => {
+  /** A cell with four lateral proteins that have no side yet, so layout shares them out. */
+  function lateralCell() {
+    const nodes = ['cell', 'A', 'B', 'C', 'D'].map((id) => ({ id, data: { name: id } }))
+    const roles = new Map([
+      ['cell', role('cytosol')],
+      ...['A', 'B', 'C', 'D'].map((id) => [id, role('membraneProtein', { cell: 'cell', facet: 'lateral' })]),
+    ])
+    return { nodes, roles, layout: layoutBioView(nodes, roles), bioViews: new Map(nodes.map((n) => [n.id, undefined])) }
+  }
+
+  /** Lays out again with a plan applied, the way the resolver would read it back. */
+  function sidesAfter({ nodes, roles }, plan) {
+    const next = nodes.map((n) => ({ ...n, data: { ...n.data, bioView: plan.has(n.id) ? plan.get(n.id) : n.data.bioView } }))
+    const nextRoles = new Map(
+      [...roles].map(([id, r]) => {
+        const bioView = plan.get(id)
+        if (!bioView) return [id, r]
+        return [id, { ...r, facet: bioView.facet === null ? null : (bioView.facet ?? r.facet), at: bioView.at ?? null }]
+      })
+    )
+    const layout = layoutBioView(next, nextRoles)
+    return Object.fromEntries(['A', 'B', 'C', 'D'].map((id) => [id, layout.get(id).part ?? layout.get(id).kind]))
+  }
+
+  it('keeps every other lateral protein on its side when one moves to another facet', () => {
+    const cell = lateralCell()
+    const before = Object.fromEntries(['B', 'C', 'D'].map((id) => [id, cell.layout.get(id).part]))
+    const plan = planSlotDrop({ id: 'A', slot: { cellId: 'cell', part: 'apical', facet: 'apical', order: 0 }, ...cell })
+    const after = sidesAfter(cell, plan)
+    expect(after.A).toBe('apical')
+    expect({ B: after.B, C: after.C, D: after.D }).toEqual(before)
+  })
+
+  it('keeps every other lateral protein on its side when one is taken out of the membrane', () => {
+    const cell = lateralCell()
+    const before = Object.fromEntries(['B', 'C', 'D'].map((id) => [id, cell.layout.get(id).part]))
+    const plan = planUnplace({ id: 'A', position: { x: -300, y: 0 }, layout: cell.layout, bioViews: cell.bioViews })
+    const after = sidesAfter(cell, plan)
+    expect(after.A).toBe('tray')
+    expect({ B: after.B, C: after.C, D: after.D }).toEqual(before)
+  })
+})

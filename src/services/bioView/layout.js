@@ -62,20 +62,18 @@ function partsOf(ids, roleOf, nodes) {
 
 /**
  * Gives where a region goes: against the cells it is adjacent to, or, known only to face a side,
- * along that side of every cell.
+ * along that side of every cell. The first region against a place reaches a corner's depth under the
+ * cells, which are drawn over it, to fill beside their rounded corners; later ones stack outward.
  *
- * @param {Array<Object>|null} adjacent
- * @param {string|null} side
+ * @param {Array<Object>|null} adjacent - Entries for cells that are laid out.
+ * @param {string|null} facet - What it lies against: its adjacency's, else its annotated side.
+ * @param {number} index - How many regions are already against the same place.
  * @param {Map<string, Object>} layout - With the cells laid out.
  * @param {{left: number, right: number, top: number, bottom: number}} all - Around every cell.
  * @returns {Object|null} Its rect, or null when it is against nothing.
  */
-function regionRect(adjacent, side, layout, all) {
-  const facet = adjacent ? adjacent[0].facet : side
-  const rects = adjacent
-    ? adjacent.filter((entry) => entry.facet === facet && layout.get(entry.cell)?.kind === 'cell').map((entry) => layout.get(entry.cell).rect)
-    : null
-  if (adjacent && !rects.length) return null
+function regionRect(adjacent, facet, index, layout, all) {
+  const rects = adjacent ? adjacent.filter((entry) => entry.facet === facet).map((entry) => layout.get(entry.cell).rect) : null
   const span = rects
     ? {
         left: Math.min(...rects.map((r) => r.x)),
@@ -84,14 +82,16 @@ function regionRect(adjacent, side, layout, all) {
         bottom: Math.max(...rects.map((r) => r.y + r.height)),
       }
     : all
+  const reach = index ? 0 : CELL_RADIUS
   const across = { x: span.left - GAP, width: span.right - span.left + 2 * GAP }
-  if (facet === 'apical') return { ...across, y: span.top - REGION_HEIGHT, height: REGION_HEIGHT + CELL_RADIUS }
-  if (facet === 'basolateral') return { ...across, y: span.bottom - CELL_RADIUS, height: REGION_HEIGHT + CELL_RADIUS }
+  if (facet === 'apical') return { ...across, y: span.top - (index + 1) * REGION_HEIGHT, height: REGION_HEIGHT + reach }
+  if (facet === 'basolateral') return { ...across, y: span.bottom + index * REGION_HEIGHT - reach, height: REGION_HEIGHT + reach }
   if (facet === 'lateral' && adjacent) {
     // Down one cell's side, from its top to its bottom.
     const cell = rects[0]
-    const x = adjacent[0].at === 'right' ? cell.x + cell.width - CELL_RADIUS : cell.x - SIDE_REGION_WIDTH
-    return { x, y: cell.y, width: SIDE_REGION_WIDTH + CELL_RADIUS, height: cell.height }
+    const x =
+      adjacent[0].at === 'right' ? cell.x + cell.width + index * SIDE_REGION_WIDTH - reach : cell.x - (index + 1) * SIDE_REGION_WIDTH
+    return { x, y: cell.y, width: SIDE_REGION_WIDTH + reach, height: cell.height }
   }
   return null
 }
@@ -130,19 +130,29 @@ export function layoutBioView(nodes, roles) {
   const proteins = ids.filter((id) => roleOf(id).role === 'membraneProtein')
   const inMembrane = proteins.filter((id) => onCell(id) && roleOf(id).facet)
 
-  // Regions down a cell's side push its neighbours along to make room.
+  // What each region lies against, among the cells there are; adjacency to anything else is ignored.
   const regionIds = ids.filter((id) => roleOf(id).role === 'region')
+  const adjacencyOf = new Map(
+    regionIds.map((id) => {
+      const live = (roleOf(id).adjacent ?? []).filter((entry) => cellIds.includes(entry.cell))
+      return [id, live.length ? live : null]
+    })
+  )
+  // Regions down a cell's side push its neighbours along, one region's width for each.
   const sideRegions = (cellId, at) =>
-    regionIds.some((id) => roleOf(id).adjacent?.[0]?.facet === 'lateral' && roleOf(id).adjacent[0].cell === cellId && roleOf(id).adjacent[0].at === at)
+    regionIds.filter((id) => {
+      const first = adjacencyOf.get(id)?.[0]
+      return first?.facet === 'lateral' && first.cell === cellId && first.at === at
+    }).length
 
   let nextX = 0
   for (const cellId of cellIds) {
     const parts = partsOf(inMembrane.filter((id) => onCell(id) === cellId), roleOf, byId)
     const counts = Object.fromEntries(FACET_PARTS.map((part) => [part, parts[part].length]))
     const stored = byId.get(cellId).data?.bioView?.rect
-    const x = nextX + (sideRegions(cellId, 'left') ? SIDE_REGION_WIDTH : 0)
+    const x = nextX + sideRegions(cellId, 'left') * SIDE_REGION_WIDTH
     const rect = isRect(stored) ? stored : fitCellRect({ x, y: 0, ...MIN_CELL }, counts)
-    nextX = Math.max(nextX, rect.x + rect.width + GAP + (sideRegions(cellId, 'right') ? SIDE_REGION_WIDTH : 0))
+    nextX = Math.max(nextX, rect.x + rect.width + GAP + sideRegions(cellId, 'right') * SIDE_REGION_WIDTH)
     const membrane = ids.find((id) => roleOf(id).role === 'membrane' && onCell(id) === cellId) ?? null
     layout.set(cellId, { kind: 'cell', rect, membrane })
 
@@ -172,17 +182,22 @@ export function layoutBioView(nodes, roles) {
   // Regions run right up to the membrane, so a protein in it sits in both the region and the cell; each
   // reaches a corner's depth under the cells, which are drawn over them, to fill beside the rounded
   // corners. Ones with nowhere to go are stacked further down.
-  let otherY = bottom + REGION_HEIGHT + GAP
+  // Regions against the same place stack outward from it, so none hides another.
+  const stacked = new Map()
+  let otherY = bottom + 2 * REGION_HEIGHT + GAP
   for (const id of regionIds) {
-    const { side, adjacent } = roleOf(id)
+    const adjacent = adjacencyOf.get(id)
+    const against = adjacent ? adjacent[0].facet : roleOf(id).side
+    const key = against === 'lateral' ? `${adjacent[0].cell}/${adjacent[0].at}` : against
+    const index = stacked.get(key) ?? 0
+    stacked.set(key, index + 1)
     const stored = byId.get(id).data?.bioView?.rect
-    const against = adjacent ? adjacent[0].facet : side
-    let rect = isRect(stored) ? stored : regionRect(adjacent, side, layout, all)
+    let rect = isRect(stored) ? stored : regionRect(adjacent, against, index, layout, all)
     if (!rect) {
       rect = { x: left - GAP, y: otherY, width: right - left + 2 * GAP, height: REGION_HEIGHT }
       otherY += REGION_HEIGHT + GAP / 2
     }
-    layout.set(id, { kind: 'region', side: against ?? null, adjacent: adjacent ?? null, rect })
+    layout.set(id, { kind: 'region', side: against ?? null, adjacent, rect })
   }
 
   // Proteins in no membrane, in a tray left of the cells.

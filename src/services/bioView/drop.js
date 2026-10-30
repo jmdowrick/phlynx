@@ -48,9 +48,44 @@ function onPart(layout, cell, part) {
 }
 
 /**
+ * Gives each part of a cell's membrane that an edit touches, with its proteins as now drawn. Touching
+ * either lateral side touches both, since proteins with no side are shared between them by count.
+ *
+ * @param {Map<string, Object>} layout
+ * @param {Array<{cell: string, part: string}>} touched
+ * @returns {Map<string, {cell: string, part: string, ids: string[]}>} Keyed `${cell}/${part}`.
+ */
+function touchedParts(layout, touched) {
+  const parts = new Map()
+  const add = (cell, part) => parts.set(`${cell}/${part}`, { cell, part, ids: onPart(layout, cell, part) })
+  for (const { cell, part } of touched) {
+    if (part.startsWith('lateral-')) {
+      add(cell, 'lateral-left')
+      add(cell, 'lateral-right')
+    } else {
+      add(cell, part)
+    }
+  }
+  return parts
+}
+
+/**
+ * Writes the order of every protein on each touched part, and the side of every lateral one, so the
+ * result doesn't depend on how the rest would be sorted or shared out.
+ *
+ * @param {Map<string, Object>} parts - From touchedParts, after the edit.
+ * @param {Function} write - (nodeId, patch).
+ */
+function writeParts(parts, write) {
+  for (const { part, ids } of parts.values()) {
+    const at = part.startsWith('lateral-') ? { at: part.slice('lateral-'.length) } : {}
+    ids.forEach((id, order) => write(id, { order, ...at }))
+  }
+}
+
+/**
  * Plans dropping a node into a membrane slot: it takes the slot, the proteins after it move along,
- * and the part it left closes up. Every protein on a part that changes gets its order and side
- * written, so the result doesn't depend on how the rest would be sorted.
+ * and the part it left closes up.
  *
  * @param {Object} options
  * @param {string} options.id - The dropped node.
@@ -65,16 +100,14 @@ export function planSlotDrop({ id, slot, layout, roles, bioViews }) {
   const from = layout.get(id)
   const write = (nodeId, patch) => plan.set(nodeId, patchBioView(plan.get(nodeId) ?? bioViews.get(nodeId), patch))
 
-  // A lateral protein's side is written with its order, so it stays on the side it was drawn on.
-  const place = (part) => (part.startsWith('lateral-') ? { at: part.slice('lateral-'.length) } : {})
-  if (from?.kind === 'protein' && (from.cell !== slot.cellId || from.part !== slot.part)) {
-    onPart(layout, from.cell, from.part)
-      .filter((other) => other !== id)
-      .forEach((other, order) => write(other, { order, ...place(from.part) }))
-  }
-  const target = onPart(layout, slot.cellId, slot.part).filter((other) => other !== id)
+  const parts = touchedParts(layout, [
+    ...(from?.kind === 'protein' ? [{ cell: from.cell, part: from.part }] : []),
+    { cell: slot.cellId, part: slot.part },
+  ])
+  for (const entry of parts.values()) entry.ids = entry.ids.filter((other) => other !== id)
+  const target = parts.get(`${slot.cellId}/${slot.part}`).ids
   target.splice(Math.min(slot.order, target.length), 0, id)
-  target.forEach((other, order) => write(other, { order, ...place(slot.part) }))
+  writeParts(parts, write)
 
   const role = roles.get(id)?.role
   write(id, {
@@ -100,11 +133,12 @@ export function planSlotDrop({ id, slot, layout, roles, bioViews }) {
  */
 export function planUnplace({ id, position, layout, bioViews }) {
   const plan = new Map()
+  const write = (nodeId, patch) => plan.set(nodeId, patchBioView(plan.get(nodeId) ?? bioViews.get(nodeId), patch))
   const from = layout.get(id)
   if (from?.kind === 'protein') {
-    onPart(layout, from.cell, from.part)
-      .filter((other) => other !== id)
-      .forEach((other, order) => plan.set(other, patchBioView(bioViews.get(other), { order })))
+    const parts = touchedParts(layout, [{ cell: from.cell, part: from.part }])
+    for (const entry of parts.values()) entry.ids = entry.ids.filter((other) => other !== id)
+    writeParts(parts, write)
   }
   plan.set(id, patchBioView(bioViews.get(id), { facet: null, at: undefined, order: undefined, cell: undefined, position }))
   return plan

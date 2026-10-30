@@ -156,3 +156,34 @@ describe('physiological view layout by adjacency', () => {
     expect(layout.get('lost').rect.y).toBeGreaterThan(layout.get('c').rect.y + layout.get('c').rect.height)
   })
 })
+
+describe('physiological view layout of regions sharing a place', () => {
+  it('stacks regions against the same side outward, and makes room for each down a cell’s side', () => {
+    const nodes = ['a', 'b', 'p1', 'p2', 'l1', 'l2'].map((id) => node(id))
+    const right = [{ cell: 'a', facet: 'lateral', at: 'right' }]
+    const roles = new Map([
+      ['a', role('cytosol')],
+      ['b', role('cytosol')],
+      ['p1', role('region', { adjacent: right })],
+      ['p2', role('region', { adjacent: right })],
+      ['l1', role('region', { side: 'apical' })],
+      ['l2', role('region', { side: 'apical' })],
+    ])
+    const layout = layoutBioView(nodes, roles)
+    const [p1, p2, l1, l2] = ['p1', 'p2', 'l1', 'l2'].map((id) => layout.get(id).rect)
+    expect(p2.x).toBeGreaterThanOrEqual(p1.x + p1.width)
+    expect(p2.x + p2.width).toBeLessThanOrEqual(layout.get('b').rect.x)
+    expect(l2.y + l2.height).toBeLessThanOrEqual(l1.y)
+  })
+
+  it('puts a region back where its annotations say when the cell it lay against is gone', () => {
+    const nodes = [node('c'), node('lumen')]
+    const roles = new Map([
+      ['c', role('cytosol')],
+      ['lumen', role('region', { side: 'apical', adjacent: [{ cell: 'gone', facet: 'lateral', at: 'right' }] })],
+    ])
+    const place = layoutBioView(nodes, roles).get('lumen')
+    expect(place).toMatchObject({ side: 'apical', adjacent: null })
+    expect(place.rect.y).toBeLessThan(layoutBioView(nodes, roles).get('c').rect.y)
+  })
+})
