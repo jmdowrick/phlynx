@@ -95,6 +95,7 @@ import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import Select from 'primevue/select'
 import SelectButton from 'primevue/selectbutton'
+import { EPITHELIAL_SHAPE, annotationOfFacet } from '../../services/bioView/shape'
 import { useLibraryStore } from '../../stores/libraryStore'
 
 const props = defineProps({
@@ -121,12 +122,18 @@ const ROLE_OPTIONS = [
   { id: 'none', label: 'Nothing physiological (a card)' },
 ]
 
-const SIDE_OPTIONS = [
-  { id: 'apical', label: 'Apical' },
-  { id: 'basolateral', label: 'Basolateral' },
-  { id: 'left', label: 'Left side' },
-  { id: 'right', label: 'Right side' },
-]
+/** Button wording for the epithelial cell's facets; any other facet uses its own label. */
+const SIDE_LABELS = {
+  apical: 'Apical',
+  basolateral: 'Basolateral',
+  'lateral-left': 'Left side',
+  'lateral-right': 'Right side',
+}
+
+/** Where on or beside a cell a protein or compartment goes: one option per annotated facet. */
+const SIDE_OPTIONS = EPITHELIAL_SHAPE.facets
+  .filter((facet) => facet.annotation)
+  .map((facet) => ({ id: facet.id, label: SIDE_LABELS[facet.id] ?? facet.label }))
 
 const libraryStore = useLibraryStore()
 
@@ -134,7 +141,7 @@ const role = ref(props.mode === 'compartment' ? 'region' : props.mode === 'cell'
 const moduleRef = ref(null)
 const membraneRef = ref(null)
 const cell = ref(props.cells.length === 1 ? props.cells[0].id : null)
-const side = ref('apical')
+const side = ref(SIDE_OPTIONS[0].id)
 
 const needsCell = computed(() => ['membraneProtein', 'membrane', 'cytosolic', 'region'].includes(role.value))
 const needsSide = computed(() => role.value === 'membraneProtein' || role.value === 'region')
@@ -184,10 +191,7 @@ watch(role, () => {
 })
 
 function confirm() {
-  const lateral = side.value === 'left' || side.value === 'right'
-  const placement = cell.value
-    ? { cell: cell.value, facet: lateral ? 'lateral' : side.value, ...(lateral && { at: side.value }) }
-    : null
+  const placement = cell.value ? { cell: cell.value, ...annotationOfFacet(EPITHELIAL_SHAPE, side.value) } : null
   emit('confirm', {
     role: role.value,
     moduleRef: moduleRef.value,

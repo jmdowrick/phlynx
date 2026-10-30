@@ -95,7 +95,6 @@ import { useNodeDataHistory } from '../../composables/useNodeDataHistory'
 import { dropTargets, patchBioView, planRelayout, planSlotDrop, planUnplace } from '../../services/bioView/drop'
 import { GLYPHS } from '../../services/bioView/glyphs'
 import {
-  FACET_PARTS,
   GLYPH_HEIGHT,
   GLYPH_WIDTH,
   MIN_CELL,
@@ -103,6 +102,7 @@ import {
   partOf,
   slotPositions,
 } from '../../services/bioView/geometry'
+import { EPITHELIAL_SHAPE, annotationOfFacet } from '../../services/bioView/shape'
 import { CARD, GAP, REGION_HEIGHT } from '../../services/bioView/layout'
 import BioPlaceDialog from './BioPlaceDialog.vue'
 import useDragAndDrop from '../../composables/useDnD'
@@ -182,8 +182,8 @@ const targets = computed(() => dropTargets(layout.value))
 const slotPrompts = computed(() => {
   if (!draggingId.value) return []
   return targets.value.flatMap((cell) =>
-    FACET_PARTS.flatMap((part) =>
-      slotPositions(cell.rect, part, cell.counts[part] + 1).map((slot, order) => ({
+    (cell.shape ?? EPITHELIAL_SHAPE).facets.flatMap(({ id: part }) =>
+      slotPositions(cell.rect, part, cell.counts[part] + 1, cell.shape).map((slot, order) => ({
         key: `${cell.id}/${part}/${order}`,
         x: slot.x,
         y: slot.y,
@@ -329,13 +329,21 @@ function trayPosition() {
   }
 }
 
-/** Where a region can lie: against each cell's top or bottom, or down either of its sides. */
-const AGAINST = [
-  { facet: 'apical', label: 'Apical side' },
-  { facet: 'basolateral', label: 'Basolateral side' },
-  { facet: 'lateral', at: 'left', label: 'Left side (paracellular)' },
-  { facet: 'lateral', at: 'right', label: 'Right side (paracellular)' },
-]
+/** Menu wording for the epithelial cell's facets; any other facet uses its own label. */
+const AGAINST_LABELS = {
+  apical: 'Apical side',
+  basolateral: 'Basolateral side',
+  'lateral-left': 'Left side (paracellular)',
+  'lateral-right': 'Right side (paracellular)',
+}
+
+/** Where a region can lie: against each annotated facet of a cell, such as its top, bottom or either side. */
+const AGAINST = EPITHELIAL_SHAPE.facets
+  .filter((facet) => facet.annotation)
+  .map((facet) => ({
+    ...annotationOfFacet(EPITHELIAL_SHAPE, facet.id),
+    label: AGAINST_LABELS[facet.id] ?? facet.label,
+  }))
 
 /** The menu choosing what a region lies against, one part of one cell at a time. */
 function liesAgainstMenu(id, role) {
@@ -454,7 +462,9 @@ function slotPlan(id, slot) {
 function endSlot({ cell, facet, at }) {
   const part = partOf(facet, at)
   const count = targets.value.find((target) => target.id === cell)?.counts[part] ?? 0
-  return { cellId: cell, part, facet, at: facet === 'lateral' ? at : undefined, order: count }
+  // Only a facet with a side keeps one; a lateral protein given no side stays sideless.
+  const sided = annotationOfFacet(EPITHELIAL_SHAPE, part)?.at !== undefined
+  return { cellId: cell, part, facet, at: sided ? at : undefined, order: count }
 }
 
 /**
