@@ -37,8 +37,17 @@ describe('physiological view layout', () => {
     expect(['p1', 'p2', 'p3'].map((id) => layout.get(id).order)).toEqual([0, 1, 2])
     expect(['p1', 'p2', 'p3'].every((id) => layout.get(id).y === cell.rect.y)).toBe(true)
     expect(layout.get('q')).toMatchObject({ kind: 'protein', facet: 'basolateral', order: 0, y: cell.rect.y + cell.rect.height, rotation: 180 })
-    expect(layout.get('lumen').rect.y + layout.get('lumen').rect.height).toBeLessThan(cell.rect.y)
-    expect(layout.get('blood').rect.y).toBeGreaterThan(cell.rect.y + cell.rect.height)
+    // The regions meet the membrane, so the proteins in it sit in both the region and the cell.
+    const within = (y, rect) => y >= rect.y && y <= rect.y + rect.height
+    const lumen = layout.get('lumen').rect
+    const blood = layout.get('blood').rect
+    expect(lumen.y).toBeLessThan(cell.rect.y)
+    expect(within(layout.get('p1').y, lumen)).toBe(true)
+    expect(blood.y + blood.height).toBeGreaterThan(cell.rect.y + cell.rect.height)
+    expect(within(layout.get('q').y, blood)).toBe(true)
+    // Each band stays on its own side of the cell's middle.
+    expect(lumen.y + lumen.height).toBeLessThan(cell.rect.y + cell.rect.height / 2)
+    expect(blood.y).toBeGreaterThan(cell.rect.y + cell.rect.height / 2)
     expect(layout.get('loose').kind).toBe('tray')
     expect(layout.get('loose').x).toBeLessThan(cell.rect.x)
     expect(layout.get('plain').kind).toBe('card')

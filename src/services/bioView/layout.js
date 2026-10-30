@@ -1,7 +1,7 @@
 /**
  * Lays out the physiological view: cells in a row, each with its membrane proteins in slots along
- * their facets and its cytosolic processes inside; the regions an apical facet faces in a band above,
- * and the one a basolateral facet faces in a band below; proteins not yet in a membrane in a tray to
+ * their facets and its cytosolic processes inside; the region an apical facet faces in a band against
+ * the cells' tops, and the one a basolateral facet faces in a band against their bottoms; proteins not yet in a membrane in a tray to
  * the left; and everything else as cards to the right. What the user placed (data.bioView) is kept;
  * only the rest is worked out, the same way every time.
  */
@@ -97,17 +97,22 @@ export function layoutBioView(nodes, roles) {
   const top = cellRects.length ? Math.min(...cellRects.map((r) => r.y)) : 0
   const bottom = cellRects.length ? Math.max(...cellRects.map((r) => r.y + r.height)) : MIN_CELL.height
 
-  // Regions: the apical side above, the basolateral side below, others further down.
-  const bands = { apical: top - GLYPH_HEIGHT - REGION_HEIGHT, basolateral: bottom + GLYPH_HEIGHT }
-  let otherY = bottom + GLYPH_HEIGHT + REGION_HEIGHT + GAP
+  // Regions: the apical side's and the basolateral side's run right up to the membrane, so a protein
+  // in it sits in both the region and the cell; each reaches a corner's depth under the cells, which
+  // are drawn over them, to fill the space beside the rounded corners. Others go further down.
+  const bands = {
+    apical: { y: top - REGION_HEIGHT, height: REGION_HEIGHT + CELL_RADIUS },
+    basolateral: { y: bottom - CELL_RADIUS, height: REGION_HEIGHT + CELL_RADIUS },
+  }
+  let otherY = bottom + REGION_HEIGHT + GAP
   for (const id of ids.filter((id) => roleOf(id).role === 'region')) {
     const { side } = roleOf(id)
     const stored = byId.get(id).data?.bioView?.rect
     let rect = isRect(stored) ? stored : null
     if (!rect) {
-      const y = side in bands ? bands[side] : otherY
+      const band = bands[side] ?? { y: otherY, height: REGION_HEIGHT }
       if (!(side in bands)) otherY += REGION_HEIGHT + GAP / 2
-      rect = { x: left - GAP, y, width: right - left + 2 * GAP, height: REGION_HEIGHT }
+      rect = { x: left - GAP, y: band.y, width: right - left + 2 * GAP, height: band.height }
     }
     layout.set(id, { kind: 'region', side: side ?? null, rect })
   }
