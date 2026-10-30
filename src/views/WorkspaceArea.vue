@@ -263,6 +263,10 @@
               </a>
             </template>
           </SplitButton>
+
+          <Divider layout="vertical" style="margin: 0 15px" />
+
+          <ViewModeToggle />
         </div>
       </div>
 
@@ -494,7 +498,6 @@
             @open-instance-editor="onOpenInstanceEditorDialog"
             @export-image="exportImageOf"
           />
-          <ViewModeToggle class="view-mode-toggle-overlay" />
         </div>
       </main>
       <ContextSidebar
@@ -2568,16 +2571,6 @@ watch(
 .bio-flow-layer {
   position: absolute;
   inset: 0;
-}
-
-/* Clear of the library panel, as the controls are */
-.view-mode-toggle-overlay {
-  position: absolute;
-  top: 16px;
-  left: 16px;
-  z-index: 10;
-  transform: translateX(var(--library-panel-width, 0px));
-  transition: transform 160ms ease;
 }
 
 /* Tutorial Slate Background for Dark Mode */
