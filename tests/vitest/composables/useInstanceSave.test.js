@@ -598,6 +598,26 @@ m:decay.k bqbiol:isVersionOf opb:00592 ;
       ])
     })
 
+    it('keeps the coupling of a sidecar port whose variable the math renamed', async () => {
+      library.setModuleAnnotations(DECAY_REF, COMPLETE_SIDECAR)
+      await saveInstanceEdit(buildSave({ name: 'a' }))
+      const [ka] = findNode('a').data.ports.filter((port) => port.annotation?.variable === 'k')
+      const [xb] = findNode('b').data.ports.filter((port) => port.annotation?.variable === 'x')
+      edges.value = [{ id: 'e', source: 'a', target: 'b', data: { couplings: [{ sourcePort: ka, targetPort: xb }] } }]
+
+      // As the editor leaves the port: its variable renamed, its subject not yet.
+      const ports = findNode('a').data.ports.map((port) =>
+        port === ka ? { ...port, variables: ['kd'], annotation: { ...port.annotation, variable: 'kd' } } : port
+      )
+      const variables = findNode('a').data.variables.map((row) => (row.name === 'k' ? { ...row, name: 'kd' } : row))
+      const save = buildSave({ math: DECAY_XML.replaceAll('"k"', '"kd"').replaceAll('<ci>k</ci>', '<ci>kd</ci>'), ports, variables })
+      expect(await findDroppedCouplings(save)).toEqual({ couplings: 0, connections: 0 })
+
+      await saveInstanceEdit(save)
+      const annotated = edges.value[0].data.couplings.filter(({ sourcePort }) => sourcePort.annotation)
+      expect(annotated.map(({ sourcePort }) => sourcePort.annotation.subject)).toEqual(['https://phlynx.invalid/modules/file#decay.kd'])
+    })
+
     it('counts the couplings a save would drop, and drops them when saved', async () => {
       library.setModuleAnnotations(DECAY_REF, COMPLETE_SIDECAR)
       await saveInstanceEdit(buildSave({ name: 'a' }))

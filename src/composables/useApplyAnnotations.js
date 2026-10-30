@@ -139,8 +139,9 @@ export function useApplyAnnotations({ fitViewParams, flowId = FLOW_IDS.MAIN } = 
   /**
    * Applies a plan as one undo step: stores the sidecars and the instance file, adds the new instances in rank
    * columns (existing nodes stay put), binds new and existing nodes to their ApiCoords, holding the ticked
-   * ones constant, and gives every node on a stored sidecar's math its sidecar ports. A new instance's annotated readers and sums become boundary conditions, since ports supply
-   * them. Undo removes the instances and bindings; the stored files stay.
+   * ones constant, and gives every node on a stored sidecar's math its sidecar ports. A new instance's annotated
+   * readers and sums become boundary conditions, since ports supply them. Undo removes the instances, bindings and
+   * ports; the stored files stay.
    *
    * @param {Awaited<ReturnType<typeof readAnnotationFiles>>} prepared
    * @param {Object} choices

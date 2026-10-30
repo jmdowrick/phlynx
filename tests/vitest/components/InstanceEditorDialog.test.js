@@ -837,6 +837,18 @@ m:decay.k bqbiol:isVersionOf opb:00592 ; bqbiol:isPropertyOf m:decay .
     expect(wrapper.find('[data-test="unported-annotation"]').exists()).toBe(false)
   })
 
+  it('keeps an annotated variable its port when the math renames it', async () => {
+    mountDialog({ defaultTab: 'ports', initialPorts: [xPort()] })
+    const editor = await open()
+    await report(editor, 'init', XML)
+    await flushPromises()
+    await report(editor, 'edit', XML.replaceAll('name="x"', 'name="y"').replaceAll('<ci>x</ci>', '<ci>y</ci>'))
+    await flushPromises()
+
+    const [port] = wrapper.vm.editablePorts
+    expect(port).toMatchObject({ variables: ['y'], annotation: { subject: xPort().annotation.subject } })
+  })
+
   it('asks before a save that drops a connected annotated port, and saves nothing when cancelled', async () => {
     const other = { id: 'b', data: { name: 'b', mathRef: 'file:other', ports: [] } }
     const xPortRef = xPort()

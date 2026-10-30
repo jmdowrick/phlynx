@@ -532,7 +532,7 @@ import { useInstanceSave } from '../composables/useInstanceSave'
 import { isInitialisable } from '../services/math/variableKinds'
 import { resolveBoundaryValues } from '../services/export/boundaryValues'
 import { coordOf, quantityOfPort } from '../services/annotations/couple'
-import { reconcileAnnotatedPorts } from '../services/annotations/ports'
+import { isSidecarPort, reconcileAnnotatedPorts } from '../services/annotations/ports'
 import { fromAnnotationTitle } from '../services/annotations/display'
 import {
   createSinglePlotConfig,
@@ -1406,16 +1406,42 @@ const portQuantity = (port) =>
 const instanceSidecar = computed(() => store.getParsedModuleAnnotations(props.mathRef) ?? undefined)
 
 /**
+ * Moves each sidecar entry onto the variable its port now reads, where an edit to the math renamed it, as save
+ * renames the sidecar.
+ *
+ * @param {Object|null} sidecar - From parseSidecar.
+ * @param {Set<string>} variables - The math's variable names.
+ * @returns {Object|null}
+ */
+function buildRenamedSidecar(sidecar, variables) {
+  if (!sidecar?.variables) return sidecar
+  const renamedTo = new Map(
+    editablePorts.value
+      .filter((port) => isSidecarPort(port) && variables.has(port.variables?.[0]))
+      .map((port) => [port.annotation.subject, port.variables[0]])
+  )
+  if (!renamedTo.size) return sidecar
+  return {
+    ...sidecar,
+    variables: sidecar.variables.map((entry) =>
+      renamedTo.has(entry.subject) && !variables.has(entry.variable) ? { ...entry, variable: renamedTo.get(entry.subject) } : entry
+    ),
+  }
+}
+
+/**
  * Gives each complete annotation of the math its sidecar port, as save would. A change made while nothing was
  * edited joins the baseline, so it never shows as unsaved on its own.
  */
 function reconcileEditablePorts() {
-  const sidecar = instanceSidecar.value
-  if (sidecar === undefined) return
+  if (instanceSidecar.value === undefined) return
   const variables = parameterRows.value.map((row) => row.name)
+  const sidecar = buildRenamedSidecar(instanceSidecar.value, new Set(variables))
+  // A port's variables follow a rename only after the rows do, so they count until then.
+  const portVariables = editablePorts.value.filter(isSidecarPort).flatMap((port) => port.variables ?? [])
   const { ports, added, removed, changed } = reconcileAnnotatedPorts(editablePorts.value, sidecar, {
     mathRef: props.mathRef,
-    variables,
+    variables: [...variables, ...portVariables],
   })
   if (!added.length && !removed.length && !changed.length) return
   for (const { before, after } of changed) {
@@ -1427,7 +1453,13 @@ function reconcileEditablePorts() {
   rebaselineEditorState(wasUnchanged)
 }
 
-watch([instanceSidecar, () => parameterRows.value.map((row) => row.name).join('\n')], () => {
+const sidecarPortVariables = () =>
+  editablePorts.value
+    .filter(isSidecarPort)
+    .map((port) => (port.variables ?? []).join(','))
+    .join('\n')
+
+watch([instanceSidecar, () => parameterRows.value.map((row) => row.name).join('\n'), sidecarPortVariables], () => {
   if (!loading.value) reconcileEditablePorts()
 })
 

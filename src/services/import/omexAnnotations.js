@@ -80,7 +80,7 @@ export async function buildRestoredPorts(nodes, sidecars, libraryStore) {
     const mathRef = node.data?.mathRef
     const sidecar = parsed.get(mathRef)
     if (!sidecar) continue
-    const variables = (node.data.variables ?? []).map((row) => row.name)
+    const variables = node.data.variables?.map((row) => row.name)
     const result = reconcileAnnotatedPorts(node.data.ports ?? [], sidecar, { mathRef, variables })
     if (result.added.length || result.removed.length || result.changed.length) ports.set(node.id, result.ports)
   }

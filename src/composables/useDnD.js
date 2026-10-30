@@ -91,7 +91,7 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
    * @returns {Array<Object>} The ports.
    */
   function buildSidecarPorts(data, sidecar) {
-    const variables = (data.variables ?? []).map((row) => row.name)
+    const variables = data.variables?.map((row) => row.name)
     return reconcileAnnotatedPorts(data.ports ?? [], sidecar, { mathRef: data.mathRef, variables }).ports
   }
 

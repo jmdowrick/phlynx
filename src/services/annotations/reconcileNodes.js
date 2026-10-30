@@ -32,7 +32,7 @@ export function reconcileNodePorts({ nodes, edges, nodeIds, sidecarFor, context,
     const mathRef = node?.data?.mathRef
     const sidecar = mathRef ? sidecarFor(mathRef) : undefined
     if (sidecar === undefined) continue
-    const variables = (node.data.variables ?? []).map((row) => row.name)
+    const variables = node.data.variables?.map((row) => row.name)
     const result = reconcileAnnotatedPorts(node.data.ports ?? [], sidecar, { mathRef, variables })
     if (!result.added.length && !result.removed.length && !result.changed.length) continue
     ports.set(id, result.ports)
