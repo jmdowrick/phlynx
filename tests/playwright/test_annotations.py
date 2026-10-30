@@ -1,5 +1,6 @@
 """Annotation coupling end to end: module sidecars plus an ApiCoord instance file place, name and bind instances,
-the annotations suggest their connections, and the bindings survive an OMEX round trip.
+the annotations suggest their connections, and the bindings survive an OMEX round trip. A module's variables are
+annotated by hand in the Annotations tab, with OLS mocked.
 
 The committed tests use the synthetic toy model in tests/resources/annotations/toy. The private variant runs only
 where unpublished fixtures exist (PHLYNX_ANNOTATIONS_PRIVATE, else the gitignored vitest private folder).
@@ -12,6 +13,7 @@ import re
 import tempfile
 import unittest
 import zipfile
+from urllib.parse import parse_qs, urlparse
 
 from playwright.sync_api import expect, sync_playwright
 
@@ -50,6 +52,25 @@ PRIVATE = os.environ.get(
 PRIVATE_EXPECTED = os.path.join(PRIVATE, "expected.json")
 
 
+# The toy pool's sidecar with only its kind, so the Annotations tab starts with no variable annotated.
+POOL_KIND_ONLY = """@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
+@prefix sbo: <http://purl.obolibrary.org/obo/SBO_> .
+@prefix m: <./pool.cellml#> .
+
+m:pool bqbiol:is sbo:0000290 .
+"""
+
+OLS_ROUTE = "https://www.ebi.ac.uk/ols4/api/**"
+UNIPROT_ROUTE = "https://rest.uniprot.org/**"
+# The ChEBI terms the mocked OLS knows.
+OLS_TERMS = [
+    {"iri": "http://purl.obolibrary.org/obo/CHEBI_26708", "obo_id": "CHEBI:26708", "label": "sodium atom",
+     "synonym": ["Na"], "is_obsolete": False},
+    {"iri": "http://purl.obolibrary.org/obo/CHEBI_29101", "obo_id": "CHEBI:29101", "label": "sodium(1+)",
+     "synonym": ["Na+"], "is_obsolete": False},
+]
+
+
 def private_files(*parts):
     return sorted(glob.glob(os.path.join(PRIVATE, *parts)))
 
@@ -83,6 +104,43 @@ READ_FLOW = """() => {
 
 def toy(name):
     return os.path.join(TOY, name)
+
+
+def file_payload(path):
+    with open(path, "rb") as f:
+        return {"name": os.path.basename(path), "mimeType": "text/plain", "buffer": f.read()}
+
+
+def node_named(page, name):
+    """The instance node with exactly this name."""
+    return page.locator(NODE).filter(has=page.get_by_role("button", name=f"Rename {name}", exact=True))
+
+
+def kind_only_pool_sidecars():
+    """The toy's sidecars as file payloads, with the pool's annotating only its kind."""
+    pool = {"name": "pool.ttl", "mimeType": "text/plain", "buffer": POOL_KIND_ONLY.encode()}
+    return [pool] + [file_payload(toy(name)) for name in ["porter.ttl", "wall.ttl"]]
+
+
+def mock_ontology_services(target, requests):
+    """Answer OLS from OLS_TERMS and fail UniProt on a page or context, recording each OLS URL in requests."""
+
+    def answer_ols(route):
+        url = route.request.url
+        requests.append(url)
+        if "/select?" in url:
+            query = parse_qs(urlparse(url).query).get("q", [""])[0].lower()
+            docs = [t for t in OLS_TERMS if any(query in v.lower() for v in [t["label"], *t["synonym"]])]
+            route.fulfill(json={"response": {"numFound": len(docs), "docs": docs}})
+            return
+        term = next((t for t in OLS_TERMS if t["iri"].rsplit("/", 1)[1] in url), None)
+        if term:
+            route.fulfill(json=term)
+        else:
+            route.fulfill(status=404, json={})
+
+    target.route(OLS_ROUTE, answer_ols)
+    target.route(UNIPROT_ROUTE, lambda route: route.fulfill(status=503, body=""))
 
 
 def edge_counts(flow):
@@ -261,6 +319,85 @@ class TestAnnotationCoupling(unittest.TestCase):
         self.assertEqual(coupling_tuples(after), coupling_tuples(before))
         # Everything is already connected, so nothing is suggested.
         expect(page2.locator(BADGE)).to_have_count(0)
+
+
+class TestAnnotationsTab(unittest.TestCase):
+    """The instance editor's Annotations tab, on the toy pool with only its kind annotated."""
+
+    def setUp(self):
+        self.playwright = sync_playwright().start()
+        self.browser = self.playwright.chromium.launch(headless=HEADLESS_MODE)
+        self.context = self.browser.new_context(viewport={"width": 1600, "height": 1000})
+        self.page = self.context.new_page()
+        self.ols_requests = []
+        mock_ontology_services(self.page, self.ols_requests)
+
+    def tearDown(self):
+        self.context.close()
+        self.browser.close()
+        self.playwright.stop()
+
+    def open_editor(self, name):
+        page = self.page
+        node_named(page, name).dblclick()
+        editor = page.locator(".module-editor-dialog")
+        expect(editor.get_by_role("tab", name=re.compile(r"Ports \(")).first).to_be_visible(timeout=30000)
+        return editor
+
+    def test_annotates_c_a_by_hand_and_its_port_couples_with_the_porter(self):
+        page = self.page
+        open_app(page)
+        apply_annotations(page, [toy(name) for name in TOY_MATHS], kind_only_pool_sidecars(), toy(TOY_APICOORDS), TOY_HELD)
+        expect(page.locator(NODE)).to_have_count(len(TOY_INSTANCES))
+        # The pool has no annotated variables yet, so only the wall couples with the porters.
+        expect(page.locator(BADGE)).to_have_count(2)
+
+        editor = self.open_editor("cell")
+        tab = editor.get_by_role("tab", name=re.compile(r"Annotations \("))
+        expect(tab).to_have_text(re.compile(r"Annotations \(0/1\)"))
+        tab.click()
+        expect(editor.locator("[data-test=shared-banner]")).to_contain_text("Shared by 3 instances")
+
+        row = editor.locator(".annotation-row[data-variable=c_A]")
+        row.locator("[data-test=annotate]").click()
+        form = row.locator("[data-test=annotation-editor]")
+
+        row.locator("[data-test=property]").click()
+        page.get_by_role("option", name=re.compile(r"OPB:00340")).click()
+
+        # Species lookups beyond the local table go to OLS: sodium atom comes only from the mocked search.
+        species = row.locator("[data-test=species] input")
+        species.fill("sodium")
+        options = page.locator(".p-autocomplete-option")
+        expect(options.filter(has_text="CHEBI:26708")).to_be_visible(timeout=10000)
+        self.assertTrue(any("/select?" in url and "ontology=chebi" in url for url in self.ols_requests))
+        options.filter(has_text="CHEBI:29101").first.click()
+
+        row.locator("[data-test=location]").get_by_text("This compartment", exact=True).click()
+        expect(form.locator("[data-test=derived]")).to_contain_text("port will be created")
+        form.locator("[data-test=done]").click()
+        expect(form).to_have_count(0)
+
+        expect(row.locator(".annotation-chips")).to_be_visible()
+        expect(tab).to_have_text(re.compile(r"Annotations \(1/1\)"))
+        editor.get_by_role("button", name="Save", exact=True).click()
+        expect(editor).to_be_hidden()
+
+        # The saved annotation gives the pool a port, shown as chips in the Ports tab.
+        editor = self.open_editor("cell")
+        editor.get_by_role("tab", name=re.compile(r"Ports \(")).click()
+        expect(editor.locator(".annotation-chips").first).to_be_visible()
+        editor.get_by_role("button", name="Cancel").click()
+        expect(editor).to_be_hidden()
+
+        # Every pool instance shares the port, so the porters now couple with the cell, the outside and the vessel.
+        expect(page.locator(BADGE)).to_have_count(len(TOY_EDGES))
+        page.locator("[data-test=accept-all]").click()
+        expect(page.locator(BADGE)).to_have_count(0)
+        couplings = coupling_tuples(page.evaluate(READ_FLOW))
+        self.assertIn("porter_in.c_A_i -> cell.c_A", couplings)
+        self.assertIn("outside.c_A -> porter_in.c_A_o", couplings)
+        self.assertIn("porter_out.c_A_o -> vessel.c_A", couplings)
 
 
 @unittest.skipUnless(os.path.exists(PRIVATE_EXPECTED), "private annotation fixtures not present")
