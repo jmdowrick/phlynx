@@ -27,7 +27,7 @@ describe('physiological view artwork', () => {
     expect(arrowsOf('antiporter')).toHaveLength(2)
     expect(arrowsOf('generic')).toHaveLength(0)
     const pump = mount(ProteinGlyph, { props: { glyph: 'pump', rotation: 180 } })
-    expect(pump.find('.protein-glyph__atp-label').attributes('transform')).toBe('rotate(-180 32 40)')
+    expect(pump.find('.protein-glyph__atp-label').attributes('transform')).toBe('rotate(-180 52 34)')
   })
 
   it('turns a protein’s cartoon with its facet and puts its name on the cell’s side', () => {

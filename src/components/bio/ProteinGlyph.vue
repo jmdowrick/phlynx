@@ -10,10 +10,11 @@
       <path class="protein-glyph__body" d="M 8 12 Q 8 3 18 3 L 26 3 L 32 16 L 38 3 L 46 3 Q 56 3 56 12 L 56 36 Q 56 45 46 45 L 18 45 Q 8 45 8 36 Z" />
     </template>
     <template v-else-if="kind === 'pump'">
-      <rect class="protein-glyph__body" x="6" y="3" width="52" height="36" rx="14" />
-      <circle class="protein-glyph__atp" cx="32" cy="40" r="7.5" />
+      <rect class="protein-glyph__body" x="4" y="3" width="48" height="42" rx="14" />
+      <!-- ATP bound at the side, on the cell's half, so it reads as driving the pump, not as its cargo -->
+      <circle class="protein-glyph__atp" cx="52" cy="34" r="7.5" />
       <!-- Kept upright, however the cartoon is turned -->
-      <text class="protein-glyph__atp-label" x="32" y="42.5" :transform="`rotate(${-rotation} 32 40)`">ATP</text>
+      <text class="protein-glyph__atp-label" x="52" y="36.5" :transform="`rotate(${-rotation} 52 34)`">ATP</text>
     </template>
     <template v-else>
       <rect class="protein-glyph__body" x="6" y="3" width="52" height="42" rx="15" />
@@ -51,7 +52,7 @@ const ARROWS = {
     { x: 22, from: 15, to: 38 },
     { x: 42, from: 38, to: 15 },
   ],
-  pump: [{ x: 32, from: 8, to: 28 }],
+  pump: [{ x: 28, from: 9, to: 39 }],
   generic: [],
 }
 
