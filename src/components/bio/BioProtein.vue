@@ -47,10 +47,11 @@ const categoryStyle = computed(() => themeCategoryStyle(nodeThemeStore.activeThe
 const INWARD = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' }
 const labelSide = computed(() => INWARD[props.data.outward] ?? 'bottom')
 
-// What its arrows carry, in the order they show: a protein turned upside down shows them reversed.
+// What its arrows carry, in the order they show, left to right or top to bottom: a protein turned upside
+// down, or a quarter turn back onto a cell's left side, shows them reversed.
 const species = computed(() => {
   const labels = (props.data.arrows ?? []).map((arrow) => arrow.label)
-  return (props.data.rotation === 180 ? labels.reverse() : labels).join(' · ')
+  return ([180, -90, 270].includes(props.data.rotation) ? labels.reverse() : labels).join(' · ')
 })
 
 const movedFrom = computed(() => {

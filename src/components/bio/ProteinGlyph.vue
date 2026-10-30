@@ -59,13 +59,13 @@ const kind = computed(() => (GLYPHS.includes(props.glyph) ? props.glyph : 'gener
 
 /** Where each cartoon has room for arrows: across, and from its outside edge to its inside one. */
 const ROOM = {
-  channel: { left: 32, right: 32, top: 6, bottom: 42 },
+  channel: { left: 29, right: 35, top: 6, bottom: 42 },
   uniporter: { left: 20, right: 44, top: 18, bottom: 41 },
   pump: { left: 14, right: 40, top: 7, bottom: 41 },
   generic: { left: 18, right: 46, top: 7, bottom: 41 },
 }
 
-// Spread evenly across the room; through a channel's pore, all down its middle.
+// Spread evenly across the room; one alone goes down its middle, as through a channel's pore.
 const placedArrows = computed(() => {
   const room = ROOM[kind.value] ?? ROOM.generic
   const count = props.arrows.length

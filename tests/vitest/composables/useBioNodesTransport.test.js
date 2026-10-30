@@ -51,4 +51,10 @@ describe('the arrows on a physiological view’s proteins', () => {
       { label: 'K⁺', direction: 'in' },
     ])
   })
+
+  it('leaves the arrows both ways after a sweep, whose last value isn’t where a run ended', () => {
+    run.results = { ...run.results, isSweep: true }
+    const protein = useBioNodes(nodes).bioNodes.value.find((n) => n.id === 'n1')
+    expect(protein.data.arrows.map((arrow) => arrow.direction)).toEqual([null, null])
+  })
 })

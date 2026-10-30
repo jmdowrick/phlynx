@@ -178,6 +178,8 @@ export function useBioNodes(nodes) {
   // What each membrane protein carries, from its sidecar, and which way, from the latest run.
   const transport = computed(() => {
     const { results, mapping } = simulationResults
+    // A sweep's values are one per swept point, not a course over time, so its last says nothing of where a run ended.
+    const usable = results && mapping && !results.isSweep
     const arrows = new Map()
     for (const node of nodes.value) {
       if (roles.value.get(node.id)?.role !== 'membraneProtein' || !node.data?.mathRef) continue
@@ -186,8 +188,7 @@ export function useBioNodes(nodes) {
         node.id,
         carried.map(({ label, inside }) => ({
           label,
-          direction:
-            results && mapping ? flowDirection(readNodeSeries(results, mapping, node.id, inside)?.values) : null,
+          direction: usable ? flowDirection(readNodeSeries(results, mapping, node.id, inside)?.values) : null,
         }))
       )
     }

@@ -48,8 +48,11 @@ describe('physiological view artwork', () => {
     const species = (rotation) =>
       mount(BioProtein, { props: { data: { name: 'p', glyph: 'symporter', rotation, arrows } } }).find('[data-testid=bio-protein-species]').text()
     expect(species(0)).toBe('Glc · Na⁺')
-    // Turned upside down on the basolateral membrane, its arrows read the other way.
+    // Turned upside down on the basolateral membrane, or back onto a cell's left side, its arrows read
+    // the other way; turned onto the right side, top to bottom is the same way.
     expect(species(180)).toBe('Na⁺ · Glc')
+    expect(species(-90)).toBe('Na⁺ · Glc')
+    expect(species(90)).toBe('Glc · Na⁺')
     expect(mount(BioProtein, { props: { data: { name: 'p' } } }).find('[data-testid=bio-protein-species]').exists()).toBe(false)
   })
 
@@ -57,9 +60,14 @@ describe('physiological view artwork', () => {
     expect(mount(ProteinGlyph, { props: { glyph: 'symporter' } }).findAll('.protein-glyph__arrow')).toHaveLength(0)
   })
 
-  it('runs a channel’s arrow down its pore', () => {
-    const channel = mount(ProteinGlyph, { props: { glyph: 'channel', arrows: [{ label: 'K⁺', direction: 'out' }] } })
-    expect(channel.find('.protein-glyph__arrow line').attributes('x1')).toBe('32')
+  it('runs a channel’s arrow down its pore, and several side by side in it', () => {
+    const channel = (arrows) => mount(ProteinGlyph, { props: { glyph: 'channel', arrows } })
+    expect(channel([{ label: 'K⁺', direction: 'out' }]).find('.protein-glyph__arrow line').attributes('x1')).toBe('32')
+    const two = channel([
+      { label: 'Na⁺', direction: 'in' },
+      { label: 'K⁺', direction: 'out' },
+    ]).findAll('.protein-glyph__arrow line')
+    expect(two.map((line) => line.attributes('x1'))).toEqual(['29', '35'])
   })
 
   it('turns a protein’s cartoon with its facet and puts its name on the cell’s side', () => {
