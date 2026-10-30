@@ -8,6 +8,8 @@
  * - adjacent: [{ cell, facet, at? }], what a region lies against, e.g. one cell's lateral side for a
  *   paracellular space;
  * - order: its slot along its facet, for a membrane protein;
+ * - site: '<instanceId>/<sitePath>', the template site it is bound to; one whose instance is gone leaves it
+ *   unbound, falling back to its role;
  * - position, rect: where it is drawn, when not worked out from its cell.
  */
 
@@ -131,9 +133,11 @@ function fromSidecar(sidecar) {
  * @param {Object|null} [context.sidecar] - The parsed sidecar of the node's math.
  * @param {Array<Object>} [context.nodes] - The flow's nodes, to find cells by ApiCoord.
  * @returns {{ role: string, facet: string|null, at: string|null, annotatedFacet: string|null, cell: string|null,
- *   side: string|null, adjacent: Array<Object>|null, glyph: string|null, source: 'override'|'apiCoord'|'sidecar'|'none' }}
- *   annotatedFacet is the facet the annotations give, whatever the user chose; side is the facet a region
- *   faces according to the annotations, and adjacent what the user said it lies against.
+ *   side: string|null, adjacent: Array<Object>|null, glyph: string|null, source: 'override'|'apiCoord'|'sidecar'|'none',
+ *   site?: string }}
+ *   annotatedFacet is the facet the annotations give, whatever the user chose, and null for a node bound to a
+ *   template site, which the template places; side is the facet a region faces according to the annotations,
+ *   and adjacent what the user said it lies against; site, only there when set, the template site it is bound to.
  */
 export function resolveBioRole(data, { apiCoords = null, sidecar = null, nodes = [] } = {}) {
   const coord = data?.apiCoord?.coordIri ? apiCoords?.coords?.get(data.apiCoord.coordIri) : null
@@ -148,15 +152,17 @@ export function resolveBioRole(data, { apiCoords = null, sidecar = null, nodes =
   const unplaced = override.facet === null
   const facet = role !== 'membraneProtein' || unplaced ? null : FACETS.includes(override.facet) ? override.facet : (worked?.facet ?? null)
   const cell = CELL_ROLES.has(role) ? (override.cell ?? worked?.cell ?? null) : null
+  const site = typeof override.site === 'string' && override.site ? override.site : null
   return {
     role,
     facet,
     at: facet === 'lateral' && SIDES.includes(override.at) ? override.at : null,
-    annotatedFacet: role === 'membraneProtein' ? (worked?.facet ?? null) : null,
+    annotatedFacet: role === 'membraneProtein' && !site ? (worked?.facet ?? null) : null,
     cell,
     side: role === 'region' ? (worked?.side ?? null) : null,
     adjacent: role === 'region' ? validAdjacency(override.adjacent) : null,
     glyph: role === 'membraneProtein' ? glyphFor(sidecar?.component?.isVersionOf, override.glyph) : null,
     source: ROLES.includes(override.role) ? 'override' : source,
+    ...(site && { site }),
   }
 }
