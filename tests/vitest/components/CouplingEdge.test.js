@@ -5,15 +5,25 @@ import { getSmoothStepPath } from '@vue-flow/core'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 
 const nodes = ref([])
+const edges = ref([])
+const selectedEdges = ref([])
 
 vi.mock('@vue-flow/core', async (importOriginal) => ({
   ...(await importOriginal()),
   BaseEdge: { name: 'BaseEdge', props: ['path', 'markerEnd', 'style'], template: '<path class="base-edge" />' },
   EdgeLabelRenderer: { name: 'EdgeLabelRenderer', template: '<div><slot /></div>' },
-  useVueFlow: () => ({ findNode: (id) => nodes.value.find((node) => node.id === id) }),
+  // Screen and flow coordinates are the same here.
+  useVueFlow: () => ({
+    findNode: (id) => nodes.value.find((node) => node.id === id),
+    findEdge: (id) => edges.value.find((edge) => edge.id === id),
+    getSelectedEdges: selectedEdges,
+    screenToFlowCoordinate: ({ x, y }) => ({ x, y }),
+    viewport: ref({ x: 0, y: 0, zoom: 1 }),
+  }),
 }))
 
 const { default: CouplingEdge } = await import('../../../src/components/CouplingEdge.vue')
@@ -70,6 +80,85 @@ describe('CouplingEdge', () => {
       expect(path).toContain('-80')
       expect(path.startsWith('M0 0')).toBe(true)
       expect(path.endsWith('L300 120')).toBe(true)
+    })
+
+    describe('editing', () => {
+      // Mounted from the edge in `edges`, as vue-flow passes its data, and kept in step with it.
+      const mountSelected = async (data = { couplings: [] }) => {
+        edges.value = [{ id: 'e', source: 'a', target: 'b', data }]
+        selectedEdges.value = [edges.value[0]]
+        const wrapper = mount(CouplingEdge, {
+          props: { id: 'e', source: 'a', target: 'b', ...geometry, data, selected: true },
+          global: { directives: { tooltip: {} } },
+        })
+        return wrapper
+      }
+      const drag = async (wrapper, index, from, to, options = {}) => {
+        const handle = wrapper.find(`[data-testid="edge-route-handle-${index}"]`)
+        await handle.trigger('pointerdown', { button: 0, pointerId: 1, clientX: from.x, clientY: from.y })
+        await handle.trigger('pointermove', { clientX: to.x, clientY: to.y, ...options })
+        return handle
+      }
+
+      it('shows a handle on each segment between the stubs only while it is the one selected edge', async () => {
+        const wrapper = await mountSelected()
+        // smoothstep: S, S', (150,0), (150,120), T', T
+        expect(wrapper.findAll('.edge-route-handle').map((h) => h.attributes('data-testid'))).toEqual([
+          'edge-route-handle-1',
+          'edge-route-handle-2',
+          'edge-route-handle-3',
+        ])
+        selectedEdges.value = [edges.value[0], { id: 'other' }]
+        await nextTick()
+        expect(wrapper.findAll('.edge-route-handle')).toHaveLength(0)
+      })
+
+      it('moves a segment, stores the route, and undoes and redoes it as one step', async () => {
+        const wrapper = await mountSelected()
+        const handle = await drag(wrapper, 2, { x: 150, y: 60 }, { x: 220, y: 60 })
+        expect(drawnPath(wrapper)).toContain('220')
+        expect(edges.value[0].data.waypoints).toBeUndefined()
+
+        await handle.trigger('pointerup')
+        expect(edges.value[0].data.waypoints).toEqual([
+          { x: 220, y: 0 },
+          { x: 220, y: 120 },
+        ])
+
+        await new Promise((resolve) => setTimeout(resolve, 40))
+        const history = useFlowHistoryStore()
+        await history.undo()
+        expect(edges.value[0].data.waypoints).toBeUndefined()
+        await history.redo()
+        expect(edges.value[0].data.waypoints).toHaveLength(2)
+      })
+
+      it('snaps a segment into line with another, unless Alt is held', async () => {
+        const wrapper = await mountSelected()
+        // Segment 1 runs along y = 0; moving segment 3 (y = 120) near 0 lines it up.
+        let handle = await drag(wrapper, 3, { x: 200, y: 120 }, { x: 200, y: 4 })
+        await handle.trigger('pointerup')
+        expect(edges.value[0].data.waypoints).toEqual([{ x: 280, y: 0 }])
+
+        edges.value[0].data = { couplings: [] }
+        const fresh = await mountSelected()
+        handle = await drag(fresh, 3, { x: 200, y: 120 }, { x: 200, y: 4 }, { altKey: true })
+        await handle.trigger('pointerup')
+        expect(edges.value[0].data.waypoints).toEqual([
+          { x: 150, y: 0 },
+          { x: 150, y: 4 },
+          { x: 280, y: 4 },
+        ])
+      })
+
+      it('cancels a drag on Escape', async () => {
+        const wrapper = await mountSelected()
+        await drag(wrapper, 2, { x: 150, y: 60 }, { x: 220, y: 60 })
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+        await nextTick()
+        expect(drawnPath(wrapper)).toBe(getSmoothStepPath(geometry)[0])
+        expect(edges.value[0].data.waypoints).toBeUndefined()
+      })
     })
 
     it('ignores waypoints that are not points', () => {
