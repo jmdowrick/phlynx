@@ -296,6 +296,8 @@ describe('applyWorkspaceState', () => {
     expect(saved.version).toBe(PHLYNX_PROJECT_VERSION)
     expect(saved.bioTemplates.instances).toEqual([instance])
     expect(Object.keys(saved.bioTemplates.templates)).toEqual(['two-cell-epithelium'])
+    // As if the built-in changed after this workspace was saved: the embedded copy must still win.
+    saved.bioTemplates.templates['two-cell-epithelium'].name = 'Old sheet'
 
     setActivePinia(createPinia())
     setup()
@@ -303,9 +305,7 @@ describe('applyWorkspaceState', () => {
 
     expect(flow.fromObject).toHaveBeenCalledWith(expect.objectContaining({ nodes: bound.nodes }))
     expect(useBioTemplateStore().getState()).toEqual(saved.bioTemplates)
-    expect(useBioTemplateStore().getDefinition('two-cell-epithelium').name).toBe(
-      saved.bioTemplates.templates['two-cell-epithelium'].name
-    )
+    expect(useBioTemplateStore().getDefinition('two-cell-epithelium').name).toBe('Old sheet')
   })
 
   it('saves a workspace without templates without the key, and loading one empties the template store', async () => {
