@@ -15,9 +15,10 @@ const CELLULAR_COMPONENT_IRI = 'http://purl.obolibrary.org/obo/GO_0005575'
 
 /** Thrown when a lookup cannot reach its service, so the caller can say it is offline. */
 export class LookupUnavailableError extends Error {
-  constructor(message, { cause } = {}) {
+  constructor(message, { cause, status } = {}) {
     super(message, { cause })
     this.name = 'LookupUnavailableError'
+    this.status = status
   }
 }
 
@@ -56,7 +57,7 @@ export async function fetchJson(url, { signal, timeout = REQUEST_TIMEOUT_MS, fet
   }, timeout)
   try {
     const response = await fetchImpl(url, { signal: controller.signal, headers: { Accept: 'application/json' } })
-    if (!response.ok) throw new LookupUnavailableError(`HTTP ${response.status}`)
+    if (!response.ok) throw new LookupUnavailableError(`HTTP ${response.status}`, { status: response.status })
     return await response.json()
   } catch (error) {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
@@ -235,7 +236,14 @@ export async function lookupTerm(iriOrCurie, { signal, fetch } = {}) {
   if (cached) return { curie, ...cached }
   const url = buildTermUrl(curie)
   if (!url) return null
-  const term = readOlsTerm(await fetchJson(url, { signal, fetch }))
+  let body
+  try {
+    body = await fetchJson(url, { signal, fetch })
+  } catch (error) {
+    if (error?.status === 404) return null
+    throw error
+  }
+  const term = readOlsTerm(body)
   if (!term || term.curie !== curie) return null
   rememberTerms([term])
   return { curie, label: term.label, isObsolete: term.isObsolete }
