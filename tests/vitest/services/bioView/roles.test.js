@@ -29,6 +29,7 @@ describe('physiological roles', () => {
     expect(roleOf('porter_in', porter)).toEqual({
       role: 'membraneProtein',
       facet: 'apical',
+      annotatedFacet: 'apical',
       cell: 'node-cell',
       side: null,
       glyph: 'symporter',
@@ -68,13 +69,16 @@ describe('physiological roles', () => {
       cell: 'other',
       source: 'apiCoord',
     })
+    // Taken out of the membrane, it remembers where the annotations put it.
+    const unplaced = { ...data, bioView: { facet: null } }
+    expect(resolveBioRole(unplaced, { apiCoords, sidecar: await toySidecar('porter'), nodes })).toMatchObject({ facet: null, annotatedFacet: 'apical' })
     expect(resolveBioRole({ bioView: { role: 'region' } }).source).toBe('override')
     // Choices that don't fit are ignored.
     expect(resolveBioRole({ bioView: { role: 'mitochondrion', facet: 'top', glyph: 'blob' } })).toMatchObject({ role: 'none', facet: null, glyph: null })
   })
 
   it('is nothing physiological without annotations', () => {
-    expect(resolveBioRole({ name: 'plain' })).toEqual({ role: 'none', facet: null, cell: null, side: null, glyph: null, source: 'none' })
+    expect(resolveBioRole({ name: 'plain' })).toEqual({ role: 'none', facet: null, annotatedFacet: null, cell: null, side: null, glyph: null, source: 'none' })
   })
 
   it('finds the node bound to an ApiCoord', () => {

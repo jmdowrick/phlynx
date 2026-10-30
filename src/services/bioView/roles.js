@@ -2,7 +2,8 @@
  * What each instance is in the physiological view, worked out from its annotations unless the user has said.
  *
  * A node's data.bioView holds the user's choices and its place in that view, all optional:
- * - role, glyph, facet, cell: overrides of what is worked out here;
+ * - role, glyph, facet, cell: overrides of what is worked out here; a facet of null takes a protein out of
+ *   its membrane;
  * - order: its slot along its facet, for a membrane protein;
  * - position, rect: where it is drawn, when not worked out from its cell.
  */
@@ -109,8 +110,9 @@ function fromSidecar(sidecar) {
  * @param {Object|null} [context.apiCoords] - From the annotation store's getApiCoords.
  * @param {Object|null} [context.sidecar] - The parsed sidecar of the node's math.
  * @param {Array<Object>} [context.nodes] - The flow's nodes, to find cells by ApiCoord.
- * @returns {{ role: string, facet: string|null, cell: string|null, side: string|null, glyph: string|null,
- *   source: 'override'|'apiCoord'|'sidecar'|'none' }}
+ * @returns {{ role: string, facet: string|null, annotatedFacet: string|null, cell: string|null, side: string|null,
+ *   glyph: string|null, source: 'override'|'apiCoord'|'sidecar'|'none' }} annotatedFacet is the facet the
+ *   annotations give, whatever the user chose.
  */
 export function resolveBioRole(data, { apiCoords = null, sidecar = null, nodes = [] } = {}) {
   const coord = data?.apiCoord?.coordIri ? apiCoords?.coords?.get(data.apiCoord.coordIri) : null
@@ -121,11 +123,14 @@ export function resolveBioRole(data, { apiCoords = null, sidecar = null, nodes =
   const override = data?.bioView ?? {}
 
   const role = ROLES.includes(override.role) ? override.role : (worked?.role ?? 'none')
-  const facet = role !== 'membraneProtein' ? null : FACETS.includes(override.facet) ? override.facet : (worked?.facet ?? null)
+  // A facet of null, as opposed to none at all, takes the protein out of its membrane.
+  const unplaced = override.facet === null
+  const facet = role !== 'membraneProtein' || unplaced ? null : FACETS.includes(override.facet) ? override.facet : (worked?.facet ?? null)
   const cell = CELL_ROLES.has(role) ? (override.cell ?? worked?.cell ?? null) : null
   return {
     role,
     facet,
+    annotatedFacet: role === 'membraneProtein' ? (worked?.facet ?? null) : null,
     cell,
     side: role === 'region' ? (worked?.side ?? null) : null,
     glyph: role === 'membraneProtein' ? glyphFor(sidecar?.component?.isVersionOf, override.glyph) : null,

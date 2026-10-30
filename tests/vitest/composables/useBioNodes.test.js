@@ -48,7 +48,8 @@ describe('physiological view nodes', () => {
     const bio = bioFlowNodes(nodes, roles, layout)
     const index = (id) => bio.findIndex((n) => n.id === id)
     const p = bio[index('p')]
-    expect(p).toMatchObject({ parentNode: 'cell', draggable: false, data: { glyph: 'pump', facet: 'apical', rotation: 0 } })
+    expect(p).toMatchObject({ parentNode: 'cell', data: { glyph: 'pump', facet: 'apical', rotation: 0, droppable: true } })
+    expect(p.draggable).toBeUndefined()
     expect(bio[index('gly')]).toMatchObject({ parentNode: 'cell', extent: 'parent' })
     expect(index('cell')).toBeLessThan(index('p'))
     // Relative to the cell, centred on its slot on the outline.

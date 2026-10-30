@@ -49,9 +49,15 @@ export function bioFlowNodes(nodes, roles, layout) {
           position: { x: place.x - GLYPH_WIDTH / 2 - cell.x, y: place.y - GLYPH_HEIGHT / 2 - cell.y },
           width: GLYPH_WIDTH,
           height: GLYPH_HEIGHT,
-          // Slotting a protein somewhere else comes with dropping onto the membrane.
-          draggable: false,
-          data: { ...base(id).data, glyph: roles.get(id)?.glyph ?? 'generic', facet: place.facet, rotation: place.rotation, outward: place.outward },
+          data: {
+            ...base(id).data,
+            glyph: roles.get(id)?.glyph ?? 'generic',
+            facet: place.facet,
+            annotatedFacet: roles.get(id)?.annotatedFacet ?? null,
+            rotation: place.rotation,
+            outward: place.outward,
+            droppable: true,
+          },
         })
         break
       }
@@ -62,7 +68,7 @@ export function bioFlowNodes(nodes, roles, layout) {
           position: { x: place.x, y: place.y },
           width: GLYPH_WIDTH,
           height: GLYPH_HEIGHT,
-          data: { ...base(id).data, glyph: roles.get(id)?.glyph ?? 'generic', rotation: 0, unplaced: true },
+          data: { ...base(id).data, glyph: roles.get(id)?.glyph ?? 'generic', annotatedFacet: roles.get(id)?.annotatedFacet ?? null, rotation: 0, unplaced: true, droppable: true },
         })
         break
       case 'cytosolic': {
@@ -71,7 +77,8 @@ export function bioFlowNodes(nodes, roles, layout) {
         break
       }
       case 'card':
-        parents.push({ ...base(id), type: 'bioCard', position: { x: place.x, y: place.y }, width: CARD.width, height: CARD.height })
+        // Something with no physiological role can be dropped into a membrane to make it a protein.
+        parents.push({ ...base(id), type: 'bioCard', position: { x: place.x, y: place.y }, width: CARD.width, height: CARD.height, data: { ...base(id).data, droppable: true } })
         break
       // A membrane is drawn as its cell's outline.
     }

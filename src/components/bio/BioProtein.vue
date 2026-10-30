@@ -10,6 +10,10 @@
       <ProteinGlyph :glyph="data.glyph" :rotation="data.rotation ?? 0" />
     </div>
     <span class="bio-protein__label">{{ data.name }}</span>
+    <!-- Moved from where its annotations put it -->
+    <span v-if="movedFrom" class="bio-protein__moved" :title="`The annotations put it on the ${movedFrom} membrane`" data-testid="bio-protein-moved">
+      <i class="pi pi-arrow-right-arrow-left"></i>
+    </span>
   </div>
 </template>
 
@@ -30,6 +34,11 @@ const categoryStyle = computed(() => themeCategoryStyle(nodeThemeStore.activeThe
 // The name goes on the cell's side of the protein, clear of the regions outside.
 const INWARD = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' }
 const labelSide = computed(() => INWARD[props.data.outward] ?? 'bottom')
+
+const movedFrom = computed(() => {
+  const { annotatedFacet, facet, unplaced } = props.data
+  return annotatedFacet && (unplaced || facet !== annotatedFacet) ? annotatedFacet : null
+})
 </script>
 
 <style scoped>
@@ -59,6 +68,26 @@ const labelSide = computed(() => INWARD[props.data.outward] ?? 'bottom')
   font-weight: 600;
   color: var(--p-text-color);
   pointer-events: none;
+}
+
+.bio-protein__moved {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--p-orange-500);
+  background: var(--p-content-background);
+  color: var(--p-orange-500);
+  cursor: help;
+}
+
+.bio-protein__moved .pi {
+  font-size: 9px;
 }
 
 .bio-protein--label-bottom .bio-protein__label {
