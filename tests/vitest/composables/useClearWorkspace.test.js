@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useClearWorkspace } from '../../../src/composables/useClearWorkspace.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { useAnnotationStore } from '../../../src/stores/annotationStore.js'
+import { useBioTemplateStore } from '../../../src/stores/bioTemplateStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { useSessionMetadataStore } from '../../../src/stores/sessionMetadataStore.js'
 import { DEFAULT_PROJECT_NAME } from '../../../src/utils/constants.js'
@@ -72,5 +73,23 @@ describe('useClearWorkspace', () => {
 
     await historyStore.undo()
     expect(annotationStore.getState()).toEqual(before)
+  })
+
+  it('resets the template store, and undo brings the placed templates back', async () => {
+    const bioTemplateStore = useBioTemplateStore()
+    const historyStore = useFlowHistoryStore()
+    bioTemplateStore.addInstance('epithelial-cell', { x: 10, y: 20 }, 'Gut')
+    const before = bioTemplateStore.getState()
+
+    const { clearWorkspace } = useClearWorkspace()
+    await clearWorkspace()
+    expect(bioTemplateStore.getState()).toBeNull()
+    expect(bioTemplateStore.definitions.size).toBe(0)
+
+    await historyStore.undo()
+    expect(bioTemplateStore.getState()).toEqual(before)
+
+    await historyStore.redo()
+    expect(bioTemplateStore.getState()).toBeNull()
   })
 })

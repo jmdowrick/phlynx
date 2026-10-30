@@ -7,6 +7,7 @@ import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
 import { useAnnotationStore } from '../stores/annotationStore'
+import { useBioTemplateStore } from '../stores/bioTemplateStore'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useProtocolStore } from '../stores/protocolStore'
 import { cancelSimulation, forgetSimulationSession } from './useSimulation'
@@ -24,6 +25,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
   const simStore = useSimulationSettingsStore()
   const omexStore = useOmexStore()
   const annotationStore = useAnnotationStore()
+  const bioTemplateStore = useBioTemplateStore()
   const sessionMetadataStore = useSessionMetadataStore()
 
   const clearWorkspace = async ({ recordHistory = true } = {}) => {
@@ -35,6 +37,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
     const oldViewport = getViewport()
     const oldOmexState = omexStore.getState()
     const oldAnnotationState = annotationStore.getState()
+    const oldBioTemplateState = bioTemplateStore.getState()
     const oldSessionMetadata = sessionMetadataStore.getState()
 
     const undoState = () => {
@@ -43,6 +46,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
       if (flowId === FLOW_IDS.MAIN) {
         omexStore.loadState(oldOmexState)
         annotationStore.loadState(oldAnnotationState)
+        bioTemplateStore.loadState(oldBioTemplateState)
         inspectionStore.loadState(oldInspectStore)
         sessionMetadataStore.loadState(oldSessionMetadata)
         simStore.loadState(oldSimStore)
@@ -66,6 +70,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
         inspectionStore.resetState()
         omexStore.resetState()
         annotationStore.resetState()
+        bioTemplateStore.reset()
         sessionMetadataStore.resetState()
         libraryStore.resetGlobalConstants()
       }
