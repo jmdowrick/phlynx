@@ -187,7 +187,8 @@ function guessComponentKind(facts, componentName) {
   const has = (test) => facts.some(test)
   const isFlow = (fact) => fact.property === OPB.molarFlowRate || fact.property === OPB.chargeFlowRate
   const hasStates = has((fact) => fact.isState)
-  const hasSidedFlows = has((fact) => isFlow(fact) && fact.suffix === 'i') && has((fact) => isFlow(fact) && fact.suffix === 'o')
+  const hasFlowIn = (location) => has((fact) => isFlow(fact) && SUFFIX_LOCATIONS.get(fact.suffix) === location)
+  const hasSidedFlows = hasFlowIn(GO.cytoplasm) && hasFlowIn(GO.extracellularRegion)
   if (hasSidedFlows && !hasStates) return { kind: 'transporter', why: 'Flows on both sides (_i and _o) and no states' }
   const hasConcentrationState = has((fact) => fact.isState && fact.property === OPB.concentration)
   if (hasConcentrationState && has((fact) => fact.property === OPB.fluidVolume)) {

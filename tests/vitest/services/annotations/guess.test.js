@@ -124,6 +124,12 @@ describe('guessAnnotations', () => {
     expect(guess.variables.get('c_ATP').why).toContain('Needs a side: add _i or _o, or choose one')
   })
 
+  it('reads a transporter from flows with any side suffix, e.g. _in and _out', () => {
+    const guess = guessRows(['J_Na_in:mol_per_s', 'J_Na_out:mol_per_s'])
+    expect(guess.componentKind.kind).toBe('transporter')
+    expect(guess.variables.get('J_Na_out')).toMatchObject({ species: ['CHEBI:29101'], location: 'GO:0005576' })
+  })
+
   it('reads I_ in amount-flow units as a current on the membrane, and a membrane from its potential', () => {
     const transporter = guessRows(['I_Na:fmol_per_mm2_per_s', 'u_e:mV'], { sidecar: { component: { kind: 'transporter' }, variables: [] } })
     expect(transporter.variables.get('I_Na')).toMatchObject({ property: 'OPB:00318', species: [], location: 'GO:0005886' })
