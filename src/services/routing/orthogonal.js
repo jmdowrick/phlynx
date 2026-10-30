@@ -72,6 +72,33 @@ function polylineHits(boxes, points) {
   return points.slice(1).some((point, i) => segmentHits(boxes, points[i], point))
 }
 
+/**
+ * Checks whether an axis-aligned step meets a stub anywhere but at the stub's end, so a route can't
+ * run back along a stub or cut across it.
+ *
+ * @param {{x: number, y: number}} a
+ * @param {{x: number, y: number}} b
+ * @param {{handle: {x: number, y: number}, end: {x: number, y: number}}} stub
+ * @returns {boolean}
+ */
+function crossesStub(a, b, { handle, end }) {
+  const stepLeft = Math.min(a.x, b.x)
+  const stepRight = Math.max(a.x, b.x)
+  const stepTop = Math.min(a.y, b.y)
+  const stepBottom = Math.max(a.y, b.y)
+  const stubLeft = Math.min(handle.x, end.x)
+  const stubRight = Math.max(handle.x, end.x)
+  const stubTop = Math.min(handle.y, end.y)
+  const stubBottom = Math.max(handle.y, end.y)
+  // The overlap of the two segments' boxes; they meet when it isn't empty.
+  const left = Math.max(stepLeft, stubLeft)
+  const right = Math.min(stepRight, stubRight)
+  const top = Math.max(stepTop, stubTop)
+  const bottom = Math.min(stepBottom, stubBottom)
+  if (left > right || top > bottom) return false
+  return !(left === right && top === bottom && left === end.x && top === end.y)
+}
+
 const uniqueSorted = (values) => [...new Set(values)].sort((a, b) => a - b)
 
 /**
@@ -124,6 +151,7 @@ class MinHeap {
  * Finds the cheapest right-angled path between two stub ends, on the grid of the boxes' outlines.
  *
  * @param {Array<Object>} boxes - Inflated obstacles.
+ * @param {Array<{handle: Object, end: Object}>} stubs - The edge's stubs, which a route may only touch at their ends.
  * @param {{x: number, y: number}} start
  * @param {number} startDirection - Index into DIRECTIONS the route leaves start along.
  * @param {{x: number, y: number}} end
@@ -131,7 +159,7 @@ class MinHeap {
  * @param {number} bendPenalty
  * @returns {Array<{x: number, y: number}>|null} Points from start to end, or null when walled in.
  */
-function findPath(boxes, start, startDirection, end, endDirection, bendPenalty) {
+function findPath(boxes, stubs, start, startDirection, end, endDirection, bendPenalty) {
   const left = Math.min(start.x, end.x, ...boxes.map((b) => b.left)) - 1
   const right = Math.max(start.x, end.x, ...boxes.map((b) => b.right)) + 1
   const top = Math.min(start.y, end.y, ...boxes.map((b) => b.top)) - 1
@@ -147,7 +175,12 @@ function findPath(boxes, start, startDirection, end, endDirection, bendPenalty) 
     return blocked.get(key)
   }
   // Between neighbouring grid lines no outline lies, so a step is clear when its middle is.
-  const stepClear = (ix, iy, jx, jy) => !isInside(boxes, (xs[ix] + xs[jx]) / 2, (ys[iy] + ys[jy]) / 2)
+  const stepClear = (ix, iy, jx, jy) => {
+    if (isInside(boxes, (xs[ix] + xs[jx]) / 2, (ys[iy] + ys[jy]) / 2)) return false
+    const a = { x: xs[ix], y: ys[iy] }
+    const b = { x: xs[jx], y: ys[jy] }
+    return !stubs.some((stub) => crossesStub(a, b, stub))
+  }
 
   const sx = xs.indexOf(start.x)
   const sy = ys.indexOf(start.y)
@@ -215,6 +248,7 @@ function findPath(boxes, start, startDirection, end, endDirection, bendPenalty) 
  */
 export function routeAll(requests, { obstacles, margin = MARGIN, bendPenalty = BEND_PENALTY }) {
   const boxes = inflate(obstacles, margin)
+  const bare = inflate(obstacles, 0)
   const routes = new Map()
   requests.forEach((request) => {
     const plain = smoothstepPoints(request)
@@ -222,19 +256,28 @@ export function routeAll(requests, { obstacles, margin = MARGIN, bendPenalty = B
       routes.set(request.id, undefined)
       return
     }
-    const start = stubPoint(request.sourceX, request.sourceY, request.sourcePosition)
-    const end = stubPoint(request.targetX, request.targetY, request.targetPosition)
-    // A stub end inside another module's margin can't be routed from.
-    if (isInside(boxes, start.x, start.y) || isInside(boxes, end.x, end.y)) return
+    const source = { x: request.sourceX, y: request.sourceY }
+    const target = { x: request.targetX, y: request.targetY }
+    const start = stubPoint(source.x, source.y, request.sourcePosition)
+    const end = stubPoint(target.x, target.y, request.targetPosition)
+    // A module close in front of a handle keeps no margin for this edge; only one over a stub end blocks it.
+    const edgeBoxes = boxes.map((box, i) => (isInside([box], start.x, start.y) || isInside([box], end.x, end.y) ? bare[i] : box))
+    if (isInside(edgeBoxes, start.x, start.y) || isInside(edgeBoxes, end.x, end.y)) return
+    const stubs = [
+      { handle: source, end: start },
+      { handle: target, end },
+    ]
     const path = findPath(
-      boxes,
+      edgeBoxes,
+      stubs,
       start,
       SIDE_DIRECTION[request.sourcePosition] ?? 2,
       end,
       OPPOSITE[SIDE_DIRECTION[request.targetPosition] ?? 3],
       bendPenalty
     )
-    if (path) routes.set(request.id, simplify(path).slice(1, -1))
+    // Exact, so no jog between grid lines that lie close together is lost.
+    if (path) routes.set(request.id, simplify(path, 0).slice(1, -1))
   })
   return routes
 }

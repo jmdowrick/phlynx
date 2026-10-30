@@ -27,10 +27,15 @@ describe('routing service', () => {
     expect(request).toEqual({ id: 'e', sourceX: 104, sourceY: 30, sourcePosition: 'right', targetX: 396, targetY: 30, targetPosition: 'left' })
   })
 
-  it('leaves out edges to hidden or missing nodes, and hidden nodes as obstacles', () => {
+  it('leaves out hidden edges, edges to hidden or missing nodes, and hidden nodes as obstacles', () => {
     const hidden = node('h', 0, 200, { hidden: true })
     const find = (id) => [...nodes, hidden].find((n) => n.id === id)
-    expect(routeRequests([{ id: 'x', source: 'a', target: 'h' }, { id: 'y', source: 'a', target: 'gone' }], find)).toEqual([])
+    const edges = [
+      { id: 'x', source: 'a', target: 'h' },
+      { id: 'y', source: 'a', target: 'gone' },
+      { id: 'z', source: 'a', target: 'b', hidden: true },
+    ]
+    expect(routeRequests(edges, find)).toEqual([])
     expect(nodeObstacles([...nodes, hidden])).toHaveLength(3)
   })
 

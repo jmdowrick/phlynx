@@ -9,6 +9,10 @@ const request = { id: 'e', sourceX: 100, sourceY: 30, sourcePosition: Position.R
 const source = { x: 0, y: 0, width: 100, height: 60 }
 const target = { x: 400, y: 0, width: 100, height: 60 }
 
+/** How many times a route changes direction. */
+const turns = (points) =>
+  points.slice(1, -1).filter((p, i) => (points[i].x === p.x) !== (p.x === points[i + 2].x)).length
+
 const isOrthogonal = (points) => points.slice(1).every((p, i) => p.x === points[i].x || p.y === points[i].y)
 
 /** Whether any segment of a route passes through a rectangle. */
@@ -44,12 +48,33 @@ describe('orthogonal router', () => {
     // A blocker reaching far below leaves only the way over it.
     const blocker = { x: 200, y: -20, width: 100, height: 400 }
     const waypoints = routeAll([request], { obstacles: [source, target, blocker] }).get('e')
-    // Up from the source stub, over the blocker at its margin, and down onto the target stub.
-    expect(waypoints).toEqual([
-      { x: 190, y: 30 },
-      { x: 190, y: -30 },
-      { x: 380, y: -30 },
-    ])
+    // Over the blocker at its margin, with the four turns that takes, however a tie is broken.
+    const route = fullPolyline(request, waypoints)
+    expect(Math.min(...route.map((p) => p.y))).toBe(-20 - MARGIN)
+    expect(turns(route)).toBe(4)
+  })
+
+  it('arrives along the target stub, never doubling back over it', () => {
+    const obstacles = [
+      { x: 140, y: 70, width: 130, height: 130 },
+      { x: 50, y: 0, width: 70, height: 100 },
+      { x: 20, y: 260, width: 100, height: 50 },
+    ]
+    const edge = { id: 'e', sourceX: 205, sourceY: 200, sourcePosition: Position.Bottom, targetX: 120, targetY: 50, targetPosition: Position.Right }
+    const route = fullPolyline(edge, routeAll([edge], { obstacles }).get('e'))
+    const [before, stubEnd, end] = route.slice(-3)
+    expect(stubEnd).toEqual({ x: 140, y: 50 })
+    // The last two segments both head left, into the node, or the stub is reached from the side.
+    expect(before.x >= stubEnd.x && end.x < stubEnd.x).toBe(true)
+  })
+
+  it('routes past a module close in front of a handle, ignoring only its margin', () => {
+    // The blocker's margin covers the source stub end; the blocker itself does not.
+    const close = { x: 125, y: -60, width: 60, height: 200 }
+    const waypoints = routeAll([request], { obstacles: [source, target, close] }).get('e')
+    const route = fullPolyline(request, waypoints)
+    expect(crosses(route, close)).toBe(false)
+    expect(isOrthogonal(route)).toBe(true)
   })
 
   it('leaves out an edge that is walled in', () => {

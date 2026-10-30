@@ -68,6 +68,7 @@ function handleEnd(node, handleId, fallbackSide) {
  */
 export function routeRequests(edges, findNode) {
   return edges.flatMap((edge) => {
+    if (edge.hidden) return []
     const sourceNode = findNode(edge.source)
     const targetNode = findNode(edge.target)
     if (!sourceNode || !targetNode || sourceNode.hidden || targetNode.hidden) return []
