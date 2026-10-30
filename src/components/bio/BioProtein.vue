@@ -1,20 +1,35 @@
 <template>
   <div
-    :class="['bio-protein', { 'bio-protein--selected': selected, 'bio-protein--unplaced': data.unplaced }]"
+    :class="['bio-protein', `bio-protein--label-${labelSide}`, { 'bio-protein--selected': selected, 'bio-protein--unplaced': data.unplaced }]"
+    :style="categoryStyle"
     :title="data.unplaced ? `${data.name}: not in a membrane` : data.name"
     data-testid="bio-protein"
   >
     <!-- Turned with its facet, so its outside faces out of the cell -->
-    <div class="bio-protein__body" :style="{ transform: `rotate(${data.rotation ?? 0}deg)` }"></div>
+    <div class="bio-protein__glyph" :style="{ transform: `rotate(${data.rotation ?? 0}deg)` }">
+      <ProteinGlyph :glyph="data.glyph" :rotation="data.rotation ?? 0" />
+    </div>
     <span class="bio-protein__label">{{ data.name }}</span>
   </div>
 </template>
 
 <script setup>
-defineProps({
+import { computed } from 'vue'
+import ProteinGlyph from './ProteinGlyph.vue'
+import { useNodeThemeStore } from '../../stores/nodeThemeStore'
+import { categoryStyle as themeCategoryStyle } from '../../utils/nodeThemes'
+
+const props = defineProps({
   data: { type: Object, required: true },
   selected: { type: Boolean, default: false },
 })
+
+const nodeThemeStore = useNodeThemeStore()
+const categoryStyle = computed(() => themeCategoryStyle(nodeThemeStore.activeTheme, props.data.domainType))
+
+// The name goes on the cell's side of the protein, clear of the regions outside.
+const INWARD = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' }
+const labelSide = computed(() => INWARD[props.data.outward] ?? 'bottom')
 </script>
 
 <style scoped>
@@ -24,33 +39,49 @@ defineProps({
   height: 100%;
 }
 
-.bio-protein__body {
+.bio-protein__glyph {
   position: absolute;
   inset: 0;
-  border-radius: 14px;
-  background: var(--p-emerald-500);
-  border: 3px solid var(--p-emerald-700);
 }
 
-.bio-protein--selected .bio-protein__body {
-  border-color: var(--p-primary-color);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--p-primary-color) 35%, transparent);
+.bio-protein--selected .bio-protein__glyph {
+  filter: drop-shadow(0 0 3px var(--p-primary-color)) drop-shadow(0 0 1px var(--p-primary-color));
 }
 
-.bio-protein--unplaced .bio-protein__body {
+.bio-protein--unplaced .bio-protein__glyph {
   opacity: 0.55;
-  border-style: dashed;
 }
 
 .bio-protein__label {
   position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
+  white-space: nowrap;
+  font-size: 12px;
   font-weight: 600;
-  color: white;
+  color: var(--p-text-color);
   pointer-events: none;
+}
+
+.bio-protein--label-bottom .bio-protein__label {
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.bio-protein--label-top .bio-protein__label {
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.bio-protein--label-right .bio-protein__label {
+  left: calc(100% + 6px);
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.bio-protein--label-left .bio-protein__label {
+  right: calc(100% + 6px);
+  top: 50%;
+  transform: translateY(-50%);
 }
 </style>
