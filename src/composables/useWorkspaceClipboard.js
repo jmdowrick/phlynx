@@ -7,7 +7,7 @@ import { FLOW_IDS } from '../utils/constants'
 import { getId as getNextEdgeId } from '../utils/edges'
 import { getId as getNextNodeId, generateUniqueInstanceName } from '../utils/nodes'
 import { detachReactivity } from '../utils/reactivity'
-import { withoutApiCoord } from '../services/annotations/nodeData'
+import { nodeDataForCopy } from '../services/annotations/nodeData'
 
 /**
  * Whether a workspace keyboard shortcut should be left alone: the user is typing in an input, a dialog is
@@ -193,12 +193,12 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
       const finalName = generateUniqueInstanceName(node.data.name, namesSet)
       namesSet.add(finalName)
 
-      // Create the new node with offset position. A copy is unlocated: two instances at one ApiCoord would conflict.
+      // Create the new node with offset position. A copy is unlocated (see nodeDataForCopy).
       newNodes.push({
         id: newId,
         type: node.type,
         data: {
-          ...withoutApiCoord(node.data),
+          ...nodeDataForCopy(node.data),
           name: finalName,
         },
         position: {

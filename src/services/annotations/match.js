@@ -53,6 +53,18 @@ export function quantitiesFor(instance, sidecar, context = {}) {
 }
 
 /**
+ * Finds the instance a basolateral facet faces: the one lyph with api:coalescedWith. ApiCoord v0.2 has
+ * no adjacency predicate, so this is an assumption.
+ *
+ * @param {Array<{ coord: object }>} instances
+ * @returns {object|null} The instance, or null unless exactly one lyph qualifies.
+ */
+export function facingLyph(instances) {
+  const lyphs = instances.filter((instance) => instance.coord?.kind === 'lyph' && instance.coord.coalescedWith?.length)
+  return lyphs.length === 1 ? lyphs[0] : null
+}
+
+/**
  * Resolves what a basolateral facet faces: the one lyph instance with api:coalescedWith, at low confidence.
  * Without exactly one such lyph the location stays unresolved.
  *
@@ -61,9 +73,8 @@ export function quantitiesFor(instance, sidecar, context = {}) {
  * @returns {Array<object>} The quantities with their locations resolved where possible.
  */
 export function resolveFacing(quantities, instances) {
-  const lyphs = instances.filter((instance) => instance.coord?.kind === 'lyph' && instance.coord.coalescedWith?.length)
-  if (lyphs.length !== 1) return quantities
-  const [lyph] = lyphs
+  const lyph = facingLyph(instances)
+  if (!lyph) return quantities
   const why =
     `Assumed: ${lyph.label ?? lyph.name} is the only lyph with api:coalescedWith, so the basolateral facet is taken to face it. ` +
     'ApiCoord v0.2 has no adjacency predicate for this.'
