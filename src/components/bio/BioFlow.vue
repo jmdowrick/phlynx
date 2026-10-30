@@ -4,7 +4,7 @@
     <VueFlow
       :id="FLOW_IDS.BIO"
       :nodes="bioNodes"
-      :edges="couplingEdges"
+      :edges="shownCouplings"
       class="bio-flow"
       :max-zoom="1.5"
       :min-zoom="0.1"
@@ -169,6 +169,8 @@ function onNodesInitialized() {
 
 // ── Dragging into a membrane ───────────────────────────────────────────
 const draggingId = ref(null)
+// A selection's coupling lines end where things were laid out, so they wait for a drag to end.
+const shownCouplings = computed(() => (draggingId.value ? [] : couplingEdges.value))
 const activeSlot = ref(null)
 const targets = computed(() => dropTargets(layout.value))
 
