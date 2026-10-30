@@ -37,7 +37,7 @@ export function bioFlowNodes(nodes, roles, layout) {
       }
       case 'region': {
         const { x, y, width, height } = place.rect
-        parents.push({ ...base(id), type: 'bioRegion', position: { x, y }, width, height, zIndex: Z.region, data: { ...base(id).data, side: place.side } })
+        parents.push({ ...base(id), type: 'bioRegion', position: { x, y }, width, height, zIndex: Z.region, data: { ...base(id).data, side: place.side, at: place.adjacent?.[0]?.at ?? null } })
         break
       }
       case 'protein': {

@@ -74,9 +74,9 @@ import BioProtein from './BioProtein.vue'
 import BioRegion from './BioRegion.vue'
 import { bioViewForMove, useBioNodes } from '../../composables/useBioNodes'
 import { useNodeDataHistory } from '../../composables/useNodeDataHistory'
-import { dropTargets, planRelayout, planSlotDrop, planUnplace } from '../../services/bioView/drop'
+import { dropTargets, patchBioView, planRelayout, planSlotDrop, planUnplace } from '../../services/bioView/drop'
 import { GLYPHS } from '../../services/bioView/glyphs'
-import { GLYPH_HEIGHT, GLYPH_WIDTH, nearestSlot, slotPositions } from '../../services/bioView/geometry'
+import { FACET_PARTS, GLYPH_HEIGHT, GLYPH_WIDTH, nearestSlot, slotPositions } from '../../services/bioView/geometry'
 import { GAP } from '../../services/bioView/layout'
 import { useViewModeStore } from '../../stores/viewModeStore'
 import { FLOW_IDS } from '../../utils/constants'
@@ -120,13 +120,13 @@ const targets = computed(() => dropTargets(layout.value))
 const slotPrompts = computed(() => {
   if (!draggingId.value) return []
   return targets.value.flatMap((cell) =>
-    ['apical', 'basolateral', 'lateral'].flatMap((facet) =>
-      slotPositions(cell.rect, facet, cell.counts[facet] + 1).map((slot, order) => ({
-        key: `${cell.id}/${facet}/${order}`,
+    FACET_PARTS.flatMap((part) =>
+      slotPositions(cell.rect, part, cell.counts[part] + 1).map((slot, order) => ({
+        key: `${cell.id}/${part}/${order}`,
         x: slot.x,
         y: slot.y,
         active:
-          activeSlot.value?.cellId === cell.id && activeSlot.value.facet === facet && activeSlot.value.order === order,
+          activeSlot.value?.cellId === cell.id && activeSlot.value.part === part && activeSlot.value.order === order,
       }))
     )
   )
@@ -252,7 +252,7 @@ const menuItems = ref([])
 
 /** Sets some of a node's bioView fields, as one undo step. */
 function setChoice(id, patch, type) {
-  applyPlan(new Map([[id, { ...main.findNode(id)?.data?.bioView, ...patch }]]), type)
+  applyPlan(new Map([[id, patchBioView(main.findNode(id)?.data?.bioView, patch)]]), type)
 }
 
 /** Somewhere left of the cells, below any proteins already there, for one taken out of its membrane. */
@@ -264,6 +264,36 @@ function trayPosition() {
   return {
     x: left - 2 * GAP - GLYPH_WIDTH,
     y: top + loose * (GLYPH_HEIGHT + 32),
+  }
+}
+
+/** Where a region can lie: against each cell's top or bottom, or down either of its sides. */
+const AGAINST = [
+  { facet: 'apical', label: 'Apical side' },
+  { facet: 'basolateral', label: 'Basolateral side' },
+  { facet: 'lateral', at: 'left', label: 'Left side (paracellular)' },
+  { facet: 'lateral', at: 'right', label: 'Right side (paracellular)' },
+]
+
+/** The menu choosing what a region lies against, one part of one cell at a time. */
+function liesAgainstMenu(id, role) {
+  const current = role.adjacent?.[0]
+  const cells = targets.value.map((cell) => cell.id)
+  const name = (cellId) => main.findNode(cellId)?.data?.name ?? cellId
+  const isCurrent = (cellId, choice) =>
+    current?.cell === cellId && current.facet === choice.facet && (current.at ?? undefined) === choice.at
+  return {
+    label: 'Lies Against',
+    icon: 'pi pi-arrows-h',
+    disabled: !cells.length,
+    items: cells.flatMap((cellId) =>
+      AGAINST.map(({ label, ...against }) => ({
+        label: cells.length > 1 ? `${name(cellId)}: ${label}` : label,
+        icon: isCurrent(cellId, against) ? 'pi pi-check' : undefined,
+        // A new place for the region clears where it was dragged to.
+        command: () => setChoice(id, { adjacent: [{ cell: cellId, ...against }], rect: undefined }, 'bio-adjacent'),
+      }))
+    ),
   }
 }
 
@@ -292,6 +322,7 @@ function onNodeContextMenu({ event, node }) {
       })),
     })
   }
+  if (role?.role === 'region') items.push(liesAgainstMenu(node.id, role))
   if (layout.value.get(node.id)?.kind === 'protein') {
     items.push({
       label: 'Take Out of Membrane',

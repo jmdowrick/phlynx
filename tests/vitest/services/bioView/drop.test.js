@@ -24,12 +24,14 @@ function epithelium() {
 describe('dropping in the physiological view', () => {
   it('offers each cell’s slots with how many proteins each facet has', () => {
     const { layout } = epithelium()
-    expect(dropTargets(layout)).toEqual([{ id: 'cell', rect: layout.get('cell').rect, counts: { apical: 3, basolateral: 1, lateral: 0 } }])
+    expect(dropTargets(layout)).toEqual([
+      { id: 'cell', rect: layout.get('cell').rect, counts: { apical: 3, basolateral: 1, 'lateral-left': 0, 'lateral-right': 0 } },
+    ])
   })
 
   it('moves a protein to another facet, closing up the one it left', () => {
     const { layout, roles, bioViews } = epithelium()
-    const plan = planSlotDrop({ id: 'a', slot: { cellId: 'cell', facet: 'basolateral', order: 0 }, layout, roles, bioViews })
+    const plan = planSlotDrop({ id: 'a', slot: { cellId: 'cell', part: 'basolateral', facet: 'basolateral', order: 0 }, layout, roles, bioViews })
     expect(Object.fromEntries(plan)).toEqual({
       b: { order: 0 },
       c: { order: 1 },
@@ -40,14 +42,16 @@ describe('dropping in the physiological view', () => {
 
   it('reorders within a facet', () => {
     const { layout, roles, bioViews } = epithelium()
-    const plan = planSlotDrop({ id: 'c', slot: { cellId: 'cell', facet: 'apical', order: 0 }, layout, roles, bioViews })
+    const plan = planSlotDrop({ id: 'c', slot: { cellId: 'cell', part: 'apical', facet: 'apical', order: 0 }, layout, roles, bioViews })
     expect(['c', 'a', 'b'].map((id) => plan.get(id).order)).toEqual([0, 1, 2])
   })
 
   it('makes anything dropped into a membrane a membrane protein', () => {
     const { layout, roles, bioViews } = epithelium()
-    const plan = planSlotDrop({ id: 'card', slot: { cellId: 'cell', facet: 'lateral', order: 0 }, layout, roles, bioViews })
-    expect(plan.get('card')).toEqual({ order: 0, cell: 'cell', facet: 'lateral', role: 'membraneProtein' })
+    const slot = { cellId: 'cell', part: 'lateral-right', facet: 'lateral', at: 'right', order: 0 }
+    const plan = planSlotDrop({ id: 'card', slot, layout, roles, bioViews })
+    // A lateral protein keeps the side it was dropped on.
+    expect(plan.get('card')).toEqual({ order: 0, at: 'right', cell: 'cell', facet: 'lateral', role: 'membraneProtein' })
   })
 
   it('takes a protein out of its membrane to where it was dropped', () => {
@@ -58,7 +62,7 @@ describe('dropping in the physiological view', () => {
 
   it('lays out again, keeping only the user’s role and glyph', () => {
     const bioViews = new Map([
-      ['a', { role: 'membraneProtein', glyph: 'pump', facet: 'lateral', order: 2 }],
+      ['a', { role: 'membraneProtein', glyph: 'pump', facet: 'lateral', at: 'left', order: 2 }],
       ['b', { glyph: 'channel' }],
       ['c', undefined],
       ['cell', { rect: { x: 0, y: 0, width: 1, height: 1 } }],

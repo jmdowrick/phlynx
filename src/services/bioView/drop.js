@@ -3,10 +3,10 @@
  * writes: the caller applies the plan as one undo step.
  */
 
-const FACETS = ['apical', 'basolateral', 'lateral']
+import { FACET_PARTS } from './geometry.js'
 
-/** Fields that place a node; Re-layout clears them and keeps the user's role and glyph. */
-const PLACEMENT_KEYS = ['cell', 'facet', 'order', 'position', 'rect']
+/** Fields that place a node; Re-layout clears them and keeps the user's choices of what it is. */
+const PLACEMENT_KEYS = ['cell', 'facet', 'at', 'order', 'position', 'rect']
 
 /**
  * Merges a patch into a bioView, dropping fields set to undefined.
@@ -27,34 +27,34 @@ export function patchBioView(bioView, patch) {
  */
 export function dropTargets(layout) {
   const cells = new Map()
-  for (const [id, place] of layout) if (place.kind === 'cell') cells.set(id, { id, rect: place.rect, counts: Object.fromEntries(FACETS.map((f) => [f, 0])) })
-  for (const place of layout.values()) if (place.kind === 'protein' && cells.has(place.cell)) cells.get(place.cell).counts[place.facet]++
+  for (const [id, place] of layout) if (place.kind === 'cell') cells.set(id, { id, rect: place.rect, counts: Object.fromEntries(FACET_PARTS.map((part) => [part, 0])) })
+  for (const place of layout.values()) if (place.kind === 'protein' && cells.has(place.cell)) cells.get(place.cell).counts[place.part]++
   return [...cells.values()]
 }
 
 /**
- * The proteins on one facet of a cell, in slot order.
+ * The proteins on one part of a cell's membrane, in slot order.
  *
  * @param {Map<string, Object>} layout
  * @param {string} cell
- * @param {string} facet
+ * @param {string} part - One of FACET_PARTS.
  * @returns {string[]}
  */
-function onFacet(layout, cell, facet) {
+function onPart(layout, cell, part) {
   return [...layout]
-    .filter(([, place]) => place.kind === 'protein' && place.cell === cell && place.facet === facet)
+    .filter(([, place]) => place.kind === 'protein' && place.cell === cell && place.part === part)
     .sort(([, a], [, b]) => a.order - b.order)
     .map(([id]) => id)
 }
 
 /**
  * Plans dropping a node into a membrane slot: it takes the slot, the proteins after it move along,
- * and the facet it left closes up. Every protein on a facet that changes gets its order written, so
- * the result doesn't depend on how the rest would be sorted.
+ * and the part it left closes up. Every protein on a part that changes gets its order and side
+ * written, so the result doesn't depend on how the rest would be sorted.
  *
  * @param {Object} options
  * @param {string} options.id - The dropped node.
- * @param {{cellId: string, facet: string, order: number}} options.slot - From nearestSlot.
+ * @param {{cellId: string, part: string, facet: string, at?: string, order: number}} options.slot - From nearestSlot.
  * @param {Map<string, Object>} options.layout - The layout before the drop.
  * @param {Map<string, Object>} options.roles - Node id -> resolveBioRole's result.
  * @param {Map<string, Object>} options.bioViews - Node id -> its data.bioView.
@@ -65,19 +65,22 @@ export function planSlotDrop({ id, slot, layout, roles, bioViews }) {
   const from = layout.get(id)
   const write = (nodeId, patch) => plan.set(nodeId, patchBioView(plan.get(nodeId) ?? bioViews.get(nodeId), patch))
 
-  if (from?.kind === 'protein' && (from.cell !== slot.cellId || from.facet !== slot.facet)) {
-    onFacet(layout, from.cell, from.facet)
+  // A lateral protein's side is written with its order, so it stays on the side it was drawn on.
+  const place = (part) => (part.startsWith('lateral-') ? { at: part.slice('lateral-'.length) } : {})
+  if (from?.kind === 'protein' && (from.cell !== slot.cellId || from.part !== slot.part)) {
+    onPart(layout, from.cell, from.part)
       .filter((other) => other !== id)
-      .forEach((other, order) => write(other, { order }))
+      .forEach((other, order) => write(other, { order, ...place(from.part) }))
   }
-  const target = onFacet(layout, slot.cellId, slot.facet).filter((other) => other !== id)
+  const target = onPart(layout, slot.cellId, slot.part).filter((other) => other !== id)
   target.splice(Math.min(slot.order, target.length), 0, id)
-  target.forEach((other, order) => write(other, { order }))
+  target.forEach((other, order) => write(other, { order, ...place(slot.part) }))
 
   const role = roles.get(id)?.role
   write(id, {
     cell: slot.cellId,
     facet: slot.facet,
+    at: slot.facet === 'lateral' ? slot.at : undefined,
     position: undefined,
     // Dropped into a membrane, anything becomes a membrane protein.
     role: role === 'membraneProtein' ? bioViews.get(id)?.role : 'membraneProtein',
@@ -99,11 +102,11 @@ export function planUnplace({ id, position, layout, bioViews }) {
   const plan = new Map()
   const from = layout.get(id)
   if (from?.kind === 'protein') {
-    onFacet(layout, from.cell, from.facet)
+    onPart(layout, from.cell, from.part)
       .filter((other) => other !== id)
       .forEach((other, order) => plan.set(other, patchBioView(bioViews.get(other), { order })))
   }
-  plan.set(id, patchBioView(bioViews.get(id), { facet: null, order: undefined, cell: undefined, position }))
+  plan.set(id, patchBioView(bioViews.get(id), { facet: null, at: undefined, order: undefined, cell: undefined, position }))
   return plan
 }
 

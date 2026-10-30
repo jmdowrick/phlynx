@@ -96,3 +96,63 @@ describe.skipIf(!existsSync(EXPECTED))('physiological view layout of the private
     expect(Math.max(...apical)).toBeLessThan(Math.min(...basolateral))
   })
 })
+
+describe('physiological view layout by adjacency', () => {
+  /** Two cells, a paracellular space down a's right side, a lumen against b only, and lateral proteins. */
+  function twoCells() {
+    const nodes = ['a', 'b', 'para', 'lumen', 'l1', 'l2', 'l3', 'r1'].map((id) => node(id))
+    const roles = new Map([
+      ['a', role('cytosol')],
+      ['b', role('cytosol')],
+      ['para', role('region', { adjacent: [{ cell: 'a', facet: 'lateral', at: 'right' }] })],
+      ['lumen', role('region', { adjacent: [{ cell: 'b', facet: 'apical' }] })],
+      ['l1', role('membraneProtein', { cell: 'a', facet: 'lateral' })],
+      ['l2', role('membraneProtein', { cell: 'a', facet: 'lateral' })],
+      ['l3', role('membraneProtein', { cell: 'a', facet: 'lateral' })],
+      ['r1', role('membraneProtein', { cell: 'a', facet: 'lateral', at: 'right' })],
+    ])
+    return layoutBioView(nodes, roles)
+  }
+
+  it('runs a paracellular region down one cell’s side, moving its neighbour along to make room', () => {
+    const layout = twoCells()
+    const a = layout.get('a').rect
+    const b = layout.get('b').rect
+    const para = layout.get('para')
+    expect(para.side).toBe('lateral')
+    // Against a's right side, from its top to its bottom, overlapping under its rounded corners.
+    expect(para.rect.x).toBeLessThan(a.x + a.width)
+    expect(para.rect.x + para.rect.width).toBeGreaterThan(a.x + a.width)
+    expect([para.rect.y, para.rect.height]).toEqual([a.y, a.height])
+    // Clear of the next cell.
+    expect(para.rect.x + para.rect.width).toBeLessThanOrEqual(b.x)
+  })
+
+  it('puts a region against only the cells it is adjacent to', () => {
+    const layout = twoCells()
+    const b = layout.get('b').rect
+    const lumen = layout.get('lumen').rect
+    expect(lumen.x).toBeGreaterThan(layout.get('a').rect.x + layout.get('a').rect.width)
+    expect(lumen.y + lumen.height).toBeGreaterThan(b.y)
+    expect(lumen.y).toBeLessThan(b.y)
+  })
+
+  it('puts lateral proteins on their side, and spreads those without one over both', () => {
+    const layout = twoCells()
+    const parts = ['l1', 'l2', 'l3', 'r1'].map((id) => layout.get(id).part)
+    expect(layout.get('r1').part).toBe('lateral-right')
+    expect(parts.filter((part) => part === 'lateral-left')).toHaveLength(2)
+    expect(parts.filter((part) => part === 'lateral-right')).toHaveLength(2)
+    expect(layout.get('r1')).toMatchObject({ rotation: 90, x: layout.get('a').rect.x + layout.get('a').rect.width })
+  })
+
+  it('stacks a region against a cell that isn’t there with the others below', () => {
+    const nodes = [node('c'), node('lost')]
+    const roles = new Map([
+      ['c', role('cytosol')],
+      ['lost', role('region', { adjacent: [{ cell: 'gone', facet: 'apical' }] })],
+    ])
+    const layout = layoutBioView(nodes, roles)
+    expect(layout.get('lost').rect.y).toBeGreaterThan(layout.get('c').rect.y + layout.get('c').rect.height)
+  })
+})

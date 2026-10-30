@@ -1,12 +1,13 @@
 /**
  * Lays out the physiological view: cells in a row, each with its membrane proteins in slots along
- * their facets and its cytosolic processes inside; the region an apical facet faces in a band against
- * the cells' tops, and the one a basolateral facet faces in a band against their bottoms; proteins not yet in a membrane in a tray to
- * the left; and everything else as cards to the right. What the user placed (data.bioView) is kept;
- * only the rest is worked out, the same way every time.
+ * their facets and its cytosolic processes inside. A region lies against what it is adjacent to: a
+ * band along the cells' tops or bottoms, or down one cell's side (a paracellular space); one only
+ * known from the annotations to face the apical or basolateral side spans all the cells. Proteins not
+ * yet in a membrane go in a tray to the left, and everything else as cards to the right. What the user
+ * placed (data.bioView) is kept; only the rest is worked out, the same way every time.
  */
 
-import { CELL_RADIUS, GLYPH_HEIGHT, GLYPH_WIDTH, MIN_CELL, fitCellRect, proteinPlacement } from './geometry.js'
+import { CELL_RADIUS, FACET_PARTS, GLYPH_HEIGHT, GLYPH_WIDTH, MIN_CELL, fitCellRect, partOf, proteinPlacement } from './geometry.js'
 
 /** Size of a card for an instance with no physiological shape. */
 export const CARD = { width: 180, height: 72 }
@@ -14,10 +15,11 @@ export const CARD = { width: 180, height: 72 }
 /** Height of a region's band. */
 export const REGION_HEIGHT = 140
 
+/** Width of a region down a cell's side. */
+export const SIDE_REGION_WIDTH = 120
+
 /** Space between things laid out side by side. */
 export const GAP = 80
-
-const FACETS = ['apical', 'basolateral', 'lateral']
 
 const byName = (nodes) => (a, b) => (nodes.get(a)?.data?.name ?? a).localeCompare(nodes.get(b)?.data?.name ?? b) || a.localeCompare(b)
 
@@ -34,6 +36,66 @@ function orderOnFacet(ids, nodes) {
   return [...placed, ...ids.filter((id) => !ordered(id)).sort(byName(nodes))]
 }
 
+/**
+ * Sorts one cell's membrane proteins into the parts of its membrane, in slot order. A lateral protein
+ * with no side goes to whichever side has fewer.
+ *
+ * @param {string[]} ids - The cell's proteins in a membrane.
+ * @param {Function} roleOf
+ * @param {Map<string, Object>} nodes
+ * @returns {Object<string, string[]>} Part -> ids.
+ */
+function partsOf(ids, roleOf, nodes) {
+  const parts = Object.fromEntries(FACET_PARTS.map((part) => [part, []]))
+  const sideless = []
+  for (const id of ids) {
+    const { facet, at } = roleOf(id)
+    if (facet === 'lateral' && !at) sideless.push(id)
+    else parts[partOf(facet, at)].push(id)
+  }
+  for (const id of orderOnFacet(sideless, nodes)) {
+    parts[parts['lateral-right'].length < parts['lateral-left'].length ? 'lateral-right' : 'lateral-left'].push(id)
+  }
+  for (const part of FACET_PARTS) parts[part] = orderOnFacet(parts[part], nodes)
+  return parts
+}
+
+/**
+ * Gives where a region goes: against the cells it is adjacent to, or, known only to face a side,
+ * along that side of every cell.
+ *
+ * @param {Array<Object>|null} adjacent
+ * @param {string|null} side
+ * @param {Map<string, Object>} layout - With the cells laid out.
+ * @param {{left: number, right: number, top: number, bottom: number}} all - Around every cell.
+ * @returns {Object|null} Its rect, or null when it is against nothing.
+ */
+function regionRect(adjacent, side, layout, all) {
+  const facet = adjacent ? adjacent[0].facet : side
+  const rects = adjacent
+    ? adjacent.filter((entry) => entry.facet === facet && layout.get(entry.cell)?.kind === 'cell').map((entry) => layout.get(entry.cell).rect)
+    : null
+  if (adjacent && !rects.length) return null
+  const span = rects
+    ? {
+        left: Math.min(...rects.map((r) => r.x)),
+        right: Math.max(...rects.map((r) => r.x + r.width)),
+        top: Math.min(...rects.map((r) => r.y)),
+        bottom: Math.max(...rects.map((r) => r.y + r.height)),
+      }
+    : all
+  const across = { x: span.left - GAP, width: span.right - span.left + 2 * GAP }
+  if (facet === 'apical') return { ...across, y: span.top - REGION_HEIGHT, height: REGION_HEIGHT + CELL_RADIUS }
+  if (facet === 'basolateral') return { ...across, y: span.bottom - CELL_RADIUS, height: REGION_HEIGHT + CELL_RADIUS }
+  if (facet === 'lateral' && adjacent) {
+    // Down one cell's side, from its top to its bottom.
+    const cell = rects[0]
+    const x = adjacent[0].at === 'right' ? cell.x + cell.width - CELL_RADIUS : cell.x - SIDE_REGION_WIDTH
+    return { x, y: cell.y, width: SIDE_REGION_WIDTH + CELL_RADIUS, height: cell.height }
+  }
+  return null
+}
+
 const isRect = (rect) => rect && ['x', 'y', 'width', 'height'].every((key) => Number.isFinite(rect[key]))
 const isPoint = (point) => point && Number.isFinite(point.x) && Number.isFinite(point.y)
 
@@ -45,10 +107,11 @@ const isPoint = (point) => point && Number.isFinite(point.x) && Number.isFinite(
  * @returns {Map<string, Object>} Node id -> one of:
  *   - { kind: 'cell', rect, membrane: nodeId|null }
  *   - { kind: 'membrane', cell } (drawn as the cell's outline)
- *   - { kind: 'protein', cell, facet, order, x, y, rotation, outward } (x, y: the cartoon's centre)
+ *   - { kind: 'protein', cell, facet, part, order, x, y, rotation, outward } (part: see FACET_PARTS;
+ *     order: its slot in that part; x, y: the cartoon's centre)
  *   - { kind: 'tray', x, y } (a protein in no membrane; x, y: its top-left)
  *   - { kind: 'cytosolic', cell, x, y }
- *   - { kind: 'region', side, rect }
+ *   - { kind: 'region', side, adjacent, rect } (side: the facet it lies against)
  *   - { kind: 'card', x, y }
  */
 export function layoutBioView(nodes, roles) {
@@ -67,18 +130,26 @@ export function layoutBioView(nodes, roles) {
   const proteins = ids.filter((id) => roleOf(id).role === 'membraneProtein')
   const inMembrane = proteins.filter((id) => onCell(id) && roleOf(id).facet)
 
+  // Regions down a cell's side push its neighbours along to make room.
+  const regionIds = ids.filter((id) => roleOf(id).role === 'region')
+  const sideRegions = (cellId, at) =>
+    regionIds.some((id) => roleOf(id).adjacent?.[0]?.facet === 'lateral' && roleOf(id).adjacent[0].cell === cellId && roleOf(id).adjacent[0].at === at)
+
   let nextX = 0
   for (const cellId of cellIds) {
-    const counts = Object.fromEntries(FACETS.map((facet) => [facet, inMembrane.filter((id) => onCell(id) === cellId && roleOf(id).facet === facet).length]))
+    const parts = partsOf(inMembrane.filter((id) => onCell(id) === cellId), roleOf, byId)
+    const counts = Object.fromEntries(FACET_PARTS.map((part) => [part, parts[part].length]))
     const stored = byId.get(cellId).data?.bioView?.rect
-    const rect = isRect(stored) ? stored : fitCellRect({ x: nextX, y: 0, ...MIN_CELL }, counts)
-    nextX = Math.max(nextX, rect.x + rect.width + GAP)
+    const x = nextX + (sideRegions(cellId, 'left') ? SIDE_REGION_WIDTH : 0)
+    const rect = isRect(stored) ? stored : fitCellRect({ x, y: 0, ...MIN_CELL }, counts)
+    nextX = Math.max(nextX, rect.x + rect.width + GAP + (sideRegions(cellId, 'right') ? SIDE_REGION_WIDTH : 0))
     const membrane = ids.find((id) => roleOf(id).role === 'membrane' && onCell(id) === cellId) ?? null
     layout.set(cellId, { kind: 'cell', rect, membrane })
 
-    for (const facet of FACETS) {
-      const onFacet = orderOnFacet(inMembrane.filter((id) => onCell(id) === cellId && roleOf(id).facet === facet), byId)
-      onFacet.forEach((id, order) => layout.set(id, { kind: 'protein', cell: cellId, facet, order, ...proteinPlacement(rect, facet, order, onFacet.length) }))
+    for (const part of FACET_PARTS) {
+      parts[part].forEach((id, order) =>
+        layout.set(id, { kind: 'protein', cell: cellId, facet: roleOf(id).facet, part, order, ...proteinPlacement(rect, part, order, parts[part].length) })
+      )
     }
 
     // Cytosolic processes in a row inside the cell, below its apical proteins.
@@ -96,25 +167,22 @@ export function layoutBioView(nodes, roles) {
   const right = cellRects.length ? Math.max(...cellRects.map((r) => r.x + r.width)) : MIN_CELL.width
   const top = cellRects.length ? Math.min(...cellRects.map((r) => r.y)) : 0
   const bottom = cellRects.length ? Math.max(...cellRects.map((r) => r.y + r.height)) : MIN_CELL.height
+  const all = { left, right, top, bottom }
 
-  // Regions: the apical side's and the basolateral side's run right up to the membrane, so a protein
-  // in it sits in both the region and the cell; each reaches a corner's depth under the cells, which
-  // are drawn over them, to fill the space beside the rounded corners. Others go further down.
-  const bands = {
-    apical: { y: top - REGION_HEIGHT, height: REGION_HEIGHT + CELL_RADIUS },
-    basolateral: { y: bottom - CELL_RADIUS, height: REGION_HEIGHT + CELL_RADIUS },
-  }
+  // Regions run right up to the membrane, so a protein in it sits in both the region and the cell; each
+  // reaches a corner's depth under the cells, which are drawn over them, to fill beside the rounded
+  // corners. Ones with nowhere to go are stacked further down.
   let otherY = bottom + REGION_HEIGHT + GAP
-  for (const id of ids.filter((id) => roleOf(id).role === 'region')) {
-    const { side } = roleOf(id)
+  for (const id of regionIds) {
+    const { side, adjacent } = roleOf(id)
     const stored = byId.get(id).data?.bioView?.rect
-    let rect = isRect(stored) ? stored : null
+    const against = adjacent ? adjacent[0].facet : side
+    let rect = isRect(stored) ? stored : regionRect(adjacent, side, layout, all)
     if (!rect) {
-      const band = bands[side] ?? { y: otherY, height: REGION_HEIGHT }
-      if (!(side in bands)) otherY += REGION_HEIGHT + GAP / 2
-      rect = { x: left - GAP, y: band.y, width: right - left + 2 * GAP, height: band.height }
+      rect = { x: left - GAP, y: otherY, width: right - left + 2 * GAP, height: REGION_HEIGHT }
+      otherY += REGION_HEIGHT + GAP / 2
     }
-    layout.set(id, { kind: 'region', side: side ?? null, rect })
+    layout.set(id, { kind: 'region', side: against ?? null, adjacent: adjacent ?? null, rect })
   }
 
   // Proteins in no membrane, in a tray left of the cells.

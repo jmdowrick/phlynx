@@ -29,9 +29,11 @@ describe('physiological roles', () => {
     expect(roleOf('porter_in', porter)).toEqual({
       role: 'membraneProtein',
       facet: 'apical',
+      at: null,
       annotatedFacet: 'apical',
       cell: 'node-cell',
       side: null,
+      adjacent: null,
       glyph: 'symporter',
       source: 'apiCoord',
     })
@@ -77,8 +79,36 @@ describe('physiological roles', () => {
     expect(resolveBioRole({ bioView: { role: 'mitochondrion', facet: 'top', glyph: 'blob' } })).toMatchObject({ role: 'none', facet: null, glyph: null })
   })
 
+  it('keeps a lateral protein’s side and a region’s adjacency, dropping what doesn’t fit', () => {
+    const lateral = { bioView: { role: 'membraneProtein', facet: 'lateral', at: 'right' } }
+    expect(resolveBioRole(lateral)).toMatchObject({ facet: 'lateral', at: 'right' })
+    expect(resolveBioRole({ bioView: { role: 'membraneProtein', facet: 'apical', at: 'right' } }).at).toBeNull()
+    const region = {
+      bioView: {
+        role: 'region',
+        adjacent: [{ cell: 'c', facet: 'lateral', at: 'up' }, { cell: 'c', facet: 'roof' }, { facet: 'apical' }, { cell: 'd', facet: 'apical', at: 'left' }],
+      },
+    }
+    expect(resolveBioRole(region).adjacent).toEqual([
+      { cell: 'c', facet: 'lateral', at: 'left' },
+      { cell: 'd', facet: 'apical' },
+    ])
+    expect(resolveBioRole({ bioView: { role: 'region', adjacent: [] } }).adjacent).toBeNull()
+    expect(resolveBioRole({ bioView: { role: 'cytosol', adjacent: [{ cell: 'c', facet: 'apical' }] } }).adjacent).toBeNull()
+  })
+
   it('is nothing physiological without annotations', () => {
-    expect(resolveBioRole({ name: 'plain' })).toEqual({ role: 'none', facet: null, annotatedFacet: null, cell: null, side: null, glyph: null, source: 'none' })
+    expect(resolveBioRole({ name: 'plain' })).toEqual({
+      role: 'none',
+      facet: null,
+      at: null,
+      annotatedFacet: null,
+      cell: null,
+      side: null,
+      adjacent: null,
+      glyph: null,
+      source: 'none',
+    })
   })
 
   it('finds the node bound to an ApiCoord', () => {

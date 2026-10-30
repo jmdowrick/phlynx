@@ -4,6 +4,9 @@
  * A node's data.bioView holds the user's choices and its place in that view, all optional:
  * - role, glyph, facet, cell: overrides of what is worked out here; a facet of null takes a protein out of
  *   its membrane;
+ * - at: 'left' or 'right', which side of the cell a lateral protein is on;
+ * - adjacent: [{ cell, facet, at? }], what a region lies against, e.g. one cell's lateral side for a
+ *   paracellular space;
  * - order: its slot along its facet, for a membrane protein;
  * - position, rect: where it is drawn, when not worked out from its cell.
  */
@@ -26,6 +29,23 @@ export const ROLES = ['membraneProtein', 'membrane', 'cytosol', 'cytosolic', 're
 
 /** Roles that belong to a cell. */
 const CELL_ROLES = new Set(['membraneProtein', 'membrane', 'cytosolic'])
+
+/** The two sides of a cell's lateral facet. */
+const SIDES = ['left', 'right']
+
+/**
+ * Keeps the entries of a region's adjacency that name a cell and a facet of it (and a side, for lateral).
+ *
+ * @param {*} adjacent - data.bioView.adjacent.
+ * @returns {Array<{cell: string, facet: string, at?: string}>|null} null when none are usable.
+ */
+function validAdjacency(adjacent) {
+  if (!Array.isArray(adjacent)) return null
+  const valid = adjacent
+    .filter((entry) => typeof entry?.cell === 'string' && FACETS.includes(entry.facet))
+    .map(({ cell, facet, at }) => (facet === 'lateral' ? { cell, facet, at: SIDES.includes(at) ? at : 'left' } : { cell, facet }))
+  return valid.length ? valid : null
+}
 
 /**
  * Finds the node bound to an ApiCoord.
@@ -110,9 +130,10 @@ function fromSidecar(sidecar) {
  * @param {Object|null} [context.apiCoords] - From the annotation store's getApiCoords.
  * @param {Object|null} [context.sidecar] - The parsed sidecar of the node's math.
  * @param {Array<Object>} [context.nodes] - The flow's nodes, to find cells by ApiCoord.
- * @returns {{ role: string, facet: string|null, annotatedFacet: string|null, cell: string|null, side: string|null,
- *   glyph: string|null, source: 'override'|'apiCoord'|'sidecar'|'none' }} annotatedFacet is the facet the
- *   annotations give, whatever the user chose.
+ * @returns {{ role: string, facet: string|null, at: string|null, annotatedFacet: string|null, cell: string|null,
+ *   side: string|null, adjacent: Array<Object>|null, glyph: string|null, source: 'override'|'apiCoord'|'sidecar'|'none' }}
+ *   annotatedFacet is the facet the annotations give, whatever the user chose; side is the facet a region
+ *   faces according to the annotations, and adjacent what the user said it lies against.
  */
 export function resolveBioRole(data, { apiCoords = null, sidecar = null, nodes = [] } = {}) {
   const coord = data?.apiCoord?.coordIri ? apiCoords?.coords?.get(data.apiCoord.coordIri) : null
@@ -130,9 +151,11 @@ export function resolveBioRole(data, { apiCoords = null, sidecar = null, nodes =
   return {
     role,
     facet,
+    at: facet === 'lateral' && SIDES.includes(override.at) ? override.at : null,
     annotatedFacet: role === 'membraneProtein' ? (worked?.facet ?? null) : null,
     cell,
     side: role === 'region' ? (worked?.side ?? null) : null,
+    adjacent: role === 'region' ? validAdjacency(override.adjacent) : null,
     glyph: role === 'membraneProtein' ? glyphFor(sidecar?.component?.isVersionOf, override.glyph) : null,
     source: ROLES.includes(override.role) ? 'override' : source,
   }
