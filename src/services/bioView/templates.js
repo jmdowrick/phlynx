@@ -5,7 +5,7 @@
  */
 
 import { FACETS } from '../annotations/apicoord.js'
-import { MIN_CELL } from './geometry.js'
+import { MIN_CELL } from './metrics.js'
 
 /** The template format this build understands. */
 export const TEMPLATE_SCHEMA_VERSION = 1
