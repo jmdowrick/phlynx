@@ -3,7 +3,12 @@ import { resolve } from 'path'
 import { describe, expect, it } from 'vitest'
 import { parseRdf } from '../../../../src/services/annotations/rdf.js'
 import { SIDECAR_BASE_IRI, parseSidecar } from '../../../../src/services/annotations/sidecar.js'
-import { editSidecar, renameSidecar } from '../../../../src/services/annotations/sidecarEdit.js'
+import {
+  buildVariableSubject,
+  editSidecar,
+  listOtherTriples,
+  renameSidecar,
+} from '../../../../src/services/annotations/sidecarEdit.js'
 
 const TOY = resolve(__dirname, '../../fixtures/annotations/toy')
 const read = (name) => readFileSync(resolve(TOY, name), 'utf8')
@@ -171,5 +176,33 @@ describe('renameSidecar', () => {
 
   it('leaves an empty sidecar as is', async () => {
     expect(await renameSidecar(null, 'a.cellml:a', 'b.cellml:b')).toBeNull()
+  })
+})
+
+describe('buildVariableSubject', () => {
+  it('names a variable as editSidecar does, in the sidecar’s own file when given', () => {
+    expect(buildVariableSubject('my file.cellml:pool', 'c_A')).toBe(`${SIDECAR_BASE_IRI}my%20file.cellml#pool.c_A`)
+    expect(buildVariableSubject('a.cellml:pool', 'c_A', 'b.cellml')).toBe(`${SIDECAR_BASE_IRI}b.cellml#pool.c_A`)
+  })
+})
+
+describe('listOtherTriples', () => {
+  it.each(TOYS)('finds nothing editSidecar would replace in the toy %s sidecar', async (name) => {
+    const text = read(`${name}.ttl`)
+    const mathRef = `${name}.cellml:${name}`
+    const others = await listOtherTriples(text, mathRef, { cellml: read(`${name}.cellml`) })
+    const cleared = await editSidecar(text, mathRef, {
+      componentKind: null,
+      variables: Object.fromEntries((await readToySidecar(text, name)).variables.map(({ variable }) => [variable, null])),
+      cellml: read(`${name}.cellml`),
+    })
+    expect(others.length).toBe(await countTriples(cleared))
+  })
+
+  it('lists other predicates and terms, and nothing for an empty sidecar', async () => {
+    const text = `${read('pool.ttl')}\n<./pool.cellml#pool> <http://purl.org/dc/terms/description> "A pool" .\n`
+    const others = await listOtherTriples(text, 'pool.cellml:pool')
+    expect(others.map((t) => t.object.value)).toContain('A pool')
+    expect(await listOtherTriples('', 'pool.cellml:pool')).toEqual([])
   })
 })

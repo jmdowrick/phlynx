@@ -4,6 +4,7 @@
  */
 
 import { canonicalCurie } from './iris.js'
+import { SPECIES_LABELS } from './species.js'
 
 export const BUILT_IN_LABELS = new Map([
   // OPB properties (ids TO-VERIFY, see iris.js)
@@ -50,7 +51,7 @@ export function createTableSource(table) {
  * @param {Array<{ labelFor: Function }>} sources - Earlier sources win.
  * @returns {{ labelFor: (iriOrCurie: string) => string|undefined, addSource: (source: object) => void }}
  */
-export function createLabelProvider(sources = [createTableSource(BUILT_IN_LABELS)]) {
+export function createLabelProvider(sources = [createTableSource(BUILT_IN_LABELS), createTableSource(SPECIES_LABELS)]) {
   const ordered = [...sources]
   return {
     labelFor(iriOrCurie) {

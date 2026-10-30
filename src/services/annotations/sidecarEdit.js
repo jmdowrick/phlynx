@@ -331,3 +331,50 @@ export async function renameSidecar(text, oldRef, newRef, varRenames = new Map()
   const moved = triples.map((t) => ({ subject: renameTerm(t.subject), predicate: t.predicate, object: renameTerm(t.object) }))
   return writeSidecar(moved, to.file, readLeadingComments(text))
 }
+
+/**
+ * The subject IRI editSidecar gives a variable that has none yet.
+ *
+ * @param {string} mathRef - 'file:component'.
+ * @param {string} variable
+ * @param {string} [file] - The sidecar's own file, when it differs from the mathRef's.
+ * @returns {string}
+ * @throws {Error} For a malformed mathRef.
+ */
+export function buildVariableSubject(mathRef, variable, file) {
+  const parts = splitMathRef(mathRef)
+  return subjectIri(file ?? parts.file, `${parts.component}.${variable}`)
+}
+
+/**
+ * Lists the triples editSidecar keeps as written: everything but the component's kind terms and each variable's
+ * property, species and location.
+ *
+ * @param {string|null} text - The sidecar Turtle.
+ * @param {string} mathRef - 'file:component'.
+ * @param {{ cellml?: string }} [options] - cellml finds variables annotated by '#id'.
+ * @returns {Promise<Array<{ subject: Object, predicate: Object, object: Object }>>}
+ * @throws {Error} When the text is not valid Turtle.
+ */
+export async function listOtherTriples(text, mathRef, { cellml } = {}) {
+  if (!text?.trim()) return []
+  const triples = await parseRdf(text, { baseIri: SIDECAR_BASE_IRI })
+  const sidecar = readSidecar(createGraph(triples), { mathRef, cellml })
+  const componentIri = sidecar.component?.subject
+  const variableIris = new Set(sidecar.variables.map(({ subject }) => subject))
+  const entityKeys = new Set(
+    triples
+      .filter((t) => variableIris.has(t.subject.value) && t.predicate.value === BQBIOL.isPropertyOf)
+      .filter((t) => t.object.termType !== 'Literal' && t.object.value !== componentIri)
+      .map((t) => termKey(t.object))
+  )
+  const isManaged = (t) => {
+    if (t.subject.termType === 'NamedNode' && t.subject.value === componentIri) {
+      return t.predicate.value === BQBIOL.is && isKindTerm(t.object.value)
+    }
+    if (t.subject.termType === 'NamedNode' && variableIris.has(t.subject.value)) return isManagedVariableTriple(t)
+    if (entityKeys.has(termKey(t.subject))) return isManagedEntityTriple(t, componentIri)
+    return false
+  }
+  return triples.filter((t) => !isManaged(t))
+}

@@ -428,5 +428,5 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     return 1 + (updateAll ? siblings.length : 0)
   }
 
-  return { saveInstanceEdit, findDroppedCouplings }
+  return { saveInstanceEdit, findDroppedCouplings, findVariableRenames }
 }
