@@ -156,8 +156,8 @@ export function nearestSlot(cells, point, maxDistance = 60) {
  * @returns {{x: number, y: number, width: number, height: number}} The same corner, at least as big.
  */
 export function fitCellRect(rect, counts, shape = EPITHELIAL_SHAPE) {
-  const most = (axis) =>
-    Math.max(0, ...shape.facets.filter((facet) => EDGES[facet.edge]?.axis === axis).map((facet) => counts[facet.id] ?? 0)) + 1
+  const along = (axis) => shape.facets.filter((facet) => EDGES[facet.edge]?.axis === axis)
+  const most = (axis) => Math.max(0, ...along(axis).map((facet) => counts[facet.id] ?? 0)) + 1
   const across = most('x')
   const down = most('y')
   return {

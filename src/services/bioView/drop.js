@@ -27,7 +27,8 @@ export function patchBioView(bioView, patch) {
  */
 export function dropTargets(layout) {
   const cells = new Map()
-  for (const [id, place] of layout) if (place.kind === 'cell') cells.set(id, { id, rect: place.rect, counts: Object.fromEntries(EPITHELIAL_SHAPE.facets.map(({ id: part }) => [part, 0])) })
+  const empty = () => Object.fromEntries(EPITHELIAL_SHAPE.facets.map(({ id: part }) => [part, 0]))
+  for (const [id, place] of layout) if (place.kind === 'cell') cells.set(id, { id, rect: place.rect, counts: empty() })
   for (const place of layout.values()) if (place.kind === 'protein' && cells.has(place.cell)) cells.get(place.cell).counts[place.part]++
   return [...cells.values()]
 }
