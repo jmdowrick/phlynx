@@ -139,6 +139,9 @@ describe('validateTemplate', () => {
       failsWith(raw, 'must be a JSON object')
     })
     it('a template over the size limit', () => failsWith(base({ description: 'x'.repeat(LIMITS.bytes) }), 'at most 64 KB'))
+    it('a template over the size limit in bytes, not characters', () => {
+      failsWith(base({ notes: '\u20ac'.repeat(LIMITS.bytes / 2) }), 'at most 64 KB')
+    })
     it('a template that cannot be serialised', () => {
       const raw = base()
       raw.self = raw
@@ -147,6 +150,7 @@ describe('validateTemplate', () => {
     it('a wrong schemaVersion', () => failsWith(base({ schemaVersion: 2 }), '"schemaVersion" must be 1'))
     it.each(['A-b', 'a', '1ab', 'a_b', 3])('a bad template id (%s)', (id) => failsWith(base({ id }), '"id" must start with a letter'))
     it('a missing name', () => failsWith(base({ name: '  ' }), '"name" is required'))
+    it('a name that is not text', () => failsWith(base({ name: 3 }), 'Template: "name" must be text'))
     it('a long name', () => failsWith(base({ name: 'x'.repeat(65) }), '"name" must be at most 64'))
     it('a description that is not text', () => failsWith(base({ description: 3 }), 'Template: "description" must be text'))
     it('a long description', () => failsWith(base({ description: 'x'.repeat(281) }), '"description" must be at most 280'))
@@ -160,6 +164,7 @@ describe('validateTemplate', () => {
     it('a cell that is not an object', () => failsWith(base({ cells: [3] }), 'Cell 1 must be an object'))
     it('a bad cell id', () => failsWith(withCell({ id: 'A' }), 'Cell 1: "id" must start with a letter'))
     it('a cell without a label', () => failsWith(withCell({ label: '' }), 'Cell "a": "label" is required'))
+    it('a cell label that is not text', () => failsWith(withCell({ label: 3 }), 'Cell "a": "label" must be text'))
     it('a long cell label', () => failsWith(withCell({ label: 'x'.repeat(65) }), 'Cell "a": "label" must be at most 64'))
     it.each([-1, 1.5, '1', 16])('a bad row (%s)', (row) => failsWith(withCell({ row }), 'Cell "a": "row" must be a whole number'))
     it('a size that is not an object', () => failsWith(withCell({ size: 300 }), 'Cell "a": "size" must be an object'))
@@ -259,7 +264,7 @@ describe('validateTemplate', () => {
   it('reports several problems at once, naming each element', () => {
     const errors = errorsOf(base({ name: '', cells: [cell('a', { facets: [facet('x', 'up'), facet('Y', 'top')] })] }))
     expect(errors).toEqual([
-      '"name" is required.',
+      'Template: "name" is required.',
       'Cell "a", facet 1: "edge" must be one of top, bottom, left, right.',
       'Cell "a", facet 2: "id" must start with a letter and use only lower-case letters, digits and hyphens (1-32 characters).',
     ])

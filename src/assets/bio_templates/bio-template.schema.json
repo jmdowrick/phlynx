@@ -187,7 +187,7 @@
           "enum": ["sky", "rose", "teal", "amber", "violet", "lime", "slate"]
         },
         "depth": {
-          "description": "How far the compartment reaches out from the facets, in pixels.",
+          "description": "How far the compartment reaches out from the facets, in pixels. Leave it out for the usual depth.",
           "type": "number",
           "minimum": 20,
           "maximum": 1000

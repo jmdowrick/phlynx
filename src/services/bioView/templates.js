@@ -79,7 +79,11 @@ function warnUnknown(raw, known, where, warnings) {
 
 /** Reads a required, trimmed, bounded label. */
 function requiredText(raw, field, max, where, errors) {
-  const value = typeof raw[field] === 'string' ? raw[field].trim() : ''
+  if (raw[field] !== undefined && raw[field] !== null && typeof raw[field] !== 'string') {
+    errors.push(`${where}: "${field}" must be text.`)
+    return ''
+  }
+  const value = raw[field]?.trim() ?? ''
   if (!value) errors.push(`${where}: "${field}" is required.`)
   else if (value.length > max) errors.push(`${where}: "${field}" must be at most ${max} characters.`)
   return value
@@ -145,10 +149,8 @@ function readFacet(raw, where, errors, warnings) {
   const facet = { id: raw.id, label: requiredText(raw, 'label', LIMITS.label, where, errors), edge: raw.edge }
   if (!EDGES.includes(raw.edge)) errors.push(`${where}: "edge" must be one of ${EDGES.join(', ')}.`)
   if (raw.group !== undefined) {
-    if (!isPieceId(raw.group)) {
-      errors.push(`${where}: "group" must start with a letter and use only lower-case letters, digits and hyphens.`)
-    }
-    else facet.group = raw.group
+    if (isPieceId(raw.group)) facet.group = raw.group
+    else errors.push(`${where}: "group" must start with a letter and use only lower-case letters, digits and hyphens.`)
   }
   const annotation = readAnnotation(raw.annotation, where, errors, warnings)
   if (annotation) facet.annotation = annotation
@@ -367,7 +369,7 @@ export function validateTemplate(raw) {
 
   let bytes = Infinity
   try {
-    bytes = JSON.stringify(raw).length
+    bytes = new TextEncoder().encode(JSON.stringify(raw)).length
   } catch {
     // Not serialisable, so too big to read.
   }
@@ -377,19 +379,19 @@ export function validateTemplate(raw) {
 
   const where = 'Template'
   warnUnknown(raw, TEMPLATE_KEYS.template, where, warnings)
-  if (raw.schemaVersion !== TEMPLATE_SCHEMA_VERSION) errors.push(`"schemaVersion" must be ${TEMPLATE_SCHEMA_VERSION}.`)
-  if (typeof raw.id !== 'string' || !TEMPLATE_ID.test(raw.id)) {
-    errors.push('"id" must start with a letter and use only lower-case letters, digits and hyphens (2-48 characters).')
+  if (raw.schemaVersion !== TEMPLATE_SCHEMA_VERSION) {
+    errors.push(`${where}: "schemaVersion" must be ${TEMPLATE_SCHEMA_VERSION}.`)
   }
-  const name = typeof raw.name === 'string' ? raw.name.trim() : ''
-  if (!name) errors.push('"name" is required.')
-  else if (name.length > LIMITS.name) errors.push(`"name" must be at most ${LIMITS.name} characters.`)
+  if (typeof raw.id !== 'string' || !TEMPLATE_ID.test(raw.id)) {
+    errors.push(`${where}: "id" must start with a letter and use only lower-case letters, digits and hyphens (2-48 characters).`)
+  }
+  const name = requiredText(raw, 'name', LIMITS.name, where, errors)
   const description = optionalText(raw, 'description', LIMITS.description, where, errors)
   const author = optionalText(raw, 'author', LIMITS.author, where, errors)
   const license = optionalText(raw, 'license', LIMITS.license, where, errors)
 
   const cells = []
-  if (!Array.isArray(raw.cells) || raw.cells.length === 0) errors.push('"cells" must be a non-empty list.')
+  if (!Array.isArray(raw.cells) || raw.cells.length === 0) errors.push(`${where}: "cells" must be a non-empty list.`)
   else if (raw.cells.length > LIMITS.cells) errors.push(`A template can have at most ${LIMITS.cells} cells.`)
   else {
     raw.cells.forEach((rawCell, i) => {
@@ -400,7 +402,7 @@ export function validateTemplate(raw) {
 
   const compartments = []
   if (raw.compartments !== undefined) {
-    if (!Array.isArray(raw.compartments)) errors.push('"compartments" must be a list.')
+    if (!Array.isArray(raw.compartments)) errors.push(`${where}: "compartments" must be a list.`)
     else if (raw.compartments.length > LIMITS.compartments) {
       errors.push(`A template can have at most ${LIMITS.compartments} compartments.`)
     } else {
