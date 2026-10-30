@@ -263,10 +263,6 @@
               </a>
             </template>
           </SplitButton>
-
-          <Divider layout="vertical" style="margin: 0 15px" />
-
-          <ViewModeToggle />
         </div>
       </div>
 
@@ -279,6 +275,8 @@
         >
           Report Issue
         </a>
+        <!-- Beside the theme switch: both change how the workspace is shown, not what is in it -->
+        <ViewModeToggle style="margin-left: 20px" />
         <ThemeToggle style="margin-left: 20px" />
       </div>
     </header>
