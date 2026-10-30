@@ -36,6 +36,7 @@ export const FLOW_IDS = {
   MAIN: 'main-flow-editor',
   MACRO: 'macro-builder-editor',
   EDGE: 'edge-conn-flow',
+  BIO: 'bio-flow-editor',
 }
 
 export const PARAMETER_TYPE_OPTIONS = [

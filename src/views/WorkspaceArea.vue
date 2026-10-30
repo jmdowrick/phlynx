@@ -297,6 +297,7 @@
         }"
       >
         <div
+          v-show="!viewMode.isBio"
           class="workspace-search-container"
           :class="{ 'search-inactive': !isSearchFocused && !searchQuery, 'search-mode-var': parsedQuery.mode === 'var' }"
         >
@@ -451,6 +452,8 @@
             :connection-line-options="edgeLineOptions"
             :nodes="nodes"
             :delete-key-code="dialogVisible ? [] : ['Backspace', 'Delete']"
+            :class="{ 'main-flow--hidden': viewMode.isBio }"
+            :inert="viewMode.isBio || null"
           >
             <component :is="'style'" v-if="highlightCss">{{ highlightCss }}</component>
             <HelperLines :horizontal="helperLineHorizontal" :vertical="helperLineVertical" :alignment="alignment" />
@@ -485,6 +488,13 @@
               <p v-if="isDragOver">Drop here</p>
             </Workbench>
           </VueFlow>
+          <BioFlow
+            v-if="viewMode.isBio"
+            class="bio-flow-layer"
+            @open-instance-editor="onOpenInstanceEditorDialog"
+            @export-image="exportImageOf"
+          />
+          <ViewModeToggle class="view-mode-toggle-overlay" />
         </div>
       </main>
       <ContextSidebar
@@ -653,6 +663,9 @@ import EdgeConnectionDialog from '../components/EdgeConnectionDialog.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
 import HelperLines from '../components/HelperLines.vue'
 import PaneContextMenu from '../components/PaneContextMenu.vue'
+import BioFlow from '../components/bio/BioFlow.vue'
+import ViewModeToggle from '../components/bio/ViewModeToggle.vue'
+import { useViewModeStore } from '../stores/viewModeStore'
 import InstanceEditorDialog from '../components/InstanceEditorDialog.vue'
 import CreateInspectionModuleDialog from '../components/dialogs/CreateInspectionModule.vue'
 import ContextSidebar from '../components/ContextSidebar.vue'
@@ -759,6 +772,7 @@ const {
   viewport,
   vueFlowRef,
 } = useVueFlow(FLOW_IDS.MAIN)
+const viewMode = useViewModeStore()
 const { processMacroGeneration } = useMacroGenerator()
 const { confirm } = useConfirmDialog()
 const toast = useToast()
@@ -2195,8 +2209,17 @@ const imageExportTitle = computed(
  * Exports the canvas in the format chosen in Settings. Edit buttons are always hidden, warning badges
  * unless Settings asks for them; hiding (rather than removing) keeps the rest of each card in place.
  */
-async function doImageExport() {
-  const root = vueFlowRef.value
+function doImageExport() {
+  return exportImageOf({ root: vueFlowRef.value, viewport: viewport.value })
+}
+
+/**
+ * Exports one view's canvas. The physiological view's selection follows the diagram's, so
+ * withoutSelection clears both.
+ *
+ * @param {{root: HTMLElement, viewport: Object}} view
+ */
+async function exportImageOf({ root, viewport: shownViewport }) {
   const format = appSettings.imageExportFormat
   const includeWarnings = appSettings.imageExportWarnings
   return withoutSelection(async () => {
@@ -2204,7 +2227,7 @@ async function doImageExport() {
     root.classList.toggle('image-export--no-warnings', !includeWarnings)
 
     try {
-      await capture(root, { format: format, viewport: viewport.value, includeWarnings, shouldDownload: true })
+      await capture(root, { format: format, viewport: shownViewport, includeWarnings, shouldDownload: true })
       if (captureError.value) {
         notify.error({
           title: 'Screenshot error',
@@ -2228,12 +2251,13 @@ const handleKeyDown = (event) => {
     copySelection()
   }
 
-  if (isCtrl && event.key.toLowerCase() === 'v') {
+  // Pasting places by the diagram's coordinates, so it waits for the diagram.
+  if (isCtrl && event.key.toLowerCase() === 'v' && !viewMode.isBio) {
     event.preventDefault()
     pasteSelection(true)
   }
 
-  if (isCtrl && event.key.toLowerCase() === 'd') {
+  if (isCtrl && event.key.toLowerCase() === 'd' && !viewMode.isBio) {
     event.preventDefault()
     copySelection()
     pasteSelection()
@@ -2270,7 +2294,7 @@ const handleKeyDown = (event) => {
   }
 
   // Search shortcuts
-  if ((isCtrl && event.key.toLowerCase() === 'f') || (event.key === '/' && !isCtrl && !event.altKey)) {
+  if (!viewMode.isBio && ((isCtrl && event.key.toLowerCase() === 'f') || (event.key === '/' && !isCtrl && !event.altKey))) {
     event.preventDefault()
     focusSearch()
   }
@@ -2532,6 +2556,28 @@ watch(
   position: relative;
   width: 100%;
   height: 100%;
+}
+
+/* Hidden rather than removed, so its nodes stay measured while the physiological view is shown.
+   Not visibility: vue-flow marks each measured node visible, which would show through. */
+.main-flow--hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.bio-flow-layer {
+  position: absolute;
+  inset: 0;
+}
+
+/* Clear of the library panel, as the controls are */
+.view-mode-toggle-overlay {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 10;
+  transform: translateX(var(--library-panel-width, 0px));
+  transition: transform 160ms ease;
 }
 
 /* Tutorial Slate Background for Dark Mode */
