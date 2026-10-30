@@ -13,6 +13,7 @@
     <div class="bio-protein__glyph" :style="{ transform: `rotate(${data.rotation ?? 0}deg)` }">
       <ProteinGlyph :glyph="data.glyph" :rotation="data.rotation ?? 0" :arrows="data.arrows ?? []" />
     </div>
+    <BioHandles :handles="data.handles ?? []" />
     <span class="bio-protein__label">
       {{ data.name }}
       <span v-if="species" class="bio-protein__species" data-testid="bio-protein-species">{{ species }}</span>
@@ -30,6 +31,7 @@
 </template>
 
 <script setup>
+import BioHandles from './BioHandles.vue'
 import { computed } from 'vue'
 import ProteinGlyph from './ProteinGlyph.vue'
 import { useNodeThemeStore } from '../../stores/nodeThemeStore'
@@ -87,6 +89,10 @@ const movedFrom = computed(() => {
   font-weight: 600;
   color: var(--p-text-color);
   pointer-events: none;
+  /* Readable over a selected protein's coupling lines */
+  padding: 0 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--p-content-background) 70%, transparent);
 }
 
 .bio-protein__species {

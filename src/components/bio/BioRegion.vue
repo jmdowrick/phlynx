@@ -1,17 +1,24 @@
 <template>
   <div
-    :class="['bio-region', `bio-region--${data.side ?? 'other'}`, { 'bio-region--at-right': data.at === 'right', 'bio-region--selected': selected }]"
+    :class="[
+      'bio-region',
+      `bio-region--${data.side ?? 'other'}`,
+      { 'bio-region--at-right': data.at === 'right', 'bio-region--selected': selected },
+    ]"
     data-testid="bio-region"
   >
+    <BioHandles :handles="data.handles ?? []" />
     <span class="bio-region__label">{{ data.name }}</span>
   </div>
 </template>
 
 <script setup>
+import BioHandles from './BioHandles.vue'
 defineProps({
   data: { type: Object, required: true },
   selected: { type: Boolean, default: false },
 })
+
 </script>
 
 <style scoped>

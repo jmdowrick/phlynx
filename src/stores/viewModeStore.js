@@ -8,12 +8,10 @@ import { computed, ref } from 'vue'
 export const useViewModeStore = defineStore('viewMode', () => {
   /** 'diagram' or 'bio'. */
   const mode = ref('diagram')
-  /** Whether the physiological view draws the coupling edges over its artwork. */
-  const showCouplings = ref(false)
   /** The physiological view's pan and zoom, kept while the diagram is shown. */
   const bioViewport = ref(null)
 
   const isBio = computed(() => mode.value === 'bio')
 
-  return { mode, showCouplings, bioViewport, isBio }
+  return { mode, bioViewport, isBio }
 })

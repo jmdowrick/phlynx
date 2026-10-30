@@ -4,7 +4,7 @@
     <VueFlow
       :id="FLOW_IDS.BIO"
       :nodes="bioNodes"
-      :edges="[]"
+      :edges="couplingEdges"
       class="bio-flow"
       :max-zoom="1.5"
       :min-zoom="0.1"
@@ -44,6 +44,9 @@
           />
         </svg>
       </template>
+      <template #edge-bioCoupling="props">
+        <BioCouplingEdge v-bind="props" />
+      </template>
       <template #node-bioCell="props">
         <BioCell :data="props.data" :selected="props.selected" :width="props.data.width" :height="props.data.height" />
       </template>
@@ -71,7 +74,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { ControlButton, Controls } from '@vue-flow/controls'
@@ -79,6 +82,7 @@ import { MiniMap } from '@vue-flow/minimap'
 import ContextMenu from 'primevue/contextmenu'
 import BioCard from './BioCard.vue'
 import BioCell from './BioCell.vue'
+import BioCouplingEdge from './BioCouplingEdge.vue'
 import BioProtein from './BioProtein.vue'
 import BioRegion from './BioRegion.vue'
 import { bioViewForMove, useBioNodes } from '../../composables/useBioNodes'
@@ -130,13 +134,32 @@ const { recordEdit } = useNodeDataHistory(FLOW_IDS.MAIN)
 const libraryDrag = useDragAndDrop()
 const history = useFlowHistoryStore()
 const libraryStore = useLibraryStore()
-const { applyNodeChanges, findNode, fitView, screenToFlowCoordinate, setViewport, viewport, vueFlowRef } = useVueFlow(
-  FLOW_IDS.BIO
-)
+const {
+  applyNodeChanges,
+  findNode,
+  fitView,
+  screenToFlowCoordinate,
+  setViewport,
+  updateNodeInternals,
+  viewport,
+  vueFlowRef,
+} = useVueFlow(FLOW_IDS.BIO)
 const viewMode = useViewModeStore()
-const { bioNodes, layout, roles, loadSidecars } = useBioNodes(main.nodes)
+const { bioNodes, couplingEdges, layout, roles, loadSidecars } = useBioNodes(main.nodes, main.edges)
 
 onMounted(() => loadSidecars())
+
+// vue-flow measures a node's handles when they mount, so a node whose handles change (a selection's
+// couplings come and go) is measured again, or its lines would keep to the old points.
+const handlesOf = computed(
+  () => new Map(bioNodes.value.map((node) => [node.id, JSON.stringify(node.data.handles ?? [])]))
+)
+watch(handlesOf, async (now, before) => {
+  const changed = [...now].filter(([id, handles]) => before?.get(id) !== handles).map(([id]) => id)
+  if (!changed.length) return
+  await nextTick()
+  updateNodeInternals(changed)
+})
 onBeforeUnmount(() => (viewMode.bioViewport = { ...viewport.value }))
 
 function onNodesInitialized() {

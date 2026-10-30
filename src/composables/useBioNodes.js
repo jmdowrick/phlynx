@@ -1,9 +1,11 @@
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useAnnotationStore } from '../stores/annotationStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { readNodeSeries } from '../services/simulation/variableMapping'
 import { flowDirection, transportedSpecies } from '../services/bioView/transport'
+import { facePoint, handleFace } from '../services/bioView/faces'
+import { getHandleId } from '../utils/handles'
 import { GLYPH_HEIGHT, GLYPH_WIDTH } from '../services/bioView/geometry'
 import { CARD, layoutBioView } from '../services/bioView/layout'
 import { resolveBioRole } from '../services/bioView/roles'
@@ -134,6 +136,127 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map()) {
   return [...parents, ...children]
 }
 
+/** How far into a cell or region a coupling from a protein reaches. */
+const REACH = 56
+
+/**
+ * Gives a drawn node's box in flow coordinates.
+ *
+ * @param {Object} place - From layoutBioView.
+ * @returns {{x: number, y: number, width: number, height: number}|null}
+ */
+function boxOf(place) {
+  switch (place.kind) {
+    case 'cell':
+    case 'region':
+      return place.rect
+    case 'protein':
+      return { x: place.x - GLYPH_WIDTH / 2, y: place.y - GLYPH_HEIGHT / 2, width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
+    case 'tray':
+      return { x: place.x, y: place.y, width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
+    case 'cytosolic':
+    case 'card':
+      return { x: place.x, y: place.y, ...CARD }
+    default:
+      return null
+  }
+}
+
+const centreOf = (box) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 })
+const clampInto = (point, box) => ({
+  x: Math.min(Math.max(point.x, box.x), box.x + box.width),
+  y: Math.min(Math.max(point.y, box.y), box.y + box.height),
+})
+
+/**
+ * Names each coupling an edge carries, for reading on hover.
+ *
+ * @param {Object} edge
+ * @param {Map<string, Object>} byId - The diagram's nodes.
+ * @returns {string[]} e.g. 'SGLT1.c_Na_i ↔ enterocyte.c_Na'.
+ */
+function couplingNames(edge, byId) {
+  const name = (id) => byId.get(id)?.data?.name ?? id
+  return (edge.data?.couplings ?? []).map(
+    ({ sourcePort, targetPort }) =>
+      `${name(edge.source)}.${sourcePort?.variables?.[0] ?? '?'} ↔ ${name(edge.target)}.${targetPort?.variables?.[0] ?? '?'}`
+  )
+}
+
+/**
+ * The couplings of the selected nodes, drawn over the physiological view as short straight lines: from
+ * the face of a protein the coupled quantities are on, a little way into the cell or region it couples
+ * to, or face to face between proteins. Couplings with a membrane aren't drawn, as the protein sits in
+ * it. Each line gets its own handle at each end, placed in the node, so a diagram handle shared by
+ * couplings on both sides of the membrane is drawn from both faces.
+ *
+ * @param {Array<Object>} nodes - The diagram's nodes.
+ * @param {Array<Object>} edges - The diagram's edges.
+ * @param {Map<string, Object>} layout - From layoutBioView.
+ * @param {Set<string>} selected - The selected nodes' ids.
+ * @param {Function} sidecarOf - Node -> its module's parsed sidecar, or null.
+ * @returns {{edges: Array<Object>, handles: Map<string, Array<{id: string, x: number, y: number}>>}} vue-flow
+ *   edges, and each node's handles in its own coordinates.
+ */
+export function focusCouplings(nodes, edges, layout, selected, sidecarOf) {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const drawnEdges = []
+  const handles = new Map()
+  const addHandle = (nodeId, id, point) => {
+    const box = boxOf(layout.get(nodeId))
+    handles.set(nodeId, [...(handles.get(nodeId) ?? []), { id, x: point.x - box.x, y: point.y - box.y }])
+  }
+
+  for (const edge of edges) {
+    if (!selected.has(edge.source) && !selected.has(edge.target)) continue
+    const ends = [
+      { nodeId: edge.source, handleId: edge.sourceHandle, key: 's' },
+      { nodeId: edge.target, handleId: edge.targetHandle, key: 't' },
+    ].map((end) => ({ ...end, place: layout.get(end.nodeId) }))
+    if (ends.some((end) => !end.place || !boxOf(end.place)) || edge.source === edge.target) continue
+
+    // Proteins and cards first: where their end is fixes where a cell's or region's goes.
+    for (const end of ends) {
+      if (end.place.kind === 'protein') {
+        const node = byId.get(end.nodeId)
+        const handle = node?.data?.handles?.find((h) => getHandleId(h) === end.handleId)
+        const face = handle ? handleFace(end.nodeId, handle, [edge], sidecarOf(node)) : null
+        Object.assign(end, facePoint(end.place, face, { width: GLYPH_WIDTH, height: GLYPH_HEIGHT }))
+      } else if (end.place.kind !== 'cell' && end.place.kind !== 'region') {
+        end.point = centreOf(boxOf(end.place))
+      }
+    }
+    for (const [end, other] of [ends, [...ends].reverse()]) {
+      if (end.point) continue
+      const box = boxOf(end.place)
+      end.point =
+        other.point && other.direction
+          ? clampInto(
+              { x: other.point.x + other.direction.x * REACH, y: other.point.y + other.direction.y * REACH },
+              box
+            )
+          : centreOf(box)
+    }
+
+    for (const end of ends) addHandle(end.nodeId, `${edge.id}:${end.key}`, end.point)
+    drawnEdges.push({
+      id: edge.id,
+      type: 'bioCoupling',
+      source: edge.source,
+      sourceHandle: `${edge.id}:s`,
+      target: edge.target,
+      targetHandle: `${edge.id}:t`,
+      selectable: false,
+      focusable: false,
+      updatable: false,
+      // Over the cells and regions (-10, -20), under the proteins and cards drawn on them.
+      zIndex: -5,
+      data: { names: couplingNames(edge, byId) },
+    })
+  }
+  return { edges: drawnEdges, handles }
+}
+
 /**
  * Works out the bioView fields that keep a node of the physiological view where it was dragged to.
  *
@@ -155,7 +278,7 @@ export function bioViewForMove(bioNode, at) {
  * @param {Ref<Array<Object>>} nodes - The diagram's nodes.
  * @returns {{ roles: ComputedRef<Map>, layout: ComputedRef<Map>, bioNodes: ComputedRef<Array<Object>> }}
  */
-export function useBioNodes(nodes) {
+export function useBioNodes(nodes, edges = ref([])) {
   const annotationStore = useAnnotationStore()
   const libraryStore = useLibraryStore()
   const simulationResults = useSimulationResultsStore()
@@ -194,7 +317,19 @@ export function useBioNodes(nodes) {
     }
     return arrows
   })
-  const bioNodes = computed(() => bioFlowNodes(nodes.value, roles.value, layout.value, transport.value))
+  const selected = computed(() => new Set(nodes.value.filter((node) => node.selected).map((node) => node.id)))
+  const focus = computed(() =>
+    focusCouplings(nodes.value, edges.value, layout.value, selected.value, (node) =>
+      node?.data?.mathRef ? libraryStore.getParsedModuleAnnotations(node.data.mathRef) : null
+    )
+  )
+  const bioNodes = computed(() =>
+    bioFlowNodes(nodes.value, roles.value, layout.value, transport.value).map((node) => ({
+      ...node,
+      data: { ...node.data, handles: focus.value.handles.get(node.id) ?? [] },
+    }))
+  )
+  const couplingEdges = computed(() => focus.value.edges)
 
   /** Parses every module's sidecar, so roles from sidecars are known. */
   function loadSidecars() {
@@ -202,5 +337,5 @@ export function useBioNodes(nodes) {
     return Promise.all([...mathRefs].map((mathRef) => libraryStore.ensureModuleAnnotations(mathRef)))
   }
 
-  return { roles, layout, bioNodes, loadSidecars }
+  return { roles, layout, bioNodes, couplingEdges, loadSidecars }
 }

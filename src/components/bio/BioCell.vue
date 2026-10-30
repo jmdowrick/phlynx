@@ -11,11 +11,13 @@
         <path class="bio-cell__heads" :d="leaflet(-HEAD_OFFSET)" />
       </g>
     </svg>
+    <BioHandles :handles="data.handles ?? []" />
     <span class="bio-cell__label">{{ data.name }}</span>
   </div>
 </template>
 
 <script setup>
+import BioHandles from './BioHandles.vue'
 import { CELL_RADIUS, roundedRectPath } from '../../services/bioView/geometry'
 
 const props = defineProps({
@@ -24,6 +26,7 @@ const props = defineProps({
   width: { type: Number, required: true },
   height: { type: Number, required: true },
 })
+
 
 /** How far each leaflet's head groups sit out from (or in from) the cell's outline. */
 const HEAD_OFFSET = 7
