@@ -187,3 +187,22 @@ describe('physiological view layout of regions sharing a place', () => {
     expect(place.rect.y).toBeLessThan(layoutBioView(nodes, roles).get('c').rect.y)
   })
 })
+
+describe('physiological view layout with cells the user added', () => {
+  it('keeps regions known from annotations against the annotated cells, not ones the user added', () => {
+    const nodes = [node('cell', { role: 'cytosol' }), node('added', { rect: { x: -800, y: -600, width: 320, height: 240 }, added: true }), node('lumen')]
+    const roles = new Map([
+      // An annotated cell the user also chose Show As > Cell for still counts as annotated.
+      ['cell', role('cytosol', { source: 'override' })],
+      ['added', role('cytosol', { source: 'override' })],
+      ['lumen', role('region', { side: 'apical', source: 'apiCoord' })],
+    ])
+    const layout = layoutBioView(nodes, roles)
+    const cell = layout.get('cell').rect
+    const lumen = layout.get('lumen').rect
+    // Still meeting the annotated cell's apical membrane, and only spanning it.
+    expect(lumen.y + lumen.height).toBeGreaterThan(cell.y)
+    expect(lumen.y).toBeLessThan(cell.y)
+    expect(lumen.x).toBeGreaterThan(-800 + 320)
+  })
+})

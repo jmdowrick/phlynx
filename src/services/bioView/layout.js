@@ -2,7 +2,7 @@
  * Lays out the physiological view: cells in a row, each with its membrane proteins in slots along
  * their facets and its cytosolic processes inside. A region lies against what it is adjacent to: a
  * band along the cells' tops or bottoms, or down one cell's side (a paracellular space); one only
- * known from the annotations to face the apical or basolateral side spans all the cells. Proteins not
+ * known from the annotations to face the apical or basolateral side spans the cells they describe. Proteins not
  * yet in a membrane go in a tray to the left, and everything else as cards to the right. What the user
  * placed (data.bioView) is kept; only the rest is worked out, the same way every time.
  */
@@ -69,7 +69,8 @@ function partsOf(ids, roleOf, nodes) {
  * @param {string|null} facet - What it lies against: its adjacency's, else its annotated side.
  * @param {number} index - How many regions are already against the same place.
  * @param {Map<string, Object>} layout - With the cells laid out.
- * @param {{left: number, right: number, top: number, bottom: number}} all - Around every cell.
+ * @param {{left: number, right: number, top: number, bottom: number}} all - Around the cells a region
+ *   known only from its annotations spans.
  * @returns {Object|null} Its rect, or null when it is against nothing.
  */
 function regionRect(adjacent, facet, index, layout, all) {
@@ -177,7 +178,17 @@ export function layoutBioView(nodes, roles) {
   const right = cellRects.length ? Math.max(...cellRects.map((r) => r.x + r.width)) : MIN_CELL.width
   const top = cellRects.length ? Math.min(...cellRects.map((r) => r.y)) : 0
   const bottom = cellRects.length ? Math.max(...cellRects.map((r) => r.y + r.height)) : MIN_CELL.height
-  const all = { left, right, top, bottom }
+  // A region only known from its annotations to face a side spans the cells the annotations describe,
+  // not ones the user added (bioView.added); with none of those, every cell.
+  const described = cellIds.filter((id) => !byId.get(id).data?.bioView?.added).map((id) => layout.get(id).rect)
+  const annotated = described.length
+    ? {
+        left: Math.min(...described.map((r) => r.x)),
+        right: Math.max(...described.map((r) => r.x + r.width)),
+        top: Math.min(...described.map((r) => r.y)),
+        bottom: Math.max(...described.map((r) => r.y + r.height)),
+      }
+    : { left, right, top, bottom }
 
   // Regions run right up to the membrane, so a protein in it sits in both the region and the cell; each
   // reaches a corner's depth under the cells, which are drawn over them, to fill beside the rounded
@@ -192,7 +203,7 @@ export function layoutBioView(nodes, roles) {
     const index = stacked.get(key) ?? 0
     stacked.set(key, index + 1)
     const stored = byId.get(id).data?.bioView?.rect
-    let rect = isRect(stored) ? stored : regionRect(adjacent, against, index, layout, all)
+    let rect = isRect(stored) ? stored : regionRect(adjacent, against, index, layout, annotated)
     if (!rect) {
       rect = { x: left - GAP, y: otherY, width: right - left + 2 * GAP, height: REGION_HEIGHT }
       otherY += REGION_HEIGHT + GAP / 2

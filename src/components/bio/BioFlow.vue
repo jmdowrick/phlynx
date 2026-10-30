@@ -1,6 +1,6 @@
 <template>
   <!-- One root, so the class the workspace gives it (its place over the diagram) lands -->
-  <div class="bio-flow-root">
+  <div class="bio-flow-root" @dragover="onModuleDragOver" @dragleave="onModuleDragLeave" @drop="onModuleDrop">
     <VueFlow
       :id="FLOW_IDS.BIO"
       :nodes="bioNodes"
@@ -58,11 +58,20 @@
       </template>
     </VueFlow>
     <ContextMenu ref="contextMenu" :model="menuItems" />
+    <BioPlaceDialog
+      v-if="placing"
+      :mode="placing.mode"
+      :name="placing.name"
+      :initial-role="placing.initialRole"
+      :cells="cellChoices"
+      @confirm="onPlaceConfirm"
+      @cancel="placing = null"
+    />
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { ControlButton, Controls } from '@vue-flow/controls'
@@ -76,10 +85,27 @@ import { bioViewForMove, useBioNodes } from '../../composables/useBioNodes'
 import { useNodeDataHistory } from '../../composables/useNodeDataHistory'
 import { dropTargets, patchBioView, planRelayout, planSlotDrop, planUnplace } from '../../services/bioView/drop'
 import { GLYPHS } from '../../services/bioView/glyphs'
-import { FACET_PARTS, GLYPH_HEIGHT, GLYPH_WIDTH, nearestSlot, slotPositions } from '../../services/bioView/geometry'
-import { GAP } from '../../services/bioView/layout'
+import {
+  FACET_PARTS,
+  GLYPH_HEIGHT,
+  GLYPH_WIDTH,
+  MIN_CELL,
+  nearestSlot,
+  partOf,
+  slotPositions,
+} from '../../services/bioView/geometry'
+import { CARD, GAP, REGION_HEIGHT } from '../../services/bioView/layout'
+import BioPlaceDialog from './BioPlaceDialog.vue'
+import useDragAndDrop from '../../composables/useDnD'
+import { useFlowHistoryStore } from '../../stores/historyStore'
+import { useLibraryStore } from '../../stores/libraryStore'
 import { useViewModeStore } from '../../stores/viewModeStore'
 import { FLOW_IDS } from '../../utils/constants'
+
+const props = defineProps({
+  /** Adds an instance of a library module with this bioView, and gives its node id (see WorkspaceArea). */
+  createInstance: { type: Function, default: null },
+})
 
 const emit = defineEmits(['open-instance-editor', 'export-image'])
 
@@ -100,7 +126,13 @@ const SNAP_DISTANCE = 60
 // Only this component, outside the bio <VueFlow>, reaches the main flow, so its nodes' handles never do.
 const main = useVueFlow(FLOW_IDS.MAIN)
 const { recordEdit } = useNodeDataHistory(FLOW_IDS.MAIN)
-const { applyNodeChanges, findNode, fitView, setViewport, viewport, vueFlowRef } = useVueFlow(FLOW_IDS.BIO)
+// The library's drag state; called before the bio flow's store, as it reaches for the main one.
+const libraryDrag = useDragAndDrop()
+const history = useFlowHistoryStore()
+const libraryStore = useLibraryStore()
+const { applyNodeChanges, findNode, fitView, screenToFlowCoordinate, setViewport, viewport, vueFlowRef } = useVueFlow(
+  FLOW_IDS.BIO
+)
 const viewMode = useViewModeStore()
 const { bioNodes, layout, roles, loadSidecars } = useBioNodes(main.nodes)
 
@@ -175,8 +207,8 @@ const bioViews = () => new Map(main.nodes.value.map((node) => [node.id, node.dat
 /** Writes new bioViews as one undo step in the diagram's history; undefined removes one. */
 function applyPlan(plan, type = 'bio-layout') {
   const ids = [...plan.keys()].filter((id) => main.findNode(id))
-  if (!ids.length) return
-  recordEdit({
+  if (!ids.length) return Promise.resolve(false)
+  return recordEdit({
     type,
     nodeIds: ids,
     keys: ['bioView'],
@@ -252,7 +284,7 @@ const menuItems = ref([])
 
 /** Sets some of a node's bioView fields, as one undo step. */
 function setChoice(id, patch, type) {
-  applyPlan(new Map([[id, patchBioView(main.findNode(id)?.data?.bioView, patch)]]), type)
+  return applyPlan(new Map([[id, patchBioView(main.findNode(id)?.data?.bioView, patch)]]), type)
 }
 
 /** Somewhere left of the cells, below any proteins already there, for one taken out of its membrane. */
@@ -354,7 +386,19 @@ function onNodeContextMenu({ event, node }) {
 
 function onPaneContextMenu(event) {
   event.preventDefault()
+  const at = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
   menuItems.value = [
+    ...(props.createInstance
+      ? [
+          { label: 'Add Cell…', icon: 'pi pi-circle', command: () => (placing.value = { mode: 'cell', at }) },
+          {
+            label: 'Add Compartment…',
+            icon: 'pi pi-stop',
+            command: () => (placing.value = { mode: 'compartment', at }),
+          },
+          { separator: true },
+        ]
+      : []),
     {
       label: 'Re-layout Physiology',
       icon: 'pi pi-th-large',
@@ -362,6 +406,134 @@ function onPaneContextMenu(event) {
     },
   ]
   contextMenu.value.show(event)
+}
+
+// ── Adding instances ───────────────────────────────────────────────────
+/** The open placing dialog: { mode, at, id?, name?, initialRole? }. */
+const placing = ref(null)
+const cellChoices = computed(() =>
+  targets.value.map((cell) => ({ id: cell.id, name: main.findNode(cell.id)?.data?.name ?? cell.id }))
+)
+
+/** Puts a new protein in a slot, moving the proteins after it along, as part of the current step. */
+function slotPlan(id, slot) {
+  return planSlotDrop({ id, slot, layout: layout.value, roles: roles.value, bioViews: bioViews() })
+}
+
+/** The slot at the end of a part of a cell's membrane. */
+function endSlot({ cell, facet, at }) {
+  const part = partOf(facet, at)
+  const count = targets.value.find((target) => target.id === cell)?.counts[part] ?? 0
+  return { cellId: cell, part, facet, at: facet === 'lateral' ? at : undefined, order: count }
+}
+
+/**
+ * Whether a drag is a module from the library: its data says so and it carries no files. The library's
+ * drag state alone can be left over from a drag that was cancelled.
+ */
+function isLibraryDrag(event) {
+  const types = [...(event.dataTransfer?.types ?? [])]
+  return !!libraryDrag.draggedType.value && types.includes('application/vueflow') && !types.includes('Files')
+}
+
+function onModuleDragOver(event) {
+  if (!isLibraryDrag(event)) return
+  event.preventDefault()
+  const point = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
+  draggingId.value = 'library'
+  activeSlot.value = nearestSlot(targets.value, point, SNAP_DISTANCE)
+}
+
+function onModuleDragLeave(event) {
+  if (event.currentTarget.contains(event.relatedTarget)) return
+  if (draggingId.value === 'library') draggingId.value = activeSlot.value = null
+}
+
+/**
+ * Adds a library module dropped here: into the membrane slot it was dropped on, as one step, or where
+ * it was dropped, asking what it is. Files dropped here go on to the workspace.
+ */
+async function onModuleDrop(event) {
+  const module = libraryDrag.draggedType.value
+  if (!isLibraryDrag(event) || !props.createInstance) return
+  event.preventDefault()
+  event.stopPropagation()
+  // The library's own end-of-drag listener is on the document, which this drop doesn't reach.
+  libraryDrag.draggedType.value = null
+  libraryDrag.isDragging.value = false
+  libraryDrag.isDragOver.value = false
+  const point = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
+  const slot = nearestSlot(targets.value, point, SNAP_DISTANCE)
+  draggingId.value = activeSlot.value = null
+
+  if (slot) {
+    history.startBatch()
+    try {
+      // Made outside any membrane first, so the slot is planned against the membranes as they were drawn.
+      const id = props.createInstance(module, { role: 'membraneProtein', facet: null })
+      await applyPlan(slotPlan(id, slot), 'bio-add')
+    } finally {
+      history.endBatch()
+    }
+    return
+  }
+  const position = { x: point.x - CARD.width / 2, y: point.y - CARD.height / 2 }
+  const id = props.createInstance(module, { position })
+  // Its module's annotations say what it most likely is, once read.
+  await libraryStore.ensureModuleAnnotations(module.mathRef)
+  await nextTick()
+  placing.value = {
+    mode: 'assign',
+    id,
+    at: point,
+    name: main.findNode(id)?.data?.name ?? id,
+    initialRole: roles.value.get(id)?.role ?? 'none',
+  }
+}
+
+/** Applies the placing dialog: what a dropped instance is, or a new cell or compartment. */
+async function onPlaceConfirm({ role, moduleRef, membraneRef, cell, placement }) {
+  const { mode, id, at } = placing.value
+  placing.value = null
+  const cellRect = { x: at.x - MIN_CELL.width / 2, y: at.y - MIN_CELL.height / 2, ...MIN_CELL }
+  const regionRect = { x: at.x - 160, y: at.y - REGION_HEIGHT / 2, width: 320, height: REGION_HEIGHT }
+
+  if (mode === 'cell') {
+    history.startBatch()
+    try {
+      const cellId = props.createInstance(libraryStore.availableModules.get(moduleRef), {
+        role: 'cytosol',
+        rect: cellRect,
+        added: true,
+      })
+      if (membraneRef)
+        props.createInstance(libraryStore.availableModules.get(membraneRef), { role: 'membrane', cell: cellId })
+    } finally {
+      history.endBatch()
+    }
+    return
+  }
+  if (mode === 'compartment') {
+    props.createInstance(
+      libraryStore.availableModules.get(moduleRef),
+      placement ? { role: 'region', adjacent: [placement] } : { role: 'region', rect: regionRect }
+    )
+    return
+  }
+
+  // What a dropped instance is.
+  if (role === 'membraneProtein' && placement) return applyPlan(slotPlan(id, endSlot(placement)), 'bio-role')
+  const patches = {
+    membraneProtein: { role, facet: null },
+    cytosol: { role, rect: cellRect, position: undefined, added: true },
+    membrane: { role, cell },
+    cytosolic: { role, cell, position: undefined },
+    region: placement
+      ? { role, adjacent: [placement], position: undefined }
+      : { role, rect: regionRect, position: undefined },
+    none: { role },
+  }
+  return setChoice(id, patches[role], 'bio-role')
 }
 </script>
 

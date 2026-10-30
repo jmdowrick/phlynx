@@ -493,6 +493,7 @@
           <BioFlow
             v-if="viewMode.isBio"
             class="bio-flow-layer"
+            :create-instance="createBioInstance"
             @open-instance-editor="onOpenInstanceEditorDialog"
             @export-image="exportImageOf"
           />
@@ -1969,6 +1970,29 @@ function createNewInstanceAtPosition(clientX, clientY) {
 
   const position = screenToFlowCoordinate({ x: clientX, y: clientY })
   createInstanceNode(module, position)
+}
+
+/**
+ * Adds an instance made in the physiological view. In the diagram it goes right of the other
+ * instances, out of their way; where it goes in the physiological view is its bioView.
+ *
+ * @param {Object} moduleData - A library module.
+ * @param {Object} bioView
+ * @returns {string} The new node's id.
+ */
+function createBioInstance(moduleData, bioView) {
+  // Nodes made a moment ago aren't measured yet, so they count at a card's usual width.
+  const width = (node) => node.dimensions?.width || 220
+  const position = nodes.value.length
+    ? {
+        x: Math.max(...nodes.value.map((node) => node.position.x + width(node))) + 120,
+        y: Math.min(...nodes.value.map((node) => node.position.y)),
+      }
+    : { x: 0, y: 0 }
+  const { nodeId } = createInstanceNode(moduleData, position, [], { bioView }, { centre: false })
+  // Placed where it is meant to stay, so history mustn't re-centre the add once it is measured.
+  historyStore.lastChangeWasAddSetter(false)
+  return nodeId
 }
 
 function handleAutoLayout() {

@@ -118,3 +118,25 @@ describe('dropping without moving untouched lateral proteins', () => {
     expect({ B: after.B, C: after.C, D: after.D }).toEqual(before)
   })
 })
+
+describe('dropping a new protein from the library', () => {
+  it('leaves the other lateral proteins on their sides when it lands on a lateral slot', () => {
+    // b_A and c_B have no side; a_X is new, made outside any membrane, and sorts first by name.
+    const nodes = ['cell', 'b_A', 'c_B', 'a_X'].map((id) => ({ id, data: { name: id } }))
+    const roles = new Map([
+      ['cell', role('cytosol')],
+      ['b_A', role('membraneProtein', { cell: 'cell', facet: 'lateral' })],
+      ['c_B', role('membraneProtein', { cell: 'cell', facet: 'lateral' })],
+      ['a_X', role('membraneProtein')],
+    ])
+    const layout = layoutBioView(nodes, roles)
+    expect(layout.get('a_X').kind).toBe('tray')
+    const sides = { b_A: layout.get('b_A').part, c_B: layout.get('c_B').part }
+
+    const slot = { cellId: 'cell', part: 'lateral-right', facet: 'lateral', at: 'right', order: 1 }
+    const plan = planSlotDrop({ id: 'a_X', slot, layout, roles, bioViews: new Map() })
+    const at = (id) => `lateral-${plan.get(id).at}`
+    expect({ b_A: at('b_A'), c_B: at('c_B') }).toEqual(sides)
+    expect(plan.get('a_X')).toMatchObject({ cell: 'cell', facet: 'lateral', at: 'right', order: 1 })
+  })
+})
