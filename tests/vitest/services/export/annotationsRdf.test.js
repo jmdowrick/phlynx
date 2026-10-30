@@ -15,7 +15,6 @@ import {
   mathRefFromSidecarLocation,
   sidecarLocation,
   staleInstanceNames,
-  writeTurtle,
 } from '../../../../src/services/export/annotationsRdf.js'
 import { useLibraryStore } from '../../../../src/stores/libraryStore.js'
 import { generateFlattenedModel } from '../../../../src/utils/cellml.js'
@@ -48,31 +47,6 @@ describe('sidecar locations', () => {
   })
 })
 
-describe('writeTurtle', () => {
-  it('writes prefixed names, relative IRIs, blank nodes and literals that parse back', async () => {
-    const text = writeTurtle(
-      [
-        { subject: { termType: 'NamedNode', value: './model.cellml#a' }, predicate: { termType: 'NamedNode', value: BQBIOL.isPropertyOf }, object: { termType: 'BlankNode', value: 'b0' } },
-        { subject: { termType: 'BlankNode', value: 'b0' }, predicate: { termType: 'NamedNode', value: BQBIOL.is }, object: { termType: 'NamedNode', value: 'http://purl.obolibrary.org/obo/CHEBI_29101' } },
-        { subject: { termType: 'NamedNode', value: './model.cellml#a' }, predicate: { termType: 'NamedNode', value: 'http://purl.org/dc/terms/title' }, object: { termType: 'Literal', value: 'say "hi"\n' } },
-      ],
-      [['model', './model.cellml#']]
-    )
-    expect(text.startsWith(COMBINED_ANNOTATIONS_MARKER)).toBe(true)
-    expect(text).toContain('model:a bqbiol:isPropertyOf _:b0')
-    expect(text).toContain('chebi:29101')
-    const triples = await parseRdf(text, { baseIri: ARCHIVE_BASE })
-    expect(triples).toHaveLength(3)
-    expect(triples[0].subject.value).toBe(`${ARCHIVE_BASE}model.cellml#a`)
-    expect(triples.find((t) => t.object.termType === 'Literal').object.value).toBe('say "hi"\n')
-  })
-
-  it('refuses an internal IRI', () => {
-    const internal = { termType: 'NamedNode', value: 'https://phlynx.invalid/modules/x.cellml#x' }
-    expect(() => writeTurtle([{ subject: internal, predicate: internal, object: internal }])).toThrow(/internal IRI/)
-  })
-})
-
 describe('collectAnnotationFiles on the toy workspace', () => {
   let library, nodes, instanceSources
 
@@ -100,6 +74,7 @@ describe('collectAnnotationFiles on the toy workspace', () => {
   it('places every bound instance on its component, with the coordinates copied', async () => {
     await setUp()
     const { combined, cellml } = await exportAnnotations(library, nodes, instanceSources)
+    expect(combined.text.startsWith(COMBINED_ANNOTATIONS_MARKER)).toBe(true)
     expect(combined.text).not.toContain('phlynx.invalid')
     const ids = cellmlIds(cellml)
     const { instances, coords, warnings } = await parseApiCoords(combined.text, { baseIri: ARCHIVE_BASE })
