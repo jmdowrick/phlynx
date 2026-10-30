@@ -3,7 +3,7 @@
  * writes: the caller applies the plan as one undo step.
  */
 
-import { FACET_PARTS } from './geometry.js'
+import { EPITHELIAL_SHAPE, annotationOfFacet, facetById, facetsInGroup } from './shape.js'
 
 /** Fields that place a node; Re-layout clears them and keeps the user's choices of what it is. */
 const PLACEMENT_KEYS = ['cell', 'facet', 'at', 'order', 'position', 'rect']
@@ -27,7 +27,7 @@ export function patchBioView(bioView, patch) {
  */
 export function dropTargets(layout) {
   const cells = new Map()
-  for (const [id, place] of layout) if (place.kind === 'cell') cells.set(id, { id, rect: place.rect, counts: Object.fromEntries(FACET_PARTS.map((part) => [part, 0])) })
+  for (const [id, place] of layout) if (place.kind === 'cell') cells.set(id, { id, rect: place.rect, counts: Object.fromEntries(EPITHELIAL_SHAPE.facets.map(({ id: part }) => [part, 0])) })
   for (const place of layout.values()) if (place.kind === 'protein' && cells.has(place.cell)) cells.get(place.cell).counts[place.part]++
   return [...cells.values()]
 }
@@ -37,7 +37,7 @@ export function dropTargets(layout) {
  *
  * @param {Map<string, Object>} layout
  * @param {string} cell
- * @param {string} part - One of FACET_PARTS.
+ * @param {string} part - A facet of the cell's shape.
  * @returns {string[]}
  */
 function onPart(layout, cell, part) {
@@ -48,8 +48,9 @@ function onPart(layout, cell, part) {
 }
 
 /**
- * Gives each part of a cell's membrane that an edit touches, with its proteins as now drawn. Touching
- * either lateral side touches both, since proteins with no side are shared between them by count.
+ * Gives each part of a cell's membrane that an edit touches, with its proteins as now drawn. Touching a
+ * facet in a group (the lateral sides) touches the whole group, since proteins with no side are shared
+ * between them by count.
  *
  * @param {Map<string, Object>} layout
  * @param {Array<{cell: string, part: string}>} touched
@@ -59,26 +60,23 @@ function touchedParts(layout, touched) {
   const parts = new Map()
   const add = (cell, part) => parts.set(`${cell}/${part}`, { cell, part, ids: onPart(layout, cell, part) })
   for (const { cell, part } of touched) {
-    if (part.startsWith('lateral-')) {
-      add(cell, 'lateral-left')
-      add(cell, 'lateral-right')
-    } else {
-      add(cell, part)
-    }
+    const group = facetById(EPITHELIAL_SHAPE, part)?.group
+    for (const each of group ? facetsInGroup(EPITHELIAL_SHAPE, group) : [part]) add(cell, each)
   }
   return parts
 }
 
 /**
- * Writes the order of every protein on each touched part, and the side of every lateral one, so the
- * result doesn't depend on how the rest would be sorted or shared out.
+ * Writes the order of every protein on each touched part, and the side of every one in a group (lateral),
+ * so the result doesn't depend on how the rest would be sorted or shared out.
  *
  * @param {Map<string, Object>} parts - From touchedParts, after the edit.
  * @param {Function} write - (nodeId, patch).
  */
 function writeParts(parts, write) {
   for (const { part, ids } of parts.values()) {
-    const at = part.startsWith('lateral-') ? { at: part.slice('lateral-'.length) } : {}
+    const side = facetById(EPITHELIAL_SHAPE, part)?.group ? annotationOfFacet(EPITHELIAL_SHAPE, part)?.at : undefined
+    const at = side ? { at: side } : {}
     ids.forEach((id, order) => write(id, { order, ...at }))
   }
 }
