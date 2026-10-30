@@ -111,9 +111,12 @@ import {
   subjectText,
   termDetail,
 } from '../services/annotations/display'
+import { ensureCachedLabelSource, isObsoleteTerm } from '../services/ontology/termCache'
 
 // Two roots (the chips and their detail): attributes go on the chips.
 defineOptions({ inheritAttrs: false })
+
+ensureCachedLabelSource()
 
 const props = defineProps({
   // port.annotation, or a sidecar entry for a variable without a port.
@@ -142,7 +145,8 @@ const TermLine = defineComponent({
       const link = iri.startsWith('http')
         ? h('a', { href: iri, target: '_blank', rel: 'noopener noreferrer', class: 'annotation-detail__iri' }, curie)
         : h('span', { class: 'annotation-detail__iri' }, curie)
-      return h('span', [label !== curie ? h('span', `${label} `) : null, link])
+      const badge = isObsoleteTerm(curie) ? h('span', { class: 'annotation-detail__obsolete', 'data-test': 'obsolete' }, 'obsolete') : null
+      return h('span', [label !== curie ? h('span', `${label} `) : null, link, badge])
     }
   },
 })
@@ -413,6 +417,13 @@ onBeforeUnmount(() => {
 .annotation-detail__low {
   margin-left: 6px;
   color: var(--p-orange-500);
+}
+
+.annotation-detail :deep(.annotation-detail__obsolete) {
+  margin-left: 6px;
+  color: var(--p-orange-500);
+  font-size: 11px;
+  text-transform: uppercase;
 }
 
 .annotation-detail__why,

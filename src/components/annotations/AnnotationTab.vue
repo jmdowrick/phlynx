@@ -18,17 +18,39 @@
           data-test="module-kind"
           @update:model-value="setKind"
         />
-        <InputText
-          v-if="kindValue === 'transporter'"
-          v-model="accessionText"
-          :invalid="!accession && (!!accessionText.trim() || !kind.transporter)"
-          placeholder="UniProt accession, e.g. P11168"
-          aria-label="UniProt accession"
-          size="small"
-          class="annotation-tab__accession"
-          data-test="uniprot-accession"
-          @update:model-value="commitAccession"
-        />
+        <template v-if="kindValue === 'transporter'">
+          <AutoComplete
+            :model-value="accessionText"
+            :suggestions="proteinSuggestions"
+            option-label="accession"
+            :invalid="!accession && (!!accessionText.trim() || !kind.transporter)"
+            :delay="120"
+            placeholder="UniProt accession, e.g. P11168"
+            aria-label="UniProt accession"
+            size="small"
+            class="annotation-tab__accession"
+            data-test="uniprot-accession"
+            @complete="(event) => findProteins(event.query)"
+            @update:model-value="setAccessionText"
+          >
+            <template #option="{ option }">
+              <span class="term-option">
+                <span>
+                  {{ option.label }}
+                  <span class="term-option__note">{{ [option.gene, option.organism].filter(Boolean).join(' · ') }}</span>
+                </span>
+                <span class="term-option__curie">{{ option.accession }}</span>
+              </span>
+            </template>
+            <template #empty>No reviewed UniProt entry matches.</template>
+            <template #footer>
+              <div v-if="proteinLookup !== 'idle'" class="term-lookup" data-test="protein-lookup">
+                {{ LOOKUP_TEXT[proteinLookup] }}
+              </div>
+            </template>
+          </AutoComplete>
+          <span v-if="accessionLabel" class="annotation-tab__protein" data-test="protein-label">{{ accessionLabel }}</span>
+        </template>
       </div>
 
       <div class="annotation-tab__toolbar">
@@ -138,12 +160,20 @@
               @update:model-value="setSpecies"
             >
               <template #option="{ option }">
-                <span class="species-option">
-                  <span>{{ option.label }}</span>
-                  <span class="species-option__curie">{{ option.curie }}</span>
+                <span class="term-option">
+                  <span>
+                    {{ option.label }}
+                    <span v-if="option.isObsolete" class="term-option__obsolete" data-test="obsolete">obsolete</span>
+                  </span>
+                  <span class="term-option__curie">{{ option.curie }}</span>
                 </span>
               </template>
               <template #empty>{{ speciesNotice || 'No species matches.' }}</template>
+              <template #footer>
+                <div v-if="speciesLookup !== 'idle'" class="term-lookup" data-test="species-lookup">
+                  {{ LOOKUP_TEXT[speciesLookup] }}
+                </div>
+              </template>
             </AutoComplete>
           </div>
 
@@ -195,11 +225,10 @@
  * The instance editor's Annotations tab: the module's kind and each variable's property, species and place, as a
  * draft the editor saves with the instance. The sidecar belongs to the math, so every instance of it shares it.
  */
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 
 import AutoComplete from 'primevue/autocomplete'
 import Button from 'primevue/button'
-import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 import Select from 'primevue/select'
 import SelectButton from 'primevue/selectbutton'
@@ -220,6 +249,9 @@ import { roleOf } from '../../services/annotations/match'
 import { multiportTypeFor } from '../../services/annotations/ports'
 import { listOtherTriples } from '../../services/annotations/sidecarEdit'
 import { parseSpeciesTerm, searchSpecies } from '../../services/annotations/species'
+import { createDebouncedSearch, lookupTerm, searchChebi } from '../../services/ontology/ols'
+import { ensureCachedLabelSource, isObsoleteTerm } from '../../services/ontology/termCache'
+import { searchUniprot } from '../../services/ontology/uniprot'
 
 const props = defineProps({
   // Parameter rows, from useMathSession.
@@ -245,6 +277,12 @@ const props = defineProps({
   workspaceTerms: { type: Array, default: () => [] },
   // Finds species for typed text, as { curie, label }; may return a promise. Defaults to the local table.
   findSpeciesTerms: { type: Function, default: null },
+  // Searches ChEBI online for typed text, as (query, { signal }) => Promise<{ curie, label, isObsolete }[]>.
+  searchRemoteSpecies: { type: Function, default: searchChebi },
+  // Looks up a pasted species' label online, as (curie) => Promise<{ label, isObsolete }|null>.
+  lookupSpeciesTerm: { type: Function, default: lookupTerm },
+  // Searches reviewed UniProt entries for typed text, as (query, { signal }) => Promise<{ accession, label }[]>.
+  searchProteins: { type: Function, default: searchUniprot },
 })
 
 const emit = defineEmits(['update:draft'])
@@ -280,6 +318,13 @@ const LOCATION_OPTIONS = [
 ]
 
 const MULTIPORT_TEXT = { True: 'multiport', Sum: 'multiport, summed', None: 'basicport' }
+
+const LOOKUP_TEXT = { searching: 'Searching online…', unavailable: 'Online lookup unavailable' }
+
+// Typed text this short, or that looks like a pasted term, is not searched online.
+const MIN_REMOTE_QUERY_LENGTH = 3
+
+ensureCachedLabelSource()
 
 // UniProt's accession format.
 const ACCESSION_PATTERN = /^([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})$/
@@ -326,10 +371,54 @@ function setKind(value) {
   emit('update:draft', setDraftKind(props.draft, props.sidecar, componentKind, componentKind === 'transporter' ? accession.value : null))
 }
 
+const accessionLabel = computed(() => {
+  const label = accession.value ? displayLabel(accession.value) : null
+  return label && label !== accession.value ? label : null
+})
+
+/**
+ * Sets the accession box from typed text or a chosen UniProt entry.
+ *
+ * @param {string|{ accession: string }|null} value
+ */
+function setAccessionText(value) {
+  accessionText.value = typeof value === 'string' ? value : (value?.accession ?? '')
+  commitAccession()
+}
+
 /** Sets the transporter's accession once it is a valid one, or drops it when the box is emptied. */
 function commitAccession() {
   if (accessionText.value.trim() && !accession.value) return
   emit('update:draft', setDraftKind(props.draft, props.sidecar, 'transporter', accession.value))
+}
+
+const proteinSuggestions = ref([])
+const proteinLookup = ref('idle')
+const remoteProteinSearch = createDebouncedSearch((query, options) => props.searchProteins(query, options))
+
+/**
+ * Lists reviewed UniProt entries matching typed text; a typed accession still works when the lookup fails.
+ *
+ * @param {string} query
+ */
+async function findProteins(query) {
+  const text = String(query ?? '').trim()
+  if (text.length < MIN_REMOTE_QUERY_LENGTH) {
+    remoteProteinSearch.cancel()
+    proteinSuggestions.value = []
+    proteinLookup.value = 'idle'
+    return
+  }
+  proteinLookup.value = 'searching'
+  try {
+    const results = await remoteProteinSearch(text)
+    if (results === null) return
+    proteinSuggestions.value = results
+    proteinLookup.value = 'idle'
+  } catch {
+    proteinSuggestions.value = []
+    proteinLookup.value = 'unavailable'
+  }
 }
 
 // ── Rows ────────────────────────────────────────────────────────────────────
@@ -372,6 +461,8 @@ function startEditing(row) {
 
 function stopEditing() {
   editingName.value = null
+  remoteSpeciesSearch.cancel()
+  speciesLookup.value = 'idle'
 }
 
 /** Puts the inline editor's annotation into the draft. */
@@ -400,20 +491,81 @@ const formPortStatus = computed(() => PORT_STATUS_TEXT[props.portStatus.get(edit
 const speciesItems = computed(() => form.species.map((curie) => ({ curie, label: displayLabel(curie) })))
 const speciesSuggestions = ref([])
 const speciesNotice = ref('')
+const speciesLookup = ref('idle')
+const remoteSpeciesSearch = createDebouncedSearch((query, options) => props.searchRemoteSpecies(query, options))
+let latestSpeciesQuery = null
 
 /**
- * Lists the species matching typed text, from the given search or the local table and workspace.
+ * Marks each suggestion obsolete when its cached term is.
+ *
+ * @param {Array<{ curie: string, isObsolete?: boolean }>} items
+ * @returns {Array<{ curie: string, isObsolete?: boolean }>}
+ */
+function withObsolete(items) {
+  return items.map((item) => (item.isObsolete === undefined && isObsoleteTerm(item.curie) ? { ...item, isObsolete: true } : item))
+}
+
+/**
+ * Lists the species matching typed text: the given search or the local table and workspace at once, then ChEBI
+ * results online, and a pasted term's label once it resolves.
  *
  * @param {string} query
  */
 async function findSpecies(query) {
+  latestSpeciesQuery = query
   const search = props.findSpeciesTerms ?? ((text) => searchSpecies(text, { workspaceTerms: props.workspaceTerms, labelOf: displayLabel }))
   const results = await search(query)
+  if (latestSpeciesQuery !== query) return
   const chosen = new Set(form.species)
-  speciesSuggestions.value = results.filter((item) => !chosen.has(item.curie))
+  speciesSuggestions.value = withObsolete(results.filter((item) => !chosen.has(item.curie)))
   const looksLikeTerm = /[:_/]/.test(query ?? '')
   speciesNotice.value = looksLikeTerm && !results.length ? `${query.trim()} is not a ChEBI term.` : ''
+
+  const pasted = parseSpeciesTerm(query)
+  if (pasted) resolvePastedSpecies(pasted, query)
+
+  const text = String(query ?? '').trim()
+  if (looksLikeTerm || text.length < MIN_REMOTE_QUERY_LENGTH) {
+    remoteSpeciesSearch.cancel()
+    speciesLookup.value = 'idle'
+    return
+  }
+  speciesLookup.value = 'searching'
+  try {
+    const remote = await remoteSpeciesSearch(text)
+    if (remote === null || latestSpeciesQuery !== query) return
+    const shown = new Set([...chosen, ...speciesSuggestions.value.map((item) => item.curie)])
+    const added = remote.filter((item) => !shown.has(item.curie)).map((item) => ({ ...item, source: 'chebi' }))
+    speciesSuggestions.value = [...speciesSuggestions.value, ...withObsolete(added)]
+    speciesLookup.value = 'idle'
+  } catch {
+    if (latestSpeciesQuery === query) speciesLookup.value = 'unavailable'
+  }
 }
+
+/**
+ * Looks up a pasted species' label online when it has none yet, and shows it on its suggestion.
+ *
+ * @param {string} curie
+ * @param {string} query - The query it was pasted in, so a later query is left alone.
+ */
+async function resolvePastedSpecies(curie, query) {
+  if (displayLabel(curie) !== curie) return
+  try {
+    const term = await props.lookupSpeciesTerm(curie)
+    if (!term || latestSpeciesQuery !== query) return
+    speciesSuggestions.value = speciesSuggestions.value.map((item) =>
+      item.curie === curie ? { ...item, label: term.label, isObsolete: term.isObsolete } : item
+    )
+  } catch {
+    // Offline: the pasted CURIE still works without its label.
+  }
+}
+
+onBeforeUnmount(() => {
+  remoteSpeciesSearch.cancel()
+  remoteProteinSearch.cancel()
+})
 
 /**
  * Sets the chosen species from the AutoComplete's items, reading typed text as a pasted term.
@@ -572,16 +724,43 @@ watch(
   gap: 0.5rem;
 }
 
-.species-option {
+.term-option {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
   width: 100%;
 }
 
-.species-option__curie {
+.term-option__curie {
   color: var(--p-text-muted-color);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+}
+
+.term-option__note {
+  color: var(--p-text-muted-color);
+  font-size: 0.75rem;
+}
+
+.term-option__obsolete {
+  margin-left: 0.25rem;
+  padding: 0 0.25rem;
+  border-radius: 0.25rem;
+  background: var(--p-orange-100);
+  color: var(--p-orange-800);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+}
+
+.term-lookup {
+  padding: 0.375rem 0.75rem;
+  border-top: 1px solid var(--p-content-border-color);
+  color: var(--p-text-muted-color);
+  font-size: 0.75rem;
+}
+
+.annotation-tab__protein {
+  color: var(--p-text-muted-color);
   font-size: 0.75rem;
 }
 
