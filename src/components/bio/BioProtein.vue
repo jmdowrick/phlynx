@@ -1,17 +1,29 @@
 <template>
   <div
-    :class="['bio-protein', `bio-protein--label-${labelSide}`, { 'bio-protein--selected': selected, 'bio-protein--unplaced': data.unplaced }]"
+    :class="[
+      'bio-protein',
+      `bio-protein--label-${labelSide}`,
+      { 'bio-protein--selected': selected, 'bio-protein--unplaced': data.unplaced },
+    ]"
     :style="categoryStyle"
     :title="data.unplaced ? `${data.name}: not in a membrane` : data.name"
     data-testid="bio-protein"
   >
     <!-- Turned with its facet, so its outside faces out of the cell -->
     <div class="bio-protein__glyph" :style="{ transform: `rotate(${data.rotation ?? 0}deg)` }">
-      <ProteinGlyph :glyph="data.glyph" :rotation="data.rotation ?? 0" />
+      <ProteinGlyph :glyph="data.glyph" :rotation="data.rotation ?? 0" :arrows="data.arrows ?? []" />
     </div>
-    <span class="bio-protein__label">{{ data.name }}</span>
+    <span class="bio-protein__label">
+      {{ data.name }}
+      <span v-if="species" class="bio-protein__species" data-testid="bio-protein-species">{{ species }}</span>
+    </span>
     <!-- Moved from where its annotations put it -->
-    <span v-if="movedFrom" class="bio-protein__moved" :title="`The annotations put it on the ${movedFrom} membrane`" data-testid="bio-protein-moved">
+    <span
+      v-if="movedFrom"
+      class="bio-protein__moved"
+      :title="`The annotations put it on the ${movedFrom} membrane`"
+      data-testid="bio-protein-moved"
+    >
       <i class="pi pi-arrow-right-arrow-left"></i>
     </span>
   </div>
@@ -34,6 +46,12 @@ const categoryStyle = computed(() => themeCategoryStyle(nodeThemeStore.activeThe
 // The name goes on the cell's side of the protein, clear of the regions outside.
 const INWARD = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' }
 const labelSide = computed(() => INWARD[props.data.outward] ?? 'bottom')
+
+// What its arrows carry, in the order they show: a protein turned upside down shows them reversed.
+const species = computed(() => {
+  const labels = (props.data.arrows ?? []).map((arrow) => arrow.label)
+  return (props.data.rotation === 180 ? labels.reverse() : labels).join(' · ')
+})
 
 const movedFrom = computed(() => {
   const { annotatedFacet, facet, unplaced } = props.data
@@ -68,6 +86,14 @@ const movedFrom = computed(() => {
   font-weight: 600;
   color: var(--p-text-color);
   pointer-events: none;
+}
+
+.bio-protein__species {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--p-text-muted-color);
+  text-align: center;
 }
 
 .bio-protein__moved {

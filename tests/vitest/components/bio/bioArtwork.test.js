@@ -21,13 +21,45 @@ describe('physiological view artwork', () => {
     expect(mount(ProteinGlyph, { props: { glyph: 'blob' } }).find('svg').attributes('data-glyph')).toBe('generic')
   })
 
-  it('shows movement into the cell, and keeps the pump’s ATP upright', () => {
-    const arrowsOf = (glyph) => mount(ProteinGlyph, { props: { glyph } }).findAll('.protein-glyph__arrow')
-    expect(arrowsOf('symporter')).toHaveLength(2)
-    expect(arrowsOf('antiporter')).toHaveLength(2)
-    expect(arrowsOf('generic')).toHaveLength(0)
-    const pump = mount(ProteinGlyph, { props: { glyph: 'pump', rotation: 180 } })
-    expect(pump.find('.protein-glyph__atp-label').attributes('transform')).toBe('rotate(-180 52 34)')
+  it('draws an arrow for each species it carries, one way when a run says which, both ways until then', () => {
+    const arrows = [
+      { label: 'Na⁺', direction: 'out' },
+      { label: 'K⁺', direction: 'in' },
+      { label: 'Glc', direction: null },
+    ]
+    const glyph = mount(ProteinGlyph, { props: { glyph: 'pump', rotation: 180, arrows } })
+    const drawn = glyph.findAll('.protein-glyph__arrow')
+    expect(drawn.map((a) => [a.attributes('data-species'), a.attributes('data-direction'), a.findAll('polygon').length])).toEqual([
+      ['Na⁺', 'out', 1],
+      ['K⁺', 'in', 1],
+      ['Glc', 'both', 2],
+    ])
+    // Spread across the body.
+    const xs = drawn.map((a) => Number(a.find('line').attributes('x1')))
+    expect(new Set(xs).size).toBe(3)
+    expect(glyph.find('.protein-glyph__atp-label').attributes('transform')).toBe('rotate(-180 52 34)')
+  })
+
+  it('names what a protein carries under its name, in the order its arrows show', () => {
+    const arrows = [
+      { label: 'Glc', direction: null },
+      { label: 'Na⁺', direction: null },
+    ]
+    const species = (rotation) =>
+      mount(BioProtein, { props: { data: { name: 'p', glyph: 'symporter', rotation, arrows } } }).find('[data-testid=bio-protein-species]').text()
+    expect(species(0)).toBe('Glc · Na⁺')
+    // Turned upside down on the basolateral membrane, its arrows read the other way.
+    expect(species(180)).toBe('Na⁺ · Glc')
+    expect(mount(BioProtein, { props: { data: { name: 'p' } } }).find('[data-testid=bio-protein-species]').exists()).toBe(false)
+  })
+
+  it('draws no arrows for a protein whose annotations say nothing it carries', () => {
+    expect(mount(ProteinGlyph, { props: { glyph: 'symporter' } }).findAll('.protein-glyph__arrow')).toHaveLength(0)
+  })
+
+  it('runs a channel’s arrow down its pore', () => {
+    const channel = mount(ProteinGlyph, { props: { glyph: 'channel', arrows: [{ label: 'K⁺', direction: 'out' }] } })
+    expect(channel.find('.protein-glyph__arrow line').attributes('x1')).toBe('32')
   })
 
   it('turns a protein’s cartoon with its facet and puts its name on the cell’s side', () => {

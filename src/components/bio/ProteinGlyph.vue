@@ -7,7 +7,10 @@
       <rect class="protein-glyph__pore" x="28" y="3" width="8" height="42" />
     </template>
     <template v-else-if="kind === 'uniporter'">
-      <path class="protein-glyph__body" d="M 8 12 Q 8 3 18 3 L 26 3 L 32 16 L 38 3 L 46 3 Q 56 3 56 12 L 56 36 Q 56 45 46 45 L 18 45 Q 8 45 8 36 Z" />
+      <path
+        class="protein-glyph__body"
+        d="M 8 12 Q 8 3 18 3 L 26 3 L 32 16 L 38 3 L 46 3 Q 56 3 56 12 L 56 36 Q 56 45 46 45 L 18 45 Q 8 45 8 36 Z"
+      />
     </template>
     <template v-else-if="kind === 'pump'">
       <rect class="protein-glyph__body" x="4" y="3" width="48" height="42" rx="14" />
@@ -20,10 +23,22 @@
       <rect class="protein-glyph__body" x="6" y="3" width="52" height="42" rx="15" />
     </template>
 
-    <circle v-for="(spot, i) in substrates" :key="`s${i}`" class="protein-glyph__substrate" :cx="spot.x" :cy="spot.y" r="3.5" />
-    <g v-for="(arrow, i) in arrows" :key="`a${i}`" class="protein-glyph__arrow">
-      <line :x1="arrow.x" :y1="arrow.from" :x2="arrow.x" :y2="arrow.to - Math.sign(arrow.to - arrow.from) * 4" />
-      <polygon :points="arrowHead(arrow)" />
+    <!-- What it carries: one arrow per species (named in its label), down into the cell or up out of it, both ways until a run says -->
+    <g
+      v-for="arrow in placedArrows"
+      :key="arrow.label"
+      class="protein-glyph__arrow"
+      :data-species="arrow.label"
+      :data-direction="arrow.direction ?? 'both'"
+    >
+      <line
+        :x1="arrow.x"
+        :y1="arrow.top + (arrow.direction === 'in' ? 0 : 4)"
+        :x2="arrow.x"
+        :y2="arrow.bottom - (arrow.direction === 'out' ? 0 : 4)"
+      />
+      <polygon v-if="arrow.direction !== 'out'" :points="head(arrow.x, arrow.bottom, 1)" />
+      <polygon v-if="arrow.direction !== 'in'" :points="head(arrow.x, arrow.top, -1)" />
     </g>
   </svg>
 </template>
@@ -36,44 +51,35 @@ const props = defineProps({
   glyph: { type: String, default: 'generic' },
   /** How far the cartoon is turned, so its text can stay upright. */
   rotation: { type: Number, default: 0 },
+  /** What it carries: [{ label, direction: 'in'|'out'|null }], null when the way isn't known. */
+  arrows: { type: Array, default: () => [] },
 })
 
 const kind = computed(() => (GLYPHS.includes(props.glyph) ? props.glyph : 'generic'))
 
-// Movement across the membrane: down is into the cell.
-const ARROWS = {
-  channel: [{ x: 32, from: 9, to: 39 }],
-  uniporter: [{ x: 32, from: 20, to: 40 }],
-  symporter: [
-    { x: 22, from: 15, to: 38 },
-    { x: 42, from: 15, to: 38 },
-  ],
-  antiporter: [
-    { x: 22, from: 15, to: 38 },
-    { x: 42, from: 38, to: 15 },
-  ],
-  pump: [{ x: 28, from: 9, to: 39 }],
-  generic: [],
+/** Where each cartoon has room for arrows: across, and from its outside edge to its inside one. */
+const ROOM = {
+  channel: { left: 32, right: 32, top: 6, bottom: 42 },
+  uniporter: { left: 20, right: 44, top: 18, bottom: 41 },
+  pump: { left: 14, right: 40, top: 7, bottom: 41 },
+  generic: { left: 18, right: 46, top: 7, bottom: 41 },
 }
 
-const SUBSTRATES = {
-  symporter: [
-    { x: 22, y: 10 },
-    { x: 42, y: 10 },
-  ],
-  antiporter: [
-    { x: 22, y: 10 },
-    { x: 42, y: 43 },
-  ],
-}
+// Spread evenly across the room; through a channel's pore, all down its middle.
+const placedArrows = computed(() => {
+  const room = ROOM[kind.value] ?? ROOM.generic
+  const count = props.arrows.length
+  return props.arrows.map((arrow, i) => ({
+    ...arrow,
+    x: count > 1 ? room.left + ((room.right - room.left) * i) / (count - 1) : (room.left + room.right) / 2,
+    top: room.top,
+    bottom: room.bottom,
+  }))
+})
 
-const arrows = computed(() => ARROWS[kind.value])
-const substrates = computed(() => SUBSTRATES[kind.value] ?? [])
-
-/** A filled arrowhead at an arrow's end, pointing the way it goes. */
-function arrowHead({ x, from, to }) {
-  const dir = Math.sign(to - from)
-  return `${x - 3.5},${to - dir * 5} ${x + 3.5},${to - dir * 5} ${x},${to}`
+/** An arrowhead with its tip at (x, y), pointing down (1) or up (-1). */
+function head(x, y, dir) {
+  return `${x - 3.5},${y - dir * 5} ${x + 3.5},${y - dir * 5} ${x},${y}`
 }
 </script>
 
@@ -106,12 +112,6 @@ function arrowHead({ x, from, to }) {
   font-weight: 700;
   text-anchor: middle;
   fill: var(--p-amber-900);
-}
-
-.protein-glyph__substrate {
-  fill: white;
-  stroke: color-mix(in srgb, var(--node-fill, var(--p-emerald-500)) 60%, black);
-  stroke-width: 1.5;
 }
 
 .protein-glyph__arrow line {

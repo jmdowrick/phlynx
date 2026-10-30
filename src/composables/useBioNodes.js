@@ -1,6 +1,9 @@
 import { computed } from 'vue'
 import { useAnnotationStore } from '../stores/annotationStore'
 import { useLibraryStore } from '../stores/libraryStore'
+import { useSimulationResultsStore } from '../stores/simulationResultsStore'
+import { readNodeSeries } from '../services/simulation/variableMapping'
+import { flowDirection, transportedSpecies } from '../services/bioView/transport'
 import { GLYPH_HEIGHT, GLYPH_WIDTH } from '../services/bioView/geometry'
 import { CARD, layoutBioView } from '../services/bioView/layout'
 import { resolveBioRole } from '../services/bioView/roles'
@@ -16,13 +19,18 @@ const Z = { region: -20, cell: -10 }
  * @param {Array<Object>} nodes - The diagram's nodes.
  * @param {Map<string, Object>} roles - Node id -> resolveBioRole's result.
  * @param {Map<string, Object>} layout - From layoutBioView.
+ * @param {Map<string, Array<Object>>} [transport] - Node id -> what its cartoon's arrows show (see useBioNodes).
  * @returns {Array<Object>} vue-flow nodes; parents come before their children.
  */
-export function bioFlowNodes(nodes, roles, layout) {
+export function bioFlowNodes(nodes, roles, layout, transport = new Map()) {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const base = (id) => {
     const node = byId.get(id)
-    return { id, selected: !!node.selected, data: { name: node.data?.name ?? id, domainType: node.data?.domainType ?? null } }
+    return {
+      id,
+      selected: !!node.selected,
+      data: { name: node.data?.name ?? id, domainType: node.data?.domainType ?? null },
+    }
   }
   const parents = []
   const children = []
@@ -32,12 +40,28 @@ export function bioFlowNodes(nodes, roles, layout) {
     switch (place.kind) {
       case 'cell': {
         const { x, y, width, height } = place.rect
-        parents.push({ ...base(id), type: 'bioCell', position: { x, y }, width, height, zIndex: Z.cell, data: { ...base(id).data, membrane: place.membrane, width, height } })
+        parents.push({
+          ...base(id),
+          type: 'bioCell',
+          position: { x, y },
+          width,
+          height,
+          zIndex: Z.cell,
+          data: { ...base(id).data, membrane: place.membrane, width, height },
+        })
         break
       }
       case 'region': {
         const { x, y, width, height } = place.rect
-        parents.push({ ...base(id), type: 'bioRegion', position: { x, y }, width, height, zIndex: Z.region, data: { ...base(id).data, side: place.side, at: place.adjacent?.[0]?.at ?? null } })
+        parents.push({
+          ...base(id),
+          type: 'bioRegion',
+          position: { x, y },
+          width,
+          height,
+          zIndex: Z.region,
+          data: { ...base(id).data, side: place.side, at: place.adjacent?.[0]?.at ?? null },
+        })
         break
       }
       case 'protein': {
@@ -52,6 +76,7 @@ export function bioFlowNodes(nodes, roles, layout) {
           data: {
             ...base(id).data,
             glyph: roles.get(id)?.glyph ?? 'generic',
+            arrows: transport.get(id) ?? [],
             facet: place.facet,
             annotatedFacet: roles.get(id)?.annotatedFacet ?? null,
             rotation: place.rotation,
@@ -68,17 +93,40 @@ export function bioFlowNodes(nodes, roles, layout) {
           position: { x: place.x, y: place.y },
           width: GLYPH_WIDTH,
           height: GLYPH_HEIGHT,
-          data: { ...base(id).data, glyph: roles.get(id)?.glyph ?? 'generic', annotatedFacet: roles.get(id)?.annotatedFacet ?? null, rotation: 0, unplaced: true, droppable: true },
+          data: {
+            ...base(id).data,
+            glyph: roles.get(id)?.glyph ?? 'generic',
+            arrows: transport.get(id) ?? [],
+            annotatedFacet: roles.get(id)?.annotatedFacet ?? null,
+            rotation: 0,
+            unplaced: true,
+            droppable: true,
+          },
         })
         break
       case 'cytosolic': {
         const cell = layout.get(place.cell).rect
-        children.push({ ...base(id), type: 'bioCard', parentNode: place.cell, extent: 'parent', position: { x: place.x - cell.x, y: place.y - cell.y }, width: CARD.width, height: CARD.height })
+        children.push({
+          ...base(id),
+          type: 'bioCard',
+          parentNode: place.cell,
+          extent: 'parent',
+          position: { x: place.x - cell.x, y: place.y - cell.y },
+          width: CARD.width,
+          height: CARD.height,
+        })
         break
       }
       case 'card':
         // Something with no physiological role can be dropped into a membrane to make it a protein.
-        parents.push({ ...base(id), type: 'bioCard', position: { x: place.x, y: place.y }, width: CARD.width, height: CARD.height, data: { ...base(id).data, droppable: true } })
+        parents.push({
+          ...base(id),
+          type: 'bioCard',
+          position: { x: place.x, y: place.y },
+          width: CARD.width,
+          height: CARD.height,
+          data: { ...base(id).data, droppable: true },
+        })
         break
       // A membrane is drawn as its cell's outline.
     }
@@ -110,6 +158,7 @@ export function bioViewForMove(bioNode, at) {
 export function useBioNodes(nodes) {
   const annotationStore = useAnnotationStore()
   const libraryStore = useLibraryStore()
+  const simulationResults = useSimulationResultsStore()
 
   const roles = computed(() => {
     const apiCoords = annotationStore.getApiCoords()
@@ -125,7 +174,26 @@ export function useBioNodes(nodes) {
     )
   })
   const layout = computed(() => layoutBioView(nodes.value, roles.value))
-  const bioNodes = computed(() => bioFlowNodes(nodes.value, roles.value, layout.value))
+
+  // What each membrane protein carries, from its sidecar, and which way, from the latest run.
+  const transport = computed(() => {
+    const { results, mapping } = simulationResults
+    const arrows = new Map()
+    for (const node of nodes.value) {
+      if (roles.value.get(node.id)?.role !== 'membraneProtein' || !node.data?.mathRef) continue
+      const carried = transportedSpecies(libraryStore.getParsedModuleAnnotations(node.data.mathRef))
+      arrows.set(
+        node.id,
+        carried.map(({ label, inside }) => ({
+          label,
+          direction:
+            results && mapping ? flowDirection(readNodeSeries(results, mapping, node.id, inside)?.values) : null,
+        }))
+      )
+    }
+    return arrows
+  })
+  const bioNodes = computed(() => bioFlowNodes(nodes.value, roles.value, layout.value, transport.value))
 
   /** Parses every module's sidecar, so roles from sidecars are known. */
   function loadSidecars() {

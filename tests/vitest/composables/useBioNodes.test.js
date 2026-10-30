@@ -70,6 +70,14 @@ describe('physiological view nodes', () => {
     expect(byId.loose.parentNode).toBeUndefined()
   })
 
+  it('gives each protein what its cartoon’s arrows show', () => {
+    const { nodes, roles, layout } = workspace()
+    const transport = new Map([['p', [{ label: 'Na⁺', direction: 'out' }]]])
+    const bio = bioFlowNodes(nodes, roles, layout, transport)
+    expect(bio.find((n) => n.id === 'p').data.arrows).toEqual([{ label: 'Na⁺', direction: 'out' }])
+    expect(bio.find((n) => n.id === 'loose').data.arrows).toEqual([])
+  })
+
   it('keeps a moved cell or region as its rect, and anything else as its position', () => {
     expect(bioViewForMove({ type: 'bioCell', width: 400, height: 300 }, { x: 10, y: 20 })).toEqual({ rect: { x: 10, y: 20, width: 400, height: 300 } })
     expect(bioViewForMove({ type: 'bioCard', width: 180, height: 72 }, { x: 5, y: 6 })).toEqual({ position: { x: 5, y: 6 } })
