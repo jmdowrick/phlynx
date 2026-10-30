@@ -18,9 +18,11 @@ vi.mock('@vue-flow/core', async (importOriginal) => ({
     edges,
     findNode: (id) => nodes.value.find((node) => node.id === id),
     findEdge: (id) => edges.value.find((edge) => edge.id === id),
-    updateNodeData: (id, patch) => {
+    updateNodeData: (id, update, options = { replace: false }) => {
       const node = nodes.value.find((candidate) => candidate.id === id)
-      if (node) node.data = { ...node.data, ...patch }
+      if (!node) return
+      const patch = typeof update === 'function' ? update(node) : update
+      node.data = options.replace ? patch : { ...node.data, ...patch }
     },
   }),
 }))
@@ -64,6 +66,18 @@ describe('useNodeDataHistory', () => {
 
     await history.redo()
     expect(findNode('a').data.name).toBe('renamed')
+  })
+
+  it('removes a key on undo that the edit added', async () => {
+    const setCategory = (value) =>
+      recordEdit({ type: 'set-node-category', nodeIds: ['a'], keys: ['domainType'], apply: () => (findNode('a').data = { ...findNode('a').data, domainType: value }) })
+    expect(await setCategory('highlight')).toBe(true)
+
+    await history.undo()
+    expect('domainType' in findNode('a').data).toBe(false)
+
+    await history.redo()
+    expect(findNode('a').data.domainType).toBe('highlight')
   })
 
   it('records nothing when the edit changes nothing', async () => {
