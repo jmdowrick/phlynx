@@ -34,7 +34,11 @@ from test_annotations import (  # noqa: E402
     TOY_HELD,
     TOY_MATHS,
     TOY_SIDECARS,
+    apply_annotations,
     import_files,
+    kind_only_pool_sidecars,
+    mock_ontology_services,
+    node_named,
     open_app,
     toy,
 )
@@ -462,6 +466,32 @@ def annotations_port_chips(page):
     save(dialog, "annotations-port-chips")
 
 
+def annotations_tab(page):
+    # On the context, not the page: the isolation service worker would hide its requests from page routes.
+    mock_ontology_services(page.context, [])
+    open_app(page)
+    apply_annotations(page, [toy(name) for name in TOY_MATHS], kind_only_pool_sidecars(), toy(TOY_APICOORDS), TOY_HELD)
+    wait_for_settled_transform(page)
+    dismiss_toasts(page)
+    node_named(page, "cell").dblclick()
+    dialog = page.locator(".module-editor-dialog")
+    dialog.get_by_role("tab", name=re.compile(r"Annotations \(")).click()
+    dialog.get_by_label("Show constants").check()
+    row = dialog.locator(".annotation-row[data-variable=c_A]")
+    row.locator("[data-test=annotate]").click()
+    row.locator("[data-test=property]").click()
+    page.get_by_role("option", name=re.compile(r"OPB:00340")).click()
+    row.locator("[data-test=species] input").fill("sodium")
+    options = page.locator(".p-autocomplete-option")
+    expect(options.filter(has_text="CHEBI:26708")).to_be_visible(timeout=10000)
+    options.filter(has_text="CHEBI:29101").first.click()
+    row.locator("[data-test=location]").get_by_text("This compartment", exact=True).click()
+    expect(row.locator("[data-test=derived]")).to_contain_text("port will be created")
+    page.mouse.move(5, VIEWPORT["height"] - 5)
+    page.wait_for_timeout(400)
+    save(dialog, "annotations-tab")
+
+
 SHOTS = {
     "phlynx_ui": phlynx_ui,
     "toolbar": toolbar,
@@ -484,6 +514,7 @@ SHOTS = {
     "annotations-apply-dialog": annotations_apply_dialog,
     "annotations-suggestions": annotations_suggestions,
     "annotations-port-chips": annotations_port_chips,
+    "annotations-tab": annotations_tab,
 }
 
 

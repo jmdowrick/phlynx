@@ -21,6 +21,8 @@ This guide uses a small synthetic model, whose files are in `tests/resources/ann
 
 ## Annotate a Module with a Sidecar {#write-a-sidecar}
 
+You can write a sidecar by hand, as below, or fill it in from the Instance Editor's [Annotations tab](#annotations-tab), which writes the same file.
+
 A sidecar is a Turtle file beside the module's CellML. It annotates one component, and each variable you want coupled. Subjects are `<./{file}#{component}>` for the component and `<./{file}#{component}.{variable}>` for a variable, or `<./{file}#{id}>` for a variable with a CellML `id`.
 
 ```turtle
@@ -45,6 +47,34 @@ m:pool.c_A bqbiol:isVersionOf opb:00340 ;
 A flux always means the rate **into** the located entity: the porter's `v_A_i` is into the cytoplasm and `v_A_o` into the extracellular region. Contributions are always added ×1, so a factor such as a charge number belongs in the math, as its own variable (the porter's `j_A = 1·v_A_i`), which you then annotate.
 
 PhLynx derives each variable's role from this, and never reads it from the file: a self-located quantity is an **owner** (or, for a flux, the **sum** of the fluxes into it); a relatively located one is a **reader** (or a **contributor** to a sum). See [Roles](../reference/annotation-vocabulary.md#roles).
+
+## Annotate in the Instance Editor {#annotations-tab}
+
+The Instance Editor's **Annotations** tab (tag icon) edits the module's sidecar for you. Its count, such as **Annotations (1/4)**, is how many listed variables are annotated.
+
+![The Annotations tab of the toy pool, annotating c_A as the Na⁺ concentration of the compartment](../assets/images/annotations-tab.png){.align-center width="800px"}
+
+- **Annotations belong to the math, not the instance.** Every instance of the math shares them; the banner says how many (**Shared by 3 instances**). Each instance's location still comes from its own ApiCoord.
+- **Module** sets the component's kind: **Compartment**, **Membrane**, **Transporter** (with its UniProt accession) or **None**.
+- Each row is a variable: annotated (chips, with **Edit** and **Clear**) or not annotated (**Annotate…**). **All**, **Unannotated** and **Annotated** filter the rows, and **Show constants** adds the constants. The variable of integration is never listed.
+- **Annotate…** or **Edit** opens a form:
+  - **Property**: one of the six coupling properties: concentration (`OPB:00340`), amount flow (`OPB:00592`), fluid volume (`OPB:00154`), area (`OPB:00295`), electrical potential (`OPB:00506`) or charge flow (`OPB:00318`).
+  - **Species**: type a name. Common species and those other sidecars in the workspace use come first, then ChEBI results [looked up online](#ontology-lookup). You can also paste a ChEBI CURIE or IRI.
+  - **Where**: **This compartment**, **Its membrane**, **Cytoplasm**, **Extracellular** or **Plasma membrane**.
+  - **Port** shows the role, multiport mode and whether the port will be created, exists or is connected.
+- Triples the tab can't show are listed under **Other annotations** and kept as written.
+
+Edits are a draft until you click **Apply** or **Save**; **Cancel** asks before discarding them. A transporter can't be saved without a UniProt accession. Editing a template module's math asks for a new component name first, as other math edits do. One undo reverts the sidecar and every instance's ports together.
+
+### Ontology Lookup {#ontology-lookup}
+
+Species are looked up in ChEBI, and transporter accessions in reviewed UniProt entries, as you type. PhLynx uses EBI's [OLS](https://www.ebi.ac.uk/ols4/) and [UniProt](https://www.uniprot.org/), which need no account. Only the terms you choose are saved, as CURIEs. Labels found are remembered in the browser for 30 days, so chips show names such as "sodium(1+)" instead of CURIEs. Obsolete terms are marked.
+
+Offline, the six properties, the five places, the common species, remembered labels and pasted CURIEs or accessions still work.
+
+### Ports from Annotations {#auto-ports}
+
+Every variable annotated with a property and a place has an annotated port, on every instance of the math. Ports are added, updated or removed when you apply or save, and when annotations are imported, pasted or a module is placed. If an edit would drop couplings, PhLynx asks first (**Removes N couplings on M connections**). A port you made by label is left as it is, beside the annotated one.
 
 ## Apply the Annotations {#apply}
 
@@ -86,13 +116,13 @@ ApiCoords say what an apical facet faces (the lumen, layer 0 of the cell's host)
 
 ## Annotated Ports {#annotated-ports}
 
-In the Instance Editor's **Ports** tab, and in the Connections dialog, an annotated port shows its meaning as chips in place of the label: species (green), property (blue) and location (amber). Its type and multiport mode are set by the annotation and can't be changed. The text comes from a small table of ontology labels; terms it doesn't know show as their CURIE.
+In the Instance Editor's **Ports** tab, and in the Connections dialog, an annotated port shows its meaning as chips in place of the label: species (green), property (blue) and location (amber). Its type and multiport mode are set by the annotation and can't be changed. The text comes from a table of common terms and the labels [looked up online](#ontology-lookup); other terms show as their CURIE.
 
-![The Ports tab of porter_in: chips instead of labels, and an annotated variable with no port yet](../assets/images/annotations-port-chips.png){.align-center width="800px"}
+![The Ports tab of porter_in: chips instead of labels](../assets/images/annotations-port-chips.png){.align-center width="800px"}
 
 Hover or click the chips for the detail: each term's IRI, where the location resolves on the instance's ApiCoord (for example `coord_porter_in → coord_cell → scope_tube`), the sidecar subject, and, for a mirrored port, where it was copied from. A low-confidence location has a dashed outline.
 
-Ports are made when a coupling is accepted, not when an instance is placed. Annotated variables with no port yet are listed greyed under **Annotated, no port yet**.
+Each annotated variable has its port from the start; see [Ports from Annotations](#auto-ports).
 
 An instance added from the library rather than by Apply has no ApiCoord, so it gets no suggestions.
 
