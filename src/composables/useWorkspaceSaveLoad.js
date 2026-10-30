@@ -1,6 +1,7 @@
 import { useGtm } from './useGtm'
 import { useClearWorkspace } from './useClearWorkspace'
 import { useAnnotationStore } from '../stores/annotationStore'
+import { useBioTemplateStore } from '../stores/bioTemplateStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useOmexStore } from '../stores/omexStore'
@@ -46,6 +47,7 @@ export function useWorkspaceSaveLoad({
   const simulationSettingsStore = useSimulationSettingsStore()
   const omexStore = useOmexStore()
   const annotationStore = useAnnotationStore()
+  const bioTemplateStore = useBioTemplateStore()
   const { trackEvent } = useGtm()
 
   /**
@@ -96,6 +98,7 @@ export function useWorkspaceSaveLoad({
       inspectionModules: inspectionModuleStore,
       omex: omexStore,
       annotations: annotationStore,
+      bioTemplates: bioTemplateStore,
     })
 
     const jsonString = JSON.stringify(saveState, null, 2)
@@ -147,6 +150,7 @@ export function useWorkspaceSaveLoad({
       inspectionModuleStore.loadState(migratedState.inspectionModules)
       omexStore.loadState(migratedState.workspace)
       annotationStore.loadState(migratedState.annotations)
+      bioTemplateStore.loadState(migratedState.bioTemplates)
 
       trackEvent('workflow_load_action', {
         category: 'Workflow',
