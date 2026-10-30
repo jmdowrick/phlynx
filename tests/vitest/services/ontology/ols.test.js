@@ -199,6 +199,11 @@ describe('lookupTerm', () => {
     expect(fetch).toHaveBeenCalledTimes(1)
   })
 
+  it('has nothing for a term OLS does not know, but reports other failures', async () => {
+    expect(await lookupTerm('CHEBI:99999999', { fetch: respondWith({}, 404) })).toBeNull()
+    await expect(lookupTerm('CHEBI:99999999', { fetch: respondWith({}, 503) })).rejects.toBeInstanceOf(LookupUnavailableError)
+  })
+
   it('has nothing for a term outside ChEBI and GO', async () => {
     const fetch = respondWith({})
     expect(await lookupTerm('OPB:00340', { fetch })).toBeNull()
