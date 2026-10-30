@@ -127,8 +127,8 @@ const slotPrompts = computed(() => {
         y: slot.y,
         active:
           activeSlot.value?.cellId === cell.id && activeSlot.value.facet === facet && activeSlot.value.order === order,
-      })),
-    ),
+      }))
+    )
   )
 })
 
@@ -210,7 +210,7 @@ function onNodeDragStop({ nodes }) {
           layout: layout.value,
           roles: roles.value,
           bioViews: bioViews(),
-        }),
+        })
       )
     } else if (layout.value.get(moved.id)?.kind === 'protein') {
       add(
@@ -219,7 +219,7 @@ function onNodeDragStop({ nodes }) {
           position: { x: at.x, y: at.y },
           layout: layout.value,
           bioViews: bioViews(),
-        }),
+        })
       )
     } else {
       plan.set(moved.id, {
@@ -303,7 +303,7 @@ function onNodeContextMenu({ event, node }) {
             position: trayPosition(),
             layout: layout.value,
             bioViews: bioViews(),
-          }),
+          })
         ),
     })
   }
@@ -314,7 +314,7 @@ function onNodeContextMenu({ event, node }) {
         label: 'Reset to Annotations',
         icon: 'pi pi-replay',
         command: () => applyPlan(new Map([[node.id, undefined]]), 'bio-reset'),
-      },
+      }
     )
   }
   menuItems.value = items
