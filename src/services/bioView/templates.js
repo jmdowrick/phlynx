@@ -413,6 +413,20 @@ export function validateTemplate(raw) {
     }
   }
 
+  const filledBy = new Map()
+  for (const compartment of compartments) {
+    if (formOf(cells, compartment.against).form !== 'gap') continue
+    compartment.against.forEach(name => filledBy.set(name, compartment.id))
+  }
+  for (const compartment of compartments) {
+    for (const name of compartment.against) {
+      const gap = filledBy.get(name)
+      if (gap && gap !== compartment.id) {
+        errors.push(`Compartment "${compartment.id}": facet "${name}" is already filled by the gap "${gap}".`)
+      }
+    }
+  }
+
   const seen = new Set()
   for (const piece of [...cells, ...compartments]) {
     if (!isPieceId(piece.id)) continue

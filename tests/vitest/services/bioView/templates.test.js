@@ -255,6 +255,16 @@ describe('validateTemplate', () => {
     it('a vertical gap between rows that are not adjacent', () => {
       failsWith(withCompartment({ against: ['a.basolateral', 'b.apical'] }, [cell('a'), cell('b', { row: 2 })]), '"b" must be in the row just below "a"')
     })
+    it('a band or column on a facet that a gap fills', () => {
+      const raw = base({
+        cells: [cell('a'), cell('b')],
+        compartments: [
+          { id: 'cleft', label: 'Cleft', against: ['a.right', 'b.left'] },
+          { id: 'side', label: 'Side', against: ['b.left'] },
+        ],
+      })
+      failsWith(raw, 'facet "b.left" is already filled by the gap "cleft"')
+    })
     it('two left facets', () => failsWith(withCompartment({ against: ['a.left', 'b.left'] }, [cell('a'), cell('b')]), 'one left or right facet'))
     it('three facets that are not one edge', () => {
       failsWith(withCompartment({ against: ['a.apical', 'a.left', 'a.right'] }), 'A compartment lies against facets')
