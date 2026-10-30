@@ -19,7 +19,7 @@ const VARIABLE_PREDICATES = new Set([BQBIOL.isVersionOf, BQBIOL.isPropertyOf])
  * @param {string} text - The sidecar RDF.
  * @param {{ mathRef?: string, cellml?: string, format?: string, baseIri?: string }} [options] - mathRef
  *   ('file:component') checks the subjects; cellml resolves '#id' subjects and checks variable names.
- * @returns {Promise<object>} See readSidecar.
+ * @returns {Promise<object>} See readSidecar; `unreadable` is set when the text does not parse.
  */
 export async function parseSidecar(text, { format = 'turtle', baseIri = SIDECAR_BASE_IRI, ...options } = {}) {
   let triples
@@ -28,6 +28,7 @@ export async function parseSidecar(text, { format = 'turtle', baseIri = SIDECAR_
   } catch (error) {
     return {
       ...emptySidecar(options.mathRef),
+      unreadable: true,
       warnings: [{ message: `Could not parse the sidecar: ${error.message}` }],
     }
   }

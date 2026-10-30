@@ -824,14 +824,40 @@ m:decay.k bqbiol:isVersionOf opb:00592 ; bqbiol:isPropertyOf m:decay .
     expect(row.findComponent(PortVariableSelect).exists()).toBe(false)
   })
 
-  it('lists the annotated variables that have no port yet as greyed chips', async () => {
+  it('gives each annotated variable a sidecar port, without counting it as an unsaved edit', async () => {
     mountDialog({ defaultTab: 'ports', initialPorts: [xPort()] })
-    await open()
-    await vi.waitFor(() => expect(wrapper.findAll('[data-test="unported-annotation"]')).toHaveLength(1))
+    const editor = await open()
+    await report(editor, 'init', XML)
+    await flushPromises()
 
-    const [row] = wrapper.findAll('[data-test="unported-annotation"]')
-    expect(row.text()).toContain('k')
-    expect(row.findComponent(AnnotationChips).props('muted')).toBe(true)
+    const ports = wrapper.vm.editablePorts
+    expect(ports.map((port) => port.annotation?.variable)).toEqual(['x', 'k'])
+    expect(ports[1]).toMatchObject({ variables: ['k'], multiportType: 'Sum', annotation: { role: 'aggregator' } })
+    expect(wrapper.vm.hasUnsavedEdits).toBe(false)
+    expect(wrapper.find('[data-test="unported-annotation"]').exists()).toBe(false)
+  })
+
+  it('asks before a save that drops a connected annotated port, and saves nothing when cancelled', async () => {
+    const other = { id: 'b', data: { name: 'b', mathRef: 'file:other', ports: [] } }
+    const xPortRef = xPort()
+    const partner = { ...xPort(), annotation: { ...xPort().annotation, subject: 'other#x', role: 'owner' } }
+    flowNodes.value = [{ id: 'a', data: { name: 'a', mathRef: MATH_REF, ports: [xPortRef] } }, other]
+    flowEdges.value = [{ id: 'e', source: 'a', target: 'b', data: { couplings: [{ sourcePort: xPortRef, targetPort: partner }] } }]
+    useLibraryStore().setModuleAnnotations(MATH_REF, SIDECAR.replace(/m:decay\.x [^\n]*\n/, ''))
+    confirm.mockImplementation(async ({ header }) => header !== 'Remove Couplings?')
+    mountDialog({ defaultTab: 'ports', initialPorts: [xPortRef] })
+    const editor = await open()
+    await report(editor, 'init', XML)
+    await flushPromises()
+
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await flushPromises()
+
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: 'Removes 1 coupling on 1 connection.' }))
+    expect(wrapper.emitted('confirm')).toBeUndefined()
+    confirm.mockImplementation(async () => true)
+    flowNodes.value = []
+    flowEdges.value = []
   })
 
   it('lets a mirrored port pick its variable, and says it needs one rather than a label', async () => {

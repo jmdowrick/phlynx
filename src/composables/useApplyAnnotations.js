@@ -6,6 +6,9 @@ import { useFlowHistoryStore } from '../stores/historyStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useNodeDataHistory } from './useNodeDataHistory'
 import { parseApiCoords } from '../services/annotations/apicoord'
+import { buildCouplingContext } from '../services/annotations/couple'
+import { reconcileAnnotatedPorts } from '../services/annotations/ports'
+import { reconcileNodePorts } from '../services/annotations/reconcileNodes'
 import { parseSidecar } from '../services/annotations/sidecar'
 import {
   aggregatorVariables,
@@ -35,11 +38,11 @@ import { extractGlobalConstants } from '../utils/variables'
  * @returns {{ readAnnotationFiles: Function, planRows: Function, applyAnnotations: Function }}
  */
 export function useApplyAnnotations({ fitViewParams, flowId = FLOW_IDS.MAIN } = {}) {
-  const { nodes, addNodes, findNode, fitView } = useVueFlow(flowId)
+  const { nodes, edges, addNodes, findNode, updateNodeData, fitView } = useVueFlow(flowId)
   const libraryStore = useLibraryStore()
   const annotationStore = useAnnotationStore()
   const historyStore = useFlowHistoryStore()
-  const { recordEdit } = useNodeDataHistory(flowId)
+  const { recordEdit, findIncidentEdgeIds } = useNodeDataHistory(flowId)
 
   /**
    * Parses the import's files and matches each sidecar to library math.
@@ -105,6 +108,28 @@ export function useApplyAnnotations({ fitViewParams, flowId = FLOW_IDS.MAIN } = 
     return modules.find((module) => module.moduleRef.endsWith(':default')) ?? modules[0] ?? null
   }
 
+  /**
+   * Gives existing nodes the sidecar ports of their math's newly stored sidecar, and recomputes the couplings of
+   * the edges touching them.
+   *
+   * @param {Array<string>} nodeIds
+   * @param {Map<string, Object|null>} parsed - Parsed sidecars by mathRef.
+   */
+  function reconcileStoredSidecars(nodeIds, parsed) {
+    if (!nodeIds.length) return
+    const sidecarFor = (mathRef) => parsed.get(mathRef)
+    const context = buildCouplingContext({
+      apiCoords: annotationStore.getApiCoords(),
+      sidecarFor: (mathRef) => parsed.get(mathRef) ?? libraryStore.getParsedModuleAnnotations(mathRef),
+      nodes: nodes.value,
+    })
+    const { ports, couplings } = reconcileNodePorts({ nodes: nodes.value, edges: edges.value, nodeIds, sidecarFor, context })
+    ports.forEach((nodePorts, nodeId) => updateNodeData(nodeId, { ports: nodePorts }))
+    edges.value.forEach((edge) => {
+      if (couplings.has(edge.id)) edge.data = { ...edge.data, couplings: couplings.get(edge.id) }
+    })
+  }
+
   async function fitAfterRender() {
     await nextTick()
     await new Promise((resolve) => setTimeout(resolve, 50))
@@ -113,8 +138,8 @@ export function useApplyAnnotations({ fitViewParams, flowId = FLOW_IDS.MAIN } = 
 
   /**
    * Applies a plan as one undo step: stores the sidecars and the instance file, adds the new instances in rank
-   * columns (existing nodes stay put), and binds new and existing nodes to their ApiCoords, holding the ticked
-   * ones constant. A new instance's annotated readers and sums become boundary conditions, since ports supply
+   * columns (existing nodes stay put), binds new and existing nodes to their ApiCoords, holding the ticked
+   * ones constant, and gives every node on a stored sidecar's math its sidecar ports. A new instance's annotated readers and sums become boundary conditions, since ports supply
    * them. Undo removes the instances and bindings; the stored files stay.
    *
    * @param {Awaited<ReturnType<typeof readAnnotationFiles>>} prepared
@@ -126,10 +151,12 @@ export function useApplyAnnotations({ fitViewParams, flowId = FLOW_IDS.MAIN } = 
    */
   async function applyAnnotations(prepared, { targets, rows }) {
     const modules = attachedModules(prepared.sidecars, targets)
+    const storedRefs = new Set()
     for (const module of modules) {
       const { text } = prepared.sidecars.find((entry) => entry.filename === module.filename)
       if (libraryStore.getModuleAnnotations(module.mathRef) !== text) {
         libraryStore.setModuleAnnotations(module.mathRef, text)
+        storedRefs.add(module.mathRef)
       }
     }
     const attached = new Set(modules.map((module) => module.filename))
@@ -139,10 +166,12 @@ export function useApplyAnnotations({ fitViewParams, flowId = FLOW_IDS.MAIN } = 
       annotationStore.addInstanceSource(prepared.instanceFile)
     }
 
-    const mathRefs = [...new Set(rows.map((row) => row.mathRef).filter(Boolean))]
-    const parsed = new Map(
-      await Promise.all(mathRefs.map(async (mathRef) => [mathRef, await libraryStore.ensureModuleAnnotations(mathRef)]))
-    )
+    const mathRefs = [...new Set([...rows.map((row) => row.mathRef).filter(Boolean), ...storedRefs])]
+    const [parsedEntries] = await Promise.all([
+      Promise.all(mathRefs.map(async (mathRef) => [mathRef, await libraryStore.ensureModuleAnnotations(mathRef)])),
+      annotationStore.ensureApiCoords(),
+    ])
+    const parsed = new Map(parsedEntries)
     const heldVariables = (mathRef) => aggregatorVariables(parsed.get(mathRef))
 
     const skipped = rows.filter((row) => !row.mathRef || (!row.nodeId && !moduleFor(row.mathRef))).map((r) => r.name)
@@ -169,6 +198,11 @@ export function useApplyAnnotations({ fitViewParams, flowId = FLOW_IDS.MAIN } = 
         libraryStore.getMathDefaults(row.mathRef)
       )
       node.data.apiCoord = { subject: row.subject, coordIri: row.coordIri, name: row.name }
+      const sidecar = parsed.get(row.mathRef)
+      if (sidecar) {
+        const variables = node.data.variables.map((variable) => variable.name)
+        node.data.ports = reconcileAnnotatedPorts(node.data.ports ?? [], sidecar, { mathRef: row.mathRef, variables }).ports
+      }
       // What other instances supply through ports: their values are only fallbacks, so none is required.
       node.data.variables = asBoundaryConditions(node.data.variables, suppliedVariables(parsed.get(row.mathRef)))
       if (row.heldConstant) {
@@ -183,6 +217,9 @@ export function useApplyAnnotations({ fitViewParams, flowId = FLOW_IDS.MAIN } = 
       }
     }
 
+    const reconcileIds = nodes.value.filter((node) => storedRefs.has(node.data?.mathRef)).map((node) => node.id)
+    const editIds = [...new Set([...toBind.map((row) => row.nodeId), ...reconcileIds])]
+
     historyStore.startBatch()
     try {
       if (newNodes.length) {
@@ -190,11 +227,12 @@ export function useApplyAnnotations({ fitViewParams, flowId = FLOW_IDS.MAIN } = 
         // Placed where planned: the drop-centring of a lone added node must not rewrite this step.
         historyStore.lastChangeWasAddSetter(false)
       }
-      if (toBind.length) {
+      if (editIds.length) {
         await recordEdit({
           type: 'apply-annotations',
-          nodeIds: toBind.map((row) => row.nodeId),
-          keys: ['apiCoord', 'annotationOverlay', 'variables'],
+          nodeIds: editIds,
+          keys: ['apiCoord', 'annotationOverlay', 'variables', 'ports'],
+          edgeIds: findIncidentEdgeIds(reconcileIds),
           apply: () => {
             for (const row of toBind) {
               const node = findNode(row.nodeId)
@@ -214,6 +252,7 @@ export function useApplyAnnotations({ fitViewParams, flowId = FLOW_IDS.MAIN } = 
                 variables,
               }
             }
+            reconcileStoredSidecars(reconcileIds, parsed)
           },
         })
       }

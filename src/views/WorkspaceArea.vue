@@ -614,7 +614,7 @@ import { useOmexStore } from '../stores/omexStore'
 import { useAnnotationStore } from '../stores/annotationStore'
 
 import { importOmexFile, extractOmexArchive, readArchiveEntries } from '../services/import/omex'
-import { restoreOmexAnnotations } from '../services/import/omexAnnotations'
+import { buildRestoredPorts, restoreOmexAnnotations } from '../services/import/omexAnnotations'
 import { withAnnotationData } from '../services/annotations/nodeData'
 import { findParamsForIdExtra, parseParamsForId, resolveParamsForIdRows } from '../services/simulation/paramsForId'
 import { putSlider } from '../services/simulation/parameterSliders'
@@ -1509,6 +1509,10 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
 
   // The sidecars and instance files; the nodes' bindings came back with the flow snapshot.
   restoreOmexAnnotations(result.annotations, { libraryStore, annotationStore })
+  if (!result.files?.flowSnapshot) {
+    const restoredPorts = await buildRestoredPorts(nodes.value, result.annotations?.sidecars, libraryStore)
+    restoredPorts.forEach((ports, nodeId) => updateNodeData(nodeId, { ports }))
+  }
 
   // Rebuild the edge index so the EdgeConnectionDialog subgraph is correct.
   rebuildNodeEdgeIndex()

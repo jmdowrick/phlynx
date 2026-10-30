@@ -8,6 +8,7 @@ import { getId as getNextEdgeId } from '../utils/edges'
 import { getId as getNextNodeId, generateUniqueInstanceName } from '../utils/nodes'
 import { detachReactivity } from '../utils/reactivity'
 import { withoutApiCoord } from '../services/annotations/nodeData'
+import { reconcileNodePorts } from '../services/annotations/reconcileNodes'
 
 /**
  * Whether a workspace keyboard shortcut should be left alone: the user is typing in an input, a dialog is
@@ -125,6 +126,37 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
     }
   }
 
+  /**
+   * Gives pasted nodes the sidecar ports of their math's sidecar here, and moves the pasted edges' couplings onto
+   * them. Nodes on math without a sidecar keep their ports.
+   *
+   * @param {Array<Object>} newNodes - Changed in place.
+   * @param {Array<Object>} newEdges - Changed in place.
+   */
+  async function reconcilePastedPorts(newNodes, newEdges) {
+    const mathRefs = [...new Set(newNodes.map((node) => node.data?.mathRef))].filter(
+      (mathRef) => mathRef && libraryStore.getModuleAnnotations(mathRef) !== null
+    )
+    if (!mathRefs.length) return
+    const parsed = new Map(
+      await Promise.all(mathRefs.map(async (mathRef) => [mathRef, await libraryStore.ensureModuleAnnotations(mathRef)]))
+    )
+    const { ports, couplings } = reconcileNodePorts({
+      nodes: [...nodes.value, ...newNodes],
+      edges: [...edges.value, ...newEdges],
+      nodeIds: newNodes.map((node) => node.id),
+      sidecarFor: (mathRef) => parsed.get(mathRef) ?? undefined,
+    })
+    for (const node of newNodes) {
+      if (ports.has(node.id)) node.data = { ...node.data, ports: ports.get(node.id) }
+    }
+    for (const edge of newEdges) {
+      if ((ports.has(edge.source) || ports.has(edge.target)) && couplings.has(edge.id)) {
+        edge.data = { ...edge.data, couplings: couplings.get(edge.id) }
+      }
+    }
+  }
+
   const pasteSelection = async (atMouse = false) => {
     let sourceClipboard = clipboard.value
 
@@ -228,6 +260,8 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
         })
       }
     })
+
+    await reconcilePastedPorts(newNodes, newEdges)
 
     getSelectedNodes.value.forEach((n) => (n.selected = false))
     getSelectedEdges.value.forEach((e) => (e.selected = false))

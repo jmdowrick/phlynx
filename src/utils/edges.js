@@ -38,6 +38,11 @@
  */
 
 import { findPort, isAnnotatedPort, portDisplayName, portIdentity } from './portIdentity'
+import { canKeepCoupling } from './ports'
+
+/** The annotation fields that decide whether a port couples; a renamed subject alone keeps its couplings. */
+const ANNOTATION_MEANING = ['property', 'species', 'location', 'role']
+const isSame = (value, otherValue) => JSON.stringify(value) === JSON.stringify(otherValue)
 
 /** portTypes that may appear on the source (outgoing) side of a coupling. */
 const SOURCE_COMPATIBLE_TYPES = new Set(['exit_ports', 'general_ports'])
@@ -143,33 +148,52 @@ export function resolvePortCouplings(
  * Recomputes the couplings of every edge touching a node, as they would be with the given ports for that node.
  * Each edge picks its slots by its position among the edges sharing its source and its target (see
  * resolvePortCouplings). A coupling with an annotated port is kept while both its ports are still there, since
- * labels can't recreate it. Pure: neither the edges nor the nodes are changed.
+ * labels can't recreate it; with a context, a coupling whose port's annotation changed is kept only while it still
+ * couples (see canKeepCoupling). Pure: neither the edges nor the nodes are changed.
  *
  * @param {string} nodeId
  * @param {Array} ports - The node's ports.
  * @param {Array} nodes - Workspace nodes, for the other end's ports.
  * @param {Array} edges - Workspace edges.
+ * @param {Object} [options]
+ * @param {Object} [options.context] - From buildCouplingContext, to re-check kept annotated couplings.
+ * @param {Map<string, Array<{ before: Object, after: Object }>>} [options.portChanges] - Ports replaced on each
+ *   node, so a coupling held by a port's old self follows it.
  * @returns {Map<string, Array>} Each touching edge's id to its couplings; an edge whose other node is missing is left out.
  */
-export function previewCouplings(nodeId, ports, nodes, edges) {
-  const portsOf = (id) => {
-    if (id === nodeId) return ports
+export function previewCouplings(nodeId, ports, nodes, edges, { context, portChanges } = {}) {
+  const nodeOf = (id) => {
     const node = nodes.find((candidate) => candidate.id === id)
-    return node && (node.data?.ports ?? [])
+    if (id === nodeId) return { ...(node ?? { id }), data: { ...node?.data, ports } }
+    return node
+  }
+  const findChange = (id, port) => portChanges?.get(id)?.find(({ before }) => findPort([before], port)) ?? null
+  const findCurrentPort = (id, nodePorts, port) => {
+    const replaced = findChange(id, port)?.after
+    return findPort(nodePorts, port) ?? (replaced ? findPort(nodePorts, replaced) : null)
+  }
+  const isReannotated = (id, port) => {
+    const change = findChange(id, port)
+    return !!change && ANNOTATION_MEANING.some((key) => !isSame(change.before.annotation?.[key], change.after.annotation?.[key]))
   }
   const couplings = new Map()
   for (const edge of edges) {
     if (edge.source !== nodeId && edge.target !== nodeId) continue
-    const sourcePorts = portsOf(edge.source)
-    const targetPorts = portsOf(edge.target)
-    if (!sourcePorts || !targetPorts) continue
+    const sourceNode = nodeOf(edge.source)
+    const targetNode = nodeOf(edge.target)
+    if (!sourceNode || !targetNode) continue
+    const sourcePorts = sourceNode.data?.ports ?? []
+    const targetPorts = targetNode.data?.ports ?? []
     const sourceIndex = edges.filter((e) => e.source === edge.source).indexOf(edge)
     const targetIndex = edges.filter((e) => e.target === edge.target).indexOf(edge)
     const kept = (edge.data?.couplings ?? []).flatMap(({ sourcePort, targetPort }) => {
       if (!isAnnotatedPort(sourcePort) && !isAnnotatedPort(targetPort)) return []
-      const source = findPort(sourcePorts, sourcePort)
-      const target = findPort(targetPorts, targetPort)
-      return source && target ? [{ sourcePort: source, targetPort: target }] : []
+      const source = findCurrentPort(edge.source, sourcePorts, sourcePort)
+      const target = findCurrentPort(edge.target, targetPorts, targetPort)
+      if (!source || !target) return []
+      const isChanged = isReannotated(edge.source, sourcePort) || isReannotated(edge.target, targetPort)
+      if (context && isChanged && !canKeepCoupling(source, sourceNode, target, targetNode, context)) return []
+      return [{ sourcePort: source, targetPort: target }]
     })
     couplings.set(edge.id, [...resolvePortCouplings(sourcePorts, targetPorts, sourceIndex, targetIndex), ...kept])
   }

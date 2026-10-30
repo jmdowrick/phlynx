@@ -371,28 +371,6 @@
                     @click="addPort"
                   />
                 </div>
-                <!-- Annotated variables get a port when a suggested coupling is accepted, not before -->
-                <div v-if="unportedAnnotations.length" class="unported-annotations">
-                  <div class="unported-annotations__title">
-                    Annotated, no port yet
-                    <span class="unported-annotations__hint">(made when a coupling is accepted)</span>
-                  </div>
-                  <div
-                    v-for="entry in unportedAnnotations"
-                    :key="entry.subject"
-                    class="unported-annotations__row"
-                    data-test="unported-annotation"
-                  >
-                    <span class="unported-annotations__variable">{{ entry.variable }}</span>
-                    <AnnotationChips
-                      :annotation="entry.annotation"
-                      :quantity="entry.quantity"
-                      :variable="entry.variable"
-                      :is-bound="isNodeBound"
-                      muted
-                    />
-                  </div>
-                </div>
               </div>
             </TabPanel>
 
@@ -549,12 +527,12 @@ import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useMathSession } from '../composables/useMathSession'
 import { useAppSettings } from '../composables/useAppSettings'
 import { useCouplingContext } from '../composables/useCouplingContext'
+import { useInstanceSave } from '../composables/useInstanceSave'
 
 import { isInitialisable } from '../services/math/variableKinds'
 import { resolveBoundaryValues } from '../services/export/boundaryValues'
 import { coordOf, quantityOfPort } from '../services/annotations/couple'
-import { roleOf } from '../services/annotations/match'
-import { portFor } from '../services/annotations/ports'
+import { reconcileAnnotatedPorts } from '../services/annotations/ports'
 import { fromAnnotationTitle } from '../services/annotations/display'
 import {
   createSinglePlotConfig,
@@ -603,6 +581,7 @@ const history = reactive(createHistory())
 const { trackEvent } = useGtm()
 const { nodes, edges } = useVueFlow()
 const { confirm } = useConfirmDialog()
+const { findDroppedCouplings } = useInstanceSave()
 const { settings: appSettings } = useAppSettings()
 
 /** Each units name's expansion beside its suggestion, in the units the user chose in Settings. */
@@ -1292,8 +1271,10 @@ async function loadEditor({ keepTab = false } = {}) {
   } catch (e) {
     console.error('Failed to load CellML source', e)
   }
+  await store.ensureModuleAnnotations(props.mathRef)
   if (requestId !== openRequestId) return
 
+  reconcileEditablePorts()
   savedEditorState.value = signEditorState()
   loading.value = false
   await nextTick()
@@ -1421,23 +1402,33 @@ const isNodeBound = computed(() => !!coordOf(instanceNode.value, couplingContext
 const portQuantity = (port) =>
   quantityOfPort(port, instanceNode.value ?? { id: props.id, data: { mathRef: props.mathRef } }, couplingContext.value)
 
-/** The annotated variables of this instance's math that no port carries yet, each with what its port would be. */
-const unportedAnnotations = computed(() => {
-  const sidecar = store.getParsedModuleAnnotations(props.mathRef)
-  if (!sidecar) return []
-  const ported = new Set(editablePorts.value.map((port) => port.annotation?.subject).filter(Boolean))
-  const node = instanceNode.value ?? { id: props.id, data: { mathRef: props.mathRef } }
-  return sidecar.variables
-    .filter((entry) => entry.subject && entry.property && entry.location && !ported.has(entry.subject))
-    .map((entry) => {
-      const port = portFor({ ...entry, role: roleOf(entry), mathRef: sidecar.mathRef ?? props.mathRef })
-      return {
-        subject: entry.subject,
-        variable: entry.variable,
-        annotation: port.annotation,
-        quantity: quantityOfPort(port, node, couplingContext.value),
-      }
-    })
+/** This instance's math's parsed sidecar, or undefined when it has none or it is not parsed yet. */
+const instanceSidecar = computed(() => store.getParsedModuleAnnotations(props.mathRef) ?? undefined)
+
+/**
+ * Gives each complete annotation of the math its sidecar port, as save would. A change made while nothing was
+ * edited joins the baseline, so it never shows as unsaved on its own.
+ */
+function reconcileEditablePorts() {
+  const sidecar = instanceSidecar.value
+  if (sidecar === undefined) return
+  const variables = parameterRows.value.map((row) => row.name)
+  const { ports, added, removed, changed } = reconcileAnnotatedPorts(editablePorts.value, sidecar, {
+    mathRef: props.mathRef,
+    variables,
+  })
+  if (!added.length && !removed.length && !changed.length) return
+  for (const { before, after } of changed) {
+    originalByPort.set(toRaw(after), originalByPort.get(toRaw(before)))
+    connectionsByPort.set(toRaw(after), connectionsByPort.get(toRaw(before)))
+  }
+  const wasUnchanged = signEditorState() === savedEditorState.value
+  editablePorts.value = ports
+  rebaselineEditorState(wasUnchanged)
+}
+
+watch([instanceSidecar, () => parameterRows.value.map((row) => row.name).join('\n')], () => {
+  if (!loading.value) reconcileEditablePorts()
 })
 
 /** Parses what annotated ports read; their chips fill in when it lands. */
@@ -1578,6 +1569,25 @@ function renamedPlotEntries() {
 }
 
 /**
+ * Asks before a save that would drop annotated couplings, as its sidecar ports are reconciled.
+ *
+ * @param {Object} save - The `confirm` payload.
+ * @returns {Promise<boolean>} Whether to go on.
+ */
+async function confirmDroppedCouplings(save) {
+  const dropped = await findDroppedCouplings(save)
+  if (!dropped.couplings) return true
+  const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`
+  return confirm({
+    header: 'Remove Couplings?',
+    message: `Removes ${plural(dropped.couplings, 'coupling')} on ${plural(dropped.connections, 'connection')}.`,
+    severity: 'warning',
+    acceptLabel: 'Save',
+    rejectLabel: 'Cancel',
+  })
+}
+
+/**
  * Validates and saves the instance, then closes the editor, or keeps it open on the saved instance.
  *
  * @param {{keepOpen?: boolean}|Event} [options] - A button's click event passes as no options.
@@ -1705,35 +1715,34 @@ async function handleSave(options) {
 
   const wasGlobal = new Set(props.variables.filter((row) => row.type === 'global_constant').map((row) => row.name))
 
-  emit(
-    'confirm',
-    detachReactivity({
-      id: props.id,
-      name: editableName.value,
-      mathRef: newMathRef,
-      previousMathRef: props.mathRef,
-      math: isMathChanged ? mathToSave : null,
-      layout: layoutToSave,
-      isLayoutChanged: !isMathChanged && session.isLayoutDirty(),
-      // Only rows that were already global edit the shared value; a row just switched to global joins it as is.
-      globalConstants: parameterRows.value
-        .filter((row) => row.type === 'global_constant')
-        .map(({ name, value, units, data_reference }) => ({
-          name,
-          value,
-          units,
-          data_reference,
-          overwrite: wasGlobal.has(name),
-        })),
-      variables: parameterRows.value,
-      ports: finalPorts,
-      // The instance's plotted variables, under the names this save gives them.
-      plotVariables: renamedPlotEntries(),
-      updateAll,
-      siblings: updateAll ? siblings.value : [],
-      keepOpen,
-    })
-  )
+  const save = detachReactivity({
+    id: props.id,
+    name: editableName.value,
+    mathRef: newMathRef,
+    previousMathRef: props.mathRef,
+    math: isMathChanged ? mathToSave : null,
+    layout: layoutToSave,
+    isLayoutChanged: !isMathChanged && session.isLayoutDirty(),
+    // Only rows that were already global edit the shared value; a row just switched to global joins it as is.
+    globalConstants: parameterRows.value
+      .filter((row) => row.type === 'global_constant')
+      .map(({ name, value, units, data_reference }) => ({
+        name,
+        value,
+        units,
+        data_reference,
+        overwrite: wasGlobal.has(name),
+      })),
+    variables: parameterRows.value,
+    ports: finalPorts,
+    // The instance's plotted variables, under the names this save gives them.
+    plotVariables: renamedPlotEntries(),
+    updateAll,
+    siblings: updateAll ? siblings.value : [],
+    keepOpen,
+  })
+  if (!(await confirmDroppedCouplings(save))) return
+  emit('confirm', save)
 
   if (keepOpen) reloadAfterSave = true
   else emit('update:modelValue', false)
@@ -2216,44 +2225,6 @@ async function handleSave(options) {
 
 .port-type-cell {
   display: block;
-}
-
-/* Annotated variables of the math that have no port yet */
-.unported-annotations {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 8px;
-  padding: 6px 8px;
-  border: 1px dashed var(--p-content-border-color);
-  border-radius: 4px;
-  max-height: 160px;
-  overflow-y: auto;
-}
-
-.unported-annotations__title {
-  font-size: 12px;
-  color: var(--p-text-muted-color);
-}
-
-.unported-annotations__hint {
-  font-size: 11px;
-}
-
-.unported-annotations__row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.unported-annotations__variable {
-  flex: none;
-  min-width: 6rem;
-  font-size: 12px;
-  color: var(--p-text-muted-color);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 /* A port's connection state, coloured as in the edge dialog's legend */

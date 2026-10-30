@@ -110,7 +110,7 @@ const fork = () =>
   })
 
 describe('useInstanceSave', () => {
-  let history, library, saveInstanceEdit
+  let history, library, saveInstanceEdit, findDroppedCouplings
 
   beforeAll(async () => {
     await ensureLibCellmlReady()
@@ -123,7 +123,7 @@ describe('useInstanceSave', () => {
     library.addMath(DECAY_REF, DECAY_XML)
     nodes.value = [createNode('a'), createNode('b')]
     edges.value = [{ id: 'e', source: 'a', target: 'b', data: { couplings: [] } }]
-    ;({ saveInstanceEdit } = useInstanceSave())
+    ;({ saveInstanceEdit, findDroppedCouplings } = useInstanceSave())
   })
 
   it('undoes a fork applied to every instance as one step, and redoes it exactly', async () => {
@@ -562,6 +562,56 @@ m:decay.k bqbiol:isVersionOf opb:00592 ;
       expect(library.getModuleAnnotations(DECAY_REF)).toBe('not turtle ;;')
       expect(warn).toHaveBeenCalled()
       warn.mockRestore()
+    })
+
+    const COMPLETE_SIDECAR = `@prefix sbo: <http://purl.obolibrary.org/obo/SBO_> .\n${DECAY_SIDECAR}m:decay bqbiol:is sbo:0000290 .\n`
+    const sidecarVariables = (id) =>
+      findNode(id)
+        .data.ports.filter((port) => port.annotation?.source?.kind === 'sidecar')
+        .map((port) => port.annotation.subject)
+
+    it('gives every node on the math one sidecar port per annotation, and one undo takes them away', async () => {
+      library.setModuleAnnotations(DECAY_REF, COMPLETE_SIDECAR)
+      await saveInstanceEdit(buildSave({ name: 'a' }))
+      const subjects = ['https://phlynx.invalid/modules/file#decay.x', 'https://phlynx.invalid/modules/file#decay.k']
+      expect(sidecarVariables('a')).toEqual(subjects)
+      expect(sidecarVariables('b')).toEqual(subjects)
+      expect(findNode('a').data.ports[0].label).toBe('p')
+
+      await history.undo()
+      expect(sidecarVariables('a')).toEqual([])
+      expect(sidecarVariables('b')).toEqual([])
+    })
+
+    it('moves sidecar ports and their couplings to forked math', async () => {
+      library.setModuleAnnotations(DECAY_REF, COMPLETE_SIDECAR)
+      await saveInstanceEdit(buildSave({ name: 'a', updateAll: true, siblings: ['b'] }))
+      const [xa] = findNode('a').data.ports.filter((port) => port.annotation?.variable === 'x')
+      const [kb] = findNode('b').data.ports.filter((port) => port.annotation?.variable === 'k')
+      edges.value = [{ id: 'e', source: 'a', target: 'b', data: { couplings: [{ sourcePort: xa, targetPort: kb }] } }]
+
+      await saveInstanceEdit(buildSave({ ...fork(), ports: findNode('a').data.ports }))
+      expect(sidecarVariables('a')).toEqual(['https://phlynx.invalid/modules/file#growth.x', 'https://phlynx.invalid/modules/file#growth.k'])
+      const annotated = edges.value[0].data.couplings.filter(({ sourcePort }) => sourcePort.annotation)
+      expect(annotated.map(({ sourcePort, targetPort }) => [sourcePort.annotation.subject, targetPort.annotation.subject])).toEqual([
+        ['https://phlynx.invalid/modules/file#growth.x', 'https://phlynx.invalid/modules/file#growth.k'],
+      ])
+    })
+
+    it('counts the couplings a save would drop, and drops them when saved', async () => {
+      library.setModuleAnnotations(DECAY_REF, COMPLETE_SIDECAR)
+      await saveInstanceEdit(buildSave({ name: 'a' }))
+      const [xa] = findNode('a').data.ports.filter((port) => port.annotation?.variable === 'x')
+      const [kb] = findNode('b').data.ports.filter((port) => port.annotation?.variable === 'k')
+      edges.value = [{ id: 'e', source: 'a', target: 'b', data: { couplings: [{ sourcePort: xa, targetPort: kb }] } }]
+
+      const save = buildSave({ name: 'a', annotations: { text: '' } })
+      expect(await findDroppedCouplings(save)).toEqual({ couplings: 1, connections: 1 })
+      expect(findNode('a').data.ports).toContain(xa)
+
+      await saveInstanceEdit(save)
+      expect(sidecarVariables('a')).toEqual([])
+      expect(edges.value[0].data.couplings.filter(({ sourcePort }) => sourcePort.annotation)).toEqual([])
     })
 
     it('leaves the sidecar alone when the save keeps the math', async () => {

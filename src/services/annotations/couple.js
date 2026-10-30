@@ -116,6 +116,24 @@ export function annotatedCompatible(portA, nodeA, portB, nodeB, context) {
   return !!qa && !!qb && pairing(qa, qb) !== null
 }
 
+/**
+ * Whether two annotated ports on two nodes carry the same property and species in complementary roles, leaving
+ * their places aside.
+ *
+ * @param {Object} portA
+ * @param {Object} nodeA
+ * @param {Object} portB
+ * @param {Object} nodeB
+ * @param {Object} context - From buildCouplingContext.
+ * @returns {boolean}
+ */
+export function annotationsAgree(portA, nodeA, portB, nodeB, context) {
+  const qa = quantityOfPort(portA, nodeA, context)
+  const qb = quantityOfPort(portB, nodeB, context)
+  if (!qa || !qb || qa.property !== qb.property || COMPLEMENTARY_ROLES[qa.role] !== qb.role) return false
+  return qa.species.length === qb.species.length && qa.species.every((term, index) => term === qb.species[index])
+}
+
 const contributionOf = (port) => port?.annotation?.contribution ?? 0
 
 /**

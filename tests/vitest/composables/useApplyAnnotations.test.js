@@ -201,6 +201,26 @@ describe('useApplyAnnotations', () => {
     expect(annotationStore.instanceSources).toHaveLength(1)
   })
 
+  it('gives new instances, and existing nodes on a newly annotated math, one sidecar port per annotation', async () => {
+    const variables = ['c_A', 'v_A', 'volume', 'area'].map((name) => ({ name }))
+    const existing = { id: 'kept', position: { x: 0, y: 0 }, data: { name: 'spare', mathRef: 'pool.cellml:pool', variables, ports: [] } }
+    nodes.value = [existing]
+    await applyFiles(toyFiles())
+
+    const sidecarVariables = (node) =>
+      node.data.ports.filter((port) => port.annotation?.source?.kind === 'sidecar').map((port) => port.variables[0]).sort()
+    const annotated = (mathRef) =>
+      library.getParsedModuleAnnotations(mathRef).variables.filter((entry) => entry.property && entry.location).map((entry) => entry.variable).sort()
+    const porterIn = nodes.value.find((node) => node.data.name === 'porter_in')
+    expect(annotated('porter.cellml:porter').length).toBeGreaterThan(0)
+    expect(sidecarVariables(porterIn)).toEqual(annotated('porter.cellml:porter'))
+    expect(sidecarVariables(nodes.value.find((node) => node.id === 'kept'))).toEqual(annotated('pool.cellml:pool'))
+
+    await history.undo()
+    expect(nodes.value.map((node) => node.id)).toEqual(['kept'])
+    expect(nodes.value[0].data.ports).toEqual([])
+  })
+
   it('applying twice binds to the same nodes and adds nothing', async () => {
     await applyFiles(toyFiles())
     const before = JSON.stringify(nodes.value)
