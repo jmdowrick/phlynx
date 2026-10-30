@@ -144,7 +144,7 @@ describe('bioTemplateStore', () => {
     expect(store.definitions.size).toBe(0)
 
     store.addInstance('enterocyte', { x: 0, y: 0 })
-    store.reset()
+    store.resetState()
     expect(store.getState()).toBeNull()
   })
 

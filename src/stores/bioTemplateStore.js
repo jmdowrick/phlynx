@@ -43,7 +43,7 @@ export const useBioTemplateStore = defineStore('bioTemplates', () => {
   /** Every template that can be added: the built-ins, then the user's. */
   const library = computed(() => [...BUILT_IN_TEMPLATES, ...localTemplates.value])
 
-  function reset() {
+  function resetState() {
     instances.value = []
     definitions.value = new Map()
   }
@@ -145,9 +145,20 @@ export const useBioTemplateStore = defineStore('bioTemplates', () => {
     return true
   }
 
-  /** @returns {{ instances: Array<Object>, definitions: Map<string, Object> }} */
+  /**
+   * Copies the store for undo. Unlike getState it keeps the definition objects, so edits recorded before a
+   * restore still recognise the store afterwards.
+   *
+   * @returns {{ instances: Array<Object>, definitions: Map<string, Object> }}
+   */
   function snapshot() {
     return { instances: instances.value.map(copyInstance), definitions: new Map(definitions.value) }
+  }
+
+  /** @param {ReturnType<typeof snapshot>} state - From snapshot. */
+  function restoreSnapshot(state) {
+    instances.value = state.instances.map(copyInstance)
+    definitions.value = new Map(state.definitions)
   }
 
   /**
@@ -181,9 +192,7 @@ export const useBioTemplateStore = defineStore('bioTemplates', () => {
       },
       isAt: (side) => !!states[side] && isSnapshot(states[side]),
       restore: (side) => {
-        if (!states[side]) return
-        instances.value = states[side].instances.map(copyInstance)
-        definitions.value = new Map(states[side].definitions)
+        if (states[side]) restoreSnapshot(states[side])
       },
     }
   }
@@ -195,7 +204,7 @@ export const useBioTemplateStore = defineStore('bioTemplates', () => {
    * @param {Object} [state] - From getState.
    */
   function loadState(state) {
-    reset()
+    resetState()
     if (!state) return
     const loaded = new Map()
     for (const [id, raw] of Object.entries(state.templates ?? {})) {
@@ -242,13 +251,15 @@ export const useBioTemplateStore = defineStore('bioTemplates', () => {
     definitions,
     localTemplates,
     library,
-    reset,
+    resetState,
     getDefinition,
     getInstance,
     addInstance,
     moveInstance,
     renameInstance,
     removeInstance,
+    snapshot,
+    restoreSnapshot,
     edit,
     loadState,
     getState,

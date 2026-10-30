@@ -37,7 +37,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
     const oldViewport = getViewport()
     const oldOmexState = omexStore.getState()
     const oldAnnotationState = annotationStore.getState()
-    const oldBioTemplateState = bioTemplateStore.getState()
+    const oldBioTemplateState = bioTemplateStore.snapshot()
     const oldSessionMetadata = sessionMetadataStore.getState()
 
     const undoState = () => {
@@ -46,7 +46,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
       if (flowId === FLOW_IDS.MAIN) {
         omexStore.loadState(oldOmexState)
         annotationStore.loadState(oldAnnotationState)
-        bioTemplateStore.loadState(oldBioTemplateState)
+        bioTemplateStore.restoreSnapshot(oldBioTemplateState)
         inspectionStore.loadState(oldInspectStore)
         sessionMetadataStore.loadState(oldSessionMetadata)
         simStore.loadState(oldSimStore)
@@ -70,7 +70,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
         inspectionStore.resetState()
         omexStore.resetState()
         annotationStore.resetState()
-        bioTemplateStore.reset()
+        bioTemplateStore.resetState()
         sessionMetadataStore.resetState()
         libraryStore.resetGlobalConstants()
       }

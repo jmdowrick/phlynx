@@ -92,4 +92,17 @@ describe('useClearWorkspace', () => {
     await historyStore.redo()
     expect(bioTemplateStore.getState()).toBeNull()
   })
+
+  it('undoes a clear so that an earlier template edit can still be undone', async () => {
+    const bioTemplateStore = useBioTemplateStore()
+    const historyStore = useFlowHistoryStore()
+    const add = bioTemplateStore.edit(() => bioTemplateStore.addInstance('enterocyte', { x: 0, y: 0 }))
+    add.apply()
+
+    const { clearWorkspace } = useClearWorkspace()
+    await clearWorkspace()
+    await historyStore.undo()
+
+    expect(add.isAt('after')).toBe(true)
+  })
 })
