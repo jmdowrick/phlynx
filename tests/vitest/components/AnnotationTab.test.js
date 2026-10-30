@@ -103,6 +103,7 @@ describe('AnnotationTab', () => {
     await mountTab()
     await wrapper.findComponent('[data-test="module-kind"]').vm.$emit('update:modelValue', 'transporter')
     const input = wrapper.find('[data-test="uniprot-accession"]')
+    expect(input.classes()).toContain('p-invalid')
 
     await input.setValue('not an accession')
     expect(wrapper.props('draft').transporter).toBeUndefined()
@@ -129,6 +130,15 @@ describe('AnnotationTab', () => {
       location: 'GO:0005737',
     })
     expect(rowOf('J').findComponent(AnnotationChips).exists()).toBe(true)
+  })
+
+  it('reads typed species text as a pasted ChEBI term, and drops text that is not one', async () => {
+    await mountTab()
+    await rowOf('J').find('[data-test="annotate"]').trigger('click')
+    const species = wrapper.findComponent(AutoComplete)
+
+    await species.vm.$emit('update:modelValue', ['chebi_29101', 'sodium'])
+    expect(species.props('modelValue').map((item) => item.curie)).toEqual(['CHEBI:29101'])
   })
 
   it('offers only the six coupling properties and the five places', async () => {

@@ -21,7 +21,7 @@
         <InputText
           v-if="kindValue === 'transporter'"
           v-model="accessionText"
-          :invalid="!!accessionText.trim() && !accession"
+          :invalid="!accession && (!!accessionText.trim() || !kind.transporter)"
           placeholder="UniProt accession, e.g. P11168"
           aria-label="UniProt accession"
           size="small"
@@ -219,7 +219,7 @@ import { displayLabel } from '../../services/annotations/labels'
 import { roleOf } from '../../services/annotations/match'
 import { multiportTypeFor } from '../../services/annotations/ports'
 import { listOtherTriples } from '../../services/annotations/sidecarEdit'
-import { searchSpecies } from '../../services/annotations/species'
+import { parseSpeciesTerm, searchSpecies } from '../../services/annotations/species'
 
 const props = defineProps({
   // Parameter rows, from useMathSession.
@@ -416,12 +416,13 @@ async function findSpecies(query) {
 }
 
 /**
- * Sets the chosen species from the AutoComplete's items.
+ * Sets the chosen species from the AutoComplete's items, reading typed text as a pasted term.
  *
- * @param {Array<{ curie: string }>} items
+ * @param {Array<{ curie: string }|string>} items
  */
 function setSpecies(items) {
-  form.species = [...new Set((items ?? []).map((item) => item.curie))]
+  const curies = (items ?? []).map((item) => (typeof item === 'string' ? parseSpeciesTerm(item) : item?.curie))
+  form.species = [...new Set(curies.filter(Boolean))]
 }
 
 // ── Other annotations ───────────────────────────────────────────────────────

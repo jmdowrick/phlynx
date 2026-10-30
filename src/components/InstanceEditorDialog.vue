@@ -1562,7 +1562,7 @@ async function findWorkspaceSpecies() {
  * @param {string} mathRef - The math the save writes.
  * @param {string|null} math - The saved math, or null when it is unchanged.
  * @returns {Promise<string>}
- * @throws {Error} When the sidecar does not parse or a term is not a known CURIE.
+ * @throws {Error} When the sidecar does not parse, a term is not a known CURIE or a transporter has no accession.
  */
 async function buildAnnotationText(mathRef, math) {
   let text = store.getModuleAnnotations(props.mathRef) ?? ''
@@ -1570,6 +1570,10 @@ async function buildAnnotationText(mathRef, math) {
   if (text && (mathRef !== props.mathRef || renames.size)) text = await renameSidecar(text, props.mathRef, mathRef, renames)
   const draft = annotationDraft.value
   const { componentKind, transporter } = getDraftKind(draft, null)
+  const hasSavedAccession = (instanceSidecar.value?.component?.is ?? []).some((curie) => hasPrefix(curie, 'uniprot'))
+  if (componentKind === 'transporter' && !transporter && !hasSavedAccession) {
+    throw new Error('a transporter needs a UniProt accession.')
+  }
   return editSidecar(text, mathRef, {
     ...(draft.componentKind !== undefined ? { componentKind, transporter: transporter ?? undefined } : {}),
     variables: draft.variables,

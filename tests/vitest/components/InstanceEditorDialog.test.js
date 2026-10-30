@@ -990,6 +990,14 @@ m:decay.x bqbiol:isVersionOf opb:00340 ; bqbiol:isPropertyOf [ bqbiol:is chebi:2
     expect(text).not.toContain('sbo:0000290')
   })
 
+  it('does not save a transporter without a UniProt accession', async () => {
+    const tab = await openTab()
+    await editDraft(tab, (draft, sidecar) => setDraftKind(draft, sidecar, 'transporter'))
+
+    await clickButton('Save')
+    expect(wrapper.emitted('confirm')).toBeUndefined()
+  })
+
   it('asks before clearing an annotation whose port is connected', async () => {
     const xPort = {
       portType: 'general_ports',
