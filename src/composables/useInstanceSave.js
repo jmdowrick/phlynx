@@ -268,6 +268,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    */
   async function saveInstanceEdit(save) {
     const { id, mathRef, previousMathRef, math, isLayoutChanged, updateAll, siblings } = save
+    const annotationChange = await prepareAnnotationChange(save)
     const affectedIds = [
       ...new Set([
         id,
@@ -282,7 +283,6 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     const isUsed = (ref) => nodes.value.some((node) => node.data?.mathRef === ref)
     const plotChange = preparePlotChange(save)
     const moduleChange = prepareModuleChange(save)
-    const annotationChange = await prepareAnnotationChange(save)
 
     await recordEdit({
       type: 'edit-instance',

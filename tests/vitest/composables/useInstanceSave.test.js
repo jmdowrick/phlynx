@@ -541,6 +541,29 @@ m:decay.k bqbiol:isVersionOf opb:00592 ;
       expect(history.canUndo).toBe(true)
     })
 
+    it('replaces the sidecar of math a save overwrites, and undo puts it back', async () => {
+      library.addMath(GROWTH_REF, GROWTH_XML)
+      const growthSidecar = DECAY_SIDECAR.replaceAll('decay', 'growth').replace('opb:00592', 'opb:00318')
+      library.setModuleAnnotations(GROWTH_REF, growthSidecar)
+      await saveInstanceEdit(buildSave({ mathRef: GROWTH_REF, math: GROWTH_XML.replace('<ci>k</ci>', '<cn>2</cn>') }))
+      expect(library.getModuleAnnotations(GROWTH_REF)).toContain('opb:00592')
+
+      await history.undo()
+      expect(library.getModuleAnnotations(GROWTH_REF)).toBe(growthSidecar)
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(DECAY_SIDECAR)
+    })
+
+    it('still saves, leaving the sidecars as they are, when the old sidecar does not parse', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      library.setModuleAnnotations(DECAY_REF, 'not turtle ;;')
+      await saveInstanceEdit(fork())
+      expect(findNode('a').data.mathRef).toBe(GROWTH_REF)
+      expect(library.getModuleAnnotations(GROWTH_REF)).toBeNull()
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe('not turtle ;;')
+      expect(warn).toHaveBeenCalled()
+      warn.mockRestore()
+    })
+
     it('leaves the sidecar alone when the save keeps the math', async () => {
       await saveInstanceEdit(buildSave({ name: 'a' }))
       history.clear()
