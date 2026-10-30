@@ -244,6 +244,12 @@ function layoutTemplates(scaffold, instances, layout) {
         return [cell.key, fitProcesses({ width: fitted.width, height: fitted.height }, cell.processes)]
       })
     )
+    // Cells in a row are as tall as its tallest, so a band along their bottoms meets every one.
+    for (const row of rows) {
+      const inRow = cells.filter((cell) => cell.row === row)
+      const height = Math.max(...inRow.map((cell) => sizes.get(cell.key).height))
+      for (const cell of inRow) sizes.set(cell.key, { ...sizes.get(cell.key), height })
+    }
     let y = origin.y + Math.max(0, ...cells.filter((cell) => cell.row === rows[0]).map((cell) => outOf(cell, 'top')))
     rows.forEach((row, r) => {
       const inRow = cells.filter((cell) => cell.row === row)

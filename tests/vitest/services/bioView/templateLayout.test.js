@@ -194,6 +194,17 @@ describe('template layout, with nodes bound', () => {
     expect(sites.find((site) => site.ref === 'bt-1/cell')).toMatchObject({ occupant: 'cyto', rect: places.get('cyto').rect })
   })
 
+  it('grows every cell in a row with the tallest, so the bands and the gap still meet each one', () => {
+    const nodes = ['p1', 'p2', 'p3'].map((id) => node(id, bound('bt-1/a.lateral-left')))
+    const { places } = layOut('two-cell-epithelium', nodes, new Map())
+    const a = places.get(key('a')).rect
+    const b = places.get(key('b')).rect
+    expect(a.height).toBeGreaterThan(240)
+    expect(b.height).toBe(a.height)
+    expect(places.get(key('basolateral-fluid')).rect.y).toBe(bottom(b) - CELL_RADIUS)
+    expect(places.get(key('paracellular')).rect).toMatchObject({ y: a.y, height: a.height })
+  })
+
   it('lets the first by name hold a one-module site and the rest fall back to their roles', () => {
     const nodes = [node('b', bound('bt-1/lumen')), node('a', bound('bt-1/lumen'))]
     const { places } = layOut('enterocyte', nodes, new Map([['b', role('none')]]))
