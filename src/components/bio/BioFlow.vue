@@ -183,7 +183,7 @@ const slotPrompts = computed(() => {
   if (!draggingId.value) return []
   return targets.value.flatMap((cell) =>
     (cell.shape ?? EPITHELIAL_SHAPE).facets.flatMap(({ id: part }) =>
-      slotPositions(cell.rect, part, cell.counts[part] + 1, cell.shape).map((slot, order) => ({
+      slotPositions(cell.rect, part, (cell.counts[part] ?? 0) + 1, cell.shape).map((slot, order) => ({
         key: `${cell.id}/${part}/${order}`,
         x: slot.x,
         y: slot.y,

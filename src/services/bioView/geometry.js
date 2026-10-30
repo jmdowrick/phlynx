@@ -168,7 +168,6 @@ export function fitCellRect(rect, counts, shape = EPITHELIAL_SHAPE) {
   }
 }
 
-
 /**
  * Gives the SVG path of a rounded rectangle, drawn clockwise from the top-left corner's end.
  *
