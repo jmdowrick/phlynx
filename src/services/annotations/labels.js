@@ -49,7 +49,7 @@ export function createTableSource(table) {
  * Creates a label provider that asks each source in turn, by canonical CURIE.
  *
  * @param {Array<{ labelFor: Function }>} sources - Earlier sources win.
- * @returns {{ labelFor: (iriOrCurie: string) => string|undefined, addSource: (source: object) => void }}
+ * @returns {{ labelFor: (iriOrCurie: string) => string|undefined, addSource: (source: object, options?: object) => void }}
  */
 export function createLabelProvider(sources = [createTableSource(BUILT_IN_LABELS), createTableSource(SPECIES_LABELS)]) {
   const ordered = [...sources]
@@ -62,8 +62,9 @@ export function createLabelProvider(sources = [createTableSource(BUILT_IN_LABELS
       }
       return undefined
     },
-    addSource(source) {
-      ordered.unshift(source)
+    addSource(source, { isFallback = false } = {}) {
+      if (isFallback) ordered.push(source)
+      else ordered.unshift(source)
     },
   }
 }
@@ -91,10 +92,12 @@ export function displayLabel(iriOrCurie) {
 }
 
 /**
- * Puts a source ahead of the default provider's built-in table.
+ * Puts a source ahead of the default provider's built-in table, or after every source as a fallback.
  *
  * @param {{ labelFor: Function }} source
+ * @param {Object} [options]
+ * @param {boolean} [options.isFallback] - Asked only when no other source has a label.
  */
-export function addLabelSource(source) {
-  defaultProvider.addSource(source)
+export function addLabelSource(source, options) {
+  defaultProvider.addSource(source, options)
 }

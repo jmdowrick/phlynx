@@ -4,12 +4,15 @@ import PrimeVue from 'primevue/config'
 import AutoComplete from 'primevue/autocomplete'
 import Select from 'primevue/select'
 import ToggleSwitch from 'primevue/toggleswitch'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AnnotationTab from '../../../src/components/annotations/AnnotationTab.vue'
 import AnnotationChips from '../../../src/components/AnnotationChips.vue'
 import { createAnnotationDraft } from '../../../src/services/annotations/draft.js'
 import { parseSidecar } from '../../../src/services/annotations/sidecar.js'
+import { LookupUnavailableError } from '../../../src/services/ontology/ols.js'
+import { resetTermCache } from '../../../src/services/ontology/termCache.js'
+import { createMemoryStorage } from '../helpers/memoryStorage.js'
 
 const MATH_REF = 'file:decay'
 const SIDECAR = `@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
@@ -36,7 +39,21 @@ const KINDS = new Map([
 ])
 
 let wrapper
-afterEach(() => wrapper?.unmount())
+beforeEach(() => {
+  vi.stubGlobal('localStorage', createMemoryStorage())
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      throw new TypeError('No network in tests')
+    })
+  )
+  resetTermCache()
+})
+afterEach(() => {
+  wrapper?.unmount()
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+})
 
 /**
  * Mounts the tab on the test sidecar, keeping its draft in step with what it emits.
@@ -102,14 +119,14 @@ describe('AnnotationTab', () => {
   it('takes a transporter’s UniProt accession only once it is valid', async () => {
     await mountTab()
     await wrapper.findComponent('[data-test="module-kind"]').vm.$emit('update:modelValue', 'transporter')
-    const input = wrapper.find('[data-test="uniprot-accession"]')
-    expect(input.classes()).toContain('p-invalid')
+    const accession = () => wrapper.find('[data-test="uniprot-accession"]')
+    expect(accession().classes()).toContain('p-invalid')
 
-    await input.setValue('not an accession')
+    await accession().find('input').setValue('not an accession')
     expect(wrapper.props('draft').transporter).toBeUndefined()
-    expect(input.classes()).toContain('p-invalid')
+    expect(accession().classes()).toContain('p-invalid')
 
-    await input.setValue('p11168')
+    await accession().find('input').setValue('p11168')
     expect(wrapper.props('draft')).toMatchObject({ componentKind: 'transporter', transporter: 'uniprot:P11168' })
   })
 
@@ -189,6 +206,103 @@ describe('AnnotationTab', () => {
     await species.vm.$emit('complete', { query: 'remote' })
     await flushPromises()
     expect(species.props('suggestions')).toEqual([{ curie: 'CHEBI:1', label: 'remote' }])
+  })
+
+  it('adds ChEBI results after the local ones, with an obsolete badge', async () => {
+    vi.useFakeTimers()
+    const searchRemoteSpecies = vi.fn(async () => [
+      { curie: 'CHEBI:29101', label: 'sodium(1+)' },
+      { curie: 'CHEBI:26708', label: 'sodium atom', isObsolete: true },
+    ])
+    await mountTab({ searchRemoteSpecies })
+    await rowOf('J').find('[data-test="annotate"]').trigger('click')
+    const species = wrapper.findComponent(AutoComplete)
+
+    species.vm.$emit('complete', { query: 'sodium' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(species.props('suggestions').map((item) => item.curie)).toEqual(['CHEBI:29101'])
+
+    await vi.advanceTimersByTimeAsync(300)
+    expect(searchRemoteSpecies).toHaveBeenCalledTimes(1)
+    expect(searchRemoteSpecies.mock.calls[0][0]).toBe('sodium')
+    expect(species.props('suggestions')).toEqual([
+      expect.objectContaining({ curie: 'CHEBI:29101', source: 'table' }),
+      { curie: 'CHEBI:26708', label: 'sodium atom', isObsolete: true, source: 'chebi' },
+    ])
+  })
+
+  it('searches online only for typed words, not pasted terms or short text', async () => {
+    vi.useFakeTimers()
+    const searchRemoteSpecies = vi.fn(async () => [])
+    await mountTab({ searchRemoteSpecies, lookupSpeciesTerm: async () => null })
+    await rowOf('J').find('[data-test="annotate"]').trigger('click')
+    const species = wrapper.findComponent(AutoComplete)
+
+    species.vm.$emit('complete', { query: 'na' })
+    species.vm.$emit('complete', { query: 'CHEBI:29101' })
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(searchRemoteSpecies).not.toHaveBeenCalled()
+  })
+
+  it('says the online lookup is unavailable but keeps the local species', async () => {
+    vi.useFakeTimers()
+    const searchRemoteSpecies = async () => {
+      throw new LookupUnavailableError('Offline')
+    }
+    await mountTab({ searchRemoteSpecies })
+    await rowOf('J').find('[data-test="annotate"]').trigger('click')
+    const species = wrapper.findComponent(AutoComplete)
+
+    species.vm.$emit('complete', { query: 'potassium' })
+    await vi.advanceTimersByTimeAsync(300)
+    expect(species.props('suggestions').map((item) => item.curie)).toEqual(['CHEBI:29103'])
+    expect(wrapper.vm.$.setupState.speciesLookup).toBe('unavailable')
+  })
+
+  it('labels a pasted species from its online lookup', async () => {
+    const lookupSpeciesTerm = vi.fn(async () => ({ label: 'remote label', isObsolete: true }))
+    await mountTab({ lookupSpeciesTerm })
+    await rowOf('J').find('[data-test="annotate"]').trigger('click')
+    const species = wrapper.findComponent(AutoComplete)
+
+    await species.vm.$emit('complete', { query: 'CHEBI:4167' })
+    await flushPromises()
+    expect(lookupSpeciesTerm).toHaveBeenCalledWith('CHEBI:4167')
+    expect(species.props('suggestions')[0]).toMatchObject({ curie: 'CHEBI:4167', label: 'remote label', isObsolete: true })
+  })
+
+  it('offers reviewed UniProt entries for the transporter and takes the chosen accession', async () => {
+    vi.useFakeTimers()
+    const searchProteins = vi.fn(async () => [
+      { curie: 'uniprot:P13866', accession: 'P13866', label: 'Sodium/glucose cotransporter 1', gene: 'SLC5A1', organism: 'Homo sapiens' },
+    ])
+    await mountTab({ searchProteins })
+    await wrapper.findComponent('[data-test="module-kind"]').vm.$emit('update:modelValue', 'transporter')
+    const accession = wrapper.findComponent('[data-test="uniprot-accession"]')
+
+    accession.vm.$emit('complete', { query: 'sglt1' })
+    await vi.advanceTimersByTimeAsync(300)
+    expect(accession.props('suggestions').map((entry) => entry.accession)).toEqual(['P13866'])
+
+    await accession.vm.$emit('update:modelValue', accession.props('suggestions')[0])
+    expect(wrapper.props('draft')).toMatchObject({ componentKind: 'transporter', transporter: 'uniprot:P13866' })
+  })
+
+  it('keeps a typed accession when UniProt is unavailable', async () => {
+    vi.useFakeTimers()
+    const searchProteins = async () => {
+      throw new LookupUnavailableError('Timed out')
+    }
+    await mountTab({ searchProteins })
+    await wrapper.findComponent('[data-test="module-kind"]').vm.$emit('update:modelValue', 'transporter')
+    const accession = wrapper.findComponent('[data-test="uniprot-accession"]')
+
+    accession.vm.$emit('complete', { query: 'P11168' })
+    await vi.advanceTimersByTimeAsync(300)
+    expect(wrapper.vm.$.setupState.proteinLookup).toBe('unavailable')
+
+    await accession.vm.$emit('update:modelValue', 'P11168')
+    expect(wrapper.props('draft').transporter).toBe('uniprot:P11168')
   })
 
   it('clears an annotation in the draft', async () => {
