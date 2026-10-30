@@ -119,6 +119,27 @@ describe('template layout, nothing bound', () => {
     expect(cleft.rect).toMatchObject({ x: right(cell) - CELL_RADIUS, y: cell.y, height: cell.height })
   })
 
+  it('stops bands along neighbouring cells halfway between them', () => {
+    const raw = getBuiltInTemplate('two-cell-epithelium')
+    const template = {
+      ...raw,
+      id: 'split',
+      compartments: [
+        { id: 'left-fluid', label: 'Left', against: ['a.apical'], tone: 'sky' },
+        { id: 'right-fluid', label: 'Right', against: ['b.apical'], tone: 'rose' },
+      ],
+    }
+    const { places } = layoutPhysiology([], new Map(), { instances: [instance('split')], definitions: new Map([['split', template]]) })
+    const a = places.get(key('a')).rect
+    const b = places.get(key('b')).rect
+    const one = places.get(key('left-fluid')).rect
+    const two = places.get(key('right-fluid')).rect
+    expect(one.x).toBe(a.x - GAP)
+    expect(right(one)).toBe((right(a) + b.x) / 2)
+    expect(two.x).toBe(right(one))
+    expect(right(two)).toBe(right(b) + GAP)
+  })
+
   it('stacks a later band outward, and puts a free compartment below everything', () => {
     const raw = getBuiltInTemplate('enterocyte')
     const template = {

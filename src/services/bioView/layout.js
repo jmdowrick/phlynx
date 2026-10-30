@@ -192,6 +192,28 @@ function fitProcesses(size, processes) {
 }
 
 /**
+ * Stops a band short of halfway to the nearest cell in its row it does not span, so bands along neighbouring
+ * cells meet without overlapping.
+ *
+ * @param {Object} rect - The band.
+ * @param {Object} piece - The compartment, from scaffoldFromTemplates.
+ * @param {Array<Object>} cells - Its instance's cells.
+ * @param {Map<string, Object>} rects - Cell key -> rect.
+ * @returns {Object} The band's rect.
+ */
+function clipBand(rect, piece, cells, rects) {
+  const spanned = new Set(piece.against.map((entry) => entry.cellKey))
+  const { row } = cells.find((cell) => spanned.has(cell.key))
+  const span = spanOf([...spanned].map((key) => rects.get(key)))
+  const others = cells.filter((cell) => cell.row === row && !spanned.has(cell.key)).map((cell) => rects.get(cell.key))
+  const before = others.filter((other) => other.x + other.width <= span.left).map((other) => other.x + other.width)
+  const after = others.filter((other) => other.x >= span.right).map((other) => other.x)
+  const left = Math.max(rect.x, ...before.map((edge) => (edge + span.left) / 2))
+  const right = Math.min(rect.x + rect.width, ...after.map((edge) => (edge + span.right) / 2))
+  return { ...rect, x: left, width: right - left }
+}
+
+/**
  * Lays out the cells and compartments of template instances. Each instance's cells go in rows from its
  * `at`, below the bands above its first row, left to right in declaration order; neighbours are spaced by
  * the compartment filling the gap between them, else the columns down their facing sides, else GAP. Bands
@@ -315,7 +337,7 @@ function layoutTemplates(scaffold, instances, layout) {
     for (const piece of pieces.filter((piece) => piece.form !== 'free')) {
       const { offset = null, index = 0 } = starts.get(piece.key) ?? {}
       const rect = compartmentRect(piece.form, piece.against, index, rects, piece.depth, offset)
-      placed.push([piece, rect])
+      placed.push([piece, piece.form === 'band' ? clipBand(rect, piece, cells, rects) : rect])
     }
     const all = [...cells.map((cell) => rects.get(cell.key)), ...placed.map(([, rect]) => rect)]
     const span = spanOf(all)
