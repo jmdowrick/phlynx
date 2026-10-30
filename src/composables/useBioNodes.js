@@ -7,7 +7,7 @@ import { flowDirection, transportedSpecies } from '../services/bioView/transport
 import { facePoint, handleFace } from '../services/bioView/faces'
 import { getHandleId } from '../utils/handles'
 import { GLYPH_HEIGHT, GLYPH_WIDTH } from '../services/bioView/geometry'
-import { CARD, layoutBioView } from '../services/bioView/layout'
+import { CARD, layoutPhysiology } from '../services/bioView/layout'
 import { resolveBioRole } from '../services/bioView/roles'
 
 /** Stacking: regions under cells under everything drawn on them. */
@@ -296,7 +296,7 @@ export function useBioNodes(nodes, edges = ref([])) {
       ])
     )
   })
-  const layout = computed(() => layoutBioView(nodes.value, roles.value))
+  const layout = computed(() => layoutPhysiology(nodes.value, roles.value).places)
 
   // What each membrane protein carries, from its sidecar, and which way, from the latest run.
   const transport = computed(() => {
