@@ -51,6 +51,17 @@
           </AutoComplete>
           <span v-if="accessionLabel" class="annotation-tab__protein" data-test="protein-label">{{ accessionLabel }}</span>
         </template>
+        <span v-if="kindSuggestion" class="annotation-tab__kind-suggestion" data-test="kind-suggestion">
+          <Button
+            :label="`Suggested: ${kindSuggestion.label}`"
+            text
+            size="small"
+            :aria-label="`Make this module ${kindSuggestion.label.toLowerCase()}`"
+            data-test="accept-kind"
+            @click="setKind(kindSuggestion.value)"
+          />
+          <InfoTip :text="kindSuggestion.why" :label="`Why ${kindSuggestion.label.toLowerCase()}: ${kindSuggestion.why}`" />
+        </span>
       </div>
 
       <div class="annotation-tab__toolbar">
@@ -69,6 +80,15 @@
           <span>Show constants</span>
         </label>
         <slot name="header-actions" />
+        <Button
+          v-if="confidentRows.length"
+          :label="`Accept ${confidentRows.length} confident suggestion${confidentRows.length === 1 ? '' : 's'}`"
+          icon="pi pi-check-circle"
+          size="small"
+          severity="secondary"
+          data-test="accept-all"
+          @click="acceptConfident"
+        />
       </div>
 
       <Message v-if="!isBound" severity="secondary" size="small" variant="simple" data-test="unbound-hint">
@@ -87,23 +107,78 @@
           <span class="annotation-row__name">{{ row.name }}</span>
           <span v-if="row.units" class="annotation-row__units">{{ row.units }}</span>
           <span class="annotation-row__body">
-            <template v-if="row.entry">
-              <AnnotationChips
-                :annotation="{ ...row.entry, variable: row.name }"
-                :variable="row.name"
-                :limit="3"
-                :is-bound="isBound"
+            <AnnotationChips
+              v-if="row.entry"
+              :annotation="{ ...row.entry, variable: row.name }"
+              :variable="row.name"
+              :limit="3"
+              :is-bound="isBound"
+            />
+            <i
+              v-if="row.unitsWarning"
+              v-tooltip.top="row.unitsWarning"
+              class="pi pi-exclamation-triangle annotation-row__lint"
+              role="img"
+              :aria-label="row.unitsWarning"
+              data-test="units-lint"
+            ></i>
+            <template v-if="row.suggestion">
+              <span class="annotation-suggestion" data-test="suggestion">
+                <button
+                  v-for="chip in row.suggestion.chips"
+                  :key="`${chip.slot}:${chip.key}`"
+                  type="button"
+                  :class="['annotation-ghost-chip', `annotation-ghost-chip--${chip.slot}`]"
+                  :data-slot="chip.slot"
+                  :aria-label="`Accept ${chip.text} as the ${chip.slot} of ${row.name}`"
+                  :title="`Accept the suggested ${chip.slot}`"
+                  data-test="ghost-chip"
+                  @click="acceptSlots(row, [chip.slot])"
+                >
+                  {{ chip.text }}
+                </button>
+              </span>
+              <span
+                :class="['annotation-confidence', `annotation-confidence--${row.suggestion.confidence}`]"
+                role="img"
+                :aria-label="`${row.suggestion.confidence} confidence`"
+                :title="`${row.suggestion.confidence === 'high' ? 'High' : 'Medium'} confidence`"
+                data-test="confidence"
+              ></span>
+              <InfoTip :text="row.suggestion.why.join('\n')" :label="`Why: ${row.suggestion.why.join('. ')}`" />
+              <Button
+                icon="pi pi-check"
+                text
+                rounded
+                size="small"
+                severity="success"
+                :aria-label="`Accept the suggestion for ${row.name}`"
+                data-test="accept-suggestion"
+                @click="acceptSlots(row, SLOTS)"
               />
               <Button
-                icon="pi pi-pencil"
+                icon="pi pi-ban"
                 text
                 rounded
                 size="small"
                 severity="secondary"
-                :aria-label="`Edit the annotation of ${row.name}`"
-                data-test="edit-annotation"
-                @click="startEditing(row)"
+                :aria-label="`Dismiss the suggestion for ${row.name}`"
+                data-test="dismiss-suggestion"
+                @click="dismissSuggestion(row)"
               />
+            </template>
+            <Button
+              v-if="row.entry || row.suggestion"
+              icon="pi pi-pencil"
+              text
+              rounded
+              size="small"
+              severity="secondary"
+              :aria-label="`Edit the annotation of ${row.name}`"
+              data-test="edit-annotation"
+              @click="startEditing(row)"
+            />
+            <template v-if="row.entry">
               <Button
                 icon="pi pi-times"
                 text
@@ -115,17 +190,15 @@
                 @click="clearEntry(row)"
               />
             </template>
-            <slot v-else name="row-suggestion" :row="row" :start-editing="() => startEditing(row)">
-              <Button
-                v-if="editingName !== row.name"
-                label="Annotate…"
-                link
-                size="small"
-                class="annotation-row__annotate"
-                data-test="annotate"
-                @click="startEditing(row)"
-              />
-            </slot>
+            <Button
+              v-else-if="!row.suggestion && editingName !== row.name"
+              label="Annotate…"
+              link
+              size="small"
+              class="annotation-row__annotate"
+              data-test="annotate"
+              @click="startEditing(row)"
+            />
           </span>
         </div>
 
@@ -189,6 +262,17 @@
             data-test="location"
           />
 
+          <Message
+            v-if="formUnitsWarning"
+            severity="warn"
+            size="small"
+            variant="simple"
+            class="annotation-editor__lint"
+            data-test="form-units-lint"
+          >
+            {{ formUnitsWarning }}
+          </Message>
+
           <span class="annotation-editor__label">Port</span>
           <span class="annotation-editor__derived" data-test="derived">
             <template v-if="formRole">
@@ -235,7 +319,8 @@ import SelectButton from 'primevue/selectbutton'
 import ToggleSwitch from 'primevue/toggleswitch'
 
 import AnnotationChips from '../AnnotationChips.vue'
-import { ROLE_DESCRIPTIONS, subjectText } from '../../services/annotations/display'
+import InfoTip from '../simulation/InfoTip.vue'
+import { ROLE_DESCRIPTIONS, locationText, subjectText } from '../../services/annotations/display'
 import {
   classifyAnnotationRow,
   getDraftEntry,
@@ -243,6 +328,7 @@ import {
   setDraftEntry,
   setDraftKind,
 } from '../../services/annotations/draft'
+import { checkPropertyUnits, guessAnnotations } from '../../services/annotations/guess'
 import { GO, OPB, canonicalCurie, hasPrefix } from '../../services/annotations/iris'
 import { displayLabel } from '../../services/annotations/labels'
 import { roleOf } from '../../services/annotations/match'
@@ -283,6 +369,14 @@ const props = defineProps({
   lookupSpeciesTerm: { type: Function, default: lookupTerm },
   // Searches reviewed UniProt entries for typed text, as (query, { signal }) => Promise<{ accession, label }[]>.
   searchProteins: { type: Function, default: searchUniprot },
+  // The math's analysis, from useMathSession, so a flow into d(x)/dt is guessed from x.
+  analysis: { type: Object, default: null },
+  // The library's units definitions, from mergeUnitDefinitions, to read each variable's dimensions.
+  unitDefinitions: { type: Map, default: () => new Map() },
+  // The math's component name, a hint at the module's kind.
+  componentName: { type: String, default: '' },
+  // Other parsed sidecars in the workspace, whose species terms the guesses prefer.
+  workspaceSidecars: { type: Array, default: () => [] },
 })
 
 const emit = defineEmits(['update:draft'])
@@ -297,8 +391,12 @@ const KIND_OPTIONS = [
 const FILTER_OPTIONS = [
   { value: 'all', label: 'All' },
   { value: 'unannotated', label: 'Unannotated' },
+  { value: 'suggested', label: 'Suggested' },
   { value: 'annotated', label: 'Annotated' },
 ]
+
+// An annotation's slots, in the order the suggestion chips show them.
+const SLOTS = ['species', 'property', 'location']
 
 const PROPERTY_OPTIONS = [
   OPB.concentration,
@@ -421,15 +519,109 @@ async function findProteins(query) {
   }
 }
 
+// ── Suggestions ─────────────────────────────────────────────────────────────
+const guess = computed(() => {
+  const { componentKind } = kind.value
+  const sidecar = props.sidecar ?? { variables: [] }
+  return guessAnnotations({
+    rows: props.rows,
+    kinds: props.variableKinds,
+    analysis: props.analysis,
+    componentName: props.componentName,
+    unitDefinitions: props.unitDefinitions,
+    sidecar: { ...sidecar, component: componentKind ? { ...sidecar.component, kind: componentKind } : null },
+    workspaceSidecars: props.workspaceSidecars,
+  })
+})
+
+const kindSuggestion = computed(() => {
+  const { kind: suggested, why } = guess.value.componentKind
+  if (kind.value.componentKind || !suggested || !why) return null
+  return { value: suggested, label: KIND_OPTIONS.find((option) => option.value === suggested).label, why }
+})
+
+// Variables whose suggestion the user dismissed; kept only while the tab is open.
+const dismissed = ref(new Set())
+watch(
+  () => props.mathRef,
+  () => {
+    dismissed.value = new Set()
+  }
+)
+
+/**
+ * Builds a row's suggestion: the guess's slots that its annotation leaves empty, as chips.
+ *
+ * @param {string} name
+ * @param {Object|null} entry - The row's annotation as the draft leaves it.
+ * @returns {{ property: string, species: string[], location: string|null, confidence: string, why: string[],
+ *   slots: Object, chips: Array<{ slot: string, key: string, text: string }> }|null}
+ */
+function buildRowSuggestion(name, entry) {
+  const guessed = guess.value.variables.get(name)
+  if (!guessed || dismissed.value.has(name)) return null
+  const slots = {
+    species: entry?.species?.length ? [] : guessed.species,
+    property: entry?.property ? null : guessed.property,
+    location: entry?.location ? null : guessed.location,
+  }
+  const chips = [
+    ...slots.species.map((curie) => ({ slot: 'species', key: curie, text: displayLabel(curie) })),
+    ...(slots.property ? [{ slot: 'property', key: slots.property, text: displayLabel(slots.property) }] : []),
+    ...(slots.location ? [{ slot: 'location', key: slots.location, text: locationText(slots.location) }] : []),
+  ]
+  return chips.length ? { ...guessed, slots, chips } : null
+}
+
+/**
+ * Builds the entry a row has once some of its suggested slots are accepted.
+ *
+ * @param {{ entry: Object|null, suggestion: Object }} row
+ * @param {string[]} slotNames - Of SLOTS.
+ * @returns {{ property: string|null, species: string[], location: string|null }}
+ */
+function buildAcceptedEntry(row, slotNames) {
+  const entry = { property: null, species: [], location: null, ...row.entry }
+  const { slots } = row.suggestion
+  if (slotNames.includes('species') && slots.species.length) entry.species = [...slots.species]
+  if (slotNames.includes('property') && slots.property) entry.property = slots.property
+  if (slotNames.includes('location') && slots.location) entry.location = slots.location
+  return entry
+}
+
+/**
+ * Accepts some of a row's suggested slots into the draft.
+ *
+ * @param {Object} row
+ * @param {string[]} slotNames - Of SLOTS.
+ */
+function acceptSlots(row, slotNames) {
+  emit('update:draft', setDraftEntry(props.draft, props.sidecar, row.name, buildAcceptedEntry(row, slotNames)))
+}
+
+/**
+ * Hides a row's suggestion until the tab is opened again.
+ *
+ * @param {{ name: string }} row
+ */
+function dismissSuggestion(row) {
+  dismissed.value = new Set([...dismissed.value, row.name])
+}
+
 // ── Rows ────────────────────────────────────────────────────────────────────
 const annotationRows = computed(() =>
   props.rows
-    .map((row) => ({
-      name: row.name,
-      units: row.units,
-      role: classifyAnnotationRow(row, props.variableKinds),
-      entry: getDraftEntry(props.draft, props.sidecar, row.name),
-    }))
+    .map((row) => {
+      const entry = getDraftEntry(props.draft, props.sidecar, row.name)
+      return {
+        name: row.name,
+        units: row.units,
+        role: classifyAnnotationRow(row, props.variableKinds),
+        entry,
+        suggestion: buildRowSuggestion(row.name, entry),
+        unitsWarning: entry?.property ? checkPropertyUnits(entry.property, row.units, props.unitDefinitions) : null,
+      }
+    })
     .filter((row) => row.role !== 'voi')
 )
 
@@ -438,24 +630,40 @@ const shownRows = computed(() =>
     if (row.role === 'constant' && !showConstants.value && !row.entry && editingName.value !== row.name) return false
     if (filter.value === 'annotated') return !!row.entry
     if (filter.value === 'unannotated') return !row.entry
+    if (filter.value === 'suggested') return !!row.suggestion
     return true
   })
 )
+
+// Unannotated rows whose suggestion every slot agrees on; constants are never among them.
+const confidentRows = computed(() =>
+  annotationRows.value.filter((row) => !row.entry && row.suggestion?.confidence === 'high')
+)
+
+/** Accepts every confident suggestion into the draft at once. */
+function acceptConfident() {
+  const draft = confidentRows.value.reduce(
+    (next, row) => setDraftEntry(next, props.sidecar, row.name, buildAcceptedEntry(row, SLOTS)),
+    props.draft
+  )
+  emit('update:draft', draft)
+}
 
 // ── Inline editor ───────────────────────────────────────────────────────────
 const editingName = ref(null)
 const form = reactive({ property: null, species: [], location: null })
 
 /**
- * Opens the inline editor on a row, filled from its annotation.
+ * Opens the inline editor on a row, filled from its annotation and then its suggestion.
  *
- * @param {{ name: string, entry: Object|null }} row
+ * @param {{ name: string, entry: Object|null, suggestion: Object|null }} row
  */
 function startEditing(row) {
+  const filled = row.suggestion ? buildAcceptedEntry(row, SLOTS) : row.entry
   editingName.value = row.name
-  form.property = row.entry?.property ?? null
-  form.species = [...(row.entry?.species ?? [])]
-  form.location = row.entry?.location ?? null
+  form.property = filled?.property ?? null
+  form.species = [...(filled?.species ?? [])]
+  form.location = filled?.location ?? null
   speciesNotice.value = ''
 }
 
@@ -486,6 +694,11 @@ const formRole = computed(() => (form.property && form.location ? roleOf(form) :
 
 const PORT_STATUS_TEXT = { connected: 'connected', exists: 'port exists' }
 const formPortStatus = computed(() => PORT_STATUS_TEXT[props.portStatus.get(editingName.value)] ?? 'port will be created')
+
+const formUnitsWarning = computed(() => {
+  const units = props.rows.find((row) => row.name === editingName.value)?.units
+  return form.property ? checkPropertyUnits(form.property, units, props.unitDefinitions) : null
+})
 
 // ── Species ─────────────────────────────────────────────────────────────────
 const speciesItems = computed(() => form.species.map((curie) => ({ curie, label: displayLabel(curie) })))
@@ -715,6 +928,73 @@ watch(
 .annotation-editor__derived {
   color: var(--p-text-muted-color);
   text-transform: none;
+}
+
+.annotation-editor__lint {
+  grid-column: 1 / -1;
+}
+
+.annotation-row__lint {
+  color: var(--p-orange-500);
+  font-size: 0.875rem;
+}
+
+.annotation-tab__kind-suggestion {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.annotation-suggestion {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.annotation-ghost-chip {
+  padding: 0.0625rem 0.5rem;
+  border: 1px dashed var(--ghost-color);
+  border-radius: 1rem;
+  background: transparent;
+  color: var(--p-text-muted-color);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.annotation-ghost-chip:hover,
+.annotation-ghost-chip:focus-visible {
+  border-style: solid;
+  color: var(--p-text-color);
+}
+
+.annotation-ghost-chip--species {
+  --ghost-color: var(--p-green-500);
+}
+
+.annotation-ghost-chip--property {
+  --ghost-color: var(--p-sky-500);
+}
+
+.annotation-ghost-chip--location {
+  --ghost-color: var(--p-amber-500);
+}
+
+.annotation-confidence {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+}
+
+.annotation-confidence--high {
+  background: var(--p-green-500);
+}
+
+.annotation-confidence--medium {
+  background: var(--p-amber-400);
 }
 
 .annotation-editor__actions {

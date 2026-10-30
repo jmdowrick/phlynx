@@ -424,6 +424,10 @@
                 :is-bound="isNodeBound"
                 :port-status="annotationPortStatus"
                 :workspace-terms="workspaceSpecies"
+                :workspace-sidecars="workspaceSidecars"
+                :analysis="mathAnalysis"
+                :unit-definitions="store.unitDefinitions"
+                :component-name="componentNameForEditor"
               />
             </TabPanel>
           </TabPanels>
@@ -506,7 +510,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick, toRaw } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick, shallowRef, toRaw } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
 import Button from 'primevue/button'
@@ -710,6 +714,7 @@ const {
   currentModel,
   currentLayout,
   parameterRows,
+  analysis: mathAnalysis,
   editorDefinitions,
   keptVariables,
   variableKinds,
@@ -1546,13 +1551,16 @@ const annotationPortStatus = computed(
 
 // ChEBI species other sidecars in the workspace use, offered first in the Annotations tab.
 const workspaceSpecies = ref([])
+// The other maths' parsed sidecars, whose species terms the Annotations tab's guesses prefer.
+const workspaceSidecars = shallowRef([])
 
-/** Collects the species every parsed sidecar in the workspace uses. */
+/** Collects every parsed sidecar in the workspace and the species they use. */
 async function findWorkspaceSpecies() {
   const refs = [...store.moduleAnnotations.keys()]
   const sidecars = await Promise.all(refs.map((ref) => store.ensureModuleAnnotations(ref).catch(() => null)))
   const terms = sidecars.flatMap((sidecar) => (sidecar?.variables ?? []).flatMap((entry) => entry.species ?? []))
   workspaceSpecies.value = [...new Set(terms)].filter((curie) => hasPrefix(curie, 'CHEBI')).sort()
+  workspaceSidecars.value = sidecars.filter((sidecar, i) => sidecar && refs[i] !== props.mathRef)
 }
 
 /**

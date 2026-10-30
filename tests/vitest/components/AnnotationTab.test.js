@@ -11,6 +11,7 @@ import AnnotationChips from '../../../src/components/AnnotationChips.vue'
 import { createAnnotationDraft } from '../../../src/services/annotations/draft.js'
 import { parseSidecar } from '../../../src/services/annotations/sidecar.js'
 import { LookupUnavailableError } from '../../../src/services/ontology/ols.js'
+import { mergeUnitDefinitions } from '../../../src/utils/units.js'
 import { resetTermCache } from '../../../src/services/ontology/termCache.js'
 import { createMemoryStorage } from '../helpers/memoryStorage.js'
 
@@ -328,5 +329,136 @@ describe('AnnotationTab', () => {
     await wrapper.setProps({ sharedCount: 1, isBound: true })
     expect(wrapper.find('[data-test="shared-banner"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="unbound-hint"]').exists()).toBe(false)
+  })
+})
+
+describe('AnnotationTab suggestions', () => {
+  const UNIT_DEFINITIONS = mergeUnitDefinitions([
+    `<model xmlns="http://www.cellml.org/cellml/2.0#" name="units">
+      <units name="mM"><unit prefix="milli" units="mole"/><unit units="litre" exponent="-1"/></units>
+      <units name="mol_per_s"><unit units="mole"/><unit units="second" exponent="-1"/></units>
+    </model>`,
+  ])
+  const PORTER_ROWS = [
+    { name: 't', units: 'second' },
+    { name: 'c_Na_i', units: 'mM' },
+    { name: 'c_Na_o', units: 'mM' },
+    { name: 'J_Na_i', units: 'mol_per_s' },
+    { name: 'J_Na_o', units: 'mol_per_s' },
+    { name: 'c_ATP', units: 'mM' },
+    { name: 'k', units: 'per_second', type: 'constant' },
+  ]
+  const PORTER_KINDS = new Map([
+    ['t', 'voi'],
+    ['c_Na_i', 'external'],
+    ['c_Na_o', 'external'],
+    ['J_Na_i', 'algebraic'],
+    ['J_Na_o', 'algebraic'],
+    ['c_ATP', 'external'],
+    ['k', 'constant'],
+  ])
+
+  /**
+   * Mounts the tab on a transporter's math with no sidecar yet.
+   *
+   * @param {Object} [props]
+   * @returns {import('@vue/test-utils').VueWrapper}
+   */
+  async function mountPorter(props = {}) {
+    wrapper = mount(AnnotationTab, {
+      props: {
+        rows: PORTER_ROWS,
+        variableKinds: PORTER_KINDS,
+        sidecar: null,
+        draft: createAnnotationDraft(),
+        mathRef: 'file:porter',
+        unitDefinitions: UNIT_DEFINITIONS,
+        'onUpdate:draft': (draft) => wrapper.setProps({ draft }),
+        ...props,
+      },
+      global: { plugins: [PrimeVue], directives: { tooltip: {} } },
+    })
+    await flushPromises()
+    return wrapper
+  }
+
+  const ghostChips = (name) => rowOf(name).findAll('[data-test="ghost-chip"]').map((chip) => chip.attributes('data-slot'))
+
+  it('shows each guess as ghost chips with its confidence, in place of Annotate…', async () => {
+    await mountPorter()
+    expect(ghostChips('J_Na_i')).toEqual(['species', 'property', 'location'])
+    expect(rowOf('J_Na_i').find('[data-test="confidence"]').classes()).toContain('annotation-confidence--high')
+    expect(rowOf('J_Na_i').find('[data-test="annotate"]').exists()).toBe(false)
+    expect(rowOf('c_ATP').find('[data-test="confidence"]').classes()).toContain('annotation-confidence--medium')
+    expect(ghostChips('c_ATP')).toEqual(['species', 'property'])
+  })
+
+  it('suggests the module kind with its reason, and drafts it when accepted', async () => {
+    await mountPorter()
+    expect(wrapper.find('[data-test="kind-suggestion"]').text()).toContain('Suggested: Transporter')
+    await wrapper.find('[data-test="accept-kind"]').trigger('click')
+    expect(wrapper.props('draft').componentKind).toBe('transporter')
+    expect(wrapper.find('[data-test="kind-suggestion"]').exists()).toBe(false)
+  })
+
+  it('accepts a whole suggestion, or one slot by its chip', async () => {
+    await mountPorter()
+    await rowOf('J_Na_i').find('[data-test="accept-suggestion"]').trigger('click')
+    expect(wrapper.props('draft').variables.get('J_Na_i')).toEqual({
+      property: 'OPB:00592',
+      species: ['CHEBI:29101'],
+      location: 'GO:0005737',
+    })
+
+    await rowOf('c_Na_o').find('[data-slot="property"]').trigger('click')
+    expect(wrapper.props('draft').variables.get('c_Na_o')).toEqual({ property: 'OPB:00340', species: [], location: null })
+    expect(rowOf('c_Na_o').findComponent(AnnotationChips).exists()).toBe(true)
+    expect(ghostChips('c_Na_o')).toEqual(['species', 'location'])
+  })
+
+  it('dismisses a suggestion until the tab opens on another math', async () => {
+    await mountPorter()
+    await rowOf('c_ATP').find('[data-test="dismiss-suggestion"]').trigger('click')
+    expect(rowOf('c_ATP').find('[data-test="suggestion"]').exists()).toBe(false)
+    expect(rowOf('c_ATP').find('[data-test="annotate"]').exists()).toBe(true)
+    expect(wrapper.props('draft').variables.size).toBe(0)
+  })
+
+  it('accepts every confident suggestion at once, and only those', async () => {
+    await mountPorter()
+    const acceptAll = wrapper.find('[data-test="accept-all"]')
+    expect(acceptAll.text()).toBe('Accept 4 confident suggestions')
+
+    await acceptAll.trigger('click')
+    expect([...wrapper.props('draft').variables.keys()].sort()).toEqual(['J_Na_i', 'J_Na_o', 'c_Na_i', 'c_Na_o'])
+    expect(wrapper.props('draft').variables.get('c_Na_o').location).toBe('GO:0005576')
+    expect(wrapper.find('[data-test="accept-all"]').exists()).toBe(false)
+  })
+
+  it('filters to the suggested rows', async () => {
+    await mountPorter()
+    await wrapper.findComponent('[data-test="filter"]').vm.$emit('update:modelValue', 'suggested')
+    expect(shownVariables()).toEqual(['c_Na_i', 'c_Na_o', 'J_Na_i', 'J_Na_o', 'c_ATP'])
+  })
+
+  it('opens the editor filled from the suggestion', async () => {
+    await mountPorter()
+    await rowOf('J_Na_o').find('[data-test="edit-annotation"]').trigger('click')
+    const editor = wrapper.find('[data-test="annotation-editor"]')
+    expect(editor.findComponent(Select).props('modelValue')).toBe('OPB:00592')
+    expect(editor.findComponent('[data-test="location"]').props('modelValue')).toBe('GO:0005576')
+  })
+
+  it('warns when a property disagrees with the units, in the editor and on the row', async () => {
+    await mountPorter()
+    await rowOf('J_Na_i').find('[data-test="edit-annotation"]').trigger('click')
+    const editor = wrapper.find('[data-test="annotation-editor"]')
+    expect(editor.find('[data-test="form-units-lint"]').exists()).toBe(false)
+
+    await editor.findComponent(Select).vm.$emit('update:modelValue', 'OPB:00340')
+    expect(editor.find('[data-test="form-units-lint"]').text()).toContain('mol_per_s is not, which is an amount flow')
+
+    await editor.find('[data-test="done"]').trigger('click')
+    expect(rowOf('J_Na_i').find('[data-test="units-lint"]').exists()).toBe(true)
   })
 })

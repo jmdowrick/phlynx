@@ -1041,6 +1041,16 @@ m:decay.x bqbiol:isVersionOf opb:00340 ; bqbiol:isPropertyOf [ bqbiol:is chebi:2
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
   })
 
+  it('gives the tab what its guesses read: the analysis, the units, the component and the other sidecars', async () => {
+    const otherRef = 'file:other'
+    useLibraryStore().setModuleAnnotations(otherRef, SIDECAR.replace(/decay/g, 'other'))
+    const tab = await openTab()
+    expect(tab.props('analysis')?.declared.map((variable) => variable.name)).toContain('x')
+    expect(tab.props('unitDefinitions')).toBeInstanceOf(Map)
+    expect(tab.props('componentName')).toBe('decay')
+    expect(tab.props('workspaceSidecars').map((sidecar) => sidecar.mathRef)).toEqual([otherRef])
+  })
+
   it('says how many instances share the annotations', async () => {
     flowNodes.value = [
       { id: 'a', data: { name: 'a', mathRef: MATH_REF } },

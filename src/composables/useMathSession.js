@@ -567,6 +567,7 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
     currentModel,
     currentLayout,
     parameterRows,
+    analysis,
     editorDefinitions,
     keptVariables,
     variableKinds,
