@@ -190,7 +190,8 @@ export function layoutPhysiology(nodes, roles, { instances = [], definitions = n
   const forms = new Map(scaffold.compartments.map((piece) => [piece.key, formOfAgainst(piece.against)]))
   const besideCell = (cellKey, edge) =>
     scaffold.compartments
-      .filter((piece) => forms.get(piece.key) === 'column' && piece.against[0].cellKey === cellKey && piece.against[0].edge === edge)
+      .filter((piece) => forms.get(piece.key) === 'column' && piece.against[0].cellKey === cellKey)
+      .filter((piece) => piece.against[0].edge === edge)
       .reduce((sum, piece) => sum + (piece.depth ?? SIDE_REGION_WIDTH), 0)
 
   // Cells, left to right; each grows to fit its proteins.
@@ -246,7 +247,8 @@ export function layoutPhysiology(nodes, roles, { instances = [], definitions = n
       against = [{ cellKey: '', facetId, edge: facetById(EPITHELIAL_SHAPE, facetId).edge }]
       placed = new Map([['', { x: left, y: top, width: right - left, height: bottom - top }]])
     }
-    const key = form === 'column' ? `${against[0].cellKey}/${against[0].facetId}` : form === 'free' ? piece.side : against[0].facetId
+    const [first] = against
+    const key = form === 'column' ? `${first.cellKey}/${first.facetId}` : form === 'free' ? piece.side : first.facetId
     const index = stacked.get(key) ?? 0
     stacked.set(key, index + 1)
     let rect = isRect(piece.storedRect) ? piece.storedRect : compartmentRect(form, against, index, placed, piece.depth)
