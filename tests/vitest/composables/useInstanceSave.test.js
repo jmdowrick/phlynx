@@ -466,4 +466,87 @@ describe('useInstanceSave', () => {
       expect(useSimulationSettingsStore().plotConfig).toEqual({})
     })
   })
+
+  describe('module annotations', () => {
+    const DECAY_SIDECAR = `@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
+@prefix opb: <http://identifiers.org/opb/OPB_> .
+@prefix m: <./file#> .
+
+m:decay.x bqbiol:isVersionOf opb:00340 ;
+    bqbiol:isPropertyOf m:decay .
+m:decay.k bqbiol:isVersionOf opb:00592 ;
+    bqbiol:isPropertyOf m:decay .
+`
+    const RENAMED_GROWTH_XML = GROWTH_XML.replaceAll('"k"', '"kd"').replaceAll('<ci>k</ci>', '<ci>kd</ci>')
+
+    beforeEach(() => {
+      library.setModuleAnnotations(DECAY_REF, DECAY_SIDECAR)
+    })
+
+    it('copies the sidecar to forked math, which the old math keeps, and one undo removes the copy', async () => {
+      await saveInstanceEdit(fork())
+      const copied = library.getModuleAnnotations(GROWTH_REF)
+      expect(copied).toContain('m:growth.x')
+      expect(copied).toContain('m:growth.k ')
+      expect(copied).not.toContain('decay')
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(DECAY_SIDECAR)
+
+      await history.undo()
+      expect(library.getModuleAnnotations(GROWTH_REF)).toBeNull()
+      expect(findNode('a').data.mathRef).toBe(DECAY_REF)
+
+      await history.redo()
+      expect(library.getModuleAnnotations(GROWTH_REF)).toBe(copied)
+    })
+
+    it('renames the subjects of variables the new math renamed', async () => {
+      await saveInstanceEdit(buildSave({ mathRef: GROWTH_REF, math: RENAMED_GROWTH_XML }))
+      const copied = library.getModuleAnnotations(GROWTH_REF)
+      expect(copied).toContain('m:growth.kd')
+      expect(copied).toContain('m:growth.x')
+      expect(copied).not.toContain('m:growth.k ')
+    })
+
+    it('renames subjects in place when math is overwritten under its own reference', async () => {
+      await saveInstanceEdit(buildSave({ math: DECAY_XML.replaceAll('"k"', '"kd"').replaceAll('<ci>k</ci>', '<ci>kd</ci>') }))
+      expect(library.getModuleAnnotations(DECAY_REF)).toContain('m:decay.kd')
+
+      await history.undo()
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(DECAY_SIDECAR)
+    })
+
+    it('writes the annotations a save carries, and one undo puts back the sidecar and the nodes', async () => {
+      const text = DECAY_SIDECAR.replace('opb:00592', 'opb:00318')
+      await saveInstanceEdit(buildSave({ annotations: { text } }))
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(text)
+      expect(findNode('a').data.name).toBe('a2')
+
+      await history.undo()
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(DECAY_SIDECAR)
+      expect(findNode('a').data.name).toBe('a')
+    })
+
+    it('clears the sidecar when a save carries empty annotations', async () => {
+      await saveInstanceEdit(buildSave({ annotations: { text: '' } }))
+      expect(library.getModuleAnnotations(DECAY_REF)).toBeNull()
+
+      await history.undo()
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(DECAY_SIDECAR)
+    })
+
+    it('records a save that only changes the annotations', async () => {
+      await saveInstanceEdit(buildSave({ name: 'a' }))
+      history.clear()
+      await saveInstanceEdit(buildSave({ name: 'a', annotations: { text: DECAY_SIDECAR.replace('opb:00592', 'opb:00318') } }))
+      expect(history.canUndo).toBe(true)
+    })
+
+    it('leaves the sidecar alone when the save keeps the math', async () => {
+      await saveInstanceEdit(buildSave({ name: 'a' }))
+      history.clear()
+      await saveInstanceEdit(buildSave({ name: 'a' }))
+      expect(history.canUndo).toBe(false)
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(DECAY_SIDECAR)
+    })
+  })
 })
