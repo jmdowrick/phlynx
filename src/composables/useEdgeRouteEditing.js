@@ -1,7 +1,9 @@
 import { useVueFlow } from '@vue-flow/core'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useFlowHistoryStore } from '../stores/historyStore'
+import { useEdgeDragOffsets } from './useEdgeDragOffsets'
 import {
+  MAX_WAYPOINTS,
   editableRoute,
   getEdgeWaypoints,
   moveSegment,
@@ -35,7 +37,8 @@ export function setEdgeRoute({ findEdge, history }, edgeId, waypoints) {
   if (!edge) return false
   const before = getEdgeWaypoints(edge)
   const after = waypoints?.length ? waypoints : undefined
-  if (sameWaypoints(before, after)) return false
+  // A longer route would be refused when drawn, so it isn't stored.
+  if ((after?.length ?? 0) > MAX_WAYPOINTS || sameWaypoints(before, after)) return false
 
   const apply = (value) => {
     const target = findEdge(edgeId)
@@ -56,6 +59,7 @@ export function setEdgeRoute({ findEdge, history }, edgeId, waypoints) {
 export function useEdgeRouteEditing(props) {
   const { findEdge, getSelectedEdges, screenToFlowCoordinate, viewport } = useVueFlow()
   const history = useFlowHistoryStore()
+  const { edgeDragOffsets } = useEdgeDragOffsets()
 
   const draft = ref(null)
   let drag = null
@@ -64,7 +68,8 @@ export function useEdgeRouteEditing(props) {
 
   // The segments between the two stubs, each with its midpoint and the way it moves.
   const handles = computed(() => {
-    if (!isEditing.value) return []
+    // While its nodes are dragged together the line moves away from its stored route.
+    if (!isEditing.value || edgeDragOffsets.value.has(props.id)) return []
     const route = draft.value ?? editableRoute(props)
     const result = []
     for (let i = 1; i <= route.length - 3; i++) {
@@ -92,13 +97,18 @@ export function useEdgeRouteEditing(props) {
   function finish(commit) {
     if (!drag) return
     const { element, pointerId } = drag
-    element.removeEventListener('pointermove', onMove)
-    if (element.hasPointerCapture?.(pointerId)) element.releasePointerCapture(pointerId)
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+    window.removeEventListener('pointercancel', onCancel)
     window.removeEventListener('keydown', onKeyDown, true)
+    if (element.isConnected && element.hasPointerCapture?.(pointerId)) element.releasePointerCapture(pointerId)
     if (commit && draft.value) setEdgeRoute({ findEdge, history }, props.id, routeWaypoints(draft.value))
     drag = null
     draft.value = null
   }
+
+  const onUp = () => finish(true)
+  const onCancel = () => finish(false)
 
   function onKeyDown(event) {
     if (event.key !== 'Escape') return
@@ -113,7 +123,7 @@ export function useEdgeRouteEditing(props) {
    * @param {{index: number, axis: 'x'|'y'}} handle
    */
   function startDrag(event, handle) {
-    if (event.button !== 0) return
+    if (event.button !== 0 || drag) return
     event.stopPropagation()
     event.preventDefault()
     const route = editableRoute(props)
@@ -128,9 +138,10 @@ export function useEdgeRouteEditing(props) {
       element,
       pointerId: event.pointerId,
     }
-    element.addEventListener('pointermove', onMove)
-    element.addEventListener('pointerup', () => finish(true), { once: true })
-    element.addEventListener('pointercancel', () => finish(false), { once: true })
+    // On window, as the handle may be re-keyed, and so unmounted, as the route changes shape.
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onCancel)
     window.addEventListener('keydown', onKeyDown, true)
   }
 

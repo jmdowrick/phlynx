@@ -65,6 +65,22 @@ class TestEdgeRouting(unittest.TestCase):
             page.locator(".context-menu__item", has_text="Reset Route").click()
             expect(edge_path).to_have_attribute("d", original)
 
+            # The segment leaving the source splits off its stub on the first move and keeps following.
+            point = page.evaluate(POINT_ALONG, 0.5)
+            page.mouse.click(point["x"], point["y"])
+            first = page.locator(".edge-route-handle").first
+            box = first.bounding_box()
+            moves_sideways = "edge-route-handle--x" in first.get_attribute("class")
+            x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+            page.mouse.move(x, y)
+            page.mouse.down()
+            page.mouse.move(x + (20 if moves_sideways else 0), y + (0 if moves_sideways else 20), steps=2)
+            part_way = edge_path.get_attribute("d")
+            page.mouse.move(x + (90 if moves_sideways else 0), y + (0 if moves_sideways else 90), steps=6)
+            expect(edge_path).not_to_have_attribute("d", part_way)
+            page.mouse.up()
+            expect(page.locator(".edge-route-handle").first).to_be_visible()
+
             browser.close()
 
 

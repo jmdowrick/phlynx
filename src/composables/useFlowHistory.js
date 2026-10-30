@@ -213,6 +213,23 @@ export function useFlowHistory({
   }
 
   /**
+   * Moves the waypoints of routed edges whose two nodes were nudged together by the arrow keys.
+   *
+   * @param {Array<Object>} changes - Position changes outside a drag.
+   */
+  const carryRoutesWhileNudging = (changes) => {
+    const offsets = new Map()
+    changes.forEach((c) => {
+      const node = findNode(c.id)
+      if (node) offsets.set(c.id, { x: c.position.x - node.position.x, y: c.position.y - node.position.y })
+    })
+    enclosedEdgeOffsets(edges.value, offsets).forEach((offset, id) => {
+      const edge = findEdge(id)
+      edge.data = withEdgeWaypoints(edge.data, translateWaypoints(getEdgeWaypoints(edge), offset.x, offset.y))
+    })
+  }
+
+  /**
    * Records node changes as undo steps, then applies them to the flow.
    *
    * @param {Array<Object>} changes - Vue Flow node changes.
@@ -230,9 +247,15 @@ export function useFlowHistory({
     const removeChanges = []
     const moveChanges = []
     const selectChanges = []
+    // Arrow-key moves come as one position change each, with no drag around them.
+    const nudges = changes.filter((c) => c.type === 'position' && c.position && !c.dragging)
+    if (nudges.length) carryRoutesWhileNudging(nudges)
+
     changes.forEach((c) => {
       // Deal with the changes that we need to buffer first, which are the posiiton and dimension type changes.
-      if (c.type === 'position') {
+      if (c.type === 'position' && c.position && !c.dragging) {
+        // A nudge has no end to wait for.
+      } else if (c.type === 'position') {
         processPositionChange(c, activeInteractionBuffer, moveChanges)
       } else if (c.type === 'dimensions') {
         processDimensionChange(c, activeInteractionBuffer)

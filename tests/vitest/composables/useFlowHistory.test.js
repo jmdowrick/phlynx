@@ -161,6 +161,16 @@ describe('useFlowHistory', () => {
       expect(edges.value[0].data.waypoints).toEqual([{ x: 80, y: 60 }])
     })
 
+    it('carries the route of an edge whose two nodes were nudged together with the arrow keys', () => {
+      onNodeChange(['a', 'b'].map((id) => ({ type: 'position', id, position: { x: 5, y: 0 }, dragging: false })))
+      expect(edges.value[0].data.waypoints).toEqual([{ x: 55, y: 20 }])
+      expect(edges.value[1].data.waypoints).toEqual(route)
+
+      // A later drag measures from where the nudge left the nodes.
+      dragAll(['a', 'b'], 30, 40)
+      expect(edges.value[0].data.waypoints).toEqual([{ x: 80, y: 60 }])
+    })
+
     it('leaves routes alone when one node moves', () => {
       dragAll(['a'], 30, 40)
       expect(edges.value.map((e) => e.data.waypoints)).toEqual([route, route])

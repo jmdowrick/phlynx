@@ -196,6 +196,12 @@ describe('route editing', () => {
     ])
   })
 
+  it('edits a route whose stub smoothstep shortened as it will be stored, so a commit draws the draft', () => {
+    const close = { ...edge(0, 0, Position.Right, 10, 100, Position.Right), data: {} }
+    const draft = moveSegment(editableRoute(close), 1, 50)
+    expect(fullPolyline(close, routeWaypoints(draft))).toEqual([draft[0], ...simplify(draft.slice(1, -1)), draft.at(-1)])
+  })
+
   it('snaps to the nearest target within the tolerance', () => {
     expect(snapCoordinate(103, [0, 100, 105], 6)).toBe(105)
     expect(snapCoordinate(103, [0, 120], 6)).toBe(103)

@@ -360,17 +360,15 @@ export function clearWaypoints(edges) {
 }
 
 /**
- * Gives the route an edge is drawn along, through its waypoints or as smoothstep, with the stubs at
- * indices 1 and length - 2 so it can be edited.
+ * Gives the route an edge is drawn along, through its waypoints or as smoothstep, with full-length
+ * stubs at indices 1 and length - 2 so it can be edited.
  *
  * @param {Object} edge - Edge props, with `data`.
  * @returns {Array<{x: number, y: number}>}
  */
 export function editableRoute(edge) {
-  const waypoints = getEdgeWaypoints(edge)
-  if (waypoints) return fullPolyline(edge, waypoints)
-  const points = smoothstepPoints(edge)
-  return [points[0], ...simplify(points.slice(1, -1)), points[points.length - 1]]
+  // Rebuilt from smoothstep's bends, so a stub smoothstep shortened is full length, as after a commit.
+  return fullPolyline(edge, getEdgeWaypoints(edge) ?? routeWaypoints(smoothstepPoints(edge)))
 }
 
 /**
