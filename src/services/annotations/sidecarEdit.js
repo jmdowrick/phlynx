@@ -4,7 +4,7 @@
  */
 
 import { createGraph, termKey } from './graph.js'
-import { BQBIOL, GO, GO_LOCATIONS, SBO, canonicalCurie, expandCurie, hasPrefix } from './iris.js'
+import { BQBIOL, GO, GO_LOCATIONS, SBO, canonicalCurie, expandCurie, hasPrefix, splitCurie } from './iris.js'
 import { parseRdf } from './rdf.js'
 import { SIDECAR_BASE_IRI, readSidecar } from './sidecar.js'
 import { writeTurtle } from './turtle.js'
@@ -13,6 +13,19 @@ const KIND_TERMS = { compartment: SBO.physicalCompartment, membrane: GO.plasmaMe
 
 const named = (value) => ({ termType: 'NamedNode', value })
 const triple = (subject, predicate, object) => ({ subject, predicate: named(predicate), object })
+
+/**
+ * Builds the node for an ontology term.
+ *
+ * @param {string} curieOrIri - A CURIE or IRI with a known prefix.
+ * @returns {Object} A NamedNode with the canonical IRI.
+ * @throws {Error} When the value is not a known CURIE.
+ */
+function buildTermNode(curieOrIri) {
+  const curie = canonicalCurie(curieOrIri)
+  if (!splitCurie(curie)[0]) throw new Error(`'${curieOrIri}' is not a known CURIE.`)
+  return named(expandCurie(curie))
+}
 
 /**
  * Splits a mathRef into its file and component, at the last ':'.
@@ -116,10 +129,10 @@ function isManagedVariableTriple({ predicate, object }) {
  * @returns {Array} The entity's triples, empty for 'self' with no species.
  */
 function buildEntityTriples({ species = [], location = null }, entity, component) {
-  const triples = species.map((curie) => triple(entity, BQBIOL.is, named(expandCurie(canonicalCurie(curie)))))
+  const triples = species.map((curie) => triple(entity, BQBIOL.is, buildTermNode(curie)))
   const isSelf = location === 'self' || location?.startsWith('self+')
   const go = location?.startsWith('self+') ? location.slice('self+'.length) : isSelf ? null : location
-  if (go) triples.push(triple(entity, BQBIOL.is, named(expandCurie(canonicalCurie(go)))))
+  if (go) triples.push(triple(entity, BQBIOL.is, buildTermNode(go)))
   if (isSelf) triples.push(triple(entity, BQBIOL.isPartOf, component))
   return triples
 }
@@ -133,12 +146,13 @@ function buildEntityTriples({ species = [], location = null }, entity, component
  * @param {Object} edit
  * @param {'compartment'|'membrane'|'transporter'|null} [edit.componentKind] - Left as is when undefined; null
  *   removes the kind term.
- * @param {string} [edit.transporter] - The transporter's UniProt CURIE; without it a transporter keeps its terms.
+ * @param {string} [edit.transporter] - The transporter's UniProt CURIE; without it a transporter keeps its UniProt
+ *   terms and drops the other kind terms.
  * @param {Map<string, Object|null>|Object<string, Object|null>} [edit.variables] - Variable name -> { property,
  *   species, location }, or null to clear its annotation. Unlisted variables are left as is.
  * @param {string} [edit.cellml] - The math, to find variables annotated by '#id'.
  * @returns {Promise<string>} The new sidecar Turtle.
- * @throws {Error} When the text is not valid Turtle or the mathRef is malformed.
+ * @throws {Error} When the text is not valid Turtle, the mathRef is malformed or a term is not a known CURIE.
  */
 export async function editSidecar(text, mathRef, { componentKind, transporter, variables = new Map(), cellml } = {}) {
   const { file, component: componentName } = splitMathRef(mathRef)
@@ -169,13 +183,13 @@ export async function editSidecar(text, mathRef, { componentKind, transporter, v
 
   if (componentKind !== undefined) {
     const kindTerm = componentKind === 'transporter' ? transporter : KIND_TERMS[componentKind]
-    if (componentKind !== 'transporter' || transporter) {
-      for (const t of triples) {
-        const isComponentIs = t.subject.value === component.value && t.predicate.value === BQBIOL.is
-        if (isComponentIs && isKindTerm(t.object.value)) removed.add(t)
-      }
+    const isKeptUniprot = componentKind === 'transporter' && !transporter
+    for (const t of triples) {
+      const isComponentIs = t.subject.value === component.value && t.predicate.value === BQBIOL.is
+      if (!isComponentIs || !isKindTerm(t.object.value)) continue
+      if (!(isKeptUniprot && hasPrefix(canonicalCurie(t.object.value), 'uniprot'))) removed.add(t)
     }
-    if (kindTerm) added.push(triple(component, BQBIOL.is, named(expandCurie(canonicalCurie(kindTerm)))))
+    if (kindTerm) added.push(triple(component, BQBIOL.is, buildTermNode(kindTerm)))
   }
 
   const subjectOf = new Map(sidecar.variables.map(({ variable, subject }) => [variable, subject]))
@@ -207,7 +221,7 @@ export async function editSidecar(text, mathRef, { componentKind, transporter, v
     }
 
     if (entry.property) {
-      added.push(triple(subject, BQBIOL.isVersionOf, named(expandCurie(canonicalCurie(entry.property)))))
+      added.push(triple(subject, BQBIOL.isVersionOf, buildTermNode(entry.property)))
     }
     const isBareSelf = entry.location === 'self' && !entry.species?.length
     if (isBareSelf && !isEntityKept) {

@@ -134,6 +134,18 @@ m:porter.u bqbiol:isVersionOf <http://example.org/other> .
     const none = await editSidecar(read('pool.ttl'), 'pool.cellml:pool', { componentKind: null })
     expect(none).not.toContain('sbo:')
   })
+
+  it('drops the other kind terms for a transporter with no accession yet, keeping its UniProt terms', async () => {
+    const pool = await editSidecar(read('pool.ttl'), 'pool.cellml:pool', { componentKind: 'transporter' })
+    expect(pool).not.toContain('sbo:')
+    const porter = await editSidecar(read('porter.ttl'), 'porter.cellml:porter', { componentKind: 'transporter' })
+    expect((await readToySidecar(porter, 'porter')).component.kind).toBe('transporter')
+  })
+
+  it('throws on a term that is not a known CURIE', async () => {
+    const variables = { c_A: { property: 'OPB:00340', species: ['sodium'], location: 'GO:0005737' } }
+    await expect(editSidecar(read('pool.ttl'), 'pool.cellml:pool', { variables })).rejects.toThrow(/not a known CURIE/)
+  })
 })
 
 describe('renameSidecar', () => {
