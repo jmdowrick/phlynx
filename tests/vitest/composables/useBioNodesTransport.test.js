@@ -20,6 +20,7 @@ vi.mock('../../../src/stores/annotationStore', () => ({ useAnnotationStore: () =
 vi.mock('../../../src/stores/libraryStore', () => ({
   useLibraryStore: () => ({ getParsedModuleAnnotations: (mathRef) => (mathRef === 'pump.cellml:pump' ? sidecar : null), ensureModuleAnnotations: vi.fn() }),
 }))
+vi.mock('../../../src/stores/bioTemplateStore', () => ({ useBioTemplateStore: () => ({ instances: [], definitions: new Map() }) }))
 vi.mock('../../../src/stores/simulationResultsStore', () => ({ useSimulationResultsStore: () => run }))
 
 const { useBioNodes } = await import('../../../src/composables/useBioNodes.js')
