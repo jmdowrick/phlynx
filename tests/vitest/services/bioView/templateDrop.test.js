@@ -5,6 +5,7 @@ import {
   MEMBRANE_CHIP,
   dropSites,
   nearestSite,
+  AREA_SNAP,
   planSiteBind,
   planSlotDrop,
   planUnbind,
@@ -56,7 +57,12 @@ describe('template drop sites', () => {
   it('snaps to the nearest slot, else picks a process, then the membrane, then the cell, then a compartment', () => {
     const { targets, layout } = view([])
     const slot = find(targets, 'bt-1/cell.apical', { order: 0 })
-    expect(nearestSite(targets, { x: slot.x + 20, y: slot.y - 20 })).toMatchObject({ type: 'slot', order: 0 })
+    expect(nearestSite(targets, { x: slot.x + 10, y: slot.y - 10 })).toMatchObject({ type: 'slot', order: 0 })
+    // In the lumen just beyond AREA_SNAP the lumen wins; outside every area the slot still reaches 60.
+    expect(nearestSite(targets, { x: slot.x, y: slot.y - AREA_SNAP - 8 })).toMatchObject({ area: 'compartment' })
+    expect(nearestSite(targets.filter((t) => t.type === 'slot'), { x: slot.x, y: slot.y - 50 })).toMatchObject({
+      type: 'slot',
+    })
     expect(nearestSite(targets, { x: slot.x, y: slot.y - 100 }, 60, { areas: false })).toBeNull()
 
     // Away from every slot, the areas holding the point, most specific first.

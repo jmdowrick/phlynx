@@ -18,6 +18,8 @@ export const MEMBRANE_CHIP = { width: 180, height: 28 }
 
 /** Which area wins where several hold the drop point: the most specific first. */
 const AREA_PRIORITY = ['process', 'membrane', 'cell', 'compartment']
+/** Inside an area, a slot only wins this close, so drops in a lumen or cell don't snap to its membrane. */
+export const AREA_SNAP = 24
 
 /**
  * Merges a patch into a bioView, dropping fields set to undefined.
@@ -226,7 +228,8 @@ const contains = (rect, { x, y }) => x >= rect.x && x <= rect.x + rect.width && 
 
 /**
  * Finds where a point drops: the nearest slot within reach, else the most specific area holding it (a process
- * area, then a membrane chip, a cell, a compartment), the smallest of those.
+ * area, then a membrane chip, a cell, a compartment), the smallest of those. Inside an area a slot only wins
+ * within AREA_SNAP.
  *
  * @param {Array<Object>} targets - From dropSites.
  * @param {{x: number, y: number}} point
@@ -242,14 +245,14 @@ export function nearestSite(targets, point, snap = 60, { areas = true } = {}) {
     const distance = Math.hypot(target.x - point.x, target.y - point.y)
     if (distance <= snap && (!best || distance < best.distance)) best = { ...target, distance }
   }
-  if (best || !areas) return best
+  if (!areas) return best
   const rank = (target) => AREA_PRIORITY.indexOf(target.area)
   const size = ({ rect }) => rect.width * rect.height
-  return (
-    targets
-      .filter((target) => target.type === 'area' && target.rect && contains(target.rect, point))
-      .sort((a, b) => rank(a) - rank(b) || size(a) - size(b))[0] ?? null
-  )
+  const area = targets
+    .filter((target) => target.type === 'area' && target.rect && contains(target.rect, point))
+    .sort((a, b) => rank(a) - rank(b) || size(a) - size(b))[0]
+  if (best && (!area || best.distance <= AREA_SNAP)) return best
+  return area ?? null
 }
 
 /**
