@@ -14,7 +14,7 @@ const PLACEMENT_KEYS = ['cell', 'facet', 'at', 'order', 'position', 'rect']
 const BIND_CLEARS = ['position', 'rect', 'adjacent', 'cell', 'facet', 'at']
 
 /** Size of the chip a cell's membrane site is dropped on, across the cell's bottom-left corner. */
-export const MEMBRANE_CHIP = { width: 160, height: 28 }
+export const MEMBRANE_CHIP = { width: 180, height: 28 }
 
 /** Which area wins where several hold the drop point: the most specific first. */
 const AREA_PRIORITY = ['process', 'membrane', 'cell', 'compartment']

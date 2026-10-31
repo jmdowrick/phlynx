@@ -359,6 +359,7 @@ function layoutTemplates(scaffold, instances, layout) {
         site: piece.site,
         empty: !piece.node,
         tone: piece.tone,
+        form: piece.form,
         ...(edge && { edge }),
         label: piece.label,
       })
@@ -399,7 +400,7 @@ function layoutTemplates(scaffold, instances, layout) {
  * @param {Map<string, Object>} [templates.definitions] - Template id -> its validated template.
  * @returns {{places: Map<string, Object>, sites: Array<Object>}}
  *   - places: see layoutBioView; a template piece's place, keyed by its node or 'tpl:<instance>/<path>' while
- *     empty, also has { instance, site, empty, tone, edge?, label }, a cell's facetLabels: [{ facetId, label,
+ *     empty, also has { instance, site, empty, tone, edge?, form, label }, a cell's facetLabels: [{ facetId, label,
  *     edge }] and zones: [{ processId, label, rect }]; a node bound to a site has { instance, site };
  *   - sites: every template site, empty or not: { ref, instance, path, role, kind, label, occupant } with, for
  *     one module, the piece's key and rect, and for slots, the cell, facet or process, occupants and the slots'

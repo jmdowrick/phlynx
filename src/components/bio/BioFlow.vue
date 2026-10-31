@@ -272,11 +272,18 @@ function targetAt(point) {
 /** Names a node for a prompt. */
 const nameOf = (id) => main.findNode(id)?.data?.name ?? id
 
-/** Where an area's name goes: a cell's at its bottom right, clear of its facet and process names. */
-function promptText({ area, rect }) {
+/**
+ * Where an area's name goes, clear of the cells and of the names drawn on them: a cell's at its bottom right,
+ * a compartment's on its side away from the cells it lies against.
+ */
+function promptText({ area, rect, key }) {
   if (area === 'membrane') return { x: rect.x + rect.width / 2, y: rect.y + 18, anchor: 'middle' }
   if (area === 'cell') return { x: rect.x + rect.width - 16, y: rect.y + rect.height - 36, anchor: 'end' }
   if (area === 'process') return { x: rect.x + rect.width - 8, y: rect.y + 14, anchor: 'end' }
+  const { edge, form } = layout.value.get(key) ?? {}
+  if (form === 'gap') return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 + 4, anchor: 'middle' }
+  if (edge === 'bottom') return { x: rect.x + 10, y: rect.y + rect.height - 26, anchor: 'start' }
+  if (edge === 'right') return { x: rect.x + rect.width - 6, y: rect.y + 18, anchor: 'end' }
   return { x: rect.x + 10, y: rect.y + 18, anchor: 'start' }
 }
 
@@ -807,6 +814,10 @@ async function onPlaceConfirm({ role, moduleRef, membraneRef, cell, placement })
 .bio-site-prompt--membrane rect {
   fill: var(--p-content-background);
   opacity: 0.8;
+}
+
+.bio-site-prompt--membrane text {
+  font-size: 11px;
 }
 
 .bio-site-prompt--active rect {
