@@ -40,7 +40,8 @@ export function dropTargets(layout) {
   const cells = new Map()
   const empty = () => Object.fromEntries(EPITHELIAL_SHAPE.facets.map(({ id: part }) => [part, 0]))
   // A template's cells offer their sites instead (dropSites).
-  for (const [id, place] of layout) if (place.kind === 'cell' && !place.instance) cells.set(id, { id, rect: place.rect, counts: empty() })
+  for (const [id, place] of layout)
+    if (place.kind === 'cell' && !place.instance) cells.set(id, { id, rect: place.rect, counts: empty() })
   for (const place of layout.values()) if (place.kind === 'protein' && cells.has(place.cell)) cells.get(place.cell).counts[place.part]++
   return [...cells.values()]
 }
@@ -212,8 +213,8 @@ export function dropSites(sites) {
     }
     if (role === 'membrane') {
       const { x, y, height } = site.rect
-      const rect = { x: x + CELL_RADIUS - MEMBRANE_CHIP.width, y: y + height - MEMBRANE_CHIP.height / 2, ...MEMBRANE_CHIP }
-      targets.push({ ...base, type: 'area', area: 'membrane', rect })
+      const chip = { x: x + CELL_RADIUS - MEMBRANE_CHIP.width, y: y + height - MEMBRANE_CHIP.height / 2 }
+      targets.push({ ...base, type: 'area', area: 'membrane', rect: { ...chip, ...MEMBRANE_CHIP } })
       continue
     }
     targets.push({ ...base, type: 'area', area: role === 'cytosol' ? 'cell' : 'compartment', rect: site.rect })

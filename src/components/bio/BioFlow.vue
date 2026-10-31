@@ -37,7 +37,11 @@
       </Controls>
       <!-- While something is dragged: the membrane slots and template sites it can go to -->
       <template #zoom-pane>
-        <svg v-if="sitePrompts.slots.length || sitePrompts.areas.length" class="bio-slot-prompts" data-testid="bio-slot-prompts">
+        <svg
+          v-if="sitePrompts.slots.length || sitePrompts.areas.length"
+          class="bio-slot-prompts"
+          data-testid="bio-slot-prompts"
+        >
           <g
             v-for="prompt in sitePrompts.areas"
             :key="prompt.key"
@@ -302,13 +306,14 @@ const sitePrompts = computed(() => {
       }))
     )
   )
-  const isActive = (target) =>
-    !!active?.site && active.site.ref === target.ref && active.site.type === target.type && active.site.order === target.order
+  const isActive = ({ ref, type, order }) =>
+    !!active?.site && active.site.ref === ref && active.site.type === type && active.site.order === order
   const areas = []
   for (const target of siteTargets.value) {
     if (target.type === 'slot') {
       const size = target.role === 'cytosolic' ? CARD : glyph
-      slots.push({ key: `${target.ref}#${target.order}`, ref: target.ref, x: target.x, y: target.y, ...size, active: isActive(target) })
+      const { ref, x, y, order } = target
+      slots.push({ key: `${ref}#${order}`, ref, x, y, ...size, active: isActive(target) })
       continue
     }
     areas.push({
@@ -580,7 +585,9 @@ function onNodeContextMenu({ event, node }) {
       label: 'Take Out of Membrane',
       icon: 'pi pi-sign-out',
       command: () =>
-        site ? unbind('bio-unbind') : applyPlan(planUnplace({ id: node.id, position: trayPosition(), ...planContext() })),
+        site
+          ? unbind('bio-unbind')
+          : applyPlan(planUnplace({ id: node.id, position: trayPosition(), ...planContext() })),
     })
   }
   if (site) {
