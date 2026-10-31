@@ -393,21 +393,31 @@ function onNodeDragStop({ nodes }) {
   const plan = new Map()
   const moves = new Map()
   const add = (entries) => entries.forEach((bioView, id) => plan.set(id, bioView))
+  const positionOf = (moved) => {
+    const node = findNode(moved.id) ?? moved
+    return node.computedPosition ?? node.position
+  }
+  for (const moved of nodes) {
+    const instance = pieceOf(moved.id)
+    if (!instance || moves.has(instance)) continue
+    const at = positionOf(moved)
+    const { x, y } = layout.value.get(moved.id).rect
+    moves.set(instance, { x: at.x - x, y: at.y - y })
+  }
   for (const moved of nodes) {
     const node = findNode(moved.id) ?? moved
-    const at = node.computedPosition ?? node.position
-    const instance = pieceOf(moved.id)
-    if (instance) {
-      const { x, y } = layout.value.get(moved.id).rect
-      if (!moves.has(instance)) moves.set(instance, { x: at.x - x, y: at.y - y })
-    } else if (moved.id === dropped && target?.site) {
+    const at = positionOf(moved)
+    const place = layout.value.get(moved.id)
+    // A template's pieces, and nodes bound to a template dragged with them, go with the template's move.
+    if (moves.has(place?.instance)) continue
+    if (moved.id === dropped && target?.site) {
       add(planSiteBind({ id: moved.id, site: target.site, ...planContext() }))
     } else if (moved.id === dropped && target?.slot) {
       add(planSlotDrop({ id: moved.id, slot: target.slot, ...planContext() }))
-    } else if (layout.value.get(moved.id)?.instance) {
+    } else if (place?.instance) {
       // Out of its template site, to where it was dropped.
       add(planUnbind({ id: moved.id, position: { x: at.x, y: at.y }, ...planContext() }))
-    } else if (layout.value.get(moved.id)?.kind === 'protein') {
+    } else if (place?.kind === 'protein') {
       add(
         planUnplace({
           id: moved.id,
