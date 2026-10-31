@@ -23,6 +23,7 @@
       @node-context-menu="onNodeContextMenu"
       @pane-context-menu="onPaneContextMenu"
       @nodes-initialized="onNodesInitialized"
+      @pane-ready="onPaneReady"
     >
       <Background :size="2" :gap="20" />
       <MiniMap :pannable="true" :zoomable="true" class="mini-map" />
@@ -63,6 +64,9 @@
       </template>
       <template #node-bioCard="props">
         <BioCard :data="props.data" :selected="props.selected" />
+      </template>
+      <template #node-bioTemplateTitle="props">
+        <BioTemplateTitle :data="props.data" />
       </template>
     </VueFlow>
     <ContextMenu ref="contextMenu" :model="menuItems" />
@@ -116,6 +120,7 @@ import BioCell from './BioCell.vue'
 import BioCouplingEdge from './BioCouplingEdge.vue'
 import BioProtein from './BioProtein.vue'
 import BioRegion from './BioRegion.vue'
+import BioTemplateTitle from './BioTemplateTitle.vue'
 import { bioViewForMove, useBioNodes } from '../../composables/useBioNodes'
 import { useBioEdits } from '../../composables/useBioEdits'
 import { dropTargets, patchBioView, planRelayout, planSlotDrop, planUnplace } from '../../services/bioView/drop'
@@ -200,10 +205,18 @@ watch(handlesOf, async (now, before) => {
 })
 onBeforeUnmount(() => (viewMode.bioViewport = { ...viewport.value }))
 
-function onNodesInitialized() {
+// vue-flow says nodes are initialised again whenever new ones are measured, as when a template is placed, so
+// the view is set once, or it would jump away from what was just added. An empty view never says so, and is
+// set when its pane is ready.
+let isViewSet = false
+function setView(fit) {
+  if (isViewSet) return
+  isViewSet = true
   if (viewMode.bioViewport) setViewport(viewMode.bioViewport)
-  else fitView({ padding: 0.15 })
+  else if (fit) fitView({ padding: 0.15 })
 }
+const onNodesInitialized = () => setView(true)
+const onPaneReady = () => !bioNodes.value.length && setView(false)
 
 // ── Dragging into a membrane ───────────────────────────────────────────
 const draggingId = ref(null)
@@ -424,8 +437,8 @@ function templateMenu(instanceId) {
 
 function onNodeContextMenu({ event, node }) {
   event.preventDefault()
-  const instance = pieceOf(node.id)
-  // An empty template piece is no diagram node: only its template's menu.
+  const instance = pieceOf(node.id) ?? (node.type === 'bioTemplateTitle' ? node.data.instance : null)
+  // An empty template piece, or a template's name, is no diagram node: only its template's menu.
   if (!main.findNode(node.id)) {
     if (!instance) return
     menuItems.value = templateMenu(instance).slice(1)
