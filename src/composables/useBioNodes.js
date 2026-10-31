@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { useAnnotationStore } from '../stores/annotationStore'
+import { useBioTemplateStore } from '../stores/bioTemplateStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { readNodeSeries } from '../services/simulation/variableMapping'
@@ -14,13 +15,37 @@ import { resolveBioRole } from '../services/bioView/roles'
 const Z = { region: -20, cell: -10 }
 
 /**
+ * What a template piece's node shows of its template: which instance and site it is, and how it is drawn.
+ * A cell's process zones are made relative to the cell.
+ *
+ * @param {Object} place - A cell's or region's place from layoutPhysiology.
+ * @returns {Object} Nothing for a piece that is not a template's.
+ */
+function templateData(place) {
+  if (!place.instance) return {}
+  const { instance, site = null, tone = null, edge = null } = place
+  const data = { instance, site, tone, edge }
+  if (place.kind !== 'cell') return data
+  const { x, y } = place.rect
+  const zones = (place.zones ?? []).map(({ rect, ...zone }) => ({
+    ...zone,
+    rect: { ...rect, x: rect.x - x, y: rect.y - y },
+  }))
+  return { ...data, facetLabels: place.facetLabels ?? [], zones }
+}
+
+/** Whether a place is an empty piece of a template, drawn with no node behind it. */
+const isEmptyPiece = (place) => !!place.instance && place.empty && (place.kind === 'cell' || place.kind === 'region')
+
+/**
  * Turns the physiological layout into nodes for the physiological view's flow. Each has the id of the
  * instance it draws, so selection and edits map straight back. Proteins in a membrane and processes in
- * a cell are children of the cell, so they move with it.
+ * a cell are children of the cell, so they move with it. An empty template piece is a node of its own, keyed
+ * 'tpl:<instance>/<path>', that can be dragged (moving its instance) but not selected.
  *
  * @param {Array<Object>} nodes - The diagram's nodes.
  * @param {Map<string, Object>} roles - Node id -> resolveBioRole's result.
- * @param {Map<string, Object>} layout - From layoutBioView.
+ * @param {Map<string, Object>} layout - From layoutPhysiology.
  * @param {Map<string, Array<Object>>} [transport] - Node id -> what its cartoon's arrows show (see useBioNodes).
  * @returns {Array<Object>} vue-flow nodes; parents come before their children.
  */
@@ -28,6 +53,11 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map()) {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const base = (id) => {
     const node = byId.get(id)
+    if (!node) {
+      const place = layout.get(id)
+      const data = { name: place.label ?? id, domainType: null, empty: true }
+      return { id, selectable: false, draggable: true, data }
+    }
     return {
       id,
       selected: !!node.selected,
@@ -38,31 +68,33 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map()) {
   const children = []
 
   for (const [id, place] of layout) {
-    if (!byId.has(id)) continue
+    if (!byId.has(id) && !isEmptyPiece(place)) continue
     switch (place.kind) {
       case 'cell': {
         const { x, y, width, height } = place.rect
+        const own = base(id)
         parents.push({
-          ...base(id),
+          ...own,
           type: 'bioCell',
           position: { x, y },
           width,
           height,
           zIndex: Z.cell,
-          data: { ...base(id).data, membrane: place.membrane, width, height },
+          data: { ...own.data, ...templateData(place), membrane: place.membrane, width, height },
         })
         break
       }
       case 'region': {
         const { x, y, width, height } = place.rect
+        const own = base(id)
         parents.push({
-          ...base(id),
+          ...own,
           type: 'bioRegion',
           position: { x, y },
           width,
           height,
           zIndex: Z.region,
-          data: { ...base(id).data, side: place.side, at: place.adjacent?.[0]?.at ?? null },
+          data: { ...own.data, ...templateData(place), side: place.side, at: place.adjacent?.[0]?.at ?? null },
         })
         break
       }
@@ -276,11 +308,13 @@ export function bioViewForMove(bioNode, at) {
  * The physiological view's nodes, derived from the diagram's. Nothing is written by deriving them.
  *
  * @param {Ref<Array<Object>>} nodes - The diagram's nodes.
- * @returns {{ roles: ComputedRef<Map>, layout: ComputedRef<Map>, bioNodes: ComputedRef<Array<Object>> }}
+ * @returns {{ roles: ComputedRef<Map>, layout: ComputedRef<Map>, sites: ComputedRef<Array<Object>>,
+ *   bioNodes: ComputedRef<Array<Object>> }}
  */
 export function useBioNodes(nodes, edges = ref([])) {
   const annotationStore = useAnnotationStore()
   const libraryStore = useLibraryStore()
+  const templateStore = useBioTemplateStore()
   const simulationResults = useSimulationResultsStore()
 
   const roles = computed(() => {
@@ -296,7 +330,13 @@ export function useBioNodes(nodes, edges = ref([])) {
       ])
     )
   })
-  const layout = computed(() => layoutPhysiology(nodes.value, roles.value).places)
+  const physiology = computed(() =>
+    layoutPhysiology(nodes.value, roles.value, {
+      instances: templateStore.instances,
+      definitions: templateStore.definitions,
+    })
+  )
+  const layout = computed(() => physiology.value.places)
 
   // What each membrane protein carries, from its sidecar, and which way, from the latest run.
   const transport = computed(() => {
@@ -337,5 +377,5 @@ export function useBioNodes(nodes, edges = ref([])) {
     return Promise.all([...mathRefs].map((mathRef) => libraryStore.ensureModuleAnnotations(mathRef)))
   }
 
-  return { roles, layout, bioNodes, couplingEdges, loadSidecars }
+  return { roles, layout, sites: computed(() => physiology.value.sites), bioNodes, couplingEdges, loadSidecars }
 }
