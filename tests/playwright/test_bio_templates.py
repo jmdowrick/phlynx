@@ -1,3 +1,4 @@
+import sys
 import unittest
 
 from playwright.sync_api import sync_playwright, expect
@@ -116,6 +117,43 @@ class TestBioTemplates(unittest.TestCase):
         expect(bound(page, "bioCard")).to_have_count(0)
         expect(bound(page, "bioRegion")).to_have_attribute("data-id", first)
         expect(bound(page, "bioProtein")).to_have_count(1)
+
+
+    def test_dragging_a_template_with_a_bound_protein_keeps_it_bound(self):
+        page = self.page
+        self.open_physiology_with_template("Epithelial cell")
+        cell = piece(page, "cell").bounding_box()
+        self.drop_module(0, (cell["x"] + cell["width"] / 2, cell["y"]))
+        lumen = piece(page, "apical-fluid").bounding_box()
+        self.drop_module(1, (lumen["x"] + 20, lumen["y"] + lumen["height"] / 3))
+        protein, region = bound(page, "bioProtein"), bound(page, "bioRegion")
+        expect(region).to_have_count(1)
+
+        # Both selected, dragged by the compartment: the template moves, and the protein moves with it, bound.
+        protein.click()
+        modifier = "Meta" if sys.platform == "darwin" else "Control"
+        box = region.bounding_box()
+        start = (box["x"] + 10, box["y"] + 10)
+        page.keyboard.down(modifier)
+        page.mouse.click(*start)
+        page.keyboard.up(modifier)
+        expect(page.locator(f"{BIO} .vue-flow__node.selected")).to_have_count(2)
+        before = protein.bounding_box()
+        page.mouse.move(*start)
+        page.mouse.down()
+        for step in range(1, 11):
+            page.mouse.move(start[0] + 12 * step, start[1] + 6 * step)
+        page.mouse.up()
+
+        expect(protein).to_have_count(1)
+        expect(page.locator(f"{BIO} .vue-flow__node-bioProtein[data-id^='tpl:']")).to_have_count(0)
+        after, moved = protein.bounding_box(), region.bounding_box()
+        self.assertGreater(moved["x"] - box["x"], 50)
+        self.assertAlmostEqual(after["x"] - before["x"], moved["x"] - box["x"], delta=2)
+        self.assertAlmostEqual(after["y"] - before["y"], moved["y"] - box["y"], delta=2)
+        undo(page)
+        expect(protein).to_have_count(1)
+        self.assertAlmostEqual(protein.bounding_box()["x"], before["x"], delta=2)
 
 
 if __name__ == "__main__":
