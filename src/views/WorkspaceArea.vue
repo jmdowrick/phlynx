@@ -26,7 +26,7 @@
             v-tooltip.bottom="{ value: 'Save workspace', showDelay: 300 }"
             @click="handleSaveWorkspace"
             style="margin-left: 10px"
-            :disabled="!somethingAvailable"
+            :disabled="!hasWorkspaceContent"
           />
 
           <Divider layout="vertical" style="margin: 0 15px" />
@@ -51,7 +51,7 @@
             v-tooltip.bottom="{ value: 'Clear workspace', showDelay: 300 }"
             @click="handleClearWorkspace"
             style="margin-left: 10px"
-            :disabled="!somethingAvailable"
+            :disabled="!hasWorkspaceContent"
           />
 
           <Divider layout="vertical" style="margin: 0 15px" />
@@ -624,6 +624,7 @@ import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
 import { useAnnotationStore } from '../stores/annotationStore'
+import { useBioTemplateStore } from '../stores/bioTemplateStore'
 
 import { importOmexFile, extractOmexArchive, readArchiveEntries } from '../services/import/omex'
 import { restoreOmexAnnotations } from '../services/import/omexAnnotations'
@@ -845,6 +846,7 @@ const historyStore = useFlowHistoryStore()
 const simulationSettingsStore = useSimulationSettingsStore()
 const omexStore = useOmexStore()
 const annotationStore = useAnnotationStore()
+const bioTemplateStore = useBioTemplateStore()
 const nodeThemeStore = useNodeThemeStore()
 const { isDarkMode } = useColorScheme()
 const { settings: appSettings } = useAppSettings()
@@ -973,6 +975,8 @@ watch(currentMatchIndex, async () => {
 
 const allNodeNames = computed(() => nodes.value.map((n) => n.data.name))
 const somethingAvailable = computed(() => nodes.value.length > 0)
+/** Whether there is anything to save or clear: modules, or templates placed in the physiological view. */
+const hasWorkspaceContent = computed(() => somethingAvailable.value || bioTemplateStore.instances.length > 0)
 const somethingSelected = computed(() => getSelectedNodes.value.length > 0)
 const hasModelChanged = computed(() => cyrb53(snapshotFlowState()) !== omexStore.archiveHash)
 
@@ -2295,7 +2299,7 @@ const handleKeyDown = (event) => {
 
   if (isCtrl && event.key.toLowerCase() === 's') {
     event.preventDefault()
-    if (somethingAvailable.value) handleSaveWorkspace()
+    if (hasWorkspaceContent.value) handleSaveWorkspace()
   }
 
   const undoRedoAction = getUndoRedoAction(event)
