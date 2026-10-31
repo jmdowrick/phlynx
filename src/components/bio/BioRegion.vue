@@ -4,12 +4,15 @@
       'bio-region',
       `bio-region--tone-${tone}`,
       edge && `bio-region--edge-${edge}`,
-      { 'bio-region--selected': selected },
+      { 'bio-region--selected': selected, 'bio-region--empty': data.empty },
     ]"
     data-testid="bio-region"
   >
     <BioHandles :handles="data.handles ?? []" />
-    <span class="bio-region__label">{{ data.name }}</span>
+    <span class="bio-region__label">
+      {{ data.name }}
+      <small v-if="data.empty" class="bio-region__hint" data-testid="bio-empty-hint">Drop a module</small>
+    </span>
   </div>
 </template>
 
@@ -28,12 +31,16 @@ const props = defineProps({
 const TONES = { apical: 'sky', basolateral: 'rose', lateral: 'teal' }
 const DEFAULT_TONE = 'sky'
 
-/** The edge of the cell the region lies against: a left one with no side given, as layout puts it. */
+/**
+ * The edge of the cell the region lies against: a template's own, else the epithelial facet it faces, a left
+ * one with no side given, as layout puts it.
+ */
 const edge = computed(() => {
+  if (props.data.instance) return props.data.edge ?? null
   if (!props.data.side) return null
   return facetById(EPITHELIAL_SHAPE, partOf(props.data.side, props.data.at ?? undefined))?.edge ?? null
 })
-const tone = computed(() => TONES[props.data.side] ?? DEFAULT_TONE)
+const tone = computed(() => (props.data.instance && props.data.tone) || TONES[props.data.side] || DEFAULT_TONE)
 </script>
 
 <style scoped>
@@ -92,6 +99,21 @@ const tone = computed(() => TONES[props.data.side] ?? DEFAULT_TONE)
 
 .bio-region--selected {
   border-color: var(--p-primary-color);
+}
+
+.bio-region--empty {
+  border: 2px dashed color-mix(in srgb, var(--p-text-muted-color) 45%, transparent);
+  opacity: 0.75;
+}
+
+.bio-region--empty.bio-region--selected {
+  border-color: var(--p-primary-color);
+}
+
+.bio-region__hint {
+  display: block;
+  font-weight: 400;
+  font-size: 0.75rem;
 }
 
 .bio-region__label {
