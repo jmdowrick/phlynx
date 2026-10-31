@@ -62,6 +62,15 @@ describe('physiological view edits', () => {
     expect(templates.instances).toHaveLength(1)
   })
 
+  it('places and moves templates by whole flow units', async () => {
+    await edits.placeTemplate('epithelial-cell', { x: 10.30000000000001, y: 19.7 })
+    const id = templates.instances[0].id
+    expect(templates.getInstance(id).at).toEqual({ x: 10, y: 20 })
+    expect(await edits.moveTemplate(id, { x: 0.4, y: -0.2 })).toBe(false)
+    await edits.moveTemplate(id, { x: 2.6, y: 0 })
+    expect(templates.getInstance(id).at).toEqual({ x: 13, y: 20 })
+  })
+
   it('places nothing for a template it doesn’t know', async () => {
     expect(await edits.placeTemplate('nope', { x: 0, y: 0 })).toBe(false)
     expect(history.canUndo).toBe(false)

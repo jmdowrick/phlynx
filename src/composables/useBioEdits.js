@@ -19,6 +19,8 @@ export function useBioEdits(roles = null) {
   const history = useFlowHistoryStore()
   /** Template actions are the user's own, never part of an undo or redo. */
   const busy = () => history.isUndoRedoing
+  /** Whole flow units, so a saved workspace holds no rounding noise from the screen. */
+  const whole = ({ x, y }) => ({ x: Math.round(x), y: Math.round(y) })
 
   /**
    * Writes new bioViews, with a change to the template store if given, as one undo step.
@@ -67,7 +69,7 @@ export function useBioEdits(roles = null) {
    */
   function placeTemplate(templateId, at) {
     if (busy() || !templates.getDefinition(templateId)) return Promise.resolve(false)
-    return applyPlan(new Map(), 'bio-template-add', templates.edit(() => templates.addInstance(templateId, at)))
+    return applyPlan(new Map(), 'bio-template-add', templates.edit(() => templates.addInstance(templateId, whole(at))))
   }
 
   /**
@@ -77,7 +79,9 @@ export function useBioEdits(roles = null) {
    * @returns {Object|undefined} Undefined when nothing moves.
    */
   function templateMoves(moves) {
-    const real = [...moves].filter(([id, delta]) => templates.getInstance(id) && (delta.x || delta.y))
+    const real = [...moves]
+      .map(([id, delta]) => [id, whole(delta)])
+      .filter(([id, delta]) => templates.getInstance(id) && (delta.x || delta.y))
     if (!real.length) return undefined
     return templates.edit(() => real.forEach(([id, delta]) => templates.moveInstance(id, { delta })))
   }
