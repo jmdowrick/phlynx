@@ -66,6 +66,29 @@
       </template>
     </VueFlow>
     <ContextMenu ref="contextMenu" :model="menuItems" />
+    <Dialog
+      v-if="renaming"
+      :visible="true"
+      modal
+      header="Rename Template"
+      :style="{ width: '360px' }"
+      class="compact-dialog"
+      data-testid="bio-template-rename"
+      @update:visible="(visible) => !visible && (renaming = null)"
+    >
+      <InputText
+        v-model="renaming.label"
+        class="w-full"
+        autofocus
+        :placeholder="renaming.placeholder"
+        data-testid="bio-template-rename-input"
+        @keydown.enter="onRenameConfirm"
+      />
+      <template #footer>
+        <Button label="Cancel" severity="secondary" text @click="renaming = null" />
+        <Button label="Rename" data-testid="bio-template-rename-confirm" @click="onRenameConfirm" />
+      </template>
+    </Dialog>
     <BioPlaceDialog
       v-if="placing"
       :mode="placing.mode"
@@ -84,14 +107,17 @@ import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { ControlButton, Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
+import Button from 'primevue/button'
 import ContextMenu from 'primevue/contextmenu'
+import Dialog from 'primevue/dialog'
+import InputText from 'primevue/inputtext'
 import BioCard from './BioCard.vue'
 import BioCell from './BioCell.vue'
 import BioCouplingEdge from './BioCouplingEdge.vue'
 import BioProtein from './BioProtein.vue'
 import BioRegion from './BioRegion.vue'
 import { bioViewForMove, useBioNodes } from '../../composables/useBioNodes'
-import { useNodeDataHistory } from '../../composables/useNodeDataHistory'
+import { useBioEdits } from '../../composables/useBioEdits'
 import { dropTargets, patchBioView, planRelayout, planSlotDrop, planUnplace } from '../../services/bioView/drop'
 import { GLYPHS } from '../../services/bioView/glyphs'
 import {
@@ -106,6 +132,7 @@ import { EPITHELIAL_SHAPE, annotationOfFacet } from '../../services/bioView/shap
 import { CARD, GAP, REGION_HEIGHT } from '../../services/bioView/layout'
 import BioPlaceDialog from './BioPlaceDialog.vue'
 import useDragAndDrop from '../../composables/useDnD'
+import { useBioTemplateStore } from '../../stores/bioTemplateStore'
 import { useFlowHistoryStore } from '../../stores/historyStore'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { useViewModeStore } from '../../stores/viewModeStore'
@@ -134,11 +161,11 @@ const SNAP_DISTANCE = 60
 // The diagram's flow is the one source of truth: selection and edits go there, and this view follows.
 // Only this component, outside the bio <VueFlow>, reaches the main flow, so its nodes' handles never do.
 const main = useVueFlow(FLOW_IDS.MAIN)
-const { recordEdit } = useNodeDataHistory(FLOW_IDS.MAIN)
 // The library's drag state; called before the bio flow's store, as it reaches for the main one.
 const libraryDrag = useDragAndDrop()
 const history = useFlowHistoryStore()
 const libraryStore = useLibraryStore()
+const templateStore = useBioTemplateStore()
 const {
   applyNodeChanges,
   findNode,
@@ -151,13 +178,19 @@ const {
 } = useVueFlow(FLOW_IDS.BIO)
 const viewMode = useViewModeStore()
 const { bioNodes, couplingEdges, layout, roles, loadSidecars } = useBioNodes(main.nodes, main.edges)
+const { applyPlan, templateMoves, placeTemplate, renameTemplate, relayoutTemplate, removeTemplate } =
+  useBioEdits(roles)
 
 onMounted(() => loadSidecars())
 
 // vue-flow measures a node's handles when they mount, so a node whose handles change (a selection's
-// couplings come and go) is measured again, or its lines would keep to the old points.
+// couplings come and go) is measured again, or its lines would keep to the old points. So is one whose
+// parent changes, as a template piece's id does when a module binds to it or leaves it.
 const handlesOf = computed(
-  () => new Map(bioNodes.value.map((node) => [node.id, JSON.stringify(node.data.handles ?? [])]))
+  () =>
+    new Map(
+      bioNodes.value.map((node) => [node.id, `${node.parentNode ?? ''} ${JSON.stringify(node.data.handles ?? [])}`])
+    )
 )
 watch(handlesOf, async (now, before) => {
   const changed = [...now].filter(([id, handles]) => before?.get(id) !== handles).map(([id]) => id)
@@ -234,25 +267,16 @@ function onNodesChange(changes) {
 
 const bioViews = () => new Map(main.nodes.value.map((node) => [node.id, node.data?.bioView]))
 
-/** Writes new bioViews as one undo step in the diagram's history; undefined removes one. */
-function applyPlan(plan, type = 'bio-layout') {
-  const ids = [...plan.keys()].filter((id) => main.findNode(id))
-  if (!ids.length) return Promise.resolve(false)
-  return recordEdit({
-    type,
-    nodeIds: ids,
-    keys: ['bioView'],
-    apply: () =>
-      ids.forEach((id) => {
-        const node = main.findNode(id)
-        const { bioView, ...rest } = node.data
-        const next = plan.get(id)
-        main.updateNodeData(id, next === undefined ? rest : { ...rest, bioView: next }, { replace: true })
-      }),
-  })
+/** The template instance a cell or region of the view is a piece of, if any. */
+function pieceOf(id) {
+  const place = layout.value.get(id)
+  return place?.instance && (place.kind === 'cell' || place.kind === 'region') ? place.instance : null
 }
 
-/** Keeps dragged nodes where they were put: in a membrane slot, out of one, or just moved. */
+/**
+ * Keeps dragged nodes where they were put: in a membrane slot, out of one, or just moved. A dragged template
+ * piece moves its whole instance, in the same step.
+ */
 function onNodeDragStop({ nodes }) {
   const slot = activeSlot.value
   const dropped = draggingId.value
@@ -260,11 +284,16 @@ function onNodeDragStop({ nodes }) {
   activeSlot.value = null
 
   const plan = new Map()
+  const moves = new Map()
   const add = (entries) => entries.forEach((bioView, id) => plan.set(id, bioView))
   for (const moved of nodes) {
     const node = findNode(moved.id) ?? moved
     const at = node.computedPosition ?? node.position
-    if (moved.id === dropped && slot) {
+    const instance = pieceOf(moved.id)
+    if (instance) {
+      const { x, y } = layout.value.get(moved.id).rect
+      if (!moves.has(instance)) moves.set(instance, { x: at.x - x, y: at.y - y })
+    } else if (moved.id === dropped && slot) {
       add(
         planSlotDrop({
           id: moved.id,
@@ -290,7 +319,7 @@ function onNodeDragStop({ nodes }) {
       })
     }
   }
-  applyPlan(plan)
+  applyPlan(plan, moves.size ? 'bio-template-move' : 'bio-layout', templateMoves(moves))
 }
 
 function onNodeDoubleClick({ node }) {
@@ -367,8 +396,42 @@ function liesAgainstMenu(id, role) {
   }
 }
 
+/** Renaming a template instance: { id, label, placeholder }. */
+const renaming = ref(null)
+
+function onRenameConfirm() {
+  const { id, label } = renaming.value
+  renaming.value = null
+  renameTemplate(id, label)
+}
+
+/** The menu items for the template instance a piece belongs to. */
+function templateMenu(instanceId) {
+  const instance = templateStore.getInstance(instanceId)
+  if (!instance) return []
+  const name = templateStore.getDefinition(instance.template)?.name ?? instance.template
+  return [
+    { separator: true },
+    {
+      label: 'Rename Template…',
+      icon: 'pi pi-pencil',
+      command: () => (renaming.value = { id: instanceId, label: instance.label ?? '', placeholder: name }),
+    },
+    { label: 'Re-layout Template', icon: 'pi pi-th-large', command: () => relayoutTemplate(instanceId) },
+    { label: 'Remove Template', icon: 'pi pi-trash', command: () => removeTemplate(instanceId) },
+  ]
+}
+
 function onNodeContextMenu({ event, node }) {
   event.preventDefault()
+  const instance = pieceOf(node.id)
+  // An empty template piece is no diagram node: only its template's menu.
+  if (!main.findNode(node.id)) {
+    if (!instance) return
+    menuItems.value = templateMenu(instance).slice(1)
+    contextMenu.value.show(event)
+    return
+  }
   const role = roles.value.get(node.id)
   const items = [
     {
@@ -392,7 +455,7 @@ function onNodeContextMenu({ event, node }) {
       })),
     })
   }
-  if (role?.role === 'region') items.push(liesAgainstMenu(node.id, role))
+  if (role?.role === 'region' && !role.site) items.push(liesAgainstMenu(node.id, role))
   if (layout.value.get(node.id)?.kind === 'protein') {
     items.push({
       label: 'Take Out of Membrane',
@@ -408,7 +471,7 @@ function onNodeContextMenu({ event, node }) {
         ),
     })
   }
-  if (main.findNode(node.id)?.data?.bioView) {
+  if (main.findNode(node.id)?.data?.bioView && !role?.site) {
     items.push(
       { separator: true },
       {
@@ -418,6 +481,7 @@ function onNodeContextMenu({ event, node }) {
       }
     )
   }
+  if (instance) items.push(...templateMenu(instance))
   menuItems.value = items
   contextMenu.value.show(event)
 }
@@ -437,6 +501,15 @@ function onPaneContextMenu(event) {
           { separator: true },
         ]
       : []),
+    {
+      label: 'Add Template',
+      icon: 'pi pi-objects-column',
+      items: templateStore.library.map((template) => ({
+        label: template.name,
+        command: () => placeTemplate(template.id, at),
+      })),
+    },
+    { separator: true },
     {
       label: 'Re-layout Physiology',
       icon: 'pi pi-th-large',

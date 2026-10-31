@@ -19,7 +19,7 @@ import { useViewModeStore } from '../../stores/viewModeStore'
 
 const VIEW_MODES = [
   { id: 'diagram', label: 'Diagram', description: 'Modules and their couplings' },
-  { id: 'bio', label: 'Physiology', description: 'Cells, membranes and transporters, from the annotations' },
+  { id: 'bio', label: 'Physiology', description: 'Cells, membranes and transporters, from annotations or templates' },
 ]
 
 const viewMode = useViewModeStore()
