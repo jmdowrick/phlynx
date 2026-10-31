@@ -90,6 +90,14 @@
       </template>
     </VueFlow>
     <ContextMenu ref="contextMenu" :model="menuItems" />
+    <input
+      ref="templateFileInput"
+      type="file"
+      accept=".json,application/json"
+      hidden
+      data-testid="bio-template-file-input"
+      @change="onTemplateFile"
+    />
     <Dialog
       v-if="renaming"
       :visible="true"
@@ -164,6 +172,8 @@ import {
   slotPositions,
 } from '../../services/bioView/geometry'
 import { EPITHELIAL_SHAPE, annotationOfFacet } from '../../services/bioView/shape'
+import { parseTemplateText, summariseProblems, templateFile } from '../../services/bioView/templateFiles'
+import { isLocalTemplateId } from '../../services/bioView/templates'
 import { CARD, GAP, REGION_HEIGHT } from '../../services/bioView/layout'
 import BioPlaceDialog from './BioPlaceDialog.vue'
 import useDragAndDrop from '../../composables/useDnD'
@@ -172,6 +182,8 @@ import { useFlowHistoryStore } from '../../stores/historyStore'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { useViewModeStore } from '../../stores/viewModeStore'
 import { FLOW_IDS } from '../../utils/constants'
+import { notify } from '../../utils/notify'
+import { legacyDownload } from '../../utils/save'
 
 const props = defineProps({
   /** Adds an instance of a library module with this bioView, and gives its node id (see WorkspaceArea). */
@@ -524,11 +536,71 @@ function onRenameConfirm() {
   renameTemplate(id, label)
 }
 
+// ── Template files ─────────────────────────────────────────────────────
+const templateFileInput = ref(null)
+/** Where a template loaded from a file goes, in flow coordinates. */
+let templateFileAt = null
+
+function loadTemplateFile(at) {
+  templateFileAt = at
+  templateFileInput.value?.click()
+}
+
+/** Adds the chosen template file to the user's templates and places it, or says what is wrong with it. */
+async function onTemplateFile(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  const at = templateFileAt ?? { x: 0, y: 0 }
+  const { raw, errors: parseErrors } = parseTemplateText(await file.text())
+  const { template, errors, warnings } = parseErrors.length
+    ? { template: null, errors: parseErrors, warnings: [] }
+    : templateStore.addLocalTemplate(raw)
+  if (!template) {
+    notify.error({ title: `Could not load ${file.name}`, message: summariseProblems(errors) })
+    return
+  }
+  placeTemplate(template.id, at)
+  if (warnings.length) notify.warning({ title: `Loaded ${template.name}`, message: summariseProblems(warnings) })
+}
+
+/** Downloads a template as a file anyone can load. */
+function saveTemplateFile(template) {
+  const { filename, text } = templateFile(template)
+  legacyDownload(filename, new Blob([text], { type: 'application/json' }))
+}
+
+/** The Add Template submenu: built-ins, then the user's own, then loading and removing theirs. */
+function addTemplateMenu(at) {
+  const place = (template) => ({ label: template.name, command: () => placeTemplate(template.id, at) })
+  const builtIn = templateStore.library.filter((template) => !isLocalTemplateId(template.id))
+  const own = templateStore.localTemplates
+  return [
+    ...builtIn.map(place),
+    { separator: true },
+    ...own.map(place),
+    { label: 'Load Template File…', icon: 'pi pi-upload', command: () => loadTemplateFile(at) },
+    ...(own.length
+      ? [
+          {
+            label: 'Remove from My Templates',
+            icon: 'pi pi-trash',
+            items: own.map((template) => ({
+              label: template.name,
+              command: () => templateStore.removeLocalTemplate(template.id),
+            })),
+          },
+        ]
+      : []),
+  ]
+}
+
 /** The menu items for the template instance a piece belongs to. */
 function templateMenu(instanceId) {
   const instance = templateStore.getInstance(instanceId)
   if (!instance) return []
-  const name = templateStore.getDefinition(instance.template)?.name ?? instance.template
+  const definition = templateStore.getDefinition(instance.template)
+  const name = definition?.name ?? instance.template
   return [
     { separator: true },
     {
@@ -537,6 +609,12 @@ function templateMenu(instanceId) {
       command: () => (renaming.value = { id: instanceId, label: instance.label ?? '', placeholder: name }),
     },
     { label: 'Re-layout Template', icon: 'pi pi-th-large', command: () => relayoutTemplate(instanceId) },
+    {
+      label: 'Save Template As File…',
+      icon: 'pi pi-download',
+      disabled: !definition,
+      command: () => saveTemplateFile(definition),
+    },
     { label: 'Remove Template', icon: 'pi pi-trash', command: () => removeTemplate(instanceId) },
   ]
 }
@@ -626,10 +704,7 @@ function onPaneContextMenu(event) {
     {
       label: 'Add Template',
       icon: 'pi pi-objects-column',
-      items: templateStore.library.map((template) => ({
-        label: template.name,
-        command: () => placeTemplate(template.id, at),
-      })),
+      items: addTemplateMenu(at),
     },
     { separator: true },
     {
