@@ -140,14 +140,17 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map()) {
         break
       case 'cytosolic': {
         const cell = layout.get(place.cell).rect
+        // One bound to a template's process area can be dragged out of it, to another site or none.
+        const bound = !!place.instance
         children.push({
           ...base(id),
           type: 'bioCard',
           parentNode: place.cell,
-          extent: 'parent',
+          ...(!bound && { extent: 'parent' }),
           position: { x: place.x - cell.x, y: place.y - cell.y },
           width: CARD.width,
           height: CARD.height,
+          ...(bound && { data: { ...base(id).data, droppable: true } }),
         })
         break
       }

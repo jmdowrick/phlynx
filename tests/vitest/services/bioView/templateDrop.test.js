@@ -152,6 +152,12 @@ describe('binding to a template site', () => {
     expect(layout.get('c').order).toBe(1)
   })
 
+  it('empties a site when its node is deleted, and binds it again when the node comes back', () => {
+    const lumen = node('lumen', { role: 'region', site: 'bt-1/apical-fluid' })
+    expect(find(view([]).targets, 'bt-1/apical-fluid').occupant).toBeNull()
+    expect(find(view([lumen]).targets, 'bt-1/apical-fluid').occupant).toBe('lumen')
+  })
+
   it('unbinds a compartment, keeping its role', () => {
     const state = view([node('r', { role: 'region', site: 'bt-1/apical-fluid' })])
     expect(planUnbind({ id: 'r', ...state }).get('r')).toEqual({ role: 'region' })

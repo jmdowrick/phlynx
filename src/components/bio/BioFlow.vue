@@ -35,17 +35,33 @@
           <i class="pi pi-image"></i>
         </ControlButton>
       </Controls>
-      <!-- While a protein is dragged: where it can go in each membrane -->
+      <!-- While something is dragged: the membrane slots and template sites it can go to -->
       <template #zoom-pane>
-        <svg v-if="slotPrompts.length" class="bio-slot-prompts" data-testid="bio-slot-prompts">
+        <svg v-if="sitePrompts.slots.length || sitePrompts.areas.length" class="bio-slot-prompts" data-testid="bio-slot-prompts">
+          <g
+            v-for="prompt in sitePrompts.areas"
+            :key="prompt.key"
+            :class="['bio-site-prompt', `bio-site-prompt--${prompt.area}`, { 'bio-site-prompt--active': prompt.active }]"
+            data-testid="bio-site-prompt"
+            :data-site="prompt.ref"
+          >
+            <rect v-bind="prompt.rect" :rx="prompt.area === 'membrane' ? 14 : 10" />
+            <text :x="prompt.text.x" :y="prompt.text.y" :text-anchor="prompt.text.anchor">
+              {{ prompt.label }}
+              <tspan v-if="prompt.replace" :x="prompt.text.x" dy="15" class="bio-site-prompt__replace">
+                Replace {{ prompt.replace }}
+              </tspan>
+            </text>
+          </g>
           <rect
-            v-for="prompt in slotPrompts"
+            v-for="prompt in sitePrompts.slots"
             :key="prompt.key"
             :class="['bio-slot-prompt', { 'bio-slot-prompt--active': prompt.active }]"
-            :x="prompt.x - GLYPH_WIDTH / 2"
-            :y="prompt.y - GLYPH_HEIGHT / 2"
-            :width="GLYPH_WIDTH"
-            :height="GLYPH_HEIGHT"
+            :data-site="prompt.ref"
+            :x="prompt.x - prompt.width / 2"
+            :y="prompt.y - prompt.height / 2"
+            :width="prompt.width"
+            :height="prompt.height"
             rx="14"
           />
         </svg>
@@ -123,7 +139,17 @@ import BioRegion from './BioRegion.vue'
 import BioTemplateTitle from './BioTemplateTitle.vue'
 import { bioViewForMove, useBioNodes } from '../../composables/useBioNodes'
 import { useBioEdits } from '../../composables/useBioEdits'
-import { dropTargets, patchBioView, planRelayout, planSlotDrop, planUnplace } from '../../services/bioView/drop'
+import {
+  dropSites,
+  dropTargets,
+  nearestSite,
+  patchBioView,
+  planRelayout,
+  planSiteBind,
+  planSlotDrop,
+  planUnbind,
+  planUnplace,
+} from '../../services/bioView/drop'
 import { GLYPHS } from '../../services/bioView/glyphs'
 import {
   GLYPH_HEIGHT,
@@ -182,7 +208,7 @@ const {
   vueFlowRef,
 } = useVueFlow(FLOW_IDS.BIO)
 const viewMode = useViewModeStore()
-const { bioNodes, couplingEdges, layout, roles, loadSidecars } = useBioNodes(main.nodes, main.edges)
+const { bioNodes, couplingEdges, layout, roles, sites, loadSidecars } = useBioNodes(main.nodes, main.edges)
 const { applyPlan, templateMoves, placeTemplate, renameTemplate, relayoutTemplate, removeTemplate } =
   useBioEdits(roles)
 
@@ -218,26 +244,80 @@ function setView(fit) {
 const onNodesInitialized = () => setView(true)
 const onPaneReady = () => !bioNodes.value.length && setView(false)
 
-// ── Dragging into a membrane ───────────────────────────────────────────
+// ── Dragging into a membrane or onto a template site ───────────────────
 const draggingId = ref(null)
 // A selection's coupling lines end where things were laid out, so they wait for a drag to end.
 const shownCouplings = computed(() => (draggingId.value ? [] : couplingEdges.value))
-const activeSlot = ref(null)
+/** Where the drag would go: { slot } in a node-owned cell's membrane, or { site } of a template. */
+const activeTarget = ref(null)
 const targets = computed(() => dropTargets(layout.value))
+const siteTargets = computed(() => dropSites(sites.value))
 
-const slotPrompts = computed(() => {
-  if (!draggingId.value) return []
-  return targets.value.flatMap((cell) =>
+/**
+ * Finds where a point drops: the nearer of a node-owned cell's slot and a template's slot, else the template
+ * area holding it.
+ *
+ * @param {{x: number, y: number}} point
+ * @returns {{slot: Object}|{site: Object}|null}
+ */
+function targetAt(point) {
+  const slot = nearestSlot(targets.value, point, SNAP_DISTANCE)
+  const site = nearestSite(siteTargets.value, point, SNAP_DISTANCE)
+  const slotDistance = slot ? Math.hypot(slot.x - point.x, slot.y - point.y) : Infinity
+  if (site?.type === 'slot' && site.distance < slotDistance) return { site }
+  if (slot) return { slot }
+  return site ? { site } : null
+}
+
+/** Names a node for a prompt. */
+const nameOf = (id) => main.findNode(id)?.data?.name ?? id
+
+/** Where an area's name goes: a cell's at its bottom right, clear of its facet and process names. */
+function promptText({ area, rect }) {
+  if (area === 'membrane') return { x: rect.x + rect.width / 2, y: rect.y + 18, anchor: 'middle' }
+  if (area === 'cell') return { x: rect.x + rect.width - 16, y: rect.y + rect.height - 36, anchor: 'end' }
+  if (area === 'process') return { x: rect.x + rect.width - 8, y: rect.y + 14, anchor: 'end' }
+  return { x: rect.x + 10, y: rect.y + 18, anchor: 'start' }
+}
+
+/** While something is dragged: every membrane slot, and every template area, named and outlined. */
+const sitePrompts = computed(() => {
+  if (!draggingId.value) return { slots: [], areas: [] }
+  const active = activeTarget.value
+  const glyph = { width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
+  const slots = targets.value.flatMap((cell) =>
     (cell.shape ?? EPITHELIAL_SHAPE).facets.flatMap(({ id: part }) =>
       slotPositions(cell.rect, part, (cell.counts[part] ?? 0) + 1, cell.shape).map((slot, order) => ({
         key: `${cell.id}/${part}/${order}`,
-        x: slot.x,
-        y: slot.y,
-        active:
-          activeSlot.value?.cellId === cell.id && activeSlot.value.part === part && activeSlot.value.order === order,
+        ...slot,
+        ...glyph,
+        active: active?.slot?.cellId === cell.id && active.slot.part === part && active.slot.order === order,
       }))
     )
   )
+  const isActive = (target) =>
+    !!active?.site && active.site.ref === target.ref && active.site.type === target.type && active.site.order === target.order
+  const areas = []
+  for (const target of siteTargets.value) {
+    if (target.type === 'slot') {
+      const size = target.role === 'cytosolic' ? CARD : glyph
+      slots.push({ key: `${target.ref}#${target.order}`, ref: target.ref, x: target.x, y: target.y, ...size, active: isActive(target) })
+      continue
+    }
+    areas.push({
+      key: target.ref,
+      ref: target.ref,
+      area: target.area,
+      rect: target.rect,
+      label: `${target.label} · ${target.area}`,
+      replace: target.kind === 'single' && target.occupant ? nameOf(target.occupant) : null,
+      text: promptText(target),
+      active: isActive(target),
+    })
+  }
+  // The biggest underneath, so smaller areas inside them stay visible.
+  areas.sort((a, b) => b.rect.width * b.rect.height - a.rect.width * a.rect.height)
+  return { slots, areas }
 })
 
 /** Where a node's parent sits, so a child's position can be made absolute and back. */
@@ -246,7 +326,10 @@ function parentOffset(node) {
   return parent ? parent.computedPosition : { x: 0, y: 0 }
 }
 
-/** Snaps a dragged protein's position to the nearest slot, and remembers the slot for the drop. */
+/**
+ * Snaps a dragged node's position to the nearest slot, and remembers where it would go for the drop: a slot,
+ * or a template area, which it doesn't snap to.
+ */
 function snapToSlot(change) {
   const node = findNode(change.id)
   if (!node?.data?.droppable) return
@@ -257,8 +340,9 @@ function snapToSlot(change) {
     x: offset.x + change.position.x + width / 2,
     y: offset.y + change.position.y + height / 2,
   }
-  const slot = nearestSlot(targets.value, centre, SNAP_DISTANCE)
-  activeSlot.value = slot
+  const target = targetAt(centre)
+  activeTarget.value = target
+  const slot = target?.slot ?? (target?.site?.type === 'slot' ? target.site : null)
   if (slot)
     change.position = {
       x: slot.x - width / 2 - offset.x,
@@ -286,15 +370,18 @@ function pieceOf(id) {
   return place?.instance && (place.kind === 'cell' || place.kind === 'region') ? place.instance : null
 }
 
+/** The context every plan reads: the layout as drawn, the roles and the bioViews. */
+const planContext = () => ({ layout: layout.value, roles: roles.value, bioViews: bioViews() })
+
 /**
- * Keeps dragged nodes where they were put: in a membrane slot, out of one, or just moved. A dragged template
- * piece moves its whole instance, in the same step.
+ * Keeps dragged nodes where they were put: in a membrane slot or on a template site, out of one, or just
+ * moved. A dragged template piece moves its whole instance, in the same step.
  */
 function onNodeDragStop({ nodes }) {
-  const slot = activeSlot.value
+  const target = activeTarget.value
   const dropped = draggingId.value
   draggingId.value = null
-  activeSlot.value = null
+  activeTarget.value = null
 
   const plan = new Map()
   const moves = new Map()
@@ -306,16 +393,13 @@ function onNodeDragStop({ nodes }) {
     if (instance) {
       const { x, y } = layout.value.get(moved.id).rect
       if (!moves.has(instance)) moves.set(instance, { x: at.x - x, y: at.y - y })
-    } else if (moved.id === dropped && slot) {
-      add(
-        planSlotDrop({
-          id: moved.id,
-          slot,
-          layout: layout.value,
-          roles: roles.value,
-          bioViews: bioViews(),
-        })
-      )
+    } else if (moved.id === dropped && target?.site) {
+      add(planSiteBind({ id: moved.id, site: target.site, ...planContext() }))
+    } else if (moved.id === dropped && target?.slot) {
+      add(planSlotDrop({ id: moved.id, slot: target.slot, ...planContext() }))
+    } else if (layout.value.get(moved.id)?.instance) {
+      // Out of its template site, to where it was dropped.
+      add(planUnbind({ id: moved.id, position: { x: at.x, y: at.y }, ...planContext() }))
     } else if (layout.value.get(moved.id)?.kind === 'protein') {
       add(
         planUnplace({
@@ -361,7 +445,7 @@ function setChoice(id, patch, type) {
 
 /** Somewhere left of the cells, below any proteins already there, for one taken out of its membrane. */
 function trayPosition() {
-  const cells = targets.value.map((cell) => cell.rect)
+  const cells = [...layout.value.values()].filter((place) => place.kind === 'cell').map((place) => place.rect)
   const left = cells.length ? Math.min(...cells.map((rect) => rect.x)) : 0
   const top = cells.length ? Math.min(...cells.map((rect) => rect.y)) : 0
   const loose = [...layout.value.values()].filter((place) => place.kind === 'tray').length
@@ -469,20 +553,21 @@ function onNodeContextMenu({ event, node }) {
     })
   }
   if (role?.role === 'region' && !role.site) items.push(liesAgainstMenu(node.id, role))
-  if (layout.value.get(node.id)?.kind === 'protein') {
+  const place = layout.value.get(node.id)
+  // Bound to a template site that is there: unbinding goes where its role puts it, a protein to the tray.
+  const site = role?.site && place?.instance ? sites.value.find((entry) => entry.ref === role.site) : null
+  const unbind = (type) =>
+    applyPlan(planUnbind({ id: node.id, position: trayPosition(), ...planContext() }), type)
+  if (place?.kind === 'protein') {
     items.push({
       label: 'Take Out of Membrane',
       icon: 'pi pi-sign-out',
       command: () =>
-        applyPlan(
-          planUnplace({
-            id: node.id,
-            position: trayPosition(),
-            layout: layout.value,
-            bioViews: bioViews(),
-          })
-        ),
+        site ? unbind('bio-unbind') : applyPlan(planUnplace({ id: node.id, position: trayPosition(), ...planContext() })),
     })
+  }
+  if (site) {
+    items.push({ label: `Unbind from "${site.label}"`, icon: 'pi pi-link', command: () => unbind('bio-unbind') })
   }
   if (main.findNode(node.id)?.data?.bioView && !role?.site) {
     items.push(
@@ -567,17 +652,17 @@ function onModuleDragOver(event) {
   event.preventDefault()
   const point = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
   draggingId.value = 'library'
-  activeSlot.value = nearestSlot(targets.value, point, SNAP_DISTANCE)
+  activeTarget.value = targetAt(point)
 }
 
 function onModuleDragLeave(event) {
   if (event.currentTarget.contains(event.relatedTarget)) return
-  if (draggingId.value === 'library') draggingId.value = activeSlot.value = null
+  if (draggingId.value === 'library') draggingId.value = activeTarget.value = null
 }
 
 /**
- * Adds a library module dropped here: into the membrane slot it was dropped on, as one step, or where
- * it was dropped, asking what it is. Files dropped here go on to the workspace.
+ * Adds a library module dropped here: into the membrane slot or onto the template site it was dropped on, as
+ * one step, or where it was dropped, asking what it is. Files dropped here go on to the workspace.
  */
 async function onModuleDrop(event) {
   const module = libraryDrag.draggedType.value
@@ -589,9 +674,20 @@ async function onModuleDrop(event) {
   libraryDrag.isDragging.value = false
   libraryDrag.isDragOver.value = false
   const point = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
-  const slot = nearestSlot(targets.value, point, SNAP_DISTANCE)
-  draggingId.value = activeSlot.value = null
+  const { slot, site } = targetAt(point) ?? {}
+  draggingId.value = activeTarget.value = null
 
+  if (site) {
+    history.startBatch()
+    try {
+      // An instance of the module, bound to the site; planned against the sites as they were drawn.
+      const id = props.createInstance(module, { role: site.role, facet: null })
+      await applyPlan(planSiteBind({ id, site, ...planContext() }), 'bio-add')
+    } finally {
+      history.endBatch()
+    }
+    return
+  }
   if (slot) {
     history.startBatch()
     try {
@@ -692,5 +788,39 @@ async function onPlaceConfirm({ role, moduleRef, membraneRef, cell, placement })
 .bio-slot-prompt--active {
   fill: color-mix(in srgb, var(--p-primary-color) 25%, transparent);
   opacity: 1;
+}
+
+.bio-site-prompt rect {
+  fill: none;
+  stroke: var(--p-primary-color);
+  stroke-width: 1.5;
+  stroke-dasharray: 8 5;
+  opacity: 0.45;
+}
+
+.bio-site-prompt text {
+  font-size: 12px;
+  fill: var(--p-primary-color);
+  opacity: 0.7;
+}
+
+.bio-site-prompt--membrane rect {
+  fill: var(--p-content-background);
+  opacity: 0.8;
+}
+
+.bio-site-prompt--active rect {
+  fill: color-mix(in srgb, var(--p-primary-color) 14%, transparent);
+  stroke-width: 2.5;
+  opacity: 1;
+}
+
+.bio-site-prompt--active text {
+  font-weight: 600;
+  opacity: 1;
+}
+
+.bio-site-prompt__replace {
+  font-style: italic;
 }
 </style>

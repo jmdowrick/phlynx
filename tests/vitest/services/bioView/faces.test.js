@@ -5,7 +5,9 @@ import { focusCouplings } from '../../../../src/composables/useBioNodes.js'
 import { GO } from '../../../../src/services/annotations/iris.js'
 import { facePoint, handleFace } from '../../../../src/services/bioView/faces.js'
 import { GLYPH_HEIGHT, GLYPH_WIDTH } from '../../../../src/services/bioView/geometry.js'
-import { layoutBioView } from '../../../../src/services/bioView/layout.js'
+import { layoutBioView, layoutPhysiology } from '../../../../src/services/bioView/layout.js'
+import { BUILT_IN_TEMPLATES } from '../../../../src/services/bioView/builtInTemplates.js'
+import { bioFlowNodes } from '../../../../src/composables/useBioNodes.js'
 
 const port = (variable, location) => ({ variables: [variable], ...(location && { annotation: { location } }) })
 const edge = (id, source, sourceHandle, target, targetHandle, couplings) => ({ id, source, sourceHandle, target, targetHandle, data: { couplings } })
@@ -108,5 +110,44 @@ describe('the couplings of what is selected', () => {
 
   it('names what each line couples, for hover', () => {
     expect(focus('cell').edges.map((e) => e.data.names)).toEqual([['p.c_i ↔ cell.c']])
+  })
+})
+
+describe('the couplings of a protein on a template facet with no annotation', () => {
+  const definitions = new Map(BUILT_IN_TEMPLATES.map((template) => [template.id, template]))
+  const instances = [{ id: 'bt-1', template: 'chemical-synapse', at: { x: 0, y: 0 } }]
+  const bound = (id, site, extra = {}) => ({ id, data: { name: id, bioView: { site }, ...extra } })
+  const nodes = [
+    bound('pre', 'bt-1/pre'),
+    bound('cleft', 'bt-1/cleft'),
+    bound('vgcc', 'bt-1/pre.active-zone', { handles: [{ uid: 'h' }] }),
+    bound('ampa', 'bt-1/post.psd'),
+  ]
+  const roles = new Map([
+    ['pre', { role: 'cytosol', site: 'bt-1/pre' }],
+    ['cleft', { role: 'region', site: 'bt-1/cleft' }],
+    ['vgcc', { role: 'membraneProtein', facet: null, glyph: 'channel', annotatedFacet: null, site: 'bt-1/pre.active-zone' }],
+    ['ampa', { role: 'membraneProtein', facet: null, glyph: 'channel', annotatedFacet: null, site: 'bt-1/post.psd' }],
+  ])
+  const { places } = layoutPhysiology(nodes, roles, { instances, definitions })
+
+  it('turns each protein by its facet’s edge, with no moved badge', () => {
+    const bio = bioFlowNodes(nodes, roles, places)
+    expect(bio.find((n) => n.id === 'vgcc').data).toMatchObject({ facet: 'active-zone', rotation: 180, outward: Position.Bottom, annotatedFacet: null })
+    expect(bio.find((n) => n.id === 'ampa').data).toMatchObject({ facet: 'psd', rotation: 0, outward: Position.Top })
+  })
+
+  it('draws an outside coupling from the face towards the cleft, below the active zone', () => {
+    const edges = [
+      edge('out', 'cleft', 'handle_c', 'vgcc', 'handle_h', [{ sourcePort: port('Ca'), targetPort: port('Ca_o', GO.extracellularRegion) }]),
+    ]
+    const { edges: drawn, handles } = focusCouplings(nodes, edges, places, new Set(['vgcc']), () => null)
+    expect(drawn.map((e) => e.id)).toEqual(['out'])
+    const p = places.get('vgcc')
+    const face = handles.get('vgcc').find((h) => h.id === 'out:t')
+    expect(face).toMatchObject({ x: GLYPH_WIDTH / 2, y: GLYPH_HEIGHT })
+    const cleft = places.get('cleft').rect
+    const end = handles.get('cleft').find((h) => h.id === 'out:s')
+    expect(cleft.y + end.y).toBeGreaterThan(p.y)
   })
 })

@@ -3,6 +3,9 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useBioEdits } from '../../../src/composables/useBioEdits.js'
+import { dropSites, planSiteBind } from '../../../src/services/bioView/drop.js'
+import { layoutPhysiology } from '../../../src/services/bioView/layout.js'
+import { resolveBioRole } from '../../../src/services/bioView/roles.js'
 import { useBioTemplateStore } from '../../../src/stores/bioTemplateStore.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 
@@ -123,6 +126,32 @@ describe('physiological view edits', () => {
     await history.redo()
     expect(templates.instances).toEqual([])
     expect(bioView('p').site).toBeUndefined()
+  })
+
+  it('adds a module dropped on an occupied site and replaces the occupant as one step', async () => {
+    const id = await placeAndBind()
+    nodes.value.push(node('lumen', { role: 'region', site: `${id}/apical-fluid` }))
+    const roles = new Map(nodes.value.map((n) => [n.id, resolveBioRole(n.data)]))
+    const { places, sites } = layoutPhysiology(nodes.value, roles, templates)
+    const site = dropSites(sites).find((target) => target.ref === `${id}/apical-fluid`)
+
+    // As BioFlow's onModuleDrop does: the new instance, then its binding, in one batch.
+    history.startBatch()
+    const added = node('saline', { role: 'region', facet: null })
+    nodes.value.push(added)
+    history.addCommand({ type: 'add', undo: () => nodes.value.splice(nodes.value.indexOf(added), 1), redo: () => nodes.value.push(added) })
+    const bioViews = new Map(nodes.value.map((n) => [n.id, n.data.bioView]))
+    await edits.applyPlan(planSiteBind({ id: 'saline', site, layout: places, roles, bioViews }), 'bio-add')
+    history.endBatch()
+
+    expect(bioView('saline')).toEqual({ role: 'region', site: `${id}/apical-fluid` })
+    expect(bioView('lumen')).toEqual({ role: 'none' })
+    await history.undo()
+    expect(nodes.value.some((n) => n.id === 'saline')).toBe(false)
+    expect(bioView('lumen')).toEqual({ role: 'region', site: `${id}/apical-fluid` })
+    // The step before is placing the template.
+    await history.undo()
+    expect(templates.instances).toEqual([])
   })
 
   it('writes node bioViews and a template move as one step', async () => {
