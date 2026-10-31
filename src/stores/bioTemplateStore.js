@@ -2,7 +2,16 @@ import { defineStore } from 'pinia'
 import { computed, ref, shallowRef } from 'vue'
 
 import { BUILT_IN_TEMPLATES } from '../services/bioView/builtInTemplates'
-import { INSTANCE_ID, validateTemplate } from '../services/bioView/templates'
+import { freeLocalId } from '../services/bioView/templateFiles'
+import {
+  INSTANCE_ID,
+  bareTemplateId,
+  isLocalTemplateId,
+  validateTemplate,
+} from '../services/bioView/templates'
+
+/** Where the user's own templates are kept, in localStorage. */
+export const LOCAL_TEMPLATES_KEY = 'phlynx-bio-templates-local'
 
 /**
  * Makes a new template instance id.
@@ -29,6 +38,33 @@ function normaliseInstance(instance) {
 
 const copyInstance = (instance) => ({ ...instance, at: { ...instance.at } })
 
+/** @returns {Array<Object>} The user's templates kept on this device; any that no longer validate are skipped. */
+function readLocalTemplates() {
+  let stored
+  try {
+    stored = JSON.parse(window.localStorage.getItem(LOCAL_TEMPLATES_KEY) ?? '[]')
+  } catch {
+    return [] // localStorage unavailable (e.g. private browsing) or unreadable
+  }
+  if (!Array.isArray(stored)) return []
+  return stored
+    .map((raw) => validateTemplate(raw, { allowLocalId: true }).template)
+    .filter((template) => template && isLocalTemplateId(template.id))
+}
+
+/** @param {Array<Object>} templates - Kept on this device. */
+function writeLocalTemplates(templates) {
+  try {
+    window.localStorage.setItem(LOCAL_TEMPLATES_KEY, JSON.stringify(templates))
+  } catch {
+    // ignore storage errors
+  }
+}
+
+/** Whether two templates are the same apart from their ids. */
+const sameTemplate = (a, b) =>
+  JSON.stringify({ ...a, id: bareTemplateId(a.id) }) === JSON.stringify({ ...b, id: bareTemplateId(b.id) })
+
 /**
  * The workspace's physiology templates: the instances placed in the physiological view, and the copy of each
  * template they use. The embedded copy wins over the library, so a changed built-in leaves saved work as it was.
@@ -38,8 +74,8 @@ export const useBioTemplateStore = defineStore('bioTemplates', () => {
   const instances = ref([])
   /** Template id -> the validated template this workspace uses. Frozen values, so replaced, never mutated. */
   const definitions = shallowRef(new Map())
-  /** The user's own templates. Filled in by a later change; empty for now. */
-  const localTemplates = ref([])
+  /** The user's own templates, kept on this device, with 'local:' ids. */
+  const localTemplates = ref(readLocalTemplates())
   /** Every template that can be added: the built-ins, then the user's. */
   const library = computed(() => [...BUILT_IN_TEMPLATES, ...localTemplates.value])
 
@@ -54,6 +90,48 @@ export const useBioTemplateStore = defineStore('bioTemplates', () => {
    */
   function getDefinition(id) {
     return definitions.value.get(id) ?? library.value.find((template) => template.id === id) ?? null
+  }
+
+  /**
+   * Validates a template and adds it to the user's library under a 'local:' id, which gets a number added when
+   * a different template has it. The same template loaded again is not added twice.
+   *
+   * @param {*} raw - Parsed JSON, usually a template file.
+   * @returns {{ template: Object|null, errors: Array<string>, warnings: Array<string> }} The library's copy.
+   */
+  function addLocalTemplate(raw) {
+    const bare = typeof raw?.id === 'string' ? bareTemplateId(raw.id) : undefined
+    const { template, errors, warnings } = validateTemplate(bare ? { ...raw, id: bare } : raw)
+    if (!template) return { template: null, errors, warnings }
+
+    const known = localTemplates.value.find((local) => sameTemplate(local, template))
+    if (known) return { template: known, errors, warnings }
+    // A workspace's copy of a template from another device joins the library under the same id.
+    const embedded = [...definitions.value.values()].find(
+      (definition) => isLocalTemplateId(definition.id) && sameTemplate(definition, template)
+    )
+    let local = embedded
+    if (!local) {
+      const id = freeLocalId(template.id, [...library.value.map((t) => t.id), ...definitions.value.keys()])
+      local = validateTemplate({ ...JSON.parse(JSON.stringify(template)), id }, { allowLocalId: true }).template
+    }
+    localTemplates.value = [...localTemplates.value, local]
+    writeLocalTemplates(localTemplates.value)
+    return { template: local, errors, warnings }
+  }
+
+  /**
+   * Removes a template from the user's library. Workspaces that use it keep their own copy.
+   *
+   * @param {string} id
+   * @returns {boolean} Whether it was there.
+   */
+  function removeLocalTemplate(id) {
+    const remaining = localTemplates.value.filter((template) => template.id !== id)
+    if (remaining.length === localTemplates.value.length) return false
+    localTemplates.value = remaining
+    writeLocalTemplates(remaining)
+    return true
   }
 
   /**
@@ -208,7 +286,7 @@ export const useBioTemplateStore = defineStore('bioTemplates', () => {
     if (!state) return
     const loaded = new Map()
     for (const [id, raw] of Object.entries(state.templates ?? {})) {
-      const { template, errors } = validateTemplate(raw)
+      const { template, errors } = validateTemplate(raw, { allowLocalId: true })
       if (!template) console.warn(`Skipping saved template ${id}:`, errors)
       else if (template.id !== id) console.warn(`Skipping saved template ${id}: its id is ${template.id}.`)
       else loaded.set(id, template)
@@ -254,6 +332,8 @@ export const useBioTemplateStore = defineStore('bioTemplates', () => {
     resetState,
     getDefinition,
     getInstance,
+    addLocalTemplate,
+    removeLocalTemplate,
     addInstance,
     moveInstance,
     renameInstance,
