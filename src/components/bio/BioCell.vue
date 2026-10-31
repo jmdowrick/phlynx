@@ -34,7 +34,7 @@
       {{ label.label }}
     </span>
     <BioHandles :handles="data.handles ?? []" />
-    <span class="bio-cell__label">
+    <span class="bio-cell__label" :style="labelStyle">
       {{ data.name }}
       <small v-if="data.empty" class="bio-cell__hint" data-testid="bio-empty-hint">Drop a module</small>
     </span>
@@ -74,6 +74,13 @@ const facetLabels = computed(() => {
     }[label.edge]
     return { ...label, style }
   })
+})
+
+/** A template cell's name goes just under its process zones, clear of them; any other's as before. */
+const labelStyle = computed(() => {
+  const zones = props.data.zones ?? []
+  if (!zones.length) return undefined
+  return { top: `${Math.max(...zones.map(({ rect }) => rect.y + rect.height)) + 6}px`, bottom: 'auto' }
 })
 
 /** The cell's outline grown by an offset, outward when positive. */

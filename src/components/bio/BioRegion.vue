@@ -4,7 +4,7 @@
       'bio-region',
       `bio-region--tone-${tone}`,
       edge && `bio-region--edge-${edge}`,
-      { 'bio-region--selected': selected, 'bio-region--empty': data.empty },
+      { 'bio-region--selected': selected, 'bio-region--empty': data.empty, 'bio-region--template': data.instance },
     ]"
     data-testid="bio-region"
   >
@@ -99,6 +99,30 @@ const tone = computed(() => (props.data.instance && props.data.tone) || TONES[pr
 
 .bio-region--selected {
   border-color: var(--p-primary-color);
+}
+
+/*
+ * A template's compartment runs under its cells' rounded corners on one side, or on both for the gap between
+ * two cells, so its name goes midway across it, where no cell covers it.
+ */
+.bio-region--template.bio-region--edge-top .bio-region__label,
+.bio-region--template.bio-region--edge-bottom .bio-region__label {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+}
+
+.bio-region--template.bio-region--edge-left .bio-region__label,
+.bio-region--template.bio-region--edge-right .bio-region__label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  right: auto;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
 }
 
 .bio-region--empty {
