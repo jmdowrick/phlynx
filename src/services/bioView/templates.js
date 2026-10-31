@@ -20,7 +20,8 @@ export const LOCAL_TEMPLATE_PREFIX = 'local:'
  * @param {string} id
  * @returns {string} The id without the 'local:' prefix.
  */
-export const bareTemplateId = (id) => (id.startsWith(LOCAL_TEMPLATE_PREFIX) ? id.slice(LOCAL_TEMPLATE_PREFIX.length) : id)
+export const bareTemplateId = (id) =>
+  id.startsWith(LOCAL_TEMPLATE_PREFIX) ? id.slice(LOCAL_TEMPLATE_PREFIX.length) : id
 
 /**
  * @param {*} id

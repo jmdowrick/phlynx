@@ -12,6 +12,9 @@ export const TEMPLATE_FILE_SUFFIX = '.template.json'
 /** How many problems a notification lists before it just counts the rest. */
 export const SHOWN_PROBLEMS = 3
 
+/** The largest file read at all; templates themselves are capped smaller, once parsed. */
+export const MAX_TEMPLATE_FILE_BYTES = 1024 * 1024
+
 /**
  * Parses a template file's text.
  *
@@ -25,6 +28,26 @@ export function parseTemplateText(text) {
   } catch (e) {
     return { raw: undefined, errors: [`The file is not valid JSON: ${e.message}`] }
   }
+}
+
+/**
+ * Reads and parses a template file the user picked, refusing ones too big to be a template unread.
+ *
+ * @param {Blob} file
+ * @returns {Promise<{ raw: *, errors: Array<string> }>}
+ */
+export async function readTemplateFile(file) {
+  if (file.size > MAX_TEMPLATE_FILE_BYTES) {
+    const limit = `${MAX_TEMPLATE_FILE_BYTES / 1024} KB`
+    return { raw: undefined, errors: [`The file is too big to be a template (over ${limit}).`] }
+  }
+  let text
+  try {
+    text = await file.text()
+  } catch (e) {
+    return { raw: undefined, errors: [`The file could not be read: ${e?.message ?? e}`] }
+  }
+  return parseTemplateText(text)
 }
 
 /**

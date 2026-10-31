@@ -172,7 +172,7 @@ import {
   slotPositions,
 } from '../../services/bioView/geometry'
 import { EPITHELIAL_SHAPE, annotationOfFacet } from '../../services/bioView/shape'
-import { parseTemplateText, summariseProblems, templateFile } from '../../services/bioView/templateFiles'
+import { readTemplateFile, summariseProblems, templateFile } from '../../services/bioView/templateFiles'
 import { isLocalTemplateId } from '../../services/bioView/templates'
 import { CARD, GAP, REGION_HEIGHT } from '../../services/bioView/layout'
 import BioPlaceDialog from './BioPlaceDialog.vue'
@@ -552,7 +552,7 @@ async function onTemplateFile(event) {
   event.target.value = ''
   if (!file) return
   const at = templateFileAt ?? { x: 0, y: 0 }
-  const { raw, errors: parseErrors } = parseTemplateText(await file.text())
+  const { raw, errors: parseErrors } = await readTemplateFile(file)
   const { template, errors, warnings } = parseErrors.length
     ? { template: null, errors: parseErrors, warnings: [] }
     : templateStore.addLocalTemplate(raw)

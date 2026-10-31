@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { getBuiltInTemplate } from '../../../../src/services/bioView/builtInTemplates.js'
 import {
+  MAX_TEMPLATE_FILE_BYTES,
   freeLocalId,
   parseTemplateText,
+  readTemplateFile,
   summariseProblems,
   templateFile,
 } from '../../../../src/services/bioView/templateFiles.js'
@@ -79,5 +81,31 @@ describe('template files', () => {
     expect(raw).not.toHaveProperty('$schema')
     expect(text.endsWith('\n')).toBe(true)
     expect(validateTemplate(raw)).toEqual({ template: { ...template, id: 'my-cell' }, errors: [], warnings: [] })
+  })
+})
+
+describe('readTemplateFile', () => {
+  it('parses a file it can read', async () => {
+    const file = new Blob([JSON.stringify({ id: 'a' })])
+    expect(await readTemplateFile(file)).toEqual({ raw: { id: 'a' }, errors: [] })
+  })
+
+  it('refuses a file too big to be a template without reading it', async () => {
+    const text = vi.fn()
+    const { raw, errors } = await readTemplateFile({ size: MAX_TEMPLATE_FILE_BYTES + 1, text })
+    expect(raw).toBeUndefined()
+    expect(errors).toEqual(['The file is too big to be a template (over 1024 KB).'])
+    expect(text).not.toHaveBeenCalled()
+  })
+
+  it('reports a file that cannot be read', async () => {
+    const file = { size: 10, text: () => Promise.reject(new Error('gone')) }
+    expect(await readTemplateFile(file)).toEqual({ raw: undefined, errors: ['The file could not be read: gone'] })
+  })
+
+  it('reports garbage as not JSON', async () => {
+    const { raw, errors } = await readTemplateFile(new Blob(['\u0000ÿ{{']))
+    expect(raw).toBeUndefined()
+    expect(errors[0]).toMatch(/^The file is not valid JSON/)
   })
 })
