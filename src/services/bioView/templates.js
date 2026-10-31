@@ -13,6 +13,22 @@ export const TEMPLATE_SCHEMA_VERSION = 1
 /** A template's own id. */
 export const TEMPLATE_ID = /^[a-z][a-z0-9-]{1,47}$/
 
+/** Prefixes the id of a template from the user's own library, so it never collides with a built-in. */
+export const LOCAL_TEMPLATE_PREFIX = 'local:'
+
+/**
+ * @param {string} id
+ * @returns {string} The id without the 'local:' prefix.
+ */
+export const bareTemplateId = (id) => (id.startsWith(LOCAL_TEMPLATE_PREFIX) ? id.slice(LOCAL_TEMPLATE_PREFIX.length) : id)
+
+/**
+ * @param {*} id
+ * @returns {boolean} Whether `id` is a template id from the user's own library.
+ */
+export const isLocalTemplateId = (id) =>
+  typeof id === 'string' && id.startsWith(LOCAL_TEMPLATE_PREFIX) && TEMPLATE_ID.test(bareTemplateId(id))
+
 /** The id of a cell, facet, process, compartment or facet group within a template. */
 export const PIECE_ID = /^[a-z][a-z0-9-]{0,31}$/
 
@@ -361,10 +377,12 @@ function deepFreeze(value) {
  * Checks a template and returns a frozen clean copy, with defaults filled in and unknown keys dropped.
  *
  * @param {*} raw - Parsed JSON.
+ * @param {Object} [options]
+ * @param {boolean} [options.allowLocalId=false] - Accept ids with the 'local:' prefix.
  * @returns {{ template: Object|null, errors: Array<string>, warnings: Array<string> }} `template` is null when
  *   there are errors.
  */
-export function validateTemplate(raw) {
+export function validateTemplate(raw, { allowLocalId = false } = {}) {
   const errors = []
   const warnings = []
   if (!isObject(raw)) return { template: null, errors: ['A template must be a JSON object.'], warnings }
@@ -384,7 +402,8 @@ export function validateTemplate(raw) {
   if (raw.schemaVersion !== TEMPLATE_SCHEMA_VERSION) {
     errors.push(`${where}: "schemaVersion" must be ${TEMPLATE_SCHEMA_VERSION}.`)
   }
-  if (typeof raw.id !== 'string' || !TEMPLATE_ID.test(raw.id)) {
+  const id = typeof raw.id === 'string' && allowLocalId ? bareTemplateId(raw.id) : raw.id
+  if (typeof id !== 'string' || !TEMPLATE_ID.test(id)) {
     errors.push(`${where}: "id" must start with a letter and use only lower-case letters, digits and hyphens (2-48 characters).`)
   }
   const name = requiredText(raw, 'name', LIMITS.name, where, errors)
