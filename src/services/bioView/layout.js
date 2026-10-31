@@ -327,7 +327,7 @@ function layoutTemplates(scaffold, instances, layout) {
       cell.processes.forEach((process, area) => {
         process.members.forEach((id, order) => {
           const site = { instance: instanceId, site: process.site }
-          layout.set(id, { kind: 'cytosolic', cell: cell.key, ...processSlot(rect, area, order), ...site })
+          layout.set(id, { kind: 'cytosolic', cell: cell.key, order, ...processSlot(rect, area, order), ...site })
         })
       })
     }
