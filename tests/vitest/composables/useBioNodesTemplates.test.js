@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { bioFlowNodes } from '../../../src/composables/useBioNodes.js'
+import { bioFlowNodes, templateTitleNodes } from '../../../src/composables/useBioNodes.js'
 import { BUILT_IN_TEMPLATES } from '../../../src/services/bioView/builtInTemplates.js'
 import { layoutPhysiology } from '../../../src/services/bioView/layout.js'
 
@@ -49,5 +49,16 @@ describe('physiological view nodes for a template', () => {
     expect(bio.find((n) => n.id === 'cyto').data.empty).toBeUndefined()
     expect(bio.find((n) => n.id === 'p').parentNode).toBe('cyto')
     expect(bio.findIndex((n) => n.id === 'cyto')).toBeLessThan(bio.findIndex((n) => n.id === 'p'))
+  })
+
+  it('names each template above its pieces, by its own label once it has one', () => {
+    const { places } = draw()
+    const [title] = templateTitleNodes(instances, definitions, places)
+    const lumen = places.get('tpl:bt-1/apical-fluid').rect
+    expect(title).toMatchObject({ id: 'tpl:bt-1', type: 'bioTemplateTitle', selectable: false, draggable: false })
+    expect(title.data).toEqual({ name: 'Epithelial cell', instance: 'bt-1', renamed: false })
+    expect(title.position.y).toBeLessThan(lumen.y)
+    const renamed = templateTitleNodes([{ ...instances[0], label: 'Kidney tubule' }], definitions, places)
+    expect(renamed[0].data).toMatchObject({ name: 'Kidney tubule', renamed: true })
   })
 })

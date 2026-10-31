@@ -168,6 +168,46 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map()) {
   return [...parents, ...children]
 }
 
+/** How far above a template's pieces its name goes. */
+const TITLE_HEIGHT = 24
+
+/**
+ * Names each placed template above its pieces, by its own label or else its template's name. The names can't
+ * be selected or dragged; they are there to say which template is which, and to give its menu.
+ *
+ * @param {Array<{id: string, template: string, label?: string}>} instances
+ * @param {Map<string, Object>} definitions - Template id -> template.
+ * @param {Map<string, Object>} layout - From layoutPhysiology.
+ * @returns {Array<Object>} vue-flow nodes, keyed 'tpl:<instance>'.
+ */
+export function templateTitleNodes(instances, definitions, layout) {
+  const rects = new Map()
+  for (const place of layout.values()) {
+    if (!place.instance || (place.kind !== 'cell' && place.kind !== 'region')) continue
+    rects.set(place.instance, [...(rects.get(place.instance) ?? []), place.rect])
+  }
+  return instances
+    .filter((instance) => rects.has(instance.id))
+    .map((instance) => {
+      const pieces = rects.get(instance.id)
+      const x = Math.min(...pieces.map((rect) => rect.x))
+      const y = Math.min(...pieces.map((rect) => rect.y))
+      const width = Math.max(...pieces.map((rect) => rect.x + rect.width)) - x
+      const name = instance.label ?? definitions.get(instance.template)?.name ?? instance.template
+      return {
+        id: `tpl:${instance.id}`,
+        type: 'bioTemplateTitle',
+        position: { x, y: y - TITLE_HEIGHT },
+        width,
+        height: TITLE_HEIGHT,
+        selectable: false,
+        draggable: false,
+        zIndex: Z.region,
+        data: { name, instance: instance.id, renamed: !!instance.label },
+      }
+    })
+}
+
 /** How far into a cell or region a coupling from a protein reaches. */
 const REACH = 56
 
@@ -363,12 +403,13 @@ export function useBioNodes(nodes, edges = ref([])) {
       node?.data?.mathRef ? libraryStore.getParsedModuleAnnotations(node.data.mathRef) : null
     )
   )
-  const bioNodes = computed(() =>
-    bioFlowNodes(nodes.value, roles.value, layout.value, transport.value).map((node) => ({
+  const bioNodes = computed(() => [
+    ...templateTitleNodes(templateStore.instances, templateStore.definitions, layout.value),
+    ...bioFlowNodes(nodes.value, roles.value, layout.value, transport.value).map((node) => ({
       ...node,
       data: { ...node.data, handles: focus.value.handles.get(node.id) ?? [] },
-    }))
-  )
+    })),
+  ])
   const couplingEdges = computed(() => focus.value.edges)
 
   /** Parses every module's sidecar, so roles from sidecars are known. */
