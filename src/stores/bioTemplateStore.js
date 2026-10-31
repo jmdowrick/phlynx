@@ -38,7 +38,7 @@ function normaliseInstance(instance) {
 
 const copyInstance = (instance) => ({ ...instance, at: { ...instance.at } })
 
-/** @returns {Array<Object>} The user's templates kept on this device; any that no longer validate are skipped. */
+/** @returns {Array<Object>} The user's templates kept on this device; invalid or repeated ones are skipped. */
 function readLocalTemplates() {
   let stored
   try {
@@ -47,23 +47,36 @@ function readLocalTemplates() {
     return [] // localStorage unavailable (e.g. private browsing) or unreadable
   }
   if (!Array.isArray(stored)) return []
-  return stored
-    .map((raw) => validateTemplate(raw, { allowLocalId: true }).template)
-    .filter((template) => template && isLocalTemplateId(template.id))
+  const kept = new Map()
+  for (const raw of stored) {
+    const { template } = validateTemplate(raw, { allowLocalId: true })
+    if (template && isLocalTemplateId(template.id) && !kept.has(template.id)) kept.set(template.id, template)
+  }
+  return [...kept.values()]
 }
 
-/** @param {Array<Object>} templates - Kept on this device. */
+/**
+ * @param {Array<Object>} templates - Kept on this device.
+ * @returns {boolean} Whether they were kept; false when localStorage is full or unavailable.
+ */
 function writeLocalTemplates(templates) {
   try {
     window.localStorage.setItem(LOCAL_TEMPLATES_KEY, JSON.stringify(templates))
+    return true
   } catch {
-    // ignore storage errors
+    return false
   }
 }
 
+/** The warning given when a template could not be kept on this device. */
+export const NOT_KEPT_WARNING = 'It could not be kept on this device, so it will be gone from My Templates next time.'
+
+/** A validated template's frozen copy under another id. */
+const withId = (template, id) =>
+  validateTemplate({ ...JSON.parse(JSON.stringify(template)), id }, { allowLocalId: true }).template
+
 /** Whether two templates are the same apart from their ids. */
-const sameTemplate = (a, b) =>
-  JSON.stringify({ ...a, id: bareTemplateId(a.id) }) === JSON.stringify({ ...b, id: bareTemplateId(b.id) })
+const sameTemplate = (a, b) => JSON.stringify({ ...a, id: '' }) === JSON.stringify({ ...b, id: '' })
 
 /**
  * The workspace's physiology templates: the instances placed in the physiological view, and the copy of each
@@ -92,6 +105,9 @@ export const useBioTemplateStore = defineStore('bioTemplates', () => {
     return definitions.value.get(id) ?? library.value.find((template) => template.id === id) ?? null
   }
 
+  /** @returns {Array<string>} The template ids the library or this workspace uses. */
+  const takenIds = () => [...library.value.map((template) => template.id), ...definitions.value.keys()]
+
   /**
    * Validates a template and adds it to the user's library under a 'local:' id, which gets a number added when
    * a different template has it. The same template loaded again is not added twice.
@@ -108,16 +124,15 @@ export const useBioTemplateStore = defineStore('bioTemplates', () => {
     if (known) return { template: known, errors, warnings }
     // A workspace's copy of a template from another device joins the library under the same id.
     const embedded = [...definitions.value.values()].find(
-      (definition) => isLocalTemplateId(definition.id) && sameTemplate(definition, template)
+      (definition) =>
+        isLocalTemplateId(definition.id) &&
+        sameTemplate(definition, template) &&
+        !localTemplates.value.some((local) => local.id === definition.id)
     )
-    let local = embedded
-    if (!local) {
-      const id = freeLocalId(template.id, [...library.value.map((t) => t.id), ...definitions.value.keys()])
-      local = validateTemplate({ ...JSON.parse(JSON.stringify(template)), id }, { allowLocalId: true }).template
-    }
+    const local = embedded ?? withId(template, freeLocalId(template.id, takenIds()))
     localTemplates.value = [...localTemplates.value, local]
-    writeLocalTemplates(localTemplates.value)
-    return { template: local, errors, warnings }
+    const kept = writeLocalTemplates(localTemplates.value)
+    return { template: local, errors, warnings: kept ? warnings : [...warnings, NOT_KEPT_WARNING] }
   }
 
   /**
@@ -291,11 +306,25 @@ export const useBioTemplateStore = defineStore('bioTemplates', () => {
       else if (template.id !== id) console.warn(`Skipping saved template ${id}: its id is ${template.id}.`)
       else loaded.set(id, template)
     }
+    // A local template saved on another device can share its id with a different one of the user's own; the
+    // workspace's copy then takes a free id, so neither shadows the other.
+    const renamed = new Map()
+    for (const [id, template] of loaded) {
+      const mine = localTemplates.value.find((local) => local.id === id)
+      if (!mine || sameTemplate(mine, template)) continue
+      const free = freeLocalId(id, [...library.value.map((t) => t.id), ...loaded.keys(), ...renamed.values()])
+      renamed.set(id, free)
+    }
+    for (const [id, free] of renamed) {
+      loaded.set(free, withId(loaded.get(id), free))
+      loaded.delete(id)
+    }
 
     const ids = new Set()
     const kept = []
     for (const saved of Array.isArray(state.instances) ? state.instances : []) {
       const instance = normaliseInstance(saved)
+      if (instance && renamed.has(instance.template)) instance.template = renamed.get(instance.template)
       if (!instance || ids.has(instance.id)) {
         console.warn('Skipping a malformed or repeated template instance:', saved)
       } else if (!loaded.has(instance.template)) {

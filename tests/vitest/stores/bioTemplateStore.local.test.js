@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { BUILT_IN_TEMPLATES, getBuiltInTemplate } from '../../../src/services/bioView/builtInTemplates.js'
 import { parseTemplateText, templateFile } from '../../../src/services/bioView/templateFiles.js'
-import { LOCAL_TEMPLATES_KEY, useBioTemplateStore } from '../../../src/stores/bioTemplateStore.js'
+import { LOCAL_TEMPLATES_KEY, NOT_KEPT_WARNING, useBioTemplateStore } from '../../../src/stores/bioTemplateStore.js'
 
 const plain = (value) => JSON.parse(JSON.stringify(value))
 
@@ -109,19 +109,42 @@ describe('bioTemplateStore local library', () => {
     expect(freshStore().localTemplates.map((t) => t.id)).toEqual(['local:good'])
   })
 
+  it('keeps the first of stored templates that share an id', () => {
+    window.localStorage.setItem(
+      LOCAL_TEMPLATES_KEY,
+      JSON.stringify([tubule({ id: 'local:good' }), tubule({ id: 'local:good', name: 'Other' })])
+    )
+    expect(freshStore().localTemplates.map((t) => t.name)).toEqual(['Renal proximal tubule'])
+  })
+
+  it('warns when the template cannot be kept on this device', () => {
+    const store = freshStore()
+    const full = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error('QuotaExceededError')
+      },
+    }
+    vi.spyOn(window, 'localStorage', 'get').mockReturnValue(full)
+    const { template, warnings } = store.addLocalTemplate(tubule())
+    expect(template.id).toBe('local:proximal-tubule')
+    expect(warnings).toEqual([NOT_KEPT_WARNING])
+  })
+
   it('starts empty when localStorage is unreadable or unavailable', () => {
     window.localStorage.setItem(LOCAL_TEMPLATES_KEY, '{not json')
     expect(freshStore().localTemplates).toEqual([])
 
-    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+    // jsdom's Storage ignores spies on its prototype, so the whole object is swapped.
+    const blocked = () => {
       throw new Error('blocked')
-    })
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new Error('blocked')
-    })
+    }
+    vi.spyOn(window, 'localStorage', 'get').mockReturnValue({ getItem: blocked, setItem: blocked })
     const store = freshStore()
     expect(store.localTemplates).toEqual([])
-    expect(store.addLocalTemplate(tubule()).template.id).toBe('local:proximal-tubule')
+    const { template, warnings } = store.addLocalTemplate(tubule())
+    expect(template.id).toBe('local:proximal-tubule')
+    expect(warnings).toEqual([NOT_KEPT_WARNING])
   })
 
   it('saves a workspace that embeds a local template, which opens without it', () => {
@@ -142,6 +165,40 @@ describe('bioTemplateStore local library', () => {
     // Loading its file there adds the workspace's copy to the library under the same id.
     const { raw } = parseTemplateText(templateFile(template).text)
     expect(elsewhere.addLocalTemplate(raw).template).toBe(elsewhere.getDefinition('local:proximal-tubule'))
+  })
+
+  it('gives a workspace template a free id when the user has a different one under its id', () => {
+    const elsewhere = freshStore()
+    const theirs = elsewhere.addLocalTemplate(tubule()).template
+    const instance = elsewhere.addInstance(theirs.id, { x: 1, y: 2 })
+    const state = plain(elsewhere.getState())
+
+    window.localStorage.clear()
+    const store = freshStore()
+    const mine = store.addLocalTemplate(tubule({ name: 'My tubule' })).template
+    expect(mine.id).toBe('local:proximal-tubule')
+    store.loadState(state)
+
+    expect(store.getInstance(instance.id).template).toBe('local:proximal-tubule-2')
+    expect(store.getDefinition('local:proximal-tubule-2').name).toBe('Renal proximal tubule')
+    expect(store.getDefinition('local:proximal-tubule')).toBe(mine)
+    expect(Object.keys(store.getState().templates)).toEqual(['local:proximal-tubule-2'])
+
+    // Loading the other file now joins the workspace's copy, without taking the user's id.
+    const { raw } = parseTemplateText(templateFile(theirs).text)
+    expect(store.addLocalTemplate(raw).template.id).toBe('local:proximal-tubule-2')
+    expect(new Set(store.library.map((t) => t.id)).size).toBe(store.library.length)
+  })
+
+  it('keeps the id of a workspace template the user has too', () => {
+    const store = freshStore()
+    const { template } = store.addLocalTemplate(tubule())
+    store.addInstance(template.id, { x: 0, y: 0 })
+    const state = plain(store.getState())
+    const again = freshStore()
+    again.loadState(state)
+    expect(again.instances[0].template).toBe('local:proximal-tubule')
+    expect(again.definitions.has('local:proximal-tubule')).toBe(true)
   })
 
   it('round trips a template through Save Template As File and Load Template File', () => {
