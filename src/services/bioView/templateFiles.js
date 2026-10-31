@@ -3,6 +3,7 @@
  * template back out. The user's own library itself lives in the template store.
  */
 
+import { escapeHtml } from '../../utils/importBatch.js'
 import { LOCAL_TEMPLATE_PREFIX, TEMPLATE_ID, bareTemplateId } from './templates.js'
 
 /** The suffix template files are saved with. */
@@ -28,15 +29,16 @@ export function parseTemplateText(text) {
 
 /**
  * Words a list of problems for a notification: the first few, one per line, and how many more there are.
+ * Notifications show their message as HTML, and problems quote the file, so each line is escaped.
  *
  * @param {Array<string>} problems
  * @param {number} [max=SHOWN_PROBLEMS]
- * @returns {string}
+ * @returns {string} HTML.
  */
 export function summariseProblems(problems, max = SHOWN_PROBLEMS) {
-  const shown = problems.slice(0, max)
+  const shown = problems.slice(0, max).map(escapeHtml)
   const more = problems.length - shown.length
-  return more > 0 ? [...shown, `…and ${more} more.`].join('\n') : shown.join('\n')
+  return (more > 0 ? [...shown, `…and ${more} more.`] : shown).join('<br>')
 }
 
 /**

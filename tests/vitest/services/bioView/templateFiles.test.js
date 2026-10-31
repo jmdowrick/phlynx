@@ -59,9 +59,15 @@ describe('template files', () => {
 
   it('lists the first few problems and counts the rest', () => {
     expect(summariseProblems(['a'])).toBe('a')
-    expect(summariseProblems(['a', 'b', 'c'])).toBe('a\nb\nc')
-    expect(summariseProblems(['a', 'b', 'c', 'd', 'e'])).toBe('a\nb\nc\n…and 2 more.')
-    expect(summariseProblems(['a', 'b'], 1)).toBe('a\n…and 1 more.')
+    expect(summariseProblems(['a', 'b', 'c'])).toBe('a<br>b<br>c')
+    expect(summariseProblems(['a', 'b', 'c', 'd', 'e'])).toBe('a<br>b<br>c<br>…and 2 more.')
+    expect(summariseProblems(['a', 'b'], 1)).toBe('a<br>…and 1 more.')
+  })
+
+  it('escapes what the problems quote from the file', () => {
+    expect(summariseProblems(['Cell "<img src=x onerror=alert(1)>" & co'])).toBe(
+      'Cell &quot;&lt;img src=x onerror=alert(1)&gt;&quot; &amp; co'
+    )
   })
 
   it('writes a template under its own id, without the local prefix or a $schema', () => {
